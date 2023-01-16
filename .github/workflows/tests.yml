@@ -24,6 +24,8 @@ jobs:
         id: coverage
         with:
           output: report-markdown
+        env:
+          DOTENV_KEY: ${{ secrets.DOTENV_KEY }}          
       - uses: marocchino/sticky-pull-request-comment@v2
         with:
             message: ${{ steps.coverage.outputs.report }}
