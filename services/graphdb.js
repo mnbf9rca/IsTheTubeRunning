@@ -229,7 +229,7 @@ function serializeGremlinResults(results) {
       id: result.id,
       label: result.label,
       type: result.type,
-      ...serializeProperties(result.properties) //JSON.parse(JSON.stringify(result.properties))
+      ...serializeProperties(result.properties)
     })
   })
   return serializedResults
@@ -250,7 +250,7 @@ function serializeProperties(properties) {
   let serializedProperties = {}
   Object.keys(properties).forEach(key => {
     const value = properties[key]
-    if (Array.isArray(value) ) {
+    if (Array.isArray(value)) {
       serializedProperties[key] = value.map(item => safe_get_property(item, 'value'))
       if (serializedProperties[key].length === 1) {
         serializedProperties[key] = serializedProperties[key][0]
@@ -272,4 +272,13 @@ const delay = (fn, ms) => new Promise((resolve) => setTimeout(() => resolve(fn()
 
 const randInt = (min, max) => Math.floor(Math.random() * (max - min + 1) + min)
 
-module.exports = { add_stoppoint, add_line, find_route_between_stops, escape_gremlin_special_characters }
+module.exports = {
+  add_stoppoint,
+  add_line,
+  find_route_between_stops,
+  escape_gremlin_special_characters,
+  serializeProperties,
+  serializeGremlinResults,
+  stringToMilliseconds,
+  safe_get_property
+}

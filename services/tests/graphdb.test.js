@@ -33,25 +33,54 @@ describe('GraphDB tests', () => {
       })
     })
     describe('test serializeGremlinResults', () => {
-      test('serializeGremlinResults returns a properly formed object for a single result', () => {
-        const serializeGremlinResults = graph.__get__('serializeGremlinResults')
+      test('returns a properly formed object for a single result', () => {
         const input_value = JSON.parse('[{"id":"28fjp","label":"stoppoint","type":"vertex","properties":{"name":[{"id":"4d89ef30-f815-42a1-8b7b-34b825959db1","value":"yboa6"}],"naptanId":[{"id":"28fjp|naptanId","value":"28fjp"}],"lat":[{"id":"dd1b087f-5b33-4076-9ab6-9262a9f2c17c","value":"51.39571760958728"}],"lon":[{"id":"18b1c07d-76fa-48ec-997e-4eb20c7bf235","value":"-0.14384083030070627"}],"modes":[{"id":"24767fe3-b142-4f29-b059-000c0838c413","value":"31t3i"},{"id":"1bda7368-b2f7-4913-8a94-8906de99a89d","value":"dx038"}],"lines":[{"id":"dadd01de-522c-41cd-b217-7329b8cf524e","value":"dqgm6"},{"id":"d5fdc72f-41ea-4277-a367-d1fc4da22a84","value":"n3nws"},{"id":"465966e9-939f-4bda-a40e-5565e487c50d","value":"2pnpi"}]}}]')
         const expected_result = JSON.parse('[{"id": "28fjp","label": "stoppoint","type": "vertex","name": "yboa6","naptanId": "28fjp","lat": "51.39571760958728","lon": "-0.14384083030070627","modes": ["31t3i","dx038"],"lines": ["dqgm6","n3nws","2pnpi"]}]')
-        const actual_result = serializeGremlinResults(input_value)
+        const actual_result = graph.serializeGremlinResults(input_value)
         expect(actual_result).toMatchObject(expected_result)
       })
-      test('serializeGremlinResults returns a properly formed object for a multiple result', () => {
-        const serializeGremlinResults = graph.__get__('serializeGremlinResults')
+      test('returns a properly formed object for a multiple result', () => {
         const input_value = JSON.parse('[{"id":"28fjp","label":"stoppoint","type":"vertex","properties":{"name":[{"id":"4d89ef30-f815-42a1-8b7b-34b825959db1","value":"yboa6"}],"naptanId":[{"id":"28fjp|naptanId","value":"28fjp"}],"lat":[{"id":"dd1b087f-5b33-4076-9ab6-9262a9f2c17c","value":"51.39571760958728"}],"lon":[{"id":"18b1c07d-76fa-48ec-997e-4eb20c7bf235","value":"-0.14384083030070627"}],"modes":[{"id":"24767fe3-b142-4f29-b059-000c0838c413","value":"31t3i"},{"id":"1bda7368-b2f7-4913-8a94-8906de99a89d","value":"dx038"}],"lines":[{"id":"dadd01de-522c-41cd-b217-7329b8cf524e","value":"dqgm6"},{"id":"d5fdc72f-41ea-4277-a367-d1fc4da22a84","value":"n3nws"},{"id":"465966e9-939f-4bda-a40e-5565e487c50d","value":"2pnpi"}]}},{"id":"gylob","label":"stoppoint","type":"vertex","properties":{"name":[{"id":"a1c44656-eb22-4e5d-8aae-33c5f17da296","value":"oh7m3"}],"naptanId":[{"id":"gylob|naptanId","value":"gylob"}],"lat":[{"id":"62051f9a-92ae-47ab-bbb5-06eb9244eb56","value":"51.21501641747709"}],"lon":[{"id":"827bcebb-fbd8-4190-83f4-faac94aec243","value":"-0.17557826765462625"}],"modes":[{"id":"34ffc77f-b10d-4e27-9764-8d0503e53e3d","value":"dzcpd"},{"id":"adba3358-2001-4cf0-bb64-526ed281546b","value":"you2p"}],"lines":[{"id":"6328afef-d6e4-4cd1-8c7e-ea7dfb400879","value":"15nl0"},{"id":"a4599095-c467-458c-9c9b-cb21bd63d44e","value":"9s3dt"},{"id":"ec512682-ffc1-40fd-9255-76917866362b","value":"xtcek"}]}}]')
         const expected_result = JSON.parse('[{"id": "28fjp","label": "stoppoint","type": "vertex","name": "yboa6","naptanId": "28fjp","lat": "51.39571760958728","lon": "-0.14384083030070627","modes": ["31t3i","dx038"],"lines": ["dqgm6","n3nws","2pnpi"]},{"id":"gylob","label":"stoppoint","type":"vertex","name":"oh7m3","naptanId":"gylob","lat":"51.21501641747709","lon":"-0.17557826765462625","modes":["dzcpd","you2p"],"lines":["15nl0","9s3dt","xtcek"]}]')
-        const actual_result = serializeGremlinResults(input_value)
+        const actual_result = graph.serializeGremlinResults(input_value)
         expect(actual_result).toMatchObject(expected_result)
       })
-      test('serializeGremlinResults returns a properly formed object for empty result', () => {
-        const serializeGremlinResults = graph.__get__('serializeGremlinResults')
+      test('returns a properly formed object for empty result', () => {
         const input_value = []
         const expected_result = []
-        const actual_result = serializeGremlinResults(input_value)
+        const actual_result = graph.serializeGremlinResults(input_value)
+        expect(actual_result).toMatchObject(expected_result)
+      })
+    })
+    describe('test serializeProperties', () => {
+      test('returns a properly formed object for an array of objects', () => {
+        const input_value = JSON.parse('{"value1": [{"id": "id1", "value": "valuea"}], "value2": [{"id": "id2", "value": "valueb"}]}')
+        const expected_result = JSON.parse('{"value1": "valuea", "value2": "valueb"}')
+        const actual_result = graph.serializeProperties(input_value)
+        expect(actual_result).toMatchObject(expected_result)
+      })
+      test('returns a properly formed object for a single property', () => {
+        const input_value = JSON.parse('{"value1": [{"id": "id1", "value": "valuea"}]}')
+        const expected_result = JSON.parse('{"value1": "valuea"}')
+        const actual_result = graph.serializeProperties(input_value)
+        expect(actual_result).toMatchObject(expected_result)
+      })
+      test('returns a properly formed object for an empty object', () => {
+        const input_value = {}
+        const expected_result = {}
+        const actual_result = graph.serializeProperties(input_value)
+        expect(actual_result).toMatchObject(expected_result)
+      })
+      test('returns a properly formed object where property is a dict', () => {
+        const input_value = JSON.parse('{"value1": "valueA"}')
+        const expected_result = JSON.parse('{"value1": "valueA"}')
+        const actual_result = graph.serializeProperties(input_value)
+        expect(actual_result).toMatchObject(expected_result)
+      })
+      test('returns a properly formed object with a mix of array and dict properties', () => {
+        const input_value = JSON.parse('{"value1": [{"id": "id1", "value": "valuea"}], "value2": "valueb"}')
+        const expected_result = JSON.parse('{"value1": "valuea", "value2": "valueb"}')
+        const actual_result = graph.serializeProperties(input_value)
         expect(actual_result).toMatchObject(expected_result)
       })
     })
@@ -107,11 +136,15 @@ describe('GraphDB tests', () => {
         const execute_query = graph.__get__('execute_query')
         const delete_promises = await Promise.all(list_of_added_stoppoints.map(stoppoint_id => execute_query(client, `g.V('${stoppoint_id}').drop()`, 3)))
         const delete_results = delete_promises.every(result => result['success'] === true)
+        // TODO: report any that arent deleted
         console.log(`deleted ${list_of_added_stoppoints.length} stoppoints: ${delete_results}`)
       })
       test('add a single stoppoint', async () => {
         jest.setTimeout(20000)
         const new_stoppoint = generate_random_stoppoint(2, 3)
+        // in the return value, the label is the same as the type and the type is the DB object type, vertex
+        const expected_result = { ...new_stoppoint, 'label': new_stoppoint['type'], 'type': 'vertex' }
+
         list_of_added_stoppoints.push(new_stoppoint['id'])
         const actual_result = await graph.add_stoppoint(new_stoppoint, true)
         if (!actual_result['success']) {
@@ -119,15 +152,8 @@ describe('GraphDB tests', () => {
         }
         expect(actual_result['success']).toBe(true)
         expect(actual_result['data']).toHaveLength(1)
-        const added_stoppoint = actual_result['data'][0]
-        expect(added_stoppoint['label']).toBe(new_stoppoint['type'])
-        expect(added_stoppoint['id']).toBe(new_stoppoint['id'])
-        expect(added_stoppoint['name']).toBe(new_stoppoint['name'])
-        expect(added_stoppoint['naptanId']).toBe(new_stoppoint['naptanId'])
-        expect(added_stoppoint['lat']).toBe(new_stoppoint['lat'])
-        expect(added_stoppoint['lon']).toBe(new_stoppoint['lon'])
-        expect(added_stoppoint['modes']).toEqual(new_stoppoint['modes'])
-        expect(added_stoppoint['lines']).toEqual(new_stoppoint['lines'])
+        expect(actual_result['data'][0]).toEqual(expected_result)
+
       })
 
     })
