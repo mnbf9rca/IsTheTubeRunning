@@ -103,18 +103,14 @@ const add_stoppoint = async (stoppoint, upsert = true) => {
   // logger.debug(query.replace(/\n/g, ''))
 
   const result = await execute_query(stoppoint_client, query, 5)
-  return result
+  const serialized_items = serialize_stoppoint(result['data']['_items'])
+  return { ...result, data: serialized_items }
 }
 
 const add_line = async (line_edge, upsert = true) => {
   // add a line to the graphdb
   // a line is an object with the following properties:
   // id, name, modeName, modeId, routeSections
-
-  if ((!(line_edge)) || (!(Object.prototype.hasOwnProperty.call(line_edge, 'id')))) {
-    logger.error('line_edge does not have an id')
-    return
-  }
 
   const line_id = line_edge['id']
 
@@ -140,7 +136,8 @@ const add_line = async (line_edge, upsert = true) => {
   // submit the query to the graphdb
   //logger.debug(query.replace(/\n/g, ''))
   const result = await execute_query(stoppoint_client, query, 5)
-  return result
+  const serialized_items = serialize_stoppoint(result['data']['_items'])
+  return { ...result, data: serialized_items }
 
 }
 
@@ -162,9 +159,68 @@ const find_route_between_stops = async (starting_stop, ending_stop, line) => {
     line: line
   }
   const result = await execute_query(stoppoint_client, query, 5, params)
-  return result
+  const simplified_routes = simplify_discovered_route(result)
 
+return { ...result, data: simplified_routes }
 }
+
+const simplify_discovered_route = (route_result) => {
+  /**
+   * Simplifies the result of a route query
+   * @param {Object} route_result - result of a route query
+   * @returns {??} - array of stoppoints and lines
+   */
+  // there can be more than one route found
+  const route_items = route_result['data']['_items']
+  // logger.debug(`found ${route_items.length} routes`)
+  // logger.debug(route_items)
+  const simplified_routes = route_items.map((route) => {
+    // each route is an array of vertices (stoppoints) and edges (lines)
+    // we want to simplify the data that's returned
+    // first, check if it's a stoppoint (label = 'stoppoint') or a line (label = 'TO')
+    // if it's a stoppoint, use serialize_stoppoint
+    // if it's a line, use serialize_line
+    const simplified_route = route['objects'].map((item) => {
+      if (item['label'] === 'stoppoint') {
+        return serialize_stoppoint([item])[0]
+      } else if (item['label'] === 'TO') {
+        return serialize_line(item)
+      }
+    })
+    return simplified_route
+  })
+  return simplified_routes
+}
+
+const serialize_line = (line) => {
+  /**
+   * Serializes a line object
+   * @param {Object} line - line object
+   * @returns {Object} - serialized line object
+   */
+  /*
+              "id": "9ly2c-2-7u1eg-zlqov",
+            "label": "TO",
+            "type": "edge",
+            "inVLabel": "stoppoint",
+            "outVLabel": "stoppoint",
+            "inV": "zlqov",
+            "outV": "7u1eg",
+            "properties": {
+              "line": "9ly2c",
+              "branch": "2",
+              "direction": "o3942"
+            }
+            */
+  const serialized_line = {
+    id: line['id'],
+    from: line['outV'],
+    to: line['inV'],
+    ...serializeProperties(line['properties'])
+  }
+  return serialized_line
+}
+
 
 const execute_query = async (client, query, maxAttempts, params = null) => {
   /**
@@ -180,12 +236,16 @@ const execute_query = async (client, query, maxAttempts, params = null) => {
   const execute = async (attempt) => {
     if (attempt > 1) { logger.debug(`attempt ${attempt} of ${maxAttempts}`) }
     try {
+      if (params) {
+        logger.debug(`executing query with params: ${JSON.stringify(params)}`)
+      }
       const client_result = await client.submit(query, params)
       // if we got the result, then we can return it
       const ms_status_code = client_result['statusAttributes'] ? client_result['statusAttributes']['x-ms-status-code'] : null
 
-      const seralised_result = serializeGremlinResults(client_result['_items'])
-      return { data: seralised_result, success: true, status_code: ms_status_code }
+      // this is distinct to an ADD query, so move to that
+      // const seralised_result = serializeGremlinResults(client_result['_items'])
+      return { data: client_result, success: true, status_code: ms_status_code }
     } catch (err) {
       const ms_status_code = err['statusAttributes'] ? err['statusAttributes']['x-ms-status-code'] : null
       const ms_retry_after = err['statusAttributes'] ? err['statusAttributes']['x-ms-retry-after-ms'] : null
@@ -212,7 +272,7 @@ const execute_query = async (client, query, maxAttempts, params = null) => {
   return final_result
 }
 
-function serializeGremlinResults(results) {
+function serialize_stoppoint(results) {
   /**
    * Serialise the results of a gremlin query
    * return an array of objects.
@@ -278,7 +338,9 @@ module.exports = {
   find_route_between_stops,
   escape_gremlin_special_characters,
   serializeProperties,
-  serializeGremlinResults,
+  serialize_stoppoint,
+  serialize_line,
   stringToMilliseconds,
-  safe_get_property
+  safe_get_property,
+  execute_query
 }
