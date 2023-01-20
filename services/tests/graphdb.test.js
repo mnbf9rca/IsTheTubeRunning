@@ -174,9 +174,9 @@ describe('GraphDB tests', () => {
         await graph_test_client.close()
       })
       test('can connect to stoppoint_collection', async () => {
-        const stoppoint_client = graph_test_client //graph.__get__('stoppoint_client')
+        const stoppoint_client = graph.__get__('stoppoint_client')
         expect(stoppoint_client).toBeDefined()
-        const actual_result = await stoppoint_client.submit('g.V().count()')
+        const actual_result = await stoppoint_client.submit('g.V(\'no-object\').count()')
         expect(actual_result['length']).toBeDefined()
       })
 
