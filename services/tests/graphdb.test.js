@@ -8,28 +8,27 @@ describe('GraphDB tests', () => {
 
 
   describe('test helper functions', () => {
-    describe('test escape_string', () => {
-      const escape_string = graph.__get__('escape_string')
-      test('test escape_string with no single quote', () => {
+    describe('test graph.escape_gremlin_special_characters', () => {
+      test('with no single quote', () => {
         const input = 'test'
         const expected = 'test'
-        const actual = escape_string(input)
+        const actual = graph.escape_gremlin_special_characters(input)
         expect(actual).toBe(expected)
       })
-      test('test escape_string with single quote', () => {
+      test('with single quote', () => {
         // eslint-disable-next-line quotes
         const input = "test'test"
         // eslint-disable-next-line quotes
         const expected = "test\\'test"
-        const actual = escape_string(input)
+        const actual = graph.escape_gremlin_special_characters(input)
         expect(actual).toBe(expected)
       })
-      test('test escape_string with single quote', () => {
+      test('with single quote', () => {
         // eslint-disable-next-line quotes
         const input = "test''test"
         // eslint-disable-next-line quotes
         const expected = "test\\'\\'test"
-        const actual = escape_string(input)
+        const actual = graph.escape_gremlin_special_characters(input)
         expect(actual).toBe(expected)
       })
     })

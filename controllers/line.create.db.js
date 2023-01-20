@@ -59,10 +59,10 @@ function generate_single_line(line) {
   // id, type, lineName, branchId, direction, from, to
   // the edge is stored in the graph
   // an array of edges is returned
-  return line['points'].map((point, index, points) => {
+  const l= line['points'].map((point, index, points) => {
     if (index < points.length - 1) {
       const edge = {
-        'id': `${line['lineName']}-${line['branchId']}-${point['id']}-${points[index + 1]['id']}`,
+        'id': `${line['lineName']}-${line['branchId']}-${point['id']}-${points[index + 1]['id']}`.replaceAll(' ', '-'),
         'type': 'Line',
         'lineName': line['lineName'],
         'branchId': line['branchId'],
@@ -73,6 +73,8 @@ function generate_single_line(line) {
       return edge
     }
   })
+  // for some reason we have an undefined object at the end...
+  return l.slice(0,-1)
 }
 
 
@@ -97,19 +99,10 @@ async function store_stoppoints_then_join_them(stoppoints, lines) {
   const time_between_batches = 1000 // ms
   const batch_size = 5
   const stoppoint_success = await chunk_and_send_to_graphdb(stoppoints, graphdb.add_stoppoint, batch_size, time_between_batches)
+  console.log(`final stoppoint success: ${stoppoint_success}/${stoppoints.length}`)
   const line_success = await chunk_and_send_to_graphdb(lines, graphdb.add_line, batch_size, time_between_batches)
-  console.log(`stoppoint success: ${stoppoint_success}/${stoppoints.length}`)
-  console.log(`line success: ${line_success}/${lines.length}`)
+  console.log(`final line success: ${line_success}/${lines.length}`)
 }
-/*
-function getAllIndexes(arr, val) {
-  var indexes = [], i = -1;
-  while ((i = arr.indexOf(val, i + 1)) != -1) {
-    indexes.push(i);
-  }
-  return indexes;
-}
-*/
 
 async function chunk_and_send_to_graphdb(items, send_function, batch_size, time_between_batches) {
   let success_count = 0
@@ -122,17 +115,16 @@ async function chunk_and_send_to_graphdb(items, send_function, batch_size, time_
     const success_this_batch = result.filter(r => r.success).length
     success_count += success_this_batch
     total_count += chunk.length
-    console.log('successes for this batch for',send_function, `${success_this_batch}/${chunk.length}`, `total successes: ${success_count}/${total_count}`)
+    console.log('successes for this batch for',send_function, `${success_this_batch}/${chunk.length}, total successes: ${success_count}/${total_count}, total items: ${items.length}`)
     if (success_this_batch < chunk.length) {
-      console.log('some items failed to be added to the graph')
+      console.error('some items failed to be added to the graph')
       // get the index of the failed items from result where result.success is false
-      const failed_items = result.reduce((a, e, i) => {
-        if (!e.success)
-          a.push(i)
-        return a
+      const failed_items = result.reduce((failed_item_indexes, item, index) => {
+        if (!item.success){failed_item_indexes.push(index)}
+        return failed_item_indexes
       }, [])
       // filter the chunk to get the failed items
-      console.log('failed items:', chunk.filter((_, i) => failed_items.includes(i)))
+      console.error('failed items:', chunk.filter((_, i) => failed_items.includes(i)))
     }
     
     await new Promise(resolve => setTimeout(resolve, time_between_batches))

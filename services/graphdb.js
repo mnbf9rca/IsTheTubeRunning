@@ -24,9 +24,37 @@ async () => {
 }
 
 
-function escape_string(str) {
-  return str.replace(/'/g, '\\\'')
+function escape_gremlin_special_characters(str) {
+  /**
+   * Escapes special characters in a string for use in gremlin queries
+   * from http://groovy-lang.org/syntax.html#_escaping_special_characters
+   * @param {String} str - string to escape
+   * @returns {String} - escaped string
+   *
+   *
+   * Escape sequence	Character
+   * \b -> backspace
+   * \f -> formfeed
+   * \n ->  newline
+   * \r -> carriage return
+   * \s -> single space
+   * \t -> tabulation
+   * \\ -> backslash
+   * \' -> single quote within a single-quoted string (and optional for triple-single-quoted and double-quoted strings)
+   * \" -> double quote within a double-quoted string (and optional for triple-double-quoted and single-quoted strings)
+   *
+   */
+  let interim = str.replaceAll(/\\/g, '\\\\') // do this first so we don't escape the other escapes
+  interim = interim.replaceAll(/\cH/g, '\\b') // match backspace
+  interim = interim.replaceAll(/\cL/g, '\\f') // match formfeed
+  interim = interim.replaceAll(/\n/g, '\\n')  // match newline
+  interim = interim.replaceAll(/\cM/g, '\\r') // match carriage return
+  interim = interim.replaceAll(/\t/g, '\\t')  // match tab
+  interim = interim.replaceAll(/'/g, '\\\'')  // match single quote
+  interim = interim.replaceAll(/"/g, '\\"')   // match double quote
+  return interim
 }
+
 
 const add_array_value = (arr, property_name) => {
   /**
@@ -36,7 +64,7 @@ const add_array_value = (arr, property_name) => {
    * @param {Array} arr - array to convert
    * @returns {String} - list of .property entries
    */
-  const items = arr.map((item) => `.property('${property_name}', '${escape_string(item)}')`).join('\n')
+  const items = arr.map((item) => `.property('${property_name}', '${escape_gremlin_special_characters(item)}')`).join('\n')
 
   return items
 }
@@ -54,7 +82,7 @@ const add_stoppoint = async (stoppoint, upsert = true) => {
   // construct a query to add the stoppoint to the graphdb
   const add_query = `addV('${stoppoint['type']}')
   .property('id', '${stoppoint['id']}')
-  .property('name', '${escape_string(stoppoint['name'])}')
+  .property('name', '${escape_gremlin_special_characters(stoppoint['name'])}')
   .property('naptanId', '${stoppoint['naptanId']}')
   .property('lat', '${stoppoint['lat']}')
   .property('lon', '${stoppoint['lon']}')
@@ -83,7 +111,7 @@ const add_line = async (line_edge, upsert = true) => {
   // a line is an object with the following properties:
   // id, name, modeName, modeId, routeSections
 
-  if ((!(line_edge)) || (!(Object.prototype.hasOwnProperty.call(line_edge, 'id')))){
+  if ((!(line_edge)) || (!(Object.prototype.hasOwnProperty.call(line_edge, 'id')))) {
     logger.error('line_edge does not have an id')
     return
   }
@@ -116,7 +144,29 @@ const add_line = async (line_edge, upsert = true) => {
 
 }
 
-const execute_query = async (client, query, maxAttempts) => {
+const find_route_between_stops = async (starting_stop, ending_stop, line) => {
+  /**
+   * Finds a route between two stops on a given line
+   * @param {String} starting_stop - id of the starting stop
+   * @param {String} ending_stop - id of the ending stop
+   * @param {String} line - line to search on
+   * @returns {Array} - array of stop ids
+   * @returns {null} - if no route is found
+   */
+
+  // construct a query to find the route between the two stops
+  const query = 'g.V(source).repeat(outE().has(\'line\', line).inV().as(\'v\').simplePath()).until(hasId(target)).path()'
+  const params = {
+    source: starting_stop,
+    target: ending_stop,
+    line: line
+  }
+  const result = await execute_query(stoppoint_client, query, 5, params)
+  return result
+
+}
+
+const execute_query = async (client, query, maxAttempts, params = null) => {
   /**
    * Retry a function up to a maximum number of attempts
    * adapted from https://solutional.ee/blog/2020-11-19-Proper-Retry-in-JavaScript.html
@@ -126,13 +176,11 @@ const execute_query = async (client, query, maxAttempts) => {
    *
    * @returns {String} - result of the query
    */
-
-
   let retry_time = 1000
   const execute = async (attempt) => {
     if (attempt > 1) { logger.debug(`attempt ${attempt} of ${maxAttempts}`) }
     try {
-      const client_result = await client.submit(query)
+      const client_result = await client.submit(query, params)
       // if we got the result, then we can return it
       const ms_status_code = client_result['statusAttributes'] ? client_result['statusAttributes']['x-ms-status-code'] : null
 
@@ -181,7 +229,7 @@ function serializeGremlinResults(results) {
       id: result.id,
       label: result.label,
       type: result.type,
-      ...serializeProperties(result.properties)
+      ...serializeProperties(result.properties) //JSON.parse(JSON.stringify(result.properties))
     })
   })
   return serializedResults
@@ -202,13 +250,21 @@ function serializeProperties(properties) {
   let serializedProperties = {}
   Object.keys(properties).forEach(key => {
     const value = properties[key]
-    if (value.length > 1) {
-      serializedProperties[key] = value.map(item => item.value)
+    if (Array.isArray(value) ) {
+      serializedProperties[key] = value.map(item => safe_get_property(item, 'value'))
+      if (serializedProperties[key].length === 1) {
+        serializedProperties[key] = serializedProperties[key][0]
+      }
     } else {
-      serializedProperties[key] = value[0].value
+      // not an array
+      serializedProperties[key] = value
     }
   })
   return serializedProperties
+}
+
+function safe_get_property(obj, key) {
+  return obj[key] ? obj[key] : null
 }
 
 
@@ -216,4 +272,4 @@ const delay = (fn, ms) => new Promise((resolve) => setTimeout(() => resolve(fn()
 
 const randInt = (min, max) => Math.floor(Math.random() * (max - min + 1) + min)
 
-module.exports = { add_stoppoint, add_line }
+module.exports = { add_stoppoint, add_line, find_route_between_stops, escape_gremlin_special_characters }
