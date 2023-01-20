@@ -162,15 +162,21 @@ describe('GraphDB tests', () => {
       }
 
       afterAll(async () => {
-        //TODO: move this to independent code i.e. not dependent on graphdb.js
-        // const client = graph_test_client //graph.__get__('stoppoint_client')
-        //const execute_query = graph.__get__('execute_query')
-        //const delete_promises = await Promise.all(list_of_added_stoppoints.map(stoppoint_id => execute_query(client, `g.V('${stoppoint_id}').drop()`, 3)))
+        const drop_query = `g.v('${list_of_added_stoppoints.join('\',\'')}').drop()`
         console.log('list of added stoppoints: ', list_of_added_stoppoints)
-        const delete_promises = await Promise.all(list_of_added_stoppoints.map(stoppoint_id => graph_test_client.submit(`g.V('${stoppoint_id}').drop()`)))
-        const delete_results = delete_promises.every(result => result['success'] === true)
+        console.log('calling drop query:', drop_query)
+        // if delete_promise is rejected, catch the error
+
+        const delete_promise = await graph_test_client.submit(drop_query)
+          .catch((err) => {
+            console.error('unable to delete test data stoppoints')
+            console.error(err)
+            console.error(err.stack)
+          })
+
+
         // TODO: report any that arent deleted
-        console.log(`deleted ${list_of_added_stoppoints.length} stoppoints. Success? ${delete_results}`)
+        console.log(`deleted ${list_of_added_stoppoints.length} stoppoints. Success?`, delete_promise !== undefined)
         await graph_test_client.close()
       })
       test('can connect to stoppoint_collection', async () => {
@@ -223,7 +229,7 @@ describe('GraphDB tests', () => {
             label: 'stoppoint',
             type: 'vertex',
             name: known_stoppoints.second.name,
-            naptanId:  known_stoppoints.second.id,
+            naptanId: known_stoppoints.second.id,
             lat: known_stoppoints.second.lat,
             lon: known_stoppoints.second.lon,
             modes: known_stoppoints.second.modes,
