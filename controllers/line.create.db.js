@@ -19,12 +19,11 @@ const line = require('./line')
 
 const modes = ['tube', 'overground', 'dlr', 'elizabeth-line']
 
-async function get_stoppoints_and_joining_lines(tfl_lines) {
-  const raw_stoppoints = await Promise.all(tfl_lines.map(l => line.stoppoints(l, true)))
-  const stoppoints_flat = raw_stoppoints.map(sp => sp.data.flat()).flat()
-  // TODO: we get duplicate stoppoints. Why? we have 472 stoppoints, but get 1353 in the array
-  const stoppoints = stoppoints_flat.map(sp => line.generate_stoppoints(sp))
-  const lines = stoppoints_flat.map(l => line.generate_single_line(l))
+async function get_stoppoints_and_joining_lines(tfl_lines_required) {
+  const raw_tfl_ordered_lines = await Promise.all(tfl_lines_required.map(l => line.stoppoints(l, true)))
+  const tfl_branch_segments = raw_tfl_ordered_lines.map(sp => sp.data).flat()
+  const stoppoints = tfl_branch_segments.map(branch => line.generate_stoppoints_from_branch(branch))
+  const lines = tfl_branch_segments.map(branch => line.generate_single_line_from_branch(branch))
   return { stoppoints: stoppoints.flat(), lines: lines.flat() }
 }
 
@@ -74,7 +73,7 @@ function chunk_array(array, chunkSize) {
 
 async function go() {
   const tfl_lines = await line.get_lines_for_modes(modes)
-  const line_ids = tfl_lines.map(l => l.id)
+  const line_ids = tfl_lines.data.map(l => l.id)
   const { stoppoints, lines } = await get_stoppoints_and_joining_lines(line_ids)
   await store_stoppoints_then_join_them(stoppoints, lines)
 }

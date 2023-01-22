@@ -1,0 +1,473 @@
+{
+  "id": "bakerloo",
+  "lineName": "Bakerloo",
+  "branchId": 0,
+  "nextBranchIds": [],
+  "prevBranchIds": [],
+  "direction": "inbound",
+  "points": [
+    {
+      "id": "940GZZLUHAW",
+      "type": "StopPoint",
+      "name": "Harrow & Wealdstone Underground Station",
+      "naptanId": "940GZZLUHAW",
+      "lat": 51.592268,
+      "lon": -0.335217,
+      "modes": [
+        "tube"
+      ],
+      "lines": [
+        "bakerloo"
+      ]
+    },
+    {
+      "id": "940GZZLUKEN",
+      "type": "StopPoint",
+      "name": "Kenton Underground Station",
+      "naptanId": "940GZZLUKEN",
+      "lat": 51.581756,
+      "lon": -0.31691,
+      "modes": [
+        "tube"
+      ],
+      "lines": [
+        "bakerloo"
+      ]
+    },
+    {
+      "id": "940GZZLUSKT",
+      "type": "StopPoint",
+      "name": "South Kenton Underground Station",
+      "naptanId": "940GZZLUSKT",
+      "lat": 51.570232,
+      "lon": -0.308433,
+      "modes": [
+        "tube"
+      ],
+      "lines": [
+        "bakerloo"
+      ]
+    },
+    {
+      "id": "940GZZLUNWY",
+      "type": "StopPoint",
+      "name": "North Wembley Underground Station",
+      "naptanId": "940GZZLUNWY",
+      "lat": 51.562551,
+      "lon": -0.304,
+      "modes": [
+        "tube"
+      ],
+      "lines": [
+        "bakerloo"
+      ]
+    },
+    {
+      "id": "940GZZLUWYC",
+      "type": "StopPoint",
+      "name": "Wembley Central Underground Station",
+      "naptanId": "940GZZLUWYC",
+      "lat": 51.552304,
+      "lon": -0.296852,
+      "modes": [
+        "tube"
+      ],
+      "lines": [
+        "bakerloo"
+      ]
+    },
+    {
+      "id": "940GZZLUSGP",
+      "type": "StopPoint",
+      "name": "Stonebridge Park Underground Station",
+      "naptanId": "940GZZLUSGP",
+      "lat": 51.543959,
+      "lon": -0.275892,
+      "modes": [
+        "tube"
+      ],
+      "lines": [
+        "bakerloo"
+      ]
+    },
+    {
+      "id": "940GZZLUHSN",
+      "type": "StopPoint",
+      "name": "Harlesden Underground Station",
+      "naptanId": "940GZZLUHSN",
+      "lat": 51.53631,
+      "lon": -0.257883,
+      "modes": [
+        "tube"
+      ],
+      "lines": [
+        "bakerloo"
+      ]
+    },
+    {
+      "id": "940GZZLUWJN",
+      "type": "StopPoint",
+      "name": "Willesden Junction Underground Station",
+      "naptanId": "940GZZLUWJN",
+      "lat": 51.532259,
+      "lon": -0.244283,
+      "modes": [
+        "tube"
+      ],
+      "lines": [
+        "bakerloo"
+      ]
+    },
+    {
+      "id": "940GZZLUKSL",
+      "type": "StopPoint",
+      "name": "Kensal Green Underground Station",
+      "naptanId": "940GZZLUKSL",
+      "lat": 51.530539,
+      "lon": -0.225016,
+      "modes": [
+        "tube"
+      ],
+      "lines": [
+        "bakerloo"
+      ]
+    },
+    {
+      "id": "940GZZLUQPS",
+      "type": "StopPoint",
+      "name": "Queen's Park Underground Station",
+      "naptanId": "940GZZLUQPS",
+      "lat": 51.534158,
+      "lon": -0.204574,
+      "modes": [
+        "tube"
+      ],
+      "lines": [
+        "bakerloo"
+      ]
+    },
+    {
+      "id": "940GZZLUKPK",
+      "type": "StopPoint",
+      "name": "Kilburn Park Underground Station",
+      "naptanId": "940GZZLUKPK",
+      "lat": 51.534979,
+      "lon": -0.194232,
+      "modes": [
+        "tube",
+        "bus"
+      ],
+      "lines": [
+        "206",
+        "31",
+        "316",
+        "32",
+        "328",
+        "632",
+        "bakerloo",
+        "n28",
+        "n31"
+      ]
+    },
+    {
+      "id": "940GZZLUMVL",
+      "type": "StopPoint",
+      "name": "Maida Vale Underground Station",
+      "naptanId": "940GZZLUMVL",
+      "lat": 51.529777,
+      "lon": -0.185758,
+      "modes": [
+        "tube"
+      ],
+      "lines": [
+        "bakerloo"
+      ]
+    },
+    {
+      "id": "940GZZLUWKA",
+      "type": "StopPoint",
+      "name": "Warwick Avenue Underground Station",
+      "naptanId": "940GZZLUWKA",
+      "lat": 51.523263,
+      "lon": -0.183783,
+      "modes": [
+        "bus",
+        "tube"
+      ],
+      "lines": [
+        "187",
+        "46",
+        "6",
+        "bakerloo"
+      ]
+    },
+    {
+      "id": "940GZZLUPAC",
+      "type": "StopPoint",
+      "name": "Paddington Underground Station",
+      "naptanId": "940GZZLUPAC",
+      "lat": 51.516581,
+      "lon": -0.175689,
+      "modes": [
+        "tube"
+      ],
+      "lines": [
+        "bakerloo",
+        "circle",
+        "district"
+      ]
+    },
+    {
+      "id": "940GZZLUERB",
+      "type": "StopPoint",
+      "name": "Edgware Road (Bakerloo) Underground Station",
+      "naptanId": "940GZZLUERB",
+      "lat": 51.520299,
+      "lon": -0.17015,
+      "modes": [
+        "bus",
+        "tube"
+      ],
+      "lines": [
+        "16",
+        "18",
+        "332",
+        "6",
+        "98",
+        "bakerloo",
+        "n16",
+        "n18",
+        "n98"
+      ]
+    },
+    {
+      "id": "940GZZLUMYB",
+      "type": "StopPoint",
+      "name": "Marylebone Underground Station",
+      "naptanId": "940GZZLUMYB",
+      "lat": 51.522322,
+      "lon": -0.163207,
+      "modes": [
+        "tube"
+      ],
+      "lines": [
+        "bakerloo"
+      ]
+    },
+    {
+      "id": "940GZZLUBST",
+      "type": "StopPoint",
+      "name": "Baker Street Underground Station",
+      "naptanId": "940GZZLUBST",
+      "lat": 51.522883,
+      "lon": -0.15713,
+      "modes": [
+        "tube",
+        "bus"
+      ],
+      "lines": [
+        "113",
+        "13",
+        "139",
+        "18",
+        "189",
+        "205",
+        "27",
+        "274",
+        "30",
+        "453",
+        "74",
+        "bakerloo",
+        "circle",
+        "hammersmith-city",
+        "jubilee",
+        "metropolitan",
+        "n113",
+        "n18",
+        "n205",
+        "n27",
+        "n74"
+      ]
+    },
+    {
+      "id": "940GZZLURGP",
+      "type": "StopPoint",
+      "name": "Regent's Park Underground Station",
+      "naptanId": "940GZZLURGP",
+      "lat": 51.523344,
+      "lon": -0.146444,
+      "modes": [
+        "tube",
+        "bus"
+      ],
+      "lines": [
+        "18",
+        "205",
+        "27",
+        "30",
+        "453",
+        "bakerloo",
+        "n18",
+        "n205",
+        "n27"
+      ]
+    },
+    {
+      "id": "940GZZLUOXC",
+      "type": "StopPoint",
+      "name": "Oxford Circus Underground Station",
+      "naptanId": "940GZZLUOXC",
+      "lat": 51.515224,
+      "lon": -0.141903,
+      "modes": [
+        "tube",
+        "bus"
+      ],
+      "lines": [
+        "12",
+        "139",
+        "159",
+        "22",
+        "88",
+        "94",
+        "bakerloo",
+        "central",
+        "n109",
+        "n113",
+        "n136",
+        "n137",
+        "n15",
+        "n18",
+        "n22",
+        "n3",
+        "victoria"
+      ]
+    },
+    {
+      "id": "940GZZLUPCC",
+      "type": "StopPoint",
+      "name": "Piccadilly Circus Underground Station",
+      "naptanId": "940GZZLUPCC",
+      "lat": 51.51005,
+      "lon": -0.133798,
+      "modes": [
+        "bus",
+        "tube"
+      ],
+      "lines": [
+        "12",
+        "139",
+        "14",
+        "159",
+        "19",
+        "38",
+        "453",
+        "6",
+        "88",
+        "9",
+        "94",
+        "bakerloo",
+        "n109",
+        "n113",
+        "n136",
+        "n15",
+        "n18",
+        "n19",
+        "n3",
+        "n38",
+        "n9",
+        "n97",
+        "piccadilly"
+      ]
+    },
+    {
+      "id": "940GZZLUCHX",
+      "type": "StopPoint",
+      "name": "Charing Cross Underground Station",
+      "naptanId": "940GZZLUCHX",
+      "lat": 51.50741,
+      "lon": -0.127277,
+      "modes": [
+        "tube"
+      ],
+      "lines": [
+        "bakerloo",
+        "northern"
+      ]
+    },
+    {
+      "id": "940GZZLUEMB",
+      "type": "StopPoint",
+      "name": "Embankment Underground Station",
+      "naptanId": "940GZZLUEMB",
+      "lat": 51.507058,
+      "lon": -0.122666,
+      "modes": [
+        "tube"
+      ],
+      "lines": [
+        "bakerloo",
+        "circle",
+        "district",
+        "northern"
+      ]
+    },
+    {
+      "id": "940GZZLUWLO",
+      "type": "StopPoint",
+      "name": "Waterloo Underground Station",
+      "naptanId": "940GZZLUWLO",
+      "lat": 51.503299,
+      "lon": -0.11478,
+      "modes": [
+        "tube"
+      ],
+      "lines": [
+        "bakerloo",
+        "jubilee",
+        "northern",
+        "waterloo-city"
+      ]
+    },
+    {
+      "id": "940GZZLULBN",
+      "type": "StopPoint",
+      "name": "Lambeth North Underground Station",
+      "naptanId": "940GZZLULBN",
+      "lat": 51.498808,
+      "lon": -0.112315,
+      "modes": [
+        "bus",
+        "tube"
+      ],
+      "lines": [
+        "12",
+        "148",
+        "159",
+        "453",
+        "53",
+        "59",
+        "bakerloo",
+        "c10",
+        "n109",
+        "n155",
+        "n53"
+      ]
+    },
+    {
+      "id": "940GZZLUEAC",
+      "type": "StopPoint",
+      "name": "Elephant & Castle Underground Station",
+      "naptanId": "940GZZLUEAC",
+      "lat": 51.494536,
+      "lon": -0.100606,
+      "modes": [
+        "tube"
+      ],
+      "lines": [
+        "bakerloo",
+        "northern"
+      ]
+    }
+  ]
+}

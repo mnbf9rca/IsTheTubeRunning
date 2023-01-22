@@ -1,0 +1,108 @@
+{
+  "$schema": "https://json-schema.org/draft/2019-09/schema",
+  "$id": "http://cynexia.com/schemas/tfl_route_sequence.json",
+  "type": "object",
+  "default": {},
+  "title": "Simplified TfL RouteSequence schema",
+  "required": [
+      "id",
+      "lineName",
+      "branchId",
+      "nextBranchIds",
+      "prevBranchIds",
+      "direction",
+      "points"
+  ],
+  "properties": {
+      "id": {
+          "type": "string",
+          "default": "",
+          "title": ""
+      },
+      "lineName": {
+          "type": "string",
+          "default": "",
+          "title": "Name such as \"72\" or \"victoria\""
+      },
+      "branchId": {
+          "type": "integer",
+          "default": 0,
+          "title": "The branchId Schema"
+      },
+      "nextBranchIds": {
+          "type": "array",
+          "default": [],
+          "title": "The ids of the next branch(es) in the sequence. Note that the next and previous branch id can be identical in the case of a looped route e.g. the Circle line.",
+          "items": {}
+      },
+      "prevBranchIds": {
+          "type": "array",
+          "default": [],
+          "title": "The ids of the previous branch(es) in the sequence. Note that the next and previous branch id can be identical in the case of a looped route e.g. the Circle line.",
+          "items": {}
+      },
+      "direction": {
+          "type": "string",
+          "default": ""
+      },
+      "points": {
+          "type": "array",
+          "default": [],
+          "title": "The points Schema",
+          "items": {
+              "type": "object",
+              "title": "A Schema",
+              "required": [
+                  "id",
+                  "type",
+                  "name",
+                  "naptanId",
+                  "lat",
+                  "lon",
+                  "modes",
+                  "lines"
+              ],
+              "properties": {
+                  "id": {
+                      "type": "string",
+                      "title": "LineID in TfL schema - unique identifier for the Line"
+                  },
+                  "type": {
+                      "type": "string",
+                      "title": "StopPoint"
+                  },
+                  "name": {
+                      "type": "string",
+                      "title": "Naptan Identifier for the stoppoint"
+                  },
+                  "naptanId": {
+                      "type": "string",
+                      "title": "The naptanId Schema"
+                  },
+                  "lat": {
+                      "type": "number"
+                  },
+                  "lon": {
+                      "type": "number"
+                  },
+                  "modes": {
+                      "type": "array",
+                      "title": "A comma-separated list of modes e.g. tube,dlr",
+                      "items": {
+                          "type": "string",
+                          "title": "A Schema"
+                      }
+                  },
+                  "lines": {
+                      "type": "array",
+                      "title": "lines serving this stoppoint\n",
+                      "items": {
+                          "type": "string",
+                          "title": "A Schema"
+                      }
+                  }
+              }
+          }
+      }
+  }
+}

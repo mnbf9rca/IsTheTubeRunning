@@ -1,5 +1,22 @@
 const tfl_api = require('../services/tfl_api')
 const logger = require('../utils/logger')
+const validate = require('jsonschema').validate
+
+var fs = require('fs')
+const path = require('node:path')
+
+
+function load_file(filename) {
+  try {
+    return fs.readFileSync(path.resolve(__dirname, 'schemas', filename), 'utf8')
+  } catch (err) {
+    console.error(err)
+    throw err
+  }
+
+}
+
+const simpified_tfl_route_sequence = JSON.parse(load_file('simplified_tfl_route_squence.json'))
 
 async function get_lines_for_modes(modes) {
   /**
@@ -15,7 +32,7 @@ async function get_lines_for_modes(modes) {
   return lines
 }
 
-async function stoppoints(line, ordered=false) {
+async function stoppoints(line, ordered = false) {
   /**
    * Fetches the stoppoints data from TFL by line
    *
@@ -30,7 +47,7 @@ async function stoppoints(line, ordered=false) {
 }
 
 
-function generate_single_line(line) {
+function generate_single_line_from_branch(branch) {
   /**
    * generates metadata for a single line (edge).
    * A line is an object with the following metadata:
@@ -50,14 +67,16 @@ function generate_single_line(line) {
   // id, type, lineName, branchId, direction, from, to
   // the edge is stored in the graph
   // an array of edges is returned
-  const l= line['points'].map((point, index, points) => {
+  validate(branch, simpified_tfl_route_sequence, { throwError: true })
+
+  const l = branch['points'].map((point, index, points) => {
     if (index < points.length - 1) {
       const edge = {
-        'id': `${line['lineName']}-${line['branchId']}-${point['id']}-${points[index + 1]['id']}`.replaceAll(' ', '-'),
+        'id': `${branch['lineName']}-${branch['branchId']}-${point['id']}-${points[index + 1]['id']}`.replaceAll(' ', '-'),
         'type': 'Line',
-        'lineName': line['lineName'],
-        'branchId': line['branchId'],
-        'direction': line['direction'],
+        'lineName': branch['lineName'],
+        'branchId': branch['branchId'],
+        'direction': branch['direction'],
         'from': point['id'],
         'to': points[index + 1]['id']
       }
@@ -65,16 +84,17 @@ function generate_single_line(line) {
     }
   })
   // for some reason we have an undefined object at the end...
-  return l.slice(0,-1)
+  return l.slice(0, -1)
 }
 
-function generate_stoppoints(stoppoints) {
+function generate_stoppoints_from_branch(branch) {
   /**
    * generates metadata for each stoppoint in an array
    * A stoppoint is an object with the following metadata:
    * id, name, naptanId, lat, lon, [lines], [modes]
    */
-  return stoppoints.points.map(sp => {
+  validate(branch, simpified_tfl_route_sequence, { throwError: true })
+  return branch.points.map(sp => {
     return {
       'id': sp['id'],
       'name': sp['name'],
@@ -91,6 +111,6 @@ function generate_stoppoints(stoppoints) {
 module.exports = {
   stoppoints,
   get_lines_for_modes,
-  generate_stoppoints,
-  generate_single_line
- }
+  generate_stoppoints_from_branch,
+  generate_single_line_from_branch
+}
