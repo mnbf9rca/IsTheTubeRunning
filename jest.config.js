@@ -16,6 +16,7 @@ module.exports = {
     '<rootDir>/docs/',
     '<rootDir>/build/',
     '<rootDir>/controllers/tests/',
+    '<rootDir>/controllers/line.create.db.js',
     '<rootDir>/services/tests/',
     '<rootDir>/services/__mocks__/',
     '<rootDir>/utils/tests/',
