@@ -16,6 +16,7 @@ const lines_for_mode_tube_overground = get_data('lines_for_mode_tube_overground.
 const lines_for_mode_overground = get_data('lines_for_mode_overground.json')
 const lines_for_mode_tube = get_data('lines_for_mode_tube.json')
 const generate_stoppoints_from_branch_1_expected = get_data('generate_stoppoints_from_branch_1_expected.json')
+const generate_line_for_branch_1_expected = get_data('generate_line_for_branch_1_expected.json')
 const branch_data_1 = get_data('branch_data_1.json')
 
 module.exports = { line_stoppoints_victoria_true,
@@ -24,5 +25,6 @@ module.exports = { line_stoppoints_victoria_true,
   lines_for_mode_overground,
   lines_for_mode_tube,
   generate_stoppoints_from_branch_1_expected,
+  generate_line_for_branch_1_expected,
   branch_data_1
 }

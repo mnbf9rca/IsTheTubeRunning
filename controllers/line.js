@@ -1,6 +1,6 @@
 const tfl_api = require('../services/tfl_api')
 const logger = require('../utils/logger')
-const validate = require('jsonschema').validate
+const validate_json = require('jsonschema')
 
 var fs = require('fs')
 const path = require('node:path')
@@ -67,7 +67,7 @@ function generate_single_line_from_branch(branch) {
   // id, type, lineName, branchId, direction, from, to
   // the edge is stored in the graph
   // an array of edges is returned
-  validate(branch, simpified_tfl_route_sequence, { throwError: true })
+  validate_json.validate(branch, simpified_tfl_route_sequence, { throwError: true })
 
   const l = branch['points'].map((point, index, points) => {
     if (index < points.length - 1) {
@@ -93,7 +93,7 @@ function generate_stoppoints_from_branch(branch) {
    * A stoppoint is an object with the following metadata:
    * id, name, naptanId, lat, lon, [lines], [modes]
    */
-  validate(branch, simpified_tfl_route_sequence, { throwError: true })
+  validate_json.validate(branch, simpified_tfl_route_sequence, { throwError: true })
   return branch.points.map(sp => {
     return {
       'id': sp['id'],

@@ -1,0 +1,218 @@
+[
+  {
+    "id": "Bakerloo-0-940GZZLUHAW-940GZZLUKEN",
+    "type": "Line",
+    "lineName": "Bakerloo",
+    "branchId": 0,
+    "direction": "inbound",
+    "from": "940GZZLUHAW",
+    "to": "940GZZLUKEN"
+  },
+  {
+    "id": "Bakerloo-0-940GZZLUKEN-940GZZLUSKT",
+    "type": "Line",
+    "lineName": "Bakerloo",
+    "branchId": 0,
+    "direction": "inbound",
+    "from": "940GZZLUKEN",
+    "to": "940GZZLUSKT"
+  },
+  {
+    "id": "Bakerloo-0-940GZZLUSKT-940GZZLUNWY",
+    "type": "Line",
+    "lineName": "Bakerloo",
+    "branchId": 0,
+    "direction": "inbound",
+    "from": "940GZZLUSKT",
+    "to": "940GZZLUNWY"
+  },
+  {
+    "id": "Bakerloo-0-940GZZLUNWY-940GZZLUWYC",
+    "type": "Line",
+    "lineName": "Bakerloo",
+    "branchId": 0,
+    "direction": "inbound",
+    "from": "940GZZLUNWY",
+    "to": "940GZZLUWYC"
+  },
+  {
+    "id": "Bakerloo-0-940GZZLUWYC-940GZZLUSGP",
+    "type": "Line",
+    "lineName": "Bakerloo",
+    "branchId": 0,
+    "direction": "inbound",
+    "from": "940GZZLUWYC",
+    "to": "940GZZLUSGP"
+  },
+  {
+    "id": "Bakerloo-0-940GZZLUSGP-940GZZLUHSN",
+    "type": "Line",
+    "lineName": "Bakerloo",
+    "branchId": 0,
+    "direction": "inbound",
+    "from": "940GZZLUSGP",
+    "to": "940GZZLUHSN"
+  },
+  {
+    "id": "Bakerloo-0-940GZZLUHSN-940GZZLUWJN",
+    "type": "Line",
+    "lineName": "Bakerloo",
+    "branchId": 0,
+    "direction": "inbound",
+    "from": "940GZZLUHSN",
+    "to": "940GZZLUWJN"
+  },
+  {
+    "id": "Bakerloo-0-940GZZLUWJN-940GZZLUKSL",
+    "type": "Line",
+    "lineName": "Bakerloo",
+    "branchId": 0,
+    "direction": "inbound",
+    "from": "940GZZLUWJN",
+    "to": "940GZZLUKSL"
+  },
+  {
+    "id": "Bakerloo-0-940GZZLUKSL-940GZZLUQPS",
+    "type": "Line",
+    "lineName": "Bakerloo",
+    "branchId": 0,
+    "direction": "inbound",
+    "from": "940GZZLUKSL",
+    "to": "940GZZLUQPS"
+  },
+  {
+    "id": "Bakerloo-0-940GZZLUQPS-940GZZLUKPK",
+    "type": "Line",
+    "lineName": "Bakerloo",
+    "branchId": 0,
+    "direction": "inbound",
+    "from": "940GZZLUQPS",
+    "to": "940GZZLUKPK"
+  },
+  {
+    "id": "Bakerloo-0-940GZZLUKPK-940GZZLUMVL",
+    "type": "Line",
+    "lineName": "Bakerloo",
+    "branchId": 0,
+    "direction": "inbound",
+    "from": "940GZZLUKPK",
+    "to": "940GZZLUMVL"
+  },
+  {
+    "id": "Bakerloo-0-940GZZLUMVL-940GZZLUWKA",
+    "type": "Line",
+    "lineName": "Bakerloo",
+    "branchId": 0,
+    "direction": "inbound",
+    "from": "940GZZLUMVL",
+    "to": "940GZZLUWKA"
+  },
+  {
+    "id": "Bakerloo-0-940GZZLUWKA-940GZZLUPAC",
+    "type": "Line",
+    "lineName": "Bakerloo",
+    "branchId": 0,
+    "direction": "inbound",
+    "from": "940GZZLUWKA",
+    "to": "940GZZLUPAC"
+  },
+  {
+    "id": "Bakerloo-0-940GZZLUPAC-940GZZLUERB",
+    "type": "Line",
+    "lineName": "Bakerloo",
+    "branchId": 0,
+    "direction": "inbound",
+    "from": "940GZZLUPAC",
+    "to": "940GZZLUERB"
+  },
+  {
+    "id": "Bakerloo-0-940GZZLUERB-940GZZLUMYB",
+    "type": "Line",
+    "lineName": "Bakerloo",
+    "branchId": 0,
+    "direction": "inbound",
+    "from": "940GZZLUERB",
+    "to": "940GZZLUMYB"
+  },
+  {
+    "id": "Bakerloo-0-940GZZLUMYB-940GZZLUBST",
+    "type": "Line",
+    "lineName": "Bakerloo",
+    "branchId": 0,
+    "direction": "inbound",
+    "from": "940GZZLUMYB",
+    "to": "940GZZLUBST"
+  },
+  {
+    "id": "Bakerloo-0-940GZZLUBST-940GZZLURGP",
+    "type": "Line",
+    "lineName": "Bakerloo",
+    "branchId": 0,
+    "direction": "inbound",
+    "from": "940GZZLUBST",
+    "to": "940GZZLURGP"
+  },
+  {
+    "id": "Bakerloo-0-940GZZLURGP-940GZZLUOXC",
+    "type": "Line",
+    "lineName": "Bakerloo",
+    "branchId": 0,
+    "direction": "inbound",
+    "from": "940GZZLURGP",
+    "to": "940GZZLUOXC"
+  },
+  {
+    "id": "Bakerloo-0-940GZZLUOXC-940GZZLUPCC",
+    "type": "Line",
+    "lineName": "Bakerloo",
+    "branchId": 0,
+    "direction": "inbound",
+    "from": "940GZZLUOXC",
+    "to": "940GZZLUPCC"
+  },
+  {
+    "id": "Bakerloo-0-940GZZLUPCC-940GZZLUCHX",
+    "type": "Line",
+    "lineName": "Bakerloo",
+    "branchId": 0,
+    "direction": "inbound",
+    "from": "940GZZLUPCC",
+    "to": "940GZZLUCHX"
+  },
+  {
+    "id": "Bakerloo-0-940GZZLUCHX-940GZZLUEMB",
+    "type": "Line",
+    "lineName": "Bakerloo",
+    "branchId": 0,
+    "direction": "inbound",
+    "from": "940GZZLUCHX",
+    "to": "940GZZLUEMB"
+  },
+  {
+    "id": "Bakerloo-0-940GZZLUEMB-940GZZLUWLO",
+    "type": "Line",
+    "lineName": "Bakerloo",
+    "branchId": 0,
+    "direction": "inbound",
+    "from": "940GZZLUEMB",
+    "to": "940GZZLUWLO"
+  },
+  {
+    "id": "Bakerloo-0-940GZZLUWLO-940GZZLULBN",
+    "type": "Line",
+    "lineName": "Bakerloo",
+    "branchId": 0,
+    "direction": "inbound",
+    "from": "940GZZLUWLO",
+    "to": "940GZZLULBN"
+  },
+  {
+    "id": "Bakerloo-0-940GZZLULBN-940GZZLUEAC",
+    "type": "Line",
+    "lineName": "Bakerloo",
+    "branchId": 0,
+    "direction": "inbound",
+    "from": "940GZZLULBN",
+    "to": "940GZZLUEAC"
+  }
+]
