@@ -9,7 +9,7 @@
   },
   "dependencies": {
     "@azure/event-hubs": "^5.8.0",
-    "axios": "^1.2.2",
+    "axios": "^1.2.3",
     "dotenv": "^16.0.3",
     "dotenv-vault-core": "^0.6.1",
     "eslint": "^8.32.0",
