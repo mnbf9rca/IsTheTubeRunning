@@ -8,6 +8,8 @@ jobs:
     steps:
       - name: check out source code
         uses: actions/checkout@v3
+      - uses: jwalton/gh-find-current-pr@v1
+        id: findPr
       - name: set up Node.js
         uses: actions/setup-node@v3
         with:
@@ -20,12 +22,23 @@ jobs:
         name: execute tests
         env:
           DOTENV_KEY: ${{ secrets.DOTENV_KEY }}
+  coverage:
+    permissions:
+      checks: write
+      pull-requests: write
+      contents: write
+    runs-on: ubuntu-latest
+    steps:
+      - name: check out source code
+        uses: actions/checkout@v3
+      - uses: jwalton/gh-find-current-pr@v1
+        id: findPr
       - uses: ArtiomTr/jest-coverage-report-action@v2
         id: coverage
         with:
           output: report-markdown
         env:
-          DOTENV_KEY: ${{ secrets.DOTENV_KEY }}          
+          DOTENV_KEY: ${{ secrets.DOTENV_KEY }}
       - uses: marocchino/sticky-pull-request-comment@v2
         with:
             message: ${{ steps.coverage.outputs.report }}
