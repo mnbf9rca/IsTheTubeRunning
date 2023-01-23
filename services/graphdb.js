@@ -2,6 +2,7 @@ const config = require('../utils/config')
 const Gremlin = require('gremlin')
 const logger = require('../utils/logger')
 const helpers = require('../utils/helpers')
+const {execute_query} = require('./graphdb.execute')
 
 const fs = require('fs')
 
@@ -106,6 +107,46 @@ const add_stoppoint = async (stoppoint, upsert = true) => {
   const serialized_items = serialize_stoppoint(result['data']['_items'])
   return { ...result, data: serialized_items }
 }
+
+const add_user = async (user, upsert = false) => {
+  /**
+   * Adds a user to the graphdb.
+   * user has: email, hashed_password, password_salt, email_verified, active_user, and an array of [journeys]
+   * they may optionally have last_login, firstname, lastname
+   * @param {object} user - user object
+   * @returns {Promise} - pending query to graphdb
+   */
+  if (upsert) {
+    logger.warn('upsert not implemented for add_user')
+    throw new Error('upsert not implemented for add_user')
+  }
+  // construct a query to add the user to the graphdb
+  const add_query = `addV('user')
+  .property('email', email)
+  .property('hashed_password', hashed_password)
+  .property('password_salt', password_salt)
+  .property('email_verified', '${user['email_verified']}')
+  .property('active_user', '${user['active_user']}')
+  .property('firstname', firstname)
+  .property('lastname', lastname)
+  .property('email', email)
+  ${add_array_value(user['journeys'], 'journeys')}
+  ${user['last_login'] ? `.property('last_login', '${user['last_login']}')` : ''}`
+
+  // as this contains user data, we need to pass these values as parameters
+  const params =   {
+    email: user['email'],
+    firstname: user['firstname'],
+    lastname: user['lastname'],
+    hashed_password: user['hashed_password'],
+    password_salt: user['password_salt']
+  }
+
+  const result = await execute_query(stoppoint_client, add_query, 5, params)
+  return result
+
+}
+
 
 const add_line = async (line_edge, upsert = true) => {
   // add a line to the graphdb
@@ -222,55 +263,7 @@ const serialize_line = (line) => {
 }
 
 
-const execute_query = async (client, query, maxAttempts, params = null) => {
-  /**
-   * Retry a function up to a maximum number of attempts
-   * adapted from https://solutional.ee/blog/2020-11-19-Proper-Retry-in-JavaScript.html
-   *
-   * @param {String} query - query to execute
-   * @param {Number} maxAttempts - maximum number of attempts to execute the query
-   *
-   * @returns {String} - result of the query
-   */
-  let retry_time = 1000
-  const execute = async (attempt) => {
-    if (attempt > 1) { logger.debug(`attempt ${attempt} of ${maxAttempts}`) }
-    try {
-      if (params) {
-        logger.debug(`executing query with params: ${JSON.stringify(params)}`)
-      }
-      const client_result = await client.submit(query, params)
-      // if we got the result, then we can return it
-      const ms_status_code = client_result['statusAttributes'] ? client_result['statusAttributes']['x-ms-status-code'] : null
 
-      // this is distinct to an ADD query, so move to that
-      // const seralised_result = serializeGremlinResults(client_result['_items'])
-      return { data: client_result, success: true, status_code: ms_status_code }
-    } catch (err) {
-      const ms_status_code = err['statusAttributes'] ? err['statusAttributes']['x-ms-status-code'] : null
-      const ms_retry_after = err['statusAttributes'] ? err['statusAttributes']['x-ms-retry-after-ms'] : null
-      // we need to retry after ms_retry_after ms
-      if (ms_retry_after) { retry_time = stringToMilliseconds(ms_retry_after) }
-      if ([429, 408, 449].includes(ms_status_code) && attempt <= maxAttempts - 1) {
-        // other, recoverable codes which we can retry
-        // https://learn.microsoft.com/en-us/rest/api/cosmos-db/http-status-codes-for-cosmosdb
-        // 429, 408, 449
-        const nextAttempt = attempt + 1
-        const delayInMs = retry_time ? retry_time : Math.max(Math.min(Math.pow(2, nextAttempt) + randInt(-nextAttempt, nextAttempt), 5), 1)
-        logger.error(`Retrying after ${delayInMs} ms due to:`, err)
-        return delay(() => execute(nextAttempt), delayInMs)
-      } else {
-        // any other error
-        // including non-recoverable codes
-        // 400, 401, 403, 404, 409, 412, 413, 500, 503
-        // if we dont have ms_status_code, then return the whole err object
-        return { success: false, error: ms_status_code ? err['statusMessage'] : err, status_code: ms_status_code }
-      }
-    }
-  }
-  const final_result = await execute(1)
-  return final_result
-}
 
 function serialize_stoppoint(results) {
   /**
@@ -295,16 +288,7 @@ function serialize_stoppoint(results) {
   return serializedResults
 }
 
-function stringToMilliseconds(timeString) {
-  /** 
-   * Convert a string in the format HH:MM:SS.mmm to milliseconds
-   * @param {String} timeString - string in the format HH:MM:SS.mmm
-   * @returns {Number} - time in milliseconds
-   */
-  const [hours, minutes, seconds] = timeString.split(':');
-  const milliseconds = Math.round(parseFloat(`0.${seconds.split('.')[1]}`) * 1000)
-  return (hours * 3600 + minutes * 60 + parseInt(seconds, 10)) * 1000 + milliseconds;
-}
+
 
 function serializeProperties(properties) {
   let serializedProperties = {}
@@ -328,19 +312,16 @@ function safe_get_property(obj, key) {
 }
 
 
-const delay = (fn, ms) => new Promise((resolve) => setTimeout(() => resolve(fn()), ms))
-
-const randInt = (min, max) => Math.floor(Math.random() * (max - min + 1) + min)
 
 module.exports = {
   add_stoppoint,
   add_line,
+  add_user,
   find_route_between_stops,
   escape_gremlin_special_characters,
   serializeProperties,
   serialize_stoppoint,
   serialize_line,
-  stringToMilliseconds,
   safe_get_property,
   execute_query
 }

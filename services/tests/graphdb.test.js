@@ -22,8 +22,6 @@ const graph_test_client = new Gremlin.driver.Client(
 const randomString = () => Math.random().toString(36).slice(2, 7)
 
 describe('GraphDB tests', () => {
-
-
   describe('test helper functions', () => {
     describe('test graph.escape_gremlin_special_characters', () => {
       test('with no single quote', () => {
@@ -45,6 +43,13 @@ describe('GraphDB tests', () => {
         const input = "test''test"
         // eslint-disable-next-line quotes
         const expected = "test\\'\\'test"
+        const actual = graph.escape_gremlin_special_characters(input)
+        expect(actual).toBe(expected)
+      })
+      test('with newline', () => {
+        const input = `test
+ newline`
+        const expected = 'test\\n newline'
         const actual = graph.escape_gremlin_special_characters(input)
         expect(actual).toBe(expected)
       })
@@ -105,27 +110,6 @@ describe('GraphDB tests', () => {
         const expected_result = JSON.parse('{"value1": ["valuea", "valueb"]}')
         const actual_result = graph.serializeProperties(input_value)
         expect(actual_result).toMatchObject(expected_result)
-      })
-    })
-    describe('test stringToMilliseconds', () => {
-      const stringToMilliseconds = graph.__get__('stringToMilliseconds')
-      test('stringToMilliseconds returns ms when only ms given', () => {
-        const input_value = '00:00:00.1040000'
-        const expected_result = 104
-        const actual_result = stringToMilliseconds(input_value)
-        expect(actual_result).toEqual(expected_result)
-      })
-      test('stringToMilliseconds returns ms with seconds, hours, minutes', () => {
-        const input_value = '01:02:03.1040000'
-        const expected_result = 3723104
-        const actual_result = stringToMilliseconds(input_value)
-        expect(actual_result).toEqual(expected_result)
-      })
-      test('stringToMilliseconds returns ms when longer ms given', () => {
-        const input_value = '00:00:00.1044678'
-        const expected_result = 104
-        const actual_result = stringToMilliseconds(input_value)
-        expect(actual_result).toEqual(expected_result)
       })
     })
 
@@ -248,7 +232,7 @@ describe('GraphDB tests', () => {
       const execute_query = graph.__get__('execute_query')
 
       let mockGremlinClient = jest.fn(() => { })
-      const process_query = (query) => {
+      const process_query_and_mock_response = (query) => {
         const reject_error = (x_ms_status_code) => {
           return Promise.reject({
             name: 'ResponseError',
@@ -274,21 +258,31 @@ describe('GraphDB tests', () => {
           return Promise.resolve('success')
         }
       }
-      mockGremlinClient['submit'] = jest.fn((query) => process_query(query))
-      test('test 400 error', async () => {
-        // increase jest timeout to 60 seconds
-        const expected_result = { success: false, error: 'xxx', status_code: 400 }
-        const actual_result = await execute_query(mockGremlinClient, '400', 2)
-        expect(actual_result).toMatchObject(expected_result)
-        expect(mockGremlinClient.submit).toHaveBeenCalledTimes(1)
+      mockGremlinClient['submit'] = jest.fn((query) => process_query_and_mock_response(query))
+      describe('test retry logic', () => {
+        test('test 400 error', async () => {
+          // increase jest timeout to 60 seconds
+          const expected_result = { success: false, error: 'xxx', status_code: 400 }
+          const actual_result = await execute_query(mockGremlinClient, '400', 2)
+          expect(actual_result).toMatchObject(expected_result)
+          expect(mockGremlinClient.submit).toHaveBeenCalledTimes(1)
+        })
+        test('test retriable 429 error', async () => {
+          // increase jest timeout to 60 seconds
+          const number_of_tries = 2
+          const expected_result = { success: false, error: 'xxx', status_code: 429 }
+          const actual_result = await execute_query(mockGremlinClient, '429', number_of_tries)
+          expect(actual_result).toMatchObject(expected_result)
+          expect(mockGremlinClient.submit).toHaveBeenCalledTimes(number_of_tries)
+        })
       })
-      test('test retriable 429 error', async () => {
-        // increase jest timeout to 60 seconds
-        const number_of_tries = 2
-        const expected_result = { success: false, error: 'xxx', status_code: 429 }
-        const actual_result = await execute_query(mockGremlinClient, '429', number_of_tries)
-        expect(actual_result).toMatchObject(expected_result)
-        expect(mockGremlinClient.submit).toHaveBeenCalledTimes(number_of_tries)
+      describe.skip('test add_line', () => {
+        test('test adding a line', async () => {
+          const expected_result = { success: true, data: 'success' }
+          const actual_result = await execute_query(mockGremlinClient, 'add_line', 2)
+          expect(actual_result).toMatchObject(expected_result)
+          expect(mockGremlinClient).toHaveBeenCalledWith('add_line')
+        })
       })
     })
 
