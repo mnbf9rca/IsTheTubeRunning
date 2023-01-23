@@ -1,8 +1,9 @@
 const config = require('../utils/config')
+const { execute_query } = require('./graphdb.execute')
 const Gremlin = require('gremlin')
 const logger = require('../utils/logger')
 const helpers = require('../utils/helpers')
-const {execute_query} = require('./graphdb.execute')
+
 
 const fs = require('fs')
 
@@ -202,7 +203,7 @@ const find_route_between_stops = async (starting_stop, ending_stop, line) => {
   const result = await execute_query(stoppoint_client, query, 5, params)
   const simplified_routes = simplify_discovered_route(result)
 
-return { ...result, data: simplified_routes }
+  return { ...result, data: simplified_routes }
 }
 
 const simplify_discovered_route = (route_result) => {
@@ -322,6 +323,4 @@ module.exports = {
   serializeProperties,
   serialize_stoppoint,
   serialize_line,
-  safe_get_property,
-  execute_query
-}
+  safe_get_property}

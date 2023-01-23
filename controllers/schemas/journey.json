@@ -1,0 +1,98 @@
+{
+  "$schema": "https://json-schema.org/draft/2019-09/schema",
+  "$id": "http://cynexia.com/schemas/journey.json",
+  "type": "object",
+  "title": "Journey schema",
+  "required": [
+    "owner",
+    "startpoint",
+    "endpoint",
+    "valid_days",
+    "alert_from",
+    "alert_to",
+    "alert_methods",
+    "journey_segments"
+  ],
+  "properties": {
+    "owner": {
+      "type": "string",
+      "title": "ID of the user who owns this journey"
+    },
+    "startpoint": {
+      "type": "string",
+      "title": "naptan code of the startpoint"
+    },
+    "endpoint": {
+      "type": "string",
+      "title": "naptan code of the endpoint"
+    },
+    "valid_days": {
+      "type": "array",
+      "default": [],
+      "title": "Which days should this alert run",
+      "items": [
+        {
+          "type": "string",
+          "title": "days of the week",
+          "enum": [
+            "monday",
+            "tuesday",
+            "wednesday",
+            "thursday",
+            "friday",
+            "saturday",
+            "sunday"
+          ]
+        }
+      ]
+    },
+    "alert_from": {
+      "type": "string",
+      "default": "",
+      "title": "Time (in 24hr format, london time zone) to start alerting"
+    },
+    "alert_to": {
+      "type": "string",
+      "default": "",
+      "title": "Time (in 24hr format, london time zone) to stop alerting"
+    },
+    "alert_methods": {
+      "type": "array",
+      "default": [],
+      "title": "methods to alert the user of disruption",
+      "items": {
+        "type": "string",
+        "title": "A list of methods"
+      }
+    },
+    "journey_segments": {
+      "type": "array",
+      "default": [],
+      "title": "Journey segments making up this journey",
+      "items": {
+        "type": "object",
+        "default": {},
+        "title": "Journey segment",
+        "required": [
+          "segment_start",
+          "segment_end",
+          "segment_line"
+        ],
+        "properties": {
+          "segment_start": {
+            "type": "string",
+            "title": "naptan code of the start of the segment"
+          },
+          "segment_end": {
+            "type": "string",
+            "title": "naptan code of the end of the segment"
+          },
+          "segment_line": {
+            "type": "string",
+            "title": "the line of this segment"
+          }
+        }
+      }
+    }
+  }
+}

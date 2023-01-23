@@ -1,8 +1,11 @@
 const { describe, expect, test } = require('@jest/globals')
 const config = require('../../utils/config')
+
 const Gremlin = require('gremlin')
 
 const graph = require('../graphdb')
+const graph_execute = require('../graphdb.execute')
+
 const fs = require('fs')
 
 
@@ -20,6 +23,62 @@ const graph_test_client = new Gremlin.driver.Client(
 )
 
 const randomString = () => Math.random().toString(36).slice(2, 7)
+
+
+
+const generate_line = (first_stoppoint, second_stoppoint) => {
+  /*
+    const add_query = `addE('TO')
+                    .from(g.V('${line_edge['from']}'))
+                    .to(g.V('${line_edge['to']}'))
+                    .property('id', '${line_edge['id']}')
+                    .property('line', '${line_edge['lineName']}')
+                    .property('branch', '${line_edge['branchId']}')
+                    .property('direction', '${line_edge['direction']}')`
+                    */
+  const line_name = randomString()
+  const branch_number = Math.floor(Math.random() * 11)
+  const line_id = `${line_name}-${branch_number}-${first_stoppoint['id']}-${second_stoppoint['id']}`.replaceAll(' ', '-')
+  const line = {
+    type: 'line',
+    id: line_id,
+    from: first_stoppoint['id'],
+    to: second_stoppoint['id'],
+    lineName: line_name,
+    branchId: branch_number,
+    direction: randomString()
+  }
+  return line
+}
+
+const generate_random_array = (number_of_modes) => {
+  // return an array containing number_of_modes randomString()
+  const modes = new Array(number_of_modes).fill(null).map(() => randomString())
+  return modes
+}
+
+const generate_random_lat_lon = () => {
+  // generate a random lat and lon that are somewhere roughly inside London
+  const lat = Math.random() * (51.5 - 51.0) + 51.0
+  const lon = Math.random() * (-0.1 - -0.5) + -0.5
+  return [lat, lon]
+}
+
+const generate_random_stoppoint = (number_of_modes, number_of_lines) => {
+  const new_object_id = randomString()
+  const [lat, lon] = generate_random_lat_lon()
+  const stoppoint = {
+    type: 'stoppoint',
+    id: new_object_id,
+    name: randomString(),
+    naptanId: new_object_id,
+    lat: lat.toString(),
+    lon: lon.toString(),
+    modes: generate_random_array(number_of_modes),
+    lines: generate_random_array(number_of_lines)
+  }
+  return stoppoint
+}
 
 describe('GraphDB tests', () => {
   describe('test helper functions', () => {
@@ -114,13 +173,7 @@ describe('GraphDB tests', () => {
     })
 
   })
-  describe('test connecting to graphdb', () => {
-    test('stoppoint_authenticator is defined', () => {
-      expect(graph.__get__('stoppoint_authenticator')).toBeDefined()
-    })
 
-
-  })
   // TODO: create second user to access graphdb
   describe('test graphdb queries', () => {
     afterAll(async () => {
@@ -229,9 +282,9 @@ describe('GraphDB tests', () => {
     })
     describe('tests with stubbed graph client', () => {
       //create a mocked client to allow us to throw an error
-      const execute_query = graph.__get__('execute_query')
 
       let mockGremlinClient = jest.fn(() => { })
+
       const process_query_and_mock_response = (query) => {
         const reject_error = (x_ms_status_code) => {
           return Promise.reject({
@@ -263,7 +316,7 @@ describe('GraphDB tests', () => {
         test('test 400 error', async () => {
           // increase jest timeout to 60 seconds
           const expected_result = { success: false, error: 'xxx', status_code: 400 }
-          const actual_result = await execute_query(mockGremlinClient, '400', 2)
+          const actual_result = await graph_execute.execute_query(mockGremlinClient, '400', 2)
           expect(actual_result).toMatchObject(expected_result)
           expect(mockGremlinClient.submit).toHaveBeenCalledTimes(1)
         })
@@ -271,74 +324,12 @@ describe('GraphDB tests', () => {
           // increase jest timeout to 60 seconds
           const number_of_tries = 2
           const expected_result = { success: false, error: 'xxx', status_code: 429 }
-          const actual_result = await execute_query(mockGremlinClient, '429', number_of_tries)
+          const actual_result = await graph_execute.execute_query(mockGremlinClient, '429', number_of_tries)
           expect(actual_result).toMatchObject(expected_result)
           expect(mockGremlinClient.submit).toHaveBeenCalledTimes(number_of_tries)
-        })
-      })
-      describe.skip('test add_line', () => {
-        test('test adding a line', async () => {
-          const expected_result = { success: true, data: 'success' }
-          const actual_result = await execute_query(mockGremlinClient, 'add_line', 2)
-          expect(actual_result).toMatchObject(expected_result)
-          expect(mockGremlinClient).toHaveBeenCalledWith('add_line')
         })
       })
     })
 
   })
 })
-
-const generate_random_stoppoint = (number_of_modes, number_of_lines) => {
-  const new_object_id = randomString()
-  const [lat, lon] = generate_random_lat_lon()
-  const stoppoint = {
-    type: 'stoppoint',
-    id: new_object_id,
-    name: randomString(),
-    naptanId: new_object_id,
-    lat: lat.toString(),
-    lon: lon.toString(),
-    modes: generate_random_array(number_of_modes),
-    lines: generate_random_array(number_of_lines)
-  }
-  return stoppoint
-}
-
-const generate_line = (first_stoppoint, second_stoppoint) => {
-  /*
-    const add_query = `addE('TO')
-                    .from(g.V('${line_edge['from']}'))
-                    .to(g.V('${line_edge['to']}'))
-                    .property('id', '${line_edge['id']}')
-                    .property('line', '${line_edge['lineName']}')
-                    .property('branch', '${line_edge['branchId']}')
-                    .property('direction', '${line_edge['direction']}')`
-                    */
-  const line_name = randomString()
-  const branch_number = Math.floor(Math.random() * 11)
-  const line_id = `${line_name}-${branch_number}-${first_stoppoint['id']}-${second_stoppoint['id']}`.replaceAll(' ', '-')
-  const line = {
-    type: 'line',
-    id: line_id,
-    from: first_stoppoint['id'],
-    to: second_stoppoint['id'],
-    lineName: line_name,
-    branchId: branch_number,
-    direction: randomString()
-  }
-  return line
-}
-
-const generate_random_array = (number_of_modes) => {
-  // return an array containing number_of_modes randomString()
-  const modes = new Array(number_of_modes).fill(null).map(() => randomString())
-  return modes
-}
-
-const generate_random_lat_lon = () => {
-  // generate a random lat and lon that are somewhere roughly inside London
-  const lat = Math.random() * (51.5 - 51.0) + 51.0
-  const lon = Math.random() * (-0.1 - -0.5) + -0.5
-  return [lat, lon]
-}

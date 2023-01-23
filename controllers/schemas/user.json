@@ -1,0 +1,60 @@
+{
+  "$schema": "https://json-schema.org/draft/2019-09/schema",
+  "$id": "http://cynexia.com/schemas/user.json",
+  "type": "object",
+  "title": "User Schema",
+  "required": [
+      "email",
+      "hashed_password",
+      "password_salt",
+      "email_verified",
+      "active_user",
+      "journeys"
+  ],
+  "properties": {
+      "firstname": {
+          "type": "string",
+          "default": "",
+          "title": "user's first name"
+      },
+      "lastname": {
+          "type": "string",
+          "default": "",
+          "title": "user's last name"
+      },
+      "email": {
+          "type": "string",
+          "title": "user's email address"
+      },
+      "hashed_password": {
+          "type": "string",
+      },
+        "password_salt": {
+            "type": "string",
+        },
+      "email_verified": {
+          "type": "boolean",
+          "default": false,
+          "title": "has the user verified their email address?"
+      },
+      "active_user": {
+          "type": "boolean",
+          "default": false,
+          "title": "Has the user logged in recently"
+      },
+      "journeys": {
+          "type": "array",
+          "default": [],
+          "title": "Journeys owned by this user. May be empty array.",
+          "items": {
+              "type": "string",
+              "title": "the ID of a journey"
+          }
+      },
+      "last_login": {
+          "type": "string",
+          "format": "date-time",
+          "title": "the last time the user successfully logged in"
+      },
+  }
+}
