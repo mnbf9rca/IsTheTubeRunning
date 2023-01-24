@@ -1,0 +1,60 @@
+{
+  "$schema": "https://json-schema.org/draft/2019-09/schema",
+  "$id": "http://cynexia.com/schemas/graphdb/request-add-stoppoint.json",
+  "type": "object",
+  "title": "GraphDB Request add_stoppoint",
+  "required": [
+      "type",
+      "id",
+      "name",
+      "naptanId",
+      "lat",
+      "lon",
+      "modes",
+      "lines"
+  ],
+  "properties": {
+      "type": {
+          "type": "string",
+          "title": "Object type",
+          "enum": ["stoppoint"]
+      },
+      "id": {
+          "type": "string",
+          "title": "The id of the stoppoint"
+      },
+      "name": {
+          "type": "string",
+          "title": "The name of the stoppoint"
+      },
+      "naptanId": {
+          "type": "string",
+          "title": "The naptanId of the stoppoint"
+      },
+      "lat": {
+          "type": "string",
+          "title": "The latitude of the stoppoint"
+      },
+      "lon": {
+          "type": "string",
+          "title": "The longitude of the stoppoint"
+      },
+      "modes": {
+          "type": "array",
+          "title": "The modes which serve this stoppoint",
+          "items": {
+              "type": "string",
+              "title": "mode"
+          }
+      },
+      "lines": {
+          "type": "array",
+          "default": [],
+          "title": "The lines which serve this stoppoint",
+          "items": {
+              "type": "string",
+              "title": "A line"
+          }
+      }
+  }
+}

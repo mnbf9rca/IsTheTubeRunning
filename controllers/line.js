@@ -8,7 +8,7 @@ const path = require('node:path')
 
 function load_file(filename) {
   try {
-    return fs.readFileSync(path.resolve(__dirname, 'schemas', filename), 'utf8')
+    return JSON.parse(fs.readFileSync(path.resolve(__dirname, 'schemas', filename), 'utf8'))
   } catch (err) {
     console.error(err)
     throw err
@@ -16,7 +16,7 @@ function load_file(filename) {
 
 }
 
-const simpified_tfl_route_sequence = JSON.parse(load_file('simplified_tfl_route_squence.json'))
+const simpified_tfl_route_sequence = load_file('simplified_tfl_route_squence.json')
 
 async function get_lines_for_modes(modes) {
   /**

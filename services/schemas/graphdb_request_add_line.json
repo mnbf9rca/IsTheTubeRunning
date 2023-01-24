@@ -1,0 +1,41 @@
+{
+  "$schema": "https://json-schema.org/draft/2019-09/schema",
+  "$id": "http://cynexia.com/schemas/graphdb/request-add-line-segment.json",
+  "type": "object",
+  "title": "GraphDB Request add_line",
+  "required": [
+      "from",
+      "to",
+      "id",
+      "lineName",
+      "branchId",
+      "direction"
+  ],
+  "properties": {
+      "from": {
+          "type": "string",
+          "title": "naptanId of the start of the line segment"
+      },
+      "to": {
+          "type": "string",
+          "title": "naptanId of the end of the line segment"
+      },
+      "id": {
+          "type": "string",
+          "title": "The id for this line segment"
+      },
+      "lineName": {
+          "type": "string",
+          "title": "Name of the line"
+      },
+      "branchId": {
+          "type": ["integer", "string"],
+          "title": "Branch ID"
+      },
+      "direction": {
+          "type": "string",
+          "enum": ["inbound", "outbound"],
+          "title": "The direction - inbound or outbound"
+      }
+  }
+}

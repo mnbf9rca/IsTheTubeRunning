@@ -6,9 +6,9 @@
     "id": "TEST_id_data",
     "lineName": "line_data",
     "branchId": "branch_data",
-    "direction": "direction_data"
+    "direction": "inbound"
   },
-  "query_regex": "addE\\('TO'\\)\\s*\\.from\\(g\\s*\\.V\\('from_data'\\)\\)\\s*\\.to\\(g\\s*\\.V\\('to_data'\\)\\)\\s*\\.property\\('id', 'TEST_id_data'\\)\\s*\\.property\\('line', 'line_data'\\)\\s*\\.property\\('branch', 'branch_data'\\)\\s*\\.property\\('direction', 'direction_data'\\)",
+  "query_regex": "addE\\('TO'\\)\\s*\\.from\\(g\\s*\\.V\\('from_data'\\)\\)\\s*\\.to\\(g\\s*\\.V\\('to_data'\\)\\)\\s*\\.property\\('id', 'TEST_id_data'\\)\\s*\\.property\\('line', 'line_data'\\)\\s*\\.property\\('branch', 'branch_data'\\)\\s*\\.property\\('direction', 'inbound'\\)",
   "response": {
     "_items": [
       {
@@ -22,7 +22,7 @@
         "properties": {
           "line": "line_data",
           "branch": "branch_data",
-          "direction": "direction_data"
+          "direction": "inbound"
         }
       }
     ],
@@ -44,7 +44,7 @@
         "type": "edge",
         "line": "line_data",
         "branch": "branch_data",
-        "direction": "direction_data"
+        "direction": "inbound"
       }
     ],
     "success": true

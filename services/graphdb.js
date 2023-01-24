@@ -3,9 +3,22 @@ const { execute_query } = require('./graphdb.execute')
 const Gremlin = require('gremlin')
 const logger = require('../utils/logger')
 const helpers = require('../utils/helpers')
+const validate_json = require('jsonschema')
 
+var fs = require('fs')
+const path = require('node:path')
+function load_schema(filename) {
+  try {
+    return JSON.parse(fs.readFileSync(path.resolve(__dirname, 'schemas', filename), 'utf8'))
+  } catch (err) {
+    console.error(err)
+    throw err
+  }
 
-const fs = require('fs')
+}
+
+const graphdb_request_add_stoppoint = load_schema('graphdb_request_add_stoppoint.json')
+const graphdb_request_add_line = load_schema('graphdb_request_add_line.json')
 
 const gremlin_db_string = `/dbs/${config.graph_database}/colls/${config.graph_stoppoint_colleciton}`
 const stoppoint_authenticator = new Gremlin.driver.auth.PlainTextSaslAuthenticator(gremlin_db_string, config.graph_primary_key)
@@ -80,6 +93,7 @@ const add_stoppoint = async (stoppoint, upsert = true) => {
    * @param {object} stoppoint - stoppoint object
    * @returns {Promise} - pending query to graphdb
    */
+  validate_json.validate(stoppoint, graphdb_request_add_stoppoint, { throwFirst: true })
 
   // construct a query to add the stoppoint to the graphdb
   const add_query = `addV('${stoppoint['type']}')
@@ -135,7 +149,7 @@ const add_user = async (user, upsert = false) => {
   ${user['last_login'] ? `.property('last_login', '${user['last_login']}')` : ''}`
 
   // as this contains user data, we need to pass these values as parameters
-  const params =   {
+  const params = {
     email: user['email'],
     firstname: user['firstname'],
     lastname: user['lastname'],
@@ -154,7 +168,7 @@ const add_line = async (line_edge, upsert = true) => {
   // a line is an object with the following properties:
   // id, name, modeName, modeId, routeSections
 
-  const line_id = line_edge['id']
+  validate_json.validate(line_edge, graphdb_request_add_line, { throwFirst: true })
 
   // logger.debug(`adding line ${line_id} to graphdb`)
 
@@ -323,4 +337,5 @@ module.exports = {
   serializeProperties,
   serialize_stoppoint,
   serialize_line,
-  safe_get_property}
+  safe_get_property
+}
