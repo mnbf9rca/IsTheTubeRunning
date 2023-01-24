@@ -1,0 +1,106 @@
+{
+  "description": "matches add_stoppoint statement 1",
+  "input": {
+    "type": "stoppoint",
+    "id": "TEST_id_data",
+    "name": "name data",
+    "naptanId": "naptanId_data",
+    "lat": "51.51",
+    "lon": "-0.12",
+    "modes": [
+      "mode_1",
+      "mode_2"
+    ],
+    "lines": [
+      "line_1",
+      "line_2"
+    ]
+  },
+  "query_regex": "addV\\('stoppoint'\\)\\s*\\.property\\('id', 'TEST_id_data'\\)\\s*\\.property\\('name', 'name data'\\)\\s*\\.property\\('naptanId', 'naptanId_data'\\)\\s*\\.property\\('lat', '51.51'\\)\\s*\\.property\\('lon', '-0.12'\\)\\s*\\.property\\('modes', 'mode_1'\\)\\s*\\.property\\('modes', 'mode_2'\\)\\s*\\.property\\('lines', 'line_1'\\)\\s*\\.property\\('lines', 'line_2'\\)",
+  "response": {
+    "_items": [
+      {
+        "id": "TEST_id_data",
+        "label": "stoppoint",
+        "type": "vertex",
+        "properties": {
+          "name": [
+            {
+              "id": "ae4327fb-563f-4414-b392-9b123e73bfaf",
+              "value": "name data"
+            }
+          ],
+          "naptanId": [
+            {
+              "id": "TEST_id_data|naptanId",
+              "value": "naptanId_data"
+            }
+          ],
+          "lat": [
+            {
+              "id": "f66eb6af-8430-47e3-9418-5f06ef960a1e",
+              "value": "51.51"
+            }
+          ],
+          "lon": [
+            {
+              "id": "f5efa803-4172-49df-8041-d0350c7c0b5b",
+              "value": "-0.12"
+            }
+          ],
+          "modes": [
+            {
+              "id": "ad071022-1c81-443b-b824-c5342ab58129",
+              "value": "mode_1"
+            },
+            {
+              "id": "3af98a91-4c04-42a6-9756-096694502b72",
+              "value": "mode_2"
+            }
+          ],
+          "lines": [
+            {
+              "id": "2da927b3-0a26-4661-a210-f05a1885a2d5",
+              "value": "line_1"
+            },
+            {
+              "id": "e4405b8a-cc42-4f30-8a38-5dfb7a547845",
+              "value": "line_2"
+            }
+          ]
+        }
+      }
+    ],
+    "attributes": {
+      "x-ms-status-code": 200,
+      "x-ms-activity-id": "11f2c461-ea11-4579-ac24-baf4f81c11c8",
+      "x-ms-request-charge": 15.05,
+      "x-ms-total-request-charge": 15.05,
+      "x-ms-server-time-ms": 6.9947,
+      "x-ms-total-server-time-ms": 6.9947
+    },
+    "length": 1
+  },
+  "expected": {
+    "data": [
+      {
+        "id": "TEST_id_data",
+        "label": "stoppoint",
+        "type": "vertex",
+        "name": "name data",
+        "naptanId": "naptanId_data",
+        "lat": "51.51",
+        "lon": "-0.12",
+        "modes": [
+          "mode_1",
+          "mode_2"
+        ],
+        "lines": [
+          "line_1",
+          "line_2"
+        ]
+      }
+    ],
+    "success": true
+  }
+}

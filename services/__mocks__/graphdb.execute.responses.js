@@ -19,9 +19,11 @@ const get_data = (filename) => {
   return helpers.jsonParser(load_file(filename))
 }
 
-let add_line = get_data('add_line.json')
+const add_line = get_data('add_line.json')
+const add_stoppoint_simple = get_data('add_stoppoint_simple.json')
 
 
 module.exports = {
-  add_line
+  add_line,
+  add_stoppoint_simple
 }

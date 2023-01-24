@@ -4,7 +4,7 @@ const config = require('../../utils/config')
 const {stringToMilliseconds} = require('../graphdb.execute')
 
 
-describe('GraphDB tests', () => {
+describe('graphdb.execute tests', () => {
   describe('test helper functions', () => {
     describe('test stringToMilliseconds', () => {
       // const stringToMilliseconds = graph.__get__('stringToMilliseconds')

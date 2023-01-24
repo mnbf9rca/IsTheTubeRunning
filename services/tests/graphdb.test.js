@@ -6,9 +6,6 @@ const Gremlin = require('gremlin')
 const graph = require('../graphdb')
 const graph_execute = require('../graphdb.execute')
 
-const fs = require('fs')
-
-
 const gremlin_db_string = `/dbs/${config.graph_database}/colls/${config.graph_stoppoint_colleciton}`
 const stoppoint_authenticator = new Gremlin.driver.auth.PlainTextSaslAuthenticator(gremlin_db_string, config.graph_primary_key)
 

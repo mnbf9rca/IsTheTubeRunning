@@ -8,16 +8,19 @@ const mockquery = async function (client, query, maxAttempts, params = null) {
   // look up the query in the mock data
   // if it exists, return the mock data
   // otherwise throw an error
-  // let r = await originalModule.execute_query(client,query,maxAttempts,params)
+  //let r = await originalModule.execute_query(client,query,maxAttempts,params)
 
-  if (query.match(mockdata.add_line.query_regex)) {
-    console.log('matched add_line query')
-    return Promise.resolve({ data: mockdata.add_line.response, success: true })
+  // iterate through the keys in mockdata. If they match, use the return value
+
+  for (const [key, value] of Object.entries(mockdata)) {
+    if (query.match(value.query_regex)) {
+      console.log(`matched value ${key}`)
+      return Promise.resolve({ data: value.response, success: true })
+    }
   }
-  else {
-    throw new Error('query not found in mock data')
-  }
-  
+  throw new Error('query not found in mock data')
+
+
 
 
 }
