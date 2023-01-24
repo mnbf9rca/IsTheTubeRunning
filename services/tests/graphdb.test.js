@@ -43,7 +43,7 @@ const generate_line = (first_stoppoint, second_stoppoint) => {
     to: second_stoppoint['id'],
     lineName: line_name,
     branchId: branch_number,
-    direction: randomString()
+    direction: 'inbound'
   }
   return line
 }
