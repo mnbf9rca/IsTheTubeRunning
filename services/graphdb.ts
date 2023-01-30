@@ -10,7 +10,7 @@ const validate_json = require('jsonschema')
 
 var fs = require('fs')
 const path = require('node:path')
-function load_schema(filename) {
+function load_schema(filename: string): object {
   try {
     return JSON.parse(fs.readFileSync(path.resolve(__dirname, 'schemas', filename), 'utf8'))
   } catch (err) {
@@ -42,7 +42,7 @@ async () => {
 }
 
 
-function escape_gremlin_special_characters(str) {
+function escape_gremlin_special_characters(str: string) {
   /**
    * Escapes special characters in a string for use in gremlin queries
    * from http://groovy-lang.org/syntax.html#_escaping_special_characters
@@ -74,7 +74,7 @@ function escape_gremlin_special_characters(str) {
 }
 
 
-const add_array_value = (arr, property_name) => {
+const add_array_value = (arr: any[], property_name: string) => {
   /**
    * Converts an array to a string containing the same property
    * with each different value ('multi-properties')
@@ -123,10 +123,11 @@ const add_stoppoint = async (stoppoint: Stoppoint, upsert = true) => {
 
   const result = await execute_query(stoppoint_client, query, 5)
   const serialized_items = serialize_stoppoint(result['data']['_items'])
-  return { ...result, data: serialized_items }
+  const deserialized_items = serialized_items.map((item) => Stoppoint.fromObject(item))
+  return { ...result, data: deserialized_items }
 }
 
-const add_user = async (user, upsert = false) => {
+const add_user = async (user: string, upsert = false) => {
   /**
    * Adds a user to the graphdb.
    * user has: email, hashed_password, password_salt, email_verified, active_user, and an array of [journeys]

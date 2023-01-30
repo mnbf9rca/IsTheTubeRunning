@@ -26,7 +26,7 @@ const randomString = () => Math.random().toString(36).slice(2, 7)
 
 
 
-const generate_line = (first_stoppoint, second_stoppoint) => {
+const generate_line = (first_stoppoint: Stoppoint, second_stoppoint: Stoppoint) => {
   /*
     const add_query = `addE('TO')
                     .from(g.V('${line_edge['from']}'))
@@ -51,7 +51,7 @@ const generate_line = (first_stoppoint, second_stoppoint) => {
   return line
 }
 
-const generate_random_array = (number_of_modes) => {
+const generate_random_array = (number_of_modes: number) => {
   // return an array containing number_of_modes randomString()
   const modes = new Array(number_of_modes).fill(null).map(() => randomString())
   return modes
@@ -64,7 +64,7 @@ const generate_random_lat_lon = () => {
   return [lat, lon]
 }
 
-const generate_random_stoppoint = (number_of_modes, number_of_lines) => {
+const generate_random_stoppoint = (number_of_modes: number, number_of_lines: number)=> {
   const new_object_id = randomString()
   const [lat, lon] = generate_random_lat_lon()
   const stoppoint = {
@@ -80,7 +80,7 @@ const generate_random_stoppoint = (number_of_modes, number_of_lines) => {
   return stoppoint
 }
 
-const generate_random_Stoppoint = (number_of_modes, number_of_lines): Stoppoint => {
+const generate_random_Stoppoint = (number_of_modes: number, number_of_lines: number): Stoppoint => {
   const stoppoint = generate_random_stoppoint(number_of_modes, number_of_lines)
   return new Stoppoint(stoppoint.type, stoppoint.id, stoppoint.name, stoppoint.naptanId, stoppoint.lat, stoppoint.lon, stoppoint.modes, stoppoint.lines)
 }
@@ -132,8 +132,8 @@ describe('GraphDB tests', () => {
         expect(actual_result).toMatchObject(expected_result)
       })
       test('returns a properly formed object for empty result', () => {
-        const input_value = []
-        const expected_result = []
+        const input_value: any[] = []
+        const expected_result: any[] = []
         const actual_result = graph.serialize_stoppoint(input_value)
         expect(actual_result).toMatchObject(expected_result)
       })
@@ -189,16 +189,25 @@ describe('GraphDB tests', () => {
 
     describe('tests with actual DB queries', () => {
       let list_of_added_stoppoints: string[] = []
-      let known_stoppoints = { first: null, second: null, line: null }
+      let known_stoppoints = create_known_stoppoints()
+      interface iKnown_stoppoints {
+        first: Stoppoint
+        second: Stoppoint
+        line: Object
+      }
+      function create_known_stoppoints(): iKnown_stoppoints {
+        const first = generate_random_Stoppoint(2, 3)
+        const second = generate_random_Stoppoint(2, 2)
+        const line = generate_line(first, second)
+        return { first, second, line }
+      }
+
       beforeAll(async () => {
-        known_stoppoints.first = generate_random_stoppoint(2, 3)
-        known_stoppoints.second = generate_random_stoppoint(2, 2)
         await add_and_push_stoppoint(known_stoppoints.first)
         await add_and_push_stoppoint(known_stoppoints.second)
-        known_stoppoints.line = generate_line(known_stoppoints.first, known_stoppoints.second)
         await graph.add_line(known_stoppoints.line, true)
       })
-      function add_and_push_stoppoint(stoppoint) {
+      function add_and_push_stoppoint(stoppoint: Stoppoint) {
         list_of_added_stoppoints.push(stoppoint['id'])
         return graph.add_stoppoint(stoppoint, true)
       }
@@ -210,7 +219,7 @@ describe('GraphDB tests', () => {
         // if delete_promise is rejected, catch the error
 
         const delete_promise = await graph_test_client.submit(drop_query)
-          .catch((err) => {
+          .catch((err: Error) => {
             console.error('unable to delete test data stoppoints')
             console.error(err)
             console.error(err.stack)
@@ -234,7 +243,7 @@ describe('GraphDB tests', () => {
         // in the return value, the label is the same as the type and the type is the DB object type, vertex
         // TODO here, we need to cast to a new type, Graph_Stoppoint or something
         // as the spread syntax is exposing all of the private properties
-        const expected_result = { ...new_stoppoint.getObject(), 'lat': String(new_stoppoint.lat), 'lon': String(new_stoppoint.lon), 'label': new_stoppoint['type'], 'type': 'vertex' }
+        const expected_result = Stoppoint.fromObject({ ...new_stoppoint.getObject(), 'lat': String(new_stoppoint.lat), 'lon': String(new_stoppoint.lon), 'label': new_stoppoint['type'], 'type': 'vertex' })
         const id = new_stoppoint['id']
         list_of_added_stoppoints.push(id)
         const actual_result = await graph.add_stoppoint(new_stoppoint, true)
@@ -255,8 +264,8 @@ describe('GraphDB tests', () => {
             type: 'vertex',
             name: known_stoppoints.first.name,
             naptanId: known_stoppoints.first.id,
-            lat: known_stoppoints.first.lat,
-            lon: known_stoppoints.first.lon,
+            lat: String(known_stoppoints.first.lat),
+            lon: String(known_stoppoints.first.lon),
             modes: known_stoppoints.first.modes,
             lines: known_stoppoints.first.lines
           },
@@ -274,8 +283,8 @@ describe('GraphDB tests', () => {
             type: 'vertex',
             name: known_stoppoints.second.name,
             naptanId: known_stoppoints.second.id,
-            lat: known_stoppoints.second.lat,
-            lon: known_stoppoints.second.lon,
+            lat: String(known_stoppoints.second.lat),
+            lon: String(known_stoppoints.second.lon),
             modes: known_stoppoints.second.modes,
             lines: known_stoppoints.second.lines
           }]],
@@ -292,8 +301,8 @@ describe('GraphDB tests', () => {
 
       let mockGremlinClient = jest.fn(() => { })
 
-      const process_query_and_mock_response = (query) => {
-        const reject_error = (x_ms_status_code) => {
+      const process_query_and_mock_response = (query: any) => {
+        const reject_error = (x_ms_status_code: number) => {
           return Promise.reject({
             name: 'ResponseError',
             statusCode: 500,
@@ -310,7 +319,7 @@ describe('GraphDB tests', () => {
             }
           })
         }
-        const q = parseInt(query)
+        const q = parseInt(query)  
         if (!isNaN(q)) {
           return reject_error(q)
         } else {

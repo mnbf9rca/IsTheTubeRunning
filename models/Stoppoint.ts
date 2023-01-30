@@ -15,6 +15,18 @@ enum Modes {
   tube = 'tube',
 }
 
+interface Stoppoint_Object {
+  label: string;
+  type: string;
+  id: string;
+  name: string;
+  naptanId: string;
+  lat: number | string;
+  lon: number | string;
+  modes: Mode[];
+  lines: Line[];
+}
+
 type Mode = keyof typeof Modes;
 
 export default class Stoppoint {
@@ -37,6 +49,20 @@ export default class Stoppoint {
     this._modes = modes;
     this._lines = lines;
   }
+
+  static fromObject(obj: Stoppoint_Object): Stoppoint {
+    return new Stoppoint(
+      obj.type,
+      obj.id,
+      obj.name,
+      obj.naptanId,
+      obj.lat,
+      obj.lon,
+      obj.modes,
+      obj.lines,
+    );
+  }
+
 
   get id(): string {
     return this._id;
@@ -84,7 +110,7 @@ export default class Stoppoint {
     return this._modes.map((mode) => String(mode));
   }
 
-  getObject(): object {
+  getObject(): Stoppoint_Object {
     return {
       type: this._type,
       id: this._id,
