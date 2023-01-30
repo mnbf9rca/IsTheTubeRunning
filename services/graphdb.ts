@@ -310,12 +310,14 @@ function serialize_stoppoint(results) {
 
 
 function serializeProperties(properties: { [key: string]: string | string[] | number | number[] | boolean | boolean[] }) {
+  // TODO: move this to the model...
+  const properties_which_are_arrays = ['lines', 'modes']
   let serializedProperties: { [key: string]: string[] | number[] | boolean[] | string | number | boolean } = {}
   Object.keys(properties).forEach(key => {
     const value = properties[key]
     if (Array.isArray(value)) {
       serializedProperties[key] = value.map(item => safe_get_property(item, 'value'))
-      if (serializedProperties[key].length === 1) {
+      if (serializedProperties[key].length === 1 && !properties_which_are_arrays.includes(key)) {
         serializedProperties[key] = serializedProperties[key][0]
       }
     } else {

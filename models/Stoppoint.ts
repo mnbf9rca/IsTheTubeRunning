@@ -55,7 +55,7 @@ export default class Stoppoint implements IStoppoint{
     this._naptanId = naptanId;
     this._lat = Number(lat);
     this._lon = Number(lon);
-    this._modes = modes;
+    this._modes = Array.isArray(modes) ? modes : [modes];
     this._lines = lines;
   }
 
@@ -63,7 +63,8 @@ export default class Stoppoint implements IStoppoint{
     // check of obj.modes contain valid modes
     const valid_modes = Object.keys(Modes);
     const modes: Mode[] = [];
-    obj.modes.forEach((mode: string) => {
+    let object_modes: string[] = Array.isArray(obj.modes) ? obj.modes : [obj.modes];
+    object_modes.forEach((mode: string) => {
       if (valid_modes.includes(mode)) {
         modes.push(mode as Mode);
       } else {
