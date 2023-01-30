@@ -1,4 +1,5 @@
 const { describe, expect, test } = require('@jest/globals')
+import Stoppoint from "../../models/Stoppoint"
 
 const graph = require('../graphdb')
 jest.mock('../graphdb.execute')
@@ -35,7 +36,7 @@ describe('graphdb.execute tests with mocked graph response', () => {
   describe('test add_stoppoint', () => {
     test('adding a stoppoint', async () => {
       const input_data = mockdata.add_stoppoint_simple.input
-      const expected_result = mockdata.add_stoppoint_simple.expected
+      const expected_result = Stoppoint.fromObject(mockdata.add_stoppoint_simple.expected)
       const actual_result = await graph.add_stoppoint(input_data, false)
       expect(actual_result).toMatchObject(expected_result)
     })
