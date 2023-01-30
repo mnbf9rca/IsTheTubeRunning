@@ -63,14 +63,13 @@ export default class Stoppoint implements IStoppoint{
     // check of obj.modes contain valid modes
     const valid_modes = Object.keys(Modes);
     const modes: Mode[] = [];
-    const obj_modes: any[] = obj.modes;
-    for (const mode of obj_modes) {
+    obj.modes.forEach((mode: string) => {
       if (valid_modes.includes(mode)) {
         modes.push(mode as Mode);
       } else {
         throw new TypeError(`Invalid mode: ${mode}, must be one of ${Object.keys(Modes)}`)
       }
-    }
+    })
 
     return new Stoppoint(
       obj.type,
