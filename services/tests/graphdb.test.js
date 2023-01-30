@@ -1,4 +1,5 @@
 const { describe, expect, test } = require('@jest/globals')
+const { Modes } = require('../../models/modes')
 const config = require('../../utils/config')
 
 const Gremlin = require('gremlin')

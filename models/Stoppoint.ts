@@ -1,23 +1,9 @@
 import Line from './Line';
-/*const Mode = {
-  bus: Symbol('bus'),
-  dlr: Symbol('dlr'),
-  'elizabeth-line': Symbol('elizabeth-line'),
-  overground: Symbol('overground'),
-  tube: Symbol('tube'),
-}
-*/
-enum Modes {
-  bus = 'bus',
-  dlr = 'dlr',
-  elizabethline = 'elizabeth-line',
-  overground = 'overground',
-  tube = 'tube',
-}
+import {Mode, Modes} from './Mode';
 
-interface Stoppoint_Object {
-  label: string;
-  type: string;
+interface IStoppoint {
+  label?: string;
+  type: 'stoppoint' | 'vertex';
   id: string;
   name: string;
   naptanId: string;
@@ -25,12 +11,25 @@ interface Stoppoint_Object {
   lon: number | string;
   modes: Mode[];
   lines: Line[];
+  getObject: () => IStoppoint_Object;
 }
 
-type Mode = keyof typeof Modes;
+interface IStoppoint_Object  {
+  label?: string;
+  type: 'stoppoint' | 'vertex';
+  id: string;
+  name: string;
+  naptanId: string;
+  lat: number | string;
+  lon: number | string;
+  modes: String[];
+  lines: String[];
+}
 
-export default class Stoppoint {
-  private _type: string;
+
+
+export default class Stoppoint implements IStoppoint{
+  private _type: "stoppoint" | "vertex";
   private _id: string;
   private _name: string;
   private _naptanId: string;
@@ -39,7 +38,17 @@ export default class Stoppoint {
   private _modes: Mode[];
   private _lines: Line[];
 
-  constructor(type: string, id: string, name: string, naptanId: string, lat: number | string, lon: number | string, modes: Mode[], lines: Line[]) {
+  constructor(
+    type: "stoppoint" | "vertex",
+    id: string,
+    name: string,
+    naptanId: string,
+    lat: number | string,
+    lon: number | string,
+    modes: Mode[],
+    lines: Line[]
+  ) {
+
     this._type = type;
     this._id = id;
     this._name = name;
@@ -50,7 +59,17 @@ export default class Stoppoint {
     this._lines = lines;
   }
 
-  static fromObject(obj: Stoppoint_Object): Stoppoint {
+  static fromObject(obj: any): Stoppoint {
+    // check of obj.modes contain valid modes
+    const modes: Mode[] = [];
+    for (const mode of obj.modes) {
+      if (Object.values(Modes).includes(mode as Modes)) {
+        modes.push(mode as Mode);
+      } else {
+        throw new TypeError(`Invalid mode: ${mode}, must be one of ${Object.values(Modes)}`)
+      }
+    }
+
     return new Stoppoint(
       obj.type,
       obj.id,
@@ -58,59 +77,59 @@ export default class Stoppoint {
       obj.naptanId,
       obj.lat,
       obj.lon,
-      obj.modes,
+      modes,
       obj.lines,
     );
   }
 
 
-  get id(): string {
+  get id(){
     return this._id;
   }
 
-  get name(): string {
+  get name() {
     return this._name;
   }
 
-  get naptanId(): string {
+  get naptanId() {
     return this._naptanId;
   }
 
-  get latlon(): number[] {
+  get latlon() {
     return [this._lat, this._lon];
   }
 
-  get lat(): number {
+  get lat() {
     return this._lat;
   }
 
-  get lon(): number {
+  get lon() {
     return this._lon;
   }
-  
 
-  get modes(): Mode[] {
+
+  get modes() {
     return this._modes;
   }
 
-  get lines(): Line[] {
+  get lines() {
     return this._lines;
   }
 
-  get type(): string {
+  get type() {
     return this._type;
   }
 
 
-  getLineNames(): string[] {
+  getLineNames() {
     return this._lines.map((line) => line.toString());
   }
 
-  getModeNames(): string[] {
-    return this._modes.map((mode) => String(mode));
+  getModeNames() {
+    return this._modes.map((mode) => String(Modes[mode]))// as Modes[];
   }
 
-  getObject(): Stoppoint_Object {
+  getObject() {
     return {
       type: this._type,
       id: this._id,
@@ -118,7 +137,6 @@ export default class Stoppoint {
       naptanId: this._naptanId,
       lat: this._lat,
       lon: this._lon,
-
       modes: this.getModeNames(),
       lines: this.getLineNames(),
     };

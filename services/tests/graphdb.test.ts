@@ -1,5 +1,5 @@
 import Stoppoint from "../../models/Stoppoint"
-
+import { Modes } from "../../models/Mode"
 //const Stoppoint = require('../../models/Stoppoint')
 const { describe, expect, test } = require('@jest/globals')
 const config = require('../../utils/config')
@@ -24,6 +24,13 @@ const graph_test_client = new Gremlin.driver.Client(
 
 const randomString = () => Math.random().toString(36).slice(2, 7)
 
+const randomEnumValue = (enumeration: any) => {
+  const values = Object.keys(enumeration)
+    .map(key => enumeration[key])
+    .filter(value => typeof enumeration[value] !== "number");
+  const randValue = values[Math.floor(Math.random() * values.length)];
+  return randValue;
+};
 
 
 const generate_line = (first_stoppoint: Stoppoint, second_stoppoint: Stoppoint) => {
@@ -51,10 +58,29 @@ const generate_line = (first_stoppoint: Stoppoint, second_stoppoint: Stoppoint) 
   return line
 }
 
-const generate_random_array = (number_of_modes: number) => {
+const generate_random_modes = (number_of_modes: number) => {
   // return an array containing number_of_modes randomString()
-  const modes = new Array(number_of_modes).fill(null).map(() => randomString())
-  return modes
+  // randomly pick up to number_of_modes unique values from Modes
+  const modes = Object.keys(Modes)
+  if (number_of_modes > modes.length) {
+    throw new Error(`number_of_modes must be less than or equal to ${modes.length}`)
+  }
+  const random_modes: string[] = []
+  for (let i = 0; i < number_of_modes; i++) {
+    const random_mode = randomEnumValue(Modes)
+    if (!random_modes.includes(random_mode)) {
+      random_modes.push(random_mode)
+    }
+  }
+  return random_modes
+  
+  
+}
+
+const generate_random_array = (number_of_strings: number) => {
+  // return an array containing number_of_modes randomString()
+  const random_strings = new Array(number_of_strings).fill(null).map(() => randomString())
+  return random_strings
 }
 
 const generate_random_lat_lon = () => {
@@ -74,7 +100,7 @@ const generate_random_stoppoint = (number_of_modes: number, number_of_lines: num
     naptanId: new_object_id,
     lat: lat.toString(),
     lon: lon.toString(),
-    modes: generate_random_array(number_of_modes),
+    modes: generate_random_modes(number_of_modes),
     lines: generate_random_array(number_of_lines)
   }
   return stoppoint
@@ -82,7 +108,7 @@ const generate_random_stoppoint = (number_of_modes: number, number_of_lines: num
 
 const generate_random_Stoppoint = (number_of_modes: number, number_of_lines: number): Stoppoint => {
   const stoppoint = generate_random_stoppoint(number_of_modes, number_of_lines)
-  return new Stoppoint(stoppoint.type, stoppoint.id, stoppoint.name, stoppoint.naptanId, stoppoint.lat, stoppoint.lon, stoppoint.modes, stoppoint.lines)
+  return Stoppoint.fromObject(stoppoint)// (stoppoint.type, stoppoint.id, stoppoint.name, stoppoint.naptanId, stoppoint.lat, stoppoint.lon, stoppoint.modes, stoppoint.lines)
 }
 
 describe('GraphDB tests', () => {

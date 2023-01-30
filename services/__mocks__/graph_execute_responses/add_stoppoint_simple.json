@@ -8,15 +8,15 @@
     "lat": "51.51",
     "lon": "-0.12",
     "modes": [
-      "mode_1",
-      "mode_2"
+      "tube",
+      "dlr"
     ],
     "lines": [
       "line_1",
       "line_2"
     ]
   },
-  "query_regex": "addV\\('stoppoint'\\)\\s*\\.property\\('id', 'TEST_id_data'\\)\\s*\\.property\\('name', 'name data'\\)\\s*\\.property\\('naptanId', 'naptanId_data'\\)\\s*\\.property\\('lat', '51.51'\\)\\s*\\.property\\('lon', '-0.12'\\)\\s*\\.property\\('modes', 'mode_1'\\)\\s*\\.property\\('modes', 'mode_2'\\)\\s*\\.property\\('lines', 'line_1'\\)\\s*\\.property\\('lines', 'line_2'\\)",
+  "query_regex": "addV\\('stoppoint'\\)\\s*\\.property\\('id', 'TEST_id_data'\\)\\s*\\.property\\('name', 'name data'\\)\\s*\\.property\\('naptanId', 'naptanId_data'\\)\\s*\\.property\\('lat', '51.51'\\)\\s*\\.property\\('lon', '-0.12'\\)\\s*\\.property\\('modes', 'tube'\\)\\s*\\.property\\('modes', 'dlr'\\)\\s*\\.property\\('lines', 'line_1'\\)\\s*\\.property\\('lines', 'line_2'\\)",
   "response": {
     "_items": [
       {
@@ -51,11 +51,11 @@
           "modes": [
             {
               "id": "ad071022-1c81-443b-b824-c5342ab58129",
-              "value": "mode_1"
+              "value": "tube"
             },
             {
               "id": "3af98a91-4c04-42a6-9756-096694502b72",
-              "value": "mode_2"
+              "value": "dlr"
             }
           ],
           "lines": [
@@ -92,8 +92,8 @@
         "lat": "51.51",
         "lon": "-0.12",
         "modes": [
-          "mode_1",
-          "mode_2"
+          "tube",
+          "dlr"
         ],
         "lines": [
           "line_1",

@@ -309,8 +309,8 @@ function serialize_stoppoint(results) {
 
 
 
-function serializeProperties(properties) {
-  let serializedProperties = {}
+function serializeProperties(properties: { [key: string]: string | string[] | number | number[] | boolean | boolean[] }) {
+  let serializedProperties: { [key: string]: string[] | number[] | boolean[] | string | number | boolean } = {}
   Object.keys(properties).forEach(key => {
     const value = properties[key]
     if (Array.isArray(value)) {
@@ -326,7 +326,7 @@ function serializeProperties(properties) {
   return serializedProperties
 }
 
-function safe_get_property(obj, key) {
+function safe_get_property(obj: any, key: string) {
   return obj[key] ? obj[key] : null
 }
 
