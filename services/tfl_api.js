@@ -256,6 +256,7 @@ async function get_lines_for_mode(modes = ['tube', 'dlr', 'overground']) {
 }
 
 module.exports = {
+  structure_cached_value,
   get_disruption,
   get_line_stoppoints,
   get_lines_for_mode,

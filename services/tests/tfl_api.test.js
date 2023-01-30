@@ -147,7 +147,7 @@ describe('TfL tests', () => {
   describe('test helper functions', () => {
 
     describe('structure_cached_value', () => {
-      const structure_cached_value = tfl_api.__get__('structure_cached_value')
+      //const structure_cached_value = tfl_api.__get__('structure_cached_value')
       test('structure cached value > 0', () => {
         const data = {
           'a': 1,
@@ -161,7 +161,7 @@ describe('TfL tests', () => {
           },
           'ttl': 60
         }
-        const actual = structure_cached_value(data, ttl)
+        const actual = tfl_api.structure_cached_value(data, ttl)
         expect(actual['data']).toStrictEqual(data)
         expect(actual['ttl'] / 10).toBeAround(expected['ttl'] / 10, 0)
       })
@@ -178,7 +178,7 @@ describe('TfL tests', () => {
           },
           'ttl': -1
         }
-        const actual = structure_cached_value(data, ttl)
+        const actual = tfl_api.structure_cached_value(data, ttl)
         expect(actual['data']).toStrictEqual(data)
         expect(actual['ttl'] / 10).toBeAround(expected['ttl'] / 10, 0)
       })

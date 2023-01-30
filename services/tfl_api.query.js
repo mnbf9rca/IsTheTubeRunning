@@ -78,4 +78,8 @@ async function query(querystring, params = null) {
   return { data, ttl }
 }
 
-module.exports = { query }
+module.exports = {
+  query,
+  get_s_maxage,
+  add_search_params
+}

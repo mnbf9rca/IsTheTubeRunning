@@ -1,3 +1,4 @@
+const Stoppoint = require('../models/Stoppoint')
 const config = require('../utils/config')
 const { execute_query } = require('./graphdb.execute')
 const Gremlin = require('gremlin')
@@ -329,6 +330,7 @@ function safe_get_property(obj, key) {
 
 
 module.exports = {
+  stoppoint_client,
   add_stoppoint,
   add_line,
   add_user,

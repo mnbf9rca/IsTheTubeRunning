@@ -175,8 +175,8 @@ describe('GraphDB tests', () => {
   describe('test graphdb queries', () => {
     afterAll(async () => {
       console.info('closing stoppoint_client')
-      const stoppoint_client = graph.__get__('stoppoint_client')
-      await stoppoint_client.close()
+      //const stoppoint_client = graph.__get__('stoppoint_client')
+      await graph.stoppoint_client.close()
     })
 
     describe('tests with actual DB queries', () => {
@@ -214,9 +214,9 @@ describe('GraphDB tests', () => {
         await graph_test_client.close()
       })
       test('can connect to stoppoint_collection', async () => {
-        const stoppoint_client = graph.__get__('stoppoint_client')
-        expect(stoppoint_client).toBeDefined()
-        const actual_result = await stoppoint_client.submit('g.V(\'no-object\').count()')
+        // const stoppoint_client = graph.__get__('stoppoint_client')
+        expect(graph.stoppoint_client).toBeDefined()
+        const actual_result = await graph.stoppoint_client.submit('g.V(\'no-object\').count()')
         expect(actual_result['length']).toBeDefined()
       })
 

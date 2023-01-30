@@ -40,4 +40,4 @@ async function disruption_detail() {
 
 }
 
-module.exports = { is_there_disruption, disruption_detail }
+module.exports = { is_there_disruption, disruption_detail, check_disruption_set_for_disruption }
