@@ -1,4 +1,6 @@
-const Stoppoint = require('../models/Stoppoint')
+import Stoppoint from "../models/Stoppoint"
+
+//const Stoppoint = require('../models/Stoppoint')
 const config = require('../utils/config')
 const { execute_query } = require('./graphdb.execute')
 const Gremlin = require('gremlin')
@@ -85,7 +87,7 @@ const add_array_value = (arr, property_name) => {
   return items
 }
 
-const add_stoppoint = async (stoppoint, upsert = true) => {
+const add_stoppoint = async (stoppoint: Stoppoint, upsert = true) => {
   /**
    * Adds a stoppoint to the graphdb.
    * a stoppoint is an object with teh following properties:
@@ -94,7 +96,7 @@ const add_stoppoint = async (stoppoint, upsert = true) => {
    * @param {object} stoppoint - stoppoint object
    * @returns {Promise} - pending query to graphdb
    */
-  validate_json.validate(stoppoint, graphdb_request_add_stoppoint, { throwFirst: true })
+  // validate_json.validate(stoppoint, graphdb_request_add_stoppoint, { throwFirst: true })
 
   // construct a query to add the stoppoint to the graphdb
   const add_query = `addV('${stoppoint['type']}')
