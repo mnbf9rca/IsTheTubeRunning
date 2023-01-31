@@ -201,7 +201,7 @@ const add_line = async (line_edge, upsert = true) => {
 
 }
 
-const find_route_between_stops = async (starting_stop, ending_stop, line) => {
+const find_route_between_stops = async (starting_stop: string, ending_stop: string, line: Line) => {
   /**
    * Finds a route between two stops on a given line
    * @param {String} starting_stop - id of the starting stop

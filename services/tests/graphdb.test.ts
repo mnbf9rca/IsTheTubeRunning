@@ -1,5 +1,5 @@
 import Stoppoint from "../../models/Stoppoint"
-import { Modes } from "../../models/Mode"
+import { Mode } from "../../models/Mode"
 //const Stoppoint = require('../../models/Stoppoint')
 const { describe, expect, test } = require('@jest/globals')
 const config = require('../../utils/config')
@@ -52,7 +52,7 @@ const generate_line = (first_stoppoint: Stoppoint, second_stoppoint: Stoppoint) 
 const generate_random_modes = (number_of_modes: number) => {
   // return an array containing number_of_modes randomString()
   // randomly pick up to number_of_modes unique values from Modes
-  const modes = Object.values(Modes)
+  const modes = Object.values(Mode)
   if (number_of_modes < 1 || number_of_modes > modes.length) {
     throw new Error(`number_of_modes must be greater than 0 and less than or equal to ${modes.length}`)
   }

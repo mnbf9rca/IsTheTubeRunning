@@ -40,20 +40,6 @@ describe('graphdb.execute tests with mocked graph response', () => {
       const actual_result = await graph.add_stoppoint(input_data, false)
       expect(actual_result).toMatchObject(expected_result)
     })
-    test.skip('throws error on invalid schema', async () => {
-      const v = require('jsonschema')
-      const spy = jest.spyOn(v, 'validate')
-      const input_data = mockdata.add_line.input
-      await expect(graph.add_stoppoint(input_data, false)).rejects.toThrow(validator.ValidatorResultError)
-      expect(spy).toHaveBeenCalledTimes(1)
-    })
-    test.skip('throws error on missing key', async () => {
-      const v = require('jsonschema')
-      const spy = jest.spyOn(v, 'validate')
-      let input_data = mockdata.add_stoppoint_simple.input
-      delete input_data['name']
-      await expect(graph.add_stoppoint(input_data, false)).rejects.toThrow(validator.ValidatorResultError)
-      expect(spy).toHaveBeenCalledTimes(1)
-    })
+
   })
 })

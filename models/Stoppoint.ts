@@ -1,5 +1,5 @@
 import Line from './Line';
-import {Mode, Modes} from './Mode';
+import {Mode} from './Mode';
 
 interface IStoppoint {
   label?: string;
@@ -61,14 +61,14 @@ export default class Stoppoint implements IStoppoint{
 
   static fromObject(obj: any): Stoppoint {
     // check of obj.modes contain valid modes
-    const valid_modes = Object.keys(Modes);
+    const valid_modes = Object.keys(Mode);
     const modes: Mode[] = [];
     let object_modes: string[] = Array.isArray(obj.modes) ? obj.modes : [obj.modes];
     object_modes.forEach((mode: string) => {
       if (valid_modes.includes(mode)) {
         modes.push(mode as Mode);
       } else {
-        throw new TypeError(`Invalid mode: ${mode}, must be one of ${Object.keys(Modes)}`)
+        throw new TypeError(`Invalid mode: ${mode}, must be one of ${Object.keys(Mode)}`)
       }
     })
 
@@ -128,7 +128,7 @@ export default class Stoppoint implements IStoppoint{
   }
 
   getModeNames() {
-    return this._modes.map((mode) => String(Modes[mode]))// as Modes[];
+    return this._modes.map((mode) => String(Mode[mode]))// as Modes[];
   }
 
   getObject() {
