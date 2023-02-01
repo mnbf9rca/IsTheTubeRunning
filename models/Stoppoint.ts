@@ -1,4 +1,4 @@
-import Line from './Line';
+import {Line} from './Line';
 import {Mode} from './Mode';
 
 interface IStoppoint {
@@ -13,6 +13,7 @@ interface IStoppoint {
   lines: Line[];
   getObject: () => IStoppoint_Object;
 }
+
 
 interface IStoppoint_Object  {
   label?: string;
@@ -68,7 +69,7 @@ export default class Stoppoint implements IStoppoint{
       if (valid_modes.includes(mode)) {
         modes.push(mode as Mode);
       } else {
-        throw new TypeError(`Invalid mode: ${mode}, must be one of ${Object.keys(Mode)}`)
+        throw new TypeError(`Invalid mode: ${mode}, must be one of ${valid_modes}`)
       }
     })
 

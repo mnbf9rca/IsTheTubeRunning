@@ -1,0 +1,14 @@
+ {
+    "id": "Bakerloo-0-940GZZLUWJN-940GZZLUKSL",
+    "label": "TO",
+    "type": "edge",
+    "inVLabel": "StopPoint",
+    "outVLabel": "StopPoint",
+    "inV": "940GZZLUKSL",
+    "outV": "940GZZLUWJN",
+    "properties": {
+      "line": "Bakerloo",
+      "branch": "0",
+      "direction": "inbound"
+    }
+  }

@@ -1,0 +1,63 @@
+{
+    "id": "940GZZLUKSX",
+    "label": "StopPoint",
+    "type": "vertex",
+    "properties": {
+      "name": [
+        {
+          "id": "cd46b21d-475e-42b9-a972-9b6d3eb57348",
+          "value": "King's Cross St. Pancras Underground Station"
+        }
+      ],
+      "naptanId": [
+        {
+          "id": "940GZZLUKSX|naptanId",
+          "value": "940GZZLUKSX"
+        }
+      ],
+      "lat": [
+        {
+          "id": "31a165d7-3896-4e93-8c93-612cc4c43d49",
+          "value": "51.530663"
+        }
+      ],
+      "lon": [
+        {
+          "id": "a681ce57-f3ef-463d-a5e4-b7d89a8e55f3",
+          "value": "-0.123194"
+        }
+      ],
+      "modes": [
+        {
+          "id": "829513f9-1bc8-4e96-883b-04b619907657",
+          "value": "tube"
+        }
+      ],
+      "lines": [
+        {
+          "id": "64302b59-4db4-4a92-85d4-879fe7bcfc9d",
+          "value": "circle"
+        },
+        {
+          "id": "40f86876-be00-41b5-b3fb-6ff1d9d05db6",
+          "value": "hammersmith-city"
+        },
+        {
+          "id": "df4cc2e6-86c4-4dd3-9605-d62c344010f8",
+          "value": "metropolitan"
+        },
+        {
+          "id": "a2d2fe9f-8d37-4ae7-8008-66afe6addaa9",
+          "value": "northern"
+        },
+        {
+          "id": "d68fec3b-c15e-4a67-9bb0-8cbeb54fe9c0",
+          "value": "piccadilly"
+        },
+        {
+          "id": "dd5c5581-acd3-4cdf-9080-f40bcbd72007",
+          "value": "victoria"
+        }
+      ]
+    }
+  }
