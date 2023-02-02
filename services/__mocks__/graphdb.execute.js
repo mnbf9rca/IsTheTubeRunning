@@ -18,7 +18,7 @@ const mockquery = async function (client, query, maxAttempts, params = null) {
       return Promise.resolve({ data: value.response, success: true })
     }
   }
-  throw new Error('query not found in mock data')
+  throw new Error('query not found in mock data', query)
 
 
 

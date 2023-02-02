@@ -1,8 +1,8 @@
 {
   "description": "matches add_line statement",
   "input": {
-    "from": "from_data",
-    "to": "to_data",
+    "fromId": "from_data",
+    "toId": "to_data",
     "id": "TEST_id_data",
     "lineName": "line_data",
     "branchId": "branch_data",

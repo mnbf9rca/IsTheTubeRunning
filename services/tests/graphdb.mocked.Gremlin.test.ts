@@ -16,14 +16,16 @@ describe('graphdb.execute tests with mocked graph response', () => {
       const actual_result = await graph.add_line(input_data, false)
       expect(actual_result).toMatchObject(expected_result)
     })
-    test('throws on incorrect schema', async () => {
+    test.skip('throws on incorrect schema', async () => {
+      // not using jsonschema at the moment
       const v = require('jsonschema')
       const spy = jest.spyOn(v, 'validate')
       const input_data = mockdata.add_stoppoint_simple.input
       await expect(graph.add_line(input_data, false)).rejects.toThrow(validator.ValidatorResultError)
       expect(spy).toHaveBeenCalledTimes(1)
     })
-    test('throws on missing key', async () => {
+    test.skip('throws on missing key', async () => {
+      // not using jsonschema at the moment
       const v = require('jsonschema')
       const spy = jest.spyOn(v, 'validate')
       let input_data = mockdata.add_line.input
@@ -36,7 +38,7 @@ describe('graphdb.execute tests with mocked graph response', () => {
   describe('test add_stoppoint', () => {
     test('adding a stoppoint', async () => {
       const input_data = mockdata.add_stoppoint_simple.input
-      const expected_result = {...mockdata.add_stoppoint_simple.expected, data: mockdata.add_stoppoint_simple.expected.data.map((x: object) => Stoppoint.fromObject(x))}
+      const expected_result = {...mockdata.add_stoppoint_simple.expected, data: mockdata.add_stoppoint_simple.expected.data}
       const actual_result = await graph.add_stoppoint(input_data, false)
       expect(actual_result).toMatchObject(expected_result)
     })

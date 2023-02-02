@@ -211,8 +211,8 @@ const add_line = async (line_edge: LineSegment, upsert = true) => {
   // submit the query to the graphdb
   //logger.debug(query.replace(/\n/g, ''))
   const result = await execute_query(stoppoint_client, query, 5)
-  const serialized_items = deserialize_line(result['data']['_items'])
-  const deserialized_items = serialized_items.map((item) => LineSegment.fromObject(item))
+  const deserialized_items = deserialize_line(result['data']['_items'])
+  //const deserialized_items = serialized_items.map((item) => LineSegment.fromObject(item))
   return { ...result, data: deserialized_items }
 
 }
