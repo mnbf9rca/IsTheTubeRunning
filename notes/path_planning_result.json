@@ -1,0 +1,144 @@
+{
+  "data": {
+    "_items": [
+      {
+        "labels": [
+          [],
+          [],
+          [
+            "v"
+          ]
+        ],
+        "objects": [
+          {
+            "id": "tfg68",
+            "label": "stoppoint",
+            "type": "vertex",
+            "properties": {
+              "name": [
+                {
+                  "id": "c43bd9b3-b012-4e1c-9fb3-2daeaeb9924a",
+                  "value": "ly6le"
+                }
+              ],
+              "naptanId": [
+                {
+                  "id": "tfg68|naptanId",
+                  "value": "tfg68"
+                }
+              ],
+              "lat": [
+                {
+                  "id": "121bd9fb-ec24-4418-a3c6-325c89ec7cdd",
+                  "value": "51.24944578065342"
+                }
+              ],
+              "lon": [
+                {
+                  "id": "fcf15701-93ea-4e4b-82ee-e81da02c5cb5",
+                  "value": "-0.4290203326175196"
+                }
+              ],
+              "modes": [
+                {
+                  "id": "d7d83688-e91f-4d3c-a7b3-acd77329e184",
+                  "value": "bus"
+                },
+                {
+                  "id": "bdac154e-f615-4f41-9403-a9ae257e148e",
+                  "value": "overground"
+                }
+              ],
+              "lines": [
+                {
+                  "id": "8ab07d6b-2953-416b-8e30-d3e9feafee79",
+                  "value": "7h5dd"
+                },
+                {
+                  "id": "1599e556-f42a-4db5-8577-45790d51949f",
+                  "value": "lndl8"
+                },
+                {
+                  "id": "a4df5a08-9736-4ed0-a6fa-2ba891e121c3",
+                  "value": "36m9v"
+                }
+              ]
+            }
+          },
+          {
+            "id": "wib5w-5-tfg68-7pxut",
+            "label": "TO",
+            "type": "edge",
+            "inVLabel": "stoppoint",
+            "outVLabel": "stoppoint",
+            "inV": "7pxut",
+            "outV": "tfg68",
+            "properties": {
+              "line": "wib5w",
+              "branch": "5",
+              "direction": "outbound"
+            }
+          },
+          {
+            "id": "7pxut",
+            "label": "stoppoint",
+            "type": "vertex",
+            "properties": {
+              "name": [
+                {
+                  "id": "c98776b3-3ae4-4687-942c-c825ef91e02f",
+                  "value": "z9ns4"
+                }
+              ],
+              "naptanId": [
+                {
+                  "id": "7pxut|naptanId",
+                  "value": "7pxut"
+                }
+              ],
+              "lat": [
+                {
+                  "id": "f09ac6a5-237a-4ff6-bc18-bb7e9de9e5d4",
+                  "value": "51.244066975243705"
+                }
+              ],
+              "lon": [
+                {
+                  "id": "7d6d002c-c72b-4cc6-a79f-6008b2a7b28f",
+                  "value": "-0.26680946961473817"
+                }
+              ],
+              "modes": [
+                {
+                  "id": "3fbde750-9f91-49ef-a53d-cbb59d8357ed",
+                  "value": "tube"
+                }
+              ],
+              "lines": [
+                {
+                  "id": "832ca679-1767-4c6d-8681-f20c5b467d26",
+                  "value": "9aixh"
+                },
+                {
+                  "id": "7263de69-302b-46a6-aa94-e47432dc82b0",
+                  "value": "kf96c"
+                }
+              ]
+            }
+          }
+        ]
+      }
+    ],
+    "attributes": {
+      "x-ms-status-code": 200,
+      "x-ms-activity-id": "eadd0439-2d77-49dd-850b-86556c1aeef4",
+      "x-ms-request-charge": 9.469999999999999,
+      "x-ms-total-request-charge": 9.469999999999999,
+      "x-ms-server-time-ms": 10.0176,
+      "x-ms-total-server-time-ms": 10.0176
+    },
+    "length": 1
+  },
+  "success": true,
+  "status_code": null
+}

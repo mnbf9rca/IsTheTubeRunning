@@ -1,6 +1,18 @@
 import Stoppoint from "../models/Stoppoint"
-import { LineSegment } from "../models/Line"
-import { RouteItem, RouteItemLineSegment, RouteItemStoppoint, RouteQueryResult, FlattenedProperties, PropertyBucket} from "../models/RouteQueryResult"
+import { Mode } from "../models/Mode"
+import { Line, LineSegment } from "../models/Line"
+import {
+  RouteTraversalResultSet,
+  RouteTraversalResult,
+  IAddStoppointResult,
+  FlattenedProperties,
+  PropertyBucket,
+  TraversalStoppoint,
+  TraversalLineSegment,
+  StoppointQueryItem,
+  LineQueryItem,
+  RouteQueryResult,
+} from "../models/RouteQueryResult"
 
 //const Stoppoint = require('../models/Stoppoint')
 const config = require('../utils/config')
@@ -89,7 +101,7 @@ const add_array_value = (arr: any[], property_name: string) => {
   return items
 }
 
-const add_stoppoint = async (stoppoint: Stoppoint, upsert = true) => {
+const add_stoppoint = async (stoppoint: Stoppoint, upsert = true): Promise<IAddStoppointResult> => {
   /**
    * Adds a stoppoint to the graphdb.
    * a stoppoint is an object with teh following properties:
@@ -124,9 +136,10 @@ const add_stoppoint = async (stoppoint: Stoppoint, upsert = true) => {
   // logger.debug(query.replace(/\n/g, ''))
 
   const result = await execute_query(stoppoint_client, query, 5)
-  const serialized_items = serialize_stoppoint(result['data']['_items'])
-  const deserialized_items = serialized_items.map((item) => Stoppoint.fromObject(item))
-  return { ...result, data: deserialized_items }
+  const deserialized_items = deserialize_stoppoint(result['data']['_items'])
+  return new Promise((resolve, _) => {
+    resolve({ ...result, data: deserialized_items })
+  })
 }
 
 const add_user = async (user: string, upsert = false) => {
@@ -198,13 +211,13 @@ const add_line = async (line_edge: LineSegment, upsert = true) => {
   // submit the query to the graphdb
   //logger.debug(query.replace(/\n/g, ''))
   const result = await execute_query(stoppoint_client, query, 5)
-  const serialized_items = serialize_line(result['data']['_items'])
+  const serialized_items = deserialize_line(result['data']['_items'])
   const deserialized_items = serialized_items.map((item) => LineSegment.fromObject(item))
   return { ...result, data: deserialized_items }
 
 }
 
-const find_route_between_stops = async (starting_stop: string, ending_stop: string, line: Line) => {
+const find_route_between_stops = async (starting_stop: string, ending_stop: string, line: Line): Promise<RouteQueryResult> => {
   /**
    * Finds a route between two stops on a given line
    * @param {String} starting_stop - id of the starting stop
@@ -222,14 +235,16 @@ const find_route_between_stops = async (starting_stop: string, ending_stop: stri
     line: line
   }
   const result = await execute_query(stoppoint_client, query, 5, params)
-  const simplified_routes = simplify_discovered_route(result)
+  const simplified_routes = simplify_discovered_route(result as RouteTraversalResultSet)
 
-  return { ...result, data: simplified_routes }
+  return new Promise((resolve, _) => {
+    resolve({ ...result, data: simplified_routes })
+  })
 }
 
 
 
-const simplify_discovered_route = (route_result: RouteQueryResult) => {
+const simplify_discovered_route = (route_result: RouteTraversalResultSet): (StoppointQueryItem | LineQueryItem)[][] => {
   /**
    * Simplifies the result of a route query
    * @param {Object} route_result - result of a route query
@@ -247,9 +262,11 @@ const simplify_discovered_route = (route_result: RouteQueryResult) => {
     // if it's a line, use serialize_line
     const simplified_route = route['objects'].map((item) => {
       if (item['label'] === 'stoppoint') {
-        return serialize_stoppoint(item as RouteItemStoppoint)[0]
+        return deserialize_stoppoint([item] as TraversalStoppoint[])[0]
       } else if (item['label'] === 'TO') {
-        return serialize_line(item as RouteItemStoppoint)[0]
+        return deserialize_line([item] as TraversalLineSegment[])[0]
+      } else {
+        throw new Error(`Unknown item type in result set: ${item['label']}`)
       }
     })
     return simplified_route
@@ -257,7 +274,7 @@ const simplify_discovered_route = (route_result: RouteQueryResult) => {
   return simplified_routes
 }
 
-const serialize_line = (lines: RouteItemLineSegment[]): RouteItemLineSegment[] => {
+const deserialize_line = (lines: TraversalLineSegment[]): LineQueryItem[] => {
   /**
    * Serializes a line object
    * @param {Object} line - line object
@@ -277,9 +294,15 @@ const serialize_line = (lines: RouteItemLineSegment[]): RouteItemLineSegment[] =
               "direction": "o3942"
             }
             */
-  let serializedResults: RouteItemLineSegment[] = []
-  const lines_array = Array.isArray(lines) ? lines : [lines]
-  lines_array.forEach(line => {
+
+  const required_properties = ['line', 'branch', 'direction']
+  const properties_which_are_arrays: string[] = []
+  let serializedResults: LineQueryItem[] = []
+  if (!Array.isArray(lines)) {
+    lines = [lines]
+  }
+  lines.forEach(line => {
+    const properties = flattenProperties(line.properties, required_properties, properties_which_are_arrays)
     serializedResults.push({
       id: line['id'],
       from: line['outV'],
@@ -290,17 +313,16 @@ const serialize_line = (lines: RouteItemLineSegment[]): RouteItemLineSegment[] =
       type: line['type'],
       inVLabel: line['inVLabel'],
       outVLabel: line['outVLabel'],
-      properties: line['properties'],
-      flattenedProperties: flattenProperties(line['properties'])
-    } as RouteItemLineSegment)
+      line: properties['line'] as string,
+      branch: properties['branch'] as string,
+      direction: properties['direction'] as string,
+      ...properties
+    })
   })
   return serializedResults
 }
 
-
-
-
-function serialize_stoppoint(results: RouteItemStoppoint[]) {
+function deserialize_stoppoint(results: TraversalStoppoint[]): StoppointQueryItem[] {
   /**
    * Serialise the results of a gremlin query
    * return an array of objects.
@@ -311,42 +333,59 @@ function serialize_stoppoint(results: RouteItemStoppoint[]) {
    * @returns {Array} - array of objects
    */
 
-  let serializedResults: RouteItemStoppoint[] = []
+  // TODO: add a schema check here - we dont know what properties we're getting from the database
+
+  if (!Array.isArray(results)) {
+    results = [results]
+  }
+  const required_properties = ['lat', 'lon', 'name', 'modes', 'lines', 'naptanId']
+  const properties_which_are_arrays = ['modes', 'lines']
+
+  let serializedResults: StoppointQueryItem[] = []
   results.forEach(result => {
+    const properties = flattenProperties(result.properties, required_properties, properties_which_are_arrays)
     serializedResults.push({
       id: result.id,
       label: result.label,
       type: result.type,
-      properties: result.properties,
-      flattenedProperties: flattenProperties(result.properties)
-    } as RouteItemStoppoint)
+      lat: Number(properties.lat),
+      lon: Number(properties.lon),
+      name: properties.name as string,
+      modes: properties.modes as string[],
+      lines: properties.lines as string[],
+      naptanId: properties.naptanId as string,
+      ...properties
+    } )
   })
   return serializedResults
 }
 
 
-function flattenProperties(properties: PropertyBucket) {
+function flattenProperties(properties: PropertyBucket, minimum_required_properties: string[] = [], properties_which_are_arrays: string[] = []): FlattenedProperties {
   // TODO: move this to the model...
-  const properties_which_are_arrays = ['lines', 'modes']
-  let deserializedProperties:FlattenedProperties = {}
+  const missing_properties = minimum_required_properties.filter(property => !Object.prototype.hasOwnProperty.call(properties, property))
+  if (missing_properties.length > 0) {
+    throw new Error(`missing required properties from Vertex: ${missing_properties}`)
+  }
+  let deserializedProperties: FlattenedProperties = {}
   Object.keys(properties).forEach(key => {
-    const value = properties[key]
-    if (Array.isArray(value)) {
-      // it's an array
-      const property_values = value.filter(item => Object.prototype.hasOwnProperty.call(item, 'value')).map(item => item['value'])  
-      // if there's only a single value, return that as a key:value pair
-      // but only for properties which are not defined as arrays in IStoppoint (properties_which_are_arrays)
-      if (!properties_which_are_arrays.includes(key) && property_values.length === 1) {
-        deserializedProperties[key] = property_values[0]
+      const value = properties[key]
+      if (Array.isArray(value)) {
+        // it's an array
+        const property_values = value.filter(item => Object.prototype.hasOwnProperty.call(item, 'value')).map(item => item['value'])
+        // if there's only a single value, return that as a key:value pair
+        // but only for properties which are not defined as arrays in IStoppoint (properties_which_are_arrays)
+        if (!properties_which_are_arrays.includes(key) && property_values.length === 1) {
+          deserializedProperties[key] = property_values[0]
+        } else {
+          deserializedProperties[key] = property_values
+        }
       } else {
-        deserializedProperties[key] = property_values
+        // not an array
+        deserializedProperties[key] = value
       }
-    } else {
-      // not an array
-      deserializedProperties[key] = value
-    }
-
   })
+
   return deserializedProperties
 }
 
@@ -359,6 +398,6 @@ module.exports = {
   find_route_between_stops,
   escape_gremlin_special_characters,
   flattenProperties,
-  serialize_stoppoint,
-  serialize_line
+  deserialize_stoppoint,
+  deserialize_line
 }
