@@ -5,7 +5,7 @@ const { describe, expect, test } = require('@jest/globals')
 const config = require('../../utils/config')
 
 import Gremlin from 'gremlin'
-import { driver, structure } from 'gremlin'
+import { driver } from 'gremlin'
 
 const graph = require('../graphdb')
 const graph_execute = require('../graphdb.execute')
@@ -408,7 +408,7 @@ describe('GraphDB tests', () => {
         }
         const actual_result = await GraphDB.getInstance().execute(parameterised_query, params)
         expect(actual_result['success']).toBe(false)
-        expect(actual_result['error']).toEqual(expect.stringContaining('Gremlin Query Compilation Error: Unable to resolve symbol'))
+        expect(actual_result['error']['statusMessage']).toEqual(expect.stringContaining('Gremlin Query Compilation Error: Unable to resolve symbol \'naptanId\' in the current context'))
       })
 
       test('can query for a single edge', async () => {

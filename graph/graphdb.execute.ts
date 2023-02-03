@@ -1,8 +1,10 @@
 
 const logger = require('../utils/logger')
+import { driver } from 'gremlin'
 
 
-function stringToMilliseconds(timeString) {
+
+function stringToMilliseconds(timeString: string) {
   /** 
    * Convert a string in the format HH:MM:SS.mmm to milliseconds
    * @param {String} timeString - string in the format HH:MM:SS.mmm
@@ -10,11 +12,11 @@ function stringToMilliseconds(timeString) {
    */
   const [hours, minutes, seconds] = timeString.split(':');
   const milliseconds = Math.round(parseFloat(`0.${seconds.split('.')[1]}`) * 1000)
-  return (hours * 3600 + minutes * 60 + parseInt(seconds, 10)) * 1000 + milliseconds;
+  return (parseInt(hours) * 3600 + parseInt(minutes) * 60 + parseInt(seconds, 10)) * 1000 + milliseconds;
 }
 
 
-const execute_query = async (client, query, maxAttempts, params = null) => {
+const execute_query = async (client: driver.Client, query: string, maxAttempts: number, params: { [key: string]: string | number | boolean } | null = null) => {
   /**
    * Retry a function up to a maximum number of attempts
    * adapted from https://solutional.ee/blog/2020-11-19-Proper-Retry-in-JavaScript.html
@@ -26,25 +28,25 @@ const execute_query = async (client, query, maxAttempts, params = null) => {
    */
   
   let retry_time = 1000
-  const execute = async (attempt) => {
+  const execute = async (attempt: number) => {
     if (attempt > 1) { logger.debug(`attempt ${attempt} of ${maxAttempts}`) }
     try {
       if (params) {
         logger.debug(`executing query with params: ${JSON.stringify(params)}`)
       }
-      const client_result = await client.submit(query, params)
+      const client_result: driver.ResultSet = await client.submit(query, params)
       // if we got the result, then we can return it
-      const ms_status_code = client_result['statusAttributes'] ? client_result['statusAttributes']['x-ms-status-code'] : null
+      const ms_status_code = client_result['attributes'] ? client_result['attributes']['x-ms-status-code'] : null
 
       // this is distinct to an ADD query, so move to that
       // const seralised_result = serializeGremlinResults(client_result['_items'])
       return { data: client_result, success: true, status_code: ms_status_code }
-    } catch (err) {
-      const ms_status_code = err['statusAttributes'] ? err['statusAttributes']['x-ms-status-code'] : null
-      const ms_retry_after = err['statusAttributes'] ? err['statusAttributes']['x-ms-retry-after-ms'] : null
+    } catch (err:any) {
+      const ms_status_code: number | null = err['attributes'] ? err['attributes']['x-ms-status-code'] : null
+      const ms_retry_after: string | null = err['attributes'] ? err['attributes']['x-ms-retry-after-ms'] : null
       // we need to retry after ms_retry_after ms
       if (ms_retry_after) { retry_time = stringToMilliseconds(ms_retry_after) }
-      if ([429, 408, 449].includes(ms_status_code) && attempt <= maxAttempts - 1) {
+      if (ms_status_code && [429, 408, 449].includes(ms_status_code) && attempt <= maxAttempts - 1) {
         // other, recoverable codes which we can retry
         // https://learn.microsoft.com/en-us/rest/api/cosmos-db/http-status-codes-for-cosmosdb
         // 429, 408, 449
@@ -65,9 +67,9 @@ const execute_query = async (client, query, maxAttempts, params = null) => {
   return final_result
 }
 
-const delay = (fn, ms) => new Promise((resolve) => setTimeout(() => resolve(fn()), ms))
+const delay = (fn: Function, ms: number) => new Promise((resolve) => setTimeout(() => resolve(fn()), ms))
 
-const randInt = (min, max) => Math.floor(Math.random() * (max - min + 1) + min)
+const randInt = (min: number, max: number) => Math.floor(Math.random() * (max - min + 1) + min)
 
 
 module.exports = {
