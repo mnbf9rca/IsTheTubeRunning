@@ -31,9 +31,13 @@ export default class GraphDB implements IGraphDB {
     }
     GraphDB._instance = this;
   }
-  public execute(query: string, params?: { [key: string]: string | number | boolean }): Promise<any> {
+  public async execute(query: string, params?: { [key: string]: string | number | boolean }): Promise<any> {
     /* executes a gremlin query */
-    return execute_query(this._gremlin_client, query, params)
+    if (await this.isOpen === false) {
+      await this.connect()
+      console.log('reconnected to graphdb')
+    }
+    return execute_query(this._gremlin_client, query, 5, params)
   }
   public async close(): Promise<void> {
     /* closes the connection to the database */

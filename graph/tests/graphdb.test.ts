@@ -80,11 +80,11 @@ interface iKnown_Graph {
 function generate_vertex(): Vertex {
   const id = randomString()
   const vertex: Vertex = {
-    id: `TEST-${id}}`,
+    id: `TEST-${id}`,
     label: 'known-vertex',
-    naptanId: `TEST-${id}}`,
+    naptanId: `TEST-${id}`,
     string_property: randomString(),
-    number_property: Math.round(Math.random() * 10000)/100,
+    number_property: Math.round(Math.random() * 10000) / 100,
     array_property: generate_random_array(5)
   }
   return vertex
@@ -113,7 +113,7 @@ function generate_edge(from: string, to: string): Edge {
     id: `TEST-${id}}`,
     label: 'known-edge-to',
     string_property: randomString(),
-    number_property: Math.round(Math.random() * 10000)/100,
+    number_property: Math.round(Math.random() * 10000) / 100,
     from: from,
     to: to
   }
@@ -182,7 +182,7 @@ const generate_random_lat_lon = () => {
 
 
 describe('GraphDB tests', () => {
-  describe('test helper functions', () => {
+  describe('test static methods', () => {
     describe('test graph.escape_gremlin_special_characters', () => {
       test('with no single quote', () => {
         const input = 'test'
@@ -272,8 +272,21 @@ describe('GraphDB tests', () => {
         expect(actual_result).toMatchObject(expected_result)
       })
     })
+  }),
+    describe('test singleton', () => {
+      test('can create instance', () => {
+        const instance = GraphDB.getInstance()
+        expect(instance).toBeInstanceOf(GraphDB)
+      }),
+        test('requesting instance twice returns same instance', () => {
+          const instance1 = GraphDB.getInstance()
+          const instance2 = GraphDB.getInstance()
+          expect(instance1).toBe(instance2)
+        })
 
-  })
+    })
+
+
 
   // TODO: create second user to access graphdb
   describe('test graphdb queries', () => {
@@ -288,6 +301,10 @@ describe('GraphDB tests', () => {
       let known_graph = create_known_graph()
 
       beforeAll(async () => {
+        if (await GraphDB.getInstance().isOpen === false) {
+          await GraphDB.getInstance().connect()
+        }
+
         await add_and_push_vertex(known_graph.first)
         await add_and_push_vertex(known_graph.second)
         await graph_test_client.submit(create_gremlin_edge(known_graph.edge))
@@ -359,6 +376,41 @@ describe('GraphDB tests', () => {
         expect(actual_result['success']).toBe(true)
         expect(actual_result['data']['_items']).toMatchObject(expected_result)
       })
+      test('add item with parameters', async () => {
+        const new_vertex: Vertex = generate_vertex()
+        list_of_added_vertices.push(new_vertex.id)
+        const expected_result = [vertex_to_vertex_result(new_vertex)]
+        const gremlin_vertex_query = create_gremlin_vertex(new_vertex)
+        // replace the id with a parameter
+        const parameterised_query = gremlin_vertex_query.replace(`'${new_vertex.id}')`, `id)`)// replace the label with a parameter
+          .replace(`'${new_vertex.label}')`, `label)`)
+          .replace(`'${new_vertex.naptanId}')`, `naptanId)`)// replace the naptanId with a parameter
+        const params = {
+          id: new_vertex.id,
+          label: new_vertex.label,
+          naptanId: new_vertex.naptanId
+        }
+        const actual_result = await GraphDB.getInstance().execute(parameterised_query, params)
+        expect(actual_result['success']).toBe(true)
+        expect(actual_result['data']['_items']).toMatchObject(expected_result)
+      })
+      test('fails to add item with missing parameters', async () => {
+        const new_vertex: Vertex = generate_vertex()
+        list_of_added_vertices.push(new_vertex.id)
+        const gremlin_vertex_query = create_gremlin_vertex(new_vertex)
+        // replace the id with a parameter
+        const parameterised_query = gremlin_vertex_query.replace(`'${new_vertex.id}')`, `id)`)// replace the label with a parameter
+          .replace(`'${new_vertex.label}')`, `label)`)
+          .replace(`'${new_vertex.naptanId}')`, `naptanId)`)// replace the naptanId with a parameter
+        const params = {
+          id: new_vertex.id,
+          label: new_vertex.label,
+        }
+        const actual_result = await GraphDB.getInstance().execute(parameterised_query, params)
+        expect(actual_result['success']).toBe(false)
+        expect(actual_result['error']).toEqual(expect.stringContaining('Gremlin Query Compilation Error: Unable to resolve symbol'))
+      })
+
       test('can query for a single edge', async () => {
         const expected_result = edge_to_edge_result(known_graph.edge)
         const query = `g.E('${known_graph.edge.id}')`
