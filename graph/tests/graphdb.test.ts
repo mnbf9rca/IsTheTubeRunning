@@ -5,7 +5,7 @@ const { describe, expect, test } = require('@jest/globals')
 const config = require('../../utils/config')
 
 import Gremlin from 'gremlin'
-import { driver } from 'gremlin'
+import { driver, structure } from 'gremlin'
 
 const graph = require('../graphdb')
 const graph_execute = require('../graphdb.execute')
@@ -32,14 +32,42 @@ interface Vertex {
   array_property: string[]
 }
 
+interface VertexResult {
+  id: string
+  label: string
+  type: string
+  properties: {
+    naptanId: VertexProperty[]
+    string_property: VertexProperty[]
+    number_property: VertexProperty[]
+    array_property: VertexProperty[]
+  }
+}
+
+interface VertexProperty {
+  value: string | number | boolean
+}
+
+// note: edges don't support array-like properties
 interface Edge {
   id: string
   label: string
   string_property: string
   number_property: number
-  array_property: string[]
   from: string
   to: string
+}
+
+interface EdgeResult {
+  id: string
+  label: string
+  type: string
+  outV: string
+  inV: string
+  properties: {
+    string_property: string
+    number_property: number
+  }
 }
 
 
@@ -62,6 +90,23 @@ function generate_vertex(): Vertex {
   return vertex
 }
 
+function vertex_to_vertex_result(vertex: Vertex): VertexResult {
+  const vertex_result = {
+    id: vertex.id,
+    label: vertex.label,
+    type: 'vertex',
+    properties: {
+      naptanId: [{ value: vertex.naptanId }],
+      string_property: [{ value: vertex.string_property }],
+      number_property: [{ value: vertex.number_property }],
+      array_property: vertex.array_property.map((value) => { return { value: value } })
+    }
+  }
+  return vertex_result
+}
+
+
+
 function generate_edge(from: string, to: string): Edge {
   const id = randomString()
   const edge: Edge = {
@@ -69,12 +114,27 @@ function generate_edge(from: string, to: string): Edge {
     label: 'known-edge-to',
     string_property: randomString(),
     number_property: Math.random() * 1000,
-    array_property: generate_random_array(5),
     from: from,
     to: to
   }
   return edge
 }
+
+function edge_to_edge_result(edge: Edge): EdgeResult {
+  const edge_result = {
+    id: edge.id,
+    label: edge.label,
+    type: 'edge',
+    outV: edge.from,
+    inV: edge.to,
+    properties: {
+      string_property: edge.string_property,
+      number_property: edge.number_property,
+    }
+  }
+  return edge_result
+}
+
 
 function create_known_graph(): iKnown_Graph {
   const first = generate_vertex()
@@ -95,12 +155,11 @@ function create_gremlin_vertex(vertex: Vertex): string {
 }
 
 function create_gremlin_edge(edge: Edge): string {
-  const edge_string = `g.V('${edge.from}')
-  .addE('${edge.label}')
+  const edge_string = `g.addE('${edge.label}')
+  .from(g.V('${edge.from}'))
   .to(g.V('${edge.to}'))
   .property('id', '${edge.id}')
   .property('string_property', '${edge.string_property}')
-  ${GraphDB.add_array_value(edge.array_property, 'array_property')}
   .property('number_property', ${edge.number_property})`
   console.info('edge_string', edge_string)
   return edge_string
@@ -272,6 +331,43 @@ describe('GraphDB tests', () => {
         const actual_result2 = await GraphDB.getInstance().isOpen
         expect(actual_result2).toBe(false)
       })
+      test('can add a graph', async () => {
+        const new_known_graph = create_known_graph()
+        list_of_added_vertices.push(new_known_graph.first.id)
+        list_of_added_vertices.push(new_known_graph.second.id)
+        const first_query = create_gremlin_vertex(new_known_graph.first)
+        const second_query = create_gremlin_vertex(new_known_graph.second)
+        const edge_query = create_gremlin_edge(new_known_graph.edge)
+        const first_result = await GraphDB.getInstance().execute(first_query)
+        const second_result = await GraphDB.getInstance().execute(second_query)
+        const edge_result = await GraphDB.getInstance().execute(edge_query)
+        expect(first_result['success']).toBe(true)
+        expect(second_result['success']).toBe(true)
+        expect(edge_result['success']).toBe(true)
+      })
+      test('can query for a single vertex', async () => {
+        const expected_result = vertex_to_vertex_result(known_graph.first)
+        const query = `g.V('${known_graph.first.id}')`
+        const actual_result = await GraphDB.getInstance().execute(query)
+        expect(actual_result['success']).toBe(true)
+        expect(actual_result['data']['_items'][0]).toMatchObject(expected_result)
+      })
+      test('can query for two vertices', async () => {
+        const expected_result = [vertex_to_vertex_result(known_graph.first), vertex_to_vertex_result(known_graph.second)]
+        const query = `g.V('${known_graph.first.id}', '${known_graph.second.id}')`
+        const actual_result = await GraphDB.getInstance().execute(query)
+        expect(actual_result['success']).toBe(true)
+        expect(actual_result['data']['_items']).toMatchObject(expected_result)
+      })
+      test('can query for a single edge', async () => {
+        const expected_result = edge_to_edge_result(known_graph.edge)
+        const query = `g.E('${known_graph.edge.id}')`
+        const actual_result = await GraphDB.getInstance().execute(query)
+        expect(actual_result['success']).toBe(true)
+        expect(actual_result['data']['_items'][0]).toMatchObject(expected_result)
+      })
+
+
 
       test.skip('add a single stoppoint', async () => {
         jest.setTimeout(20000)
@@ -340,7 +436,7 @@ describe('GraphDB tests', () => {
       }
 
       // https://stackoverflow.com/a/64061583/104370
-      let mockGremlinClient= jest.fn(() => { }) as unknown as jest.Mocked<MockedGremlinClient>
+      let mockGremlinClient = jest.fn(() => { }) as unknown as jest.Mocked<MockedGremlinClient>
 
       const process_query_and_mock_response = (query: any) => {
         const reject_error = (x_ms_status_code: number) => {
