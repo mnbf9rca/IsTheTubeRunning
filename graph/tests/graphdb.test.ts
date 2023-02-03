@@ -418,6 +418,22 @@ describe('GraphDB tests', () => {
         expect(actual_result['success']).toBe(true)
         expect(actual_result['data']['_items'][0]).toMatchObject(expected_result)
       })
+      test('reopens the connection if closed', async () => {
+        const expected_result = edge_to_edge_result(known_graph.edge)
+        const query = `g.E('${known_graph.edge.id}')`
+        const actual_result = await GraphDB.getInstance().execute(query)
+        expect(actual_result['success']).toBe(true)
+        expect(actual_result['data']['_items'][0]).toMatchObject(expected_result)
+        await GraphDB.getInstance().close()
+        const is_open = await GraphDB.getInstance().isOpen
+        expect(is_open).toBe(false)        
+        const actual_result2 = await GraphDB.getInstance().execute(query)
+        expect(actual_result2['success']).toBe(true)
+        expect(actual_result2['data']['_items'][0]).toMatchObject(expected_result)
+        const is_open2 = await GraphDB.getInstance().isOpen
+        expect(is_open2).toBe(true)
+      })
+
 
 
 

@@ -35,7 +35,7 @@ export default class GraphDB implements IGraphDB {
     /* executes a gremlin query */
     if (await this.isOpen === false) {
       await this.connect()
-      console.log('reconnected to graphdb')
+      console.log('reconnected to graphdb because a query was raised while the connection was closed')
     }
     return execute_query(this._gremlin_client, query, 5, params)
   }
