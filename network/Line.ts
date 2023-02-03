@@ -1,19 +1,19 @@
 import Mode from './Mode';
 
 const tfl_lines: { [key: string]: string } = {
-  bakerloo: 'Bakerloo',
-  central: 'Central',
-  circle: 'Circle',
-  district: 'District',
+  bakerloo: 'Bakerloo Line',
+  central: 'Central Line',
+  circle: 'Circle Line',
+  district: 'District Line',
   dlr: 'DLR',
   'elizabeth-line': 'Elizabeth Line',
   'hammersmith-city': 'Hammersmith & City',
-  jubilee: 'Jubilee',
-  metropolitan: 'Metropolitan',
-  northern: 'Northern',
-  piccadilly: 'Piccadilly',
-  victoria: 'Victoria',
-  'waterloo-city': 'Waterloo & City',
+  jubilee: 'Jubilee Line',
+  metropolitan: 'Metropolitan Line',
+  northern: 'Northern Line',
+  piccadilly: 'Piccadilly Line',
+  victoria: 'Victoria Line',
+  'waterloo-city': 'Waterloo & City Line',
   'london-overground': 'London Overground',
 }
 
@@ -39,7 +39,7 @@ export default class Line implements ILine {
   private _mode: Mode;
   public constructor(lineName: string, mode: Mode) {
     if (!tfl_lines[lineName]) {
-      throw new Error(`Line ${lineName} not found in tfl_lines`);
+      throw new Error(`Line not found in tfl_lines: ${lineName}`);
     }
     this._lineName = lineName;
     this._displayName = tfl_lines[lineName];

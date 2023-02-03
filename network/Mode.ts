@@ -27,6 +27,9 @@ export default class Mode implements IMode {
   private _name: string;
 
   public constructor(mode: "bus" | "dlr" | "elizabeth-line" | "overground" | "tube") {
+    if (Array.isArray(mode)) {
+      throw new Error(`Expected string, got array: ${mode}`);
+    }
     if (!Object.keys(Modes).includes(mode)) {
       throw new Error(`Invalid mode: ${mode}`);
     }

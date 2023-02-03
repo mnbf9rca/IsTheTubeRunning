@@ -32,6 +32,15 @@ describe('Mode', () => {
     test('throws an error when an empty mode is passed', () => {
       expect(() => new Mode('' as 'tube')).toThrowError('Invalid mode: ');
     });
+    test('throws an error when an undefined mode is passed', () => {
+      expect(() => new Mode(undefined as any)).toThrowError('Invalid mode: undefined');
+    });
+    test('throws error when array is passed', () => {
+      expect(() => new Mode(['tube'] as any)).toThrowError('Expected string, got array: tube');
+    });
+    test('throws error when array with multiple values is passed', () => {
+      expect(() => new Mode(['tube', 'dlr'] as any)).toThrowError('Expected string, got array: tube,dlr');
+    });
   });
   describe('test name values for valid modes', () => {
     test('should return "bus" when name is called', () => {

@@ -111,4 +111,47 @@ describe('LineSegment', () => {
       expect(actual_result).toBe(expected_result);
     });
   })
+  describe('test object properties', () => {
+    test('id is "piccadilly-1-inbound-940GZZLULVT-940GZZLUKSX"', () => {
+      const lineSegment = new LineSegment(picadillyLine, modeTube, stoppoint1, stoppoint2, 1, 'inbound');
+      expect(lineSegment.id).toBe('piccadilly-1-inbound-940GZZLULVT-940GZZLUKSX');
+    });
+    test('lineName is "piccadilly"', () => {
+      const lineSegment = new LineSegment(picadillyLine, modeTube, stoppoint1, stoppoint2, 1, 'inbound');
+      expect(lineSegment.lineName).toBe('piccadilly');
+    });
+    test('displayName is "Piccadilly Line"', () => {
+      const lineSegment = new LineSegment(picadillyLine, modeTube, stoppoint1, stoppoint2, 1, 'inbound');
+      expect(lineSegment.displayName).toBe('Piccadilly Line');
+    });
+    test('mode is "tube"', () => {
+      const lineSegment = new LineSegment(picadillyLine, modeTube, stoppoint1, stoppoint2, 1, 'inbound');
+      expect(lineSegment.mode).toBe(modeTube);
+    });
+    test('from is stoppoint1', () => {
+      const lineSegment = new LineSegment(picadillyLine, modeTube, stoppoint1, stoppoint2, 1, 'inbound');
+      expect(lineSegment.from).toBe(stoppoint1);
+    });
+    test('to is stoppoint2', () => {
+      const lineSegment = new LineSegment(picadillyLine, modeTube, stoppoint1, stoppoint2, 1, 'inbound');
+      expect(lineSegment.to).toBe(stoppoint2);
+    });
+    test('branchId is 1', () => {
+      const lineSegment = new LineSegment(picadillyLine, modeTube, stoppoint1, stoppoint2, 1, 'inbound');
+      expect(lineSegment.branchId).toBe(1);
+    });
+    test('direction is "inbound"', () => {
+      const lineSegment = new LineSegment(picadillyLine, modeTube, stoppoint1, stoppoint2, 1, 'inbound');
+      expect(lineSegment.direction).toBe('inbound');
+    });
+    test('line is picadillyLine', () => {
+      const lineSegment = new LineSegment(picadillyLine, modeTube, stoppoint1, stoppoint2, 1, 'inbound');
+      expect(lineSegment.line).toBe(picadillyLine);
+    }    );
+    test('lineName is "piccadilly"', () => {
+      const lineSegment = new LineSegment(picadillyLine, modeTube, stoppoint1, stoppoint2, 1, 'inbound');
+      expect(lineSegment.lineName).toBe('piccadilly');
+    });
+  });
+
 })
