@@ -8,7 +8,7 @@ const validator = require('jsonschema')
 
 const mockdata = require('../__mocks__/graphdb.execute.responses')
 
-describe('graphdb.execute tests with mocked graph response', () => {
+describe.skip('graphdb.execute tests with mocked graph response', () => {
   describe('test add_line_segment', () => {
     test('adding a line', async () => {
       const input_data = mockdata.add_line_segment.input

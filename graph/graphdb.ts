@@ -3,9 +3,12 @@ import config from '../utils/config'
 import { execute_query } from './graphdb.execute'
 import Gremlin from 'gremlin'
 
+
 interface IGraphDB {
   execute: (query: string, params?: { [key: string]: string | number | boolean }) => Promise<any>
   connect: () => Promise<void>
+  close: () => Promise<void>
+  isOpen: Promise<boolean>
   // getInstance: () => GraphDB -> cant figure out how to get a static method defined in typescript interface
 }
 
@@ -13,7 +16,7 @@ export default class GraphDB implements IGraphDB {
   private _gremlin_db_string = `/dbs/${config.graph_database}/colls/${config.graph_stoppoint_colleciton}`
   private _stoppoint_authenticator = new Gremlin.driver.auth.PlainTextSaslAuthenticator(this._gremlin_db_string, config.graph_primary_key)
   private static _instance: GraphDB = new GraphDB()
-  private _stoppoint_client = new Gremlin.driver.Client(
+  private _gremlin_client = new Gremlin.driver.Client(
     config.GRAPH_DATABASE_ENDPOINT,
     {
       authenticator: this._stoppoint_authenticator,
@@ -28,18 +31,25 @@ export default class GraphDB implements IGraphDB {
     }
     GraphDB._instance = this;
   }
-  execute(query: string, params?: { [key: string]: string | number | boolean }): Promise<any> {
+  public execute(query: string, params?: { [key: string]: string | number | boolean }): Promise<any> {
     /* executes a gremlin query */
-    return execute_query(this._stoppoint_client, query, params)
+    return execute_query(this._gremlin_client, query, params)
+  }
+  public async close(): Promise<void> {
+    /* closes the connection to the database */
+    return this._gremlin_client.close()
   }
   public static getInstance(): GraphDB {
     /* returns the instance of the class */
     return GraphDB._instance
   }
-
+  public get isOpen(): Promise<boolean> {
+    /* returns true if the client is connected to the database */
+    return this._gremlin_client.isOpen
+  }
   public async connect(): Promise<void> {
     /* connects to the database */
-    return this._stoppoint_client.open()
+    return this._gremlin_client.open()
   }
   public static escape_gremlin_special_characters(str: string): string {
     /**
@@ -80,9 +90,7 @@ export default class GraphDB implements IGraphDB {
      * @returns {String} - list of .property entries
      */
     const items = arr.map((item) => `.property('${property_name}', '${this.escape_gremlin_special_characters(item)}')`).join('\n')
-  
+
     return items
   }
 }
-
-const graphDB = GraphDB.getInstance()

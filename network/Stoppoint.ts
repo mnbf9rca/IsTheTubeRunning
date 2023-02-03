@@ -1,5 +1,5 @@
 import {Line} from './Line';
-import {Mode} from './Mode';
+import {Mode} from '../models/Mode';
 
 interface IStoppoint {
   label?: string;
