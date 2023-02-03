@@ -1,6 +1,6 @@
 //const Stoppoint = require('../models/Stoppoint')
 import config from '../utils/config'
-import { execute_query } from './graphdb.execute'
+import GraphExecute from './graphdb.execute'
 import Gremlin from 'gremlin'
 
 
@@ -37,7 +37,7 @@ export default class GraphDB implements IGraphDB {
       await this.connect()
       console.log('reconnected to graphdb because a query was raised while the connection was closed')
     }
-    return execute_query(this._gremlin_client, query, 5, params)
+    return GraphExecute.execute_query(this._gremlin_client, query, 5, params)
   }
   public async close(): Promise<void> {
     /* closes the connection to the database */
