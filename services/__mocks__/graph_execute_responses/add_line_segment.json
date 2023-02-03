@@ -1,5 +1,5 @@
 {
-  "description": "matches add_line statement",
+  "description": "matches add_line_segment statement",
   "input": {
     "fromId": "from_data",
     "toId": "to_data",

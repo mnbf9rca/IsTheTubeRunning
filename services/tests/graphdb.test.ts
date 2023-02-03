@@ -222,7 +222,7 @@ describe('GraphDB tests', () => {
       beforeAll(async () => {
         await add_and_push_stoppoint(known_stoppoints.first)
         await add_and_push_stoppoint(known_stoppoints.second)
-        await graph.add_line(known_stoppoints.line, true)
+        await graph.add_line_segment(known_stoppoints.line, true)
       })
       function add_and_push_stoppoint(stoppoint: Stoppoint) {
         list_of_added_stoppoints.push(stoppoint['id'])

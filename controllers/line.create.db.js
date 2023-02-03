@@ -32,7 +32,7 @@ async function store_stoppoints_then_join_them(stoppoints, lines) {
   const batch_size = 5
   const stoppoint_success = await chunk_and_send_to_graphdb(stoppoints, graphdb.add_stoppoint, batch_size, time_between_batches)
   console.log(`final stoppoint success: ${stoppoint_success}/${stoppoints.length}`)
-  const line_success = await chunk_and_send_to_graphdb(lines, graphdb.add_line, batch_size, time_between_batches)
+  const line_success = await chunk_and_send_to_graphdb(lines, graphdb.add_line_segment, batch_size, time_between_batches)
   console.log(`final line success: ${line_success}/${lines.length}`)
 }
 

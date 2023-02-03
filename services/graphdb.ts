@@ -182,7 +182,7 @@ const add_user = async (user: string, upsert = false) => {
 }
 
 
-const add_line = async (line_edge: LineSegment, upsert = true) => {
+const add_line_segment = async (line_edge: LineSegment, upsert = true) => {
   // add a line to the graphdb
   // a line is an object with the following properties:
   // id, name, modeName, modeId, routeSections
@@ -393,7 +393,7 @@ function flattenProperties(properties: PropertyBucket, minimum_required_properti
 module.exports = {
   stoppoint_client,
   add_stoppoint,
-  add_line,
+  add_line_segment,
   add_user,
   find_route_between_stops,
   escape_gremlin_special_characters,
