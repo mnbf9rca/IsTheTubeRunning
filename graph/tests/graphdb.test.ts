@@ -84,7 +84,7 @@ function generate_vertex(): Vertex {
     label: 'known-vertex',
     naptanId: `TEST-${id}}`,
     string_property: randomString(),
-    number_property: Math.random() * 1000,
+    number_property: Math.round(Math.random() * 10000)/100,
     array_property: generate_random_array(5)
   }
   return vertex
@@ -113,7 +113,7 @@ function generate_edge(from: string, to: string): Edge {
     id: `TEST-${id}}`,
     label: 'known-edge-to',
     string_property: randomString(),
-    number_property: Math.random() * 1000,
+    number_property: Math.round(Math.random() * 10000)/100,
     from: from,
     to: to
   }
