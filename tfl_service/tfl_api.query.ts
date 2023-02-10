@@ -4,7 +4,7 @@ const logger = require('../utils/logger')
 
 
 
-const get_s_maxage = (cache_control_header) => {
+const get_s_maxage = (cache_control_header: string): number => {
   /**
    * extracts s-maxage from cache-control header
    *
@@ -18,7 +18,7 @@ const get_s_maxage = (cache_control_header) => {
   return maxAge
 }
 
-const add_search_params = (url, params) => {
+const add_search_params = (url: URL, params: { [key: string]: number | string | boolean }) => {
   /**
    * adds search params to a url
    *
@@ -33,12 +33,12 @@ const add_search_params = (url, params) => {
   let new_url = url
   for (var p in new_params)
     if (Object.prototype.hasOwnProperty.call(new_params, p)) {
-      new_url.searchParams.append(p, new_params[p])
+      new_url.searchParams.append(p, String(new_params[p]))
     }
   return new_url
 }
 
-async function query(querystring, params = null) {
+async function query(querystring: string, params: null | { [key: string]: number | string | boolean } = null) {
   /**
    * fetches data from tfl api
    *
@@ -67,7 +67,8 @@ async function query(querystring, params = null) {
     logger.debug(`fetching ${tfl_api_url.toString()}`)
     tfl_api_response = await axios.get(tfl_api_url.toString(), { headers: tfl_api_headers })
   } catch (error) {
-    logger.error(`Error fetching ${tfl_api_url.toString()} : ${error.message}`)
+    let error_message = error instanceof Error ? error.message : JSON.stringify(error)
+    logger.error(`Error fetching ${tfl_api_url.toString()} : ${error_message}`)
     throw error // rethrow error
   }
 

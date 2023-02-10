@@ -1,11 +1,13 @@
-const { describe, expect, test } = require('@jest/globals')
-const fs = require('fs')
-const path = require('node:path')
-const helpers = require('../../utils/helpers')
+import { describe, expect, test } from '@jest/globals'
+import fs from 'fs'
+import path from 'node:path'
+import helpers from '../../utils/helpers'
 
+type t = typeof test
 // https://stackoverflow.com/questions/44654210/logical-or-for-expected-results-in-jest
-const expect_or = (...tests) => {
+const expect_or = (...tests: t[]) => {
   try {
+    TODO!!
     tests.shift()()
   } catch (e) {
     if (tests.length) expect_or(...tests)
@@ -13,11 +15,11 @@ const expect_or = (...tests) => {
   }
 }
 
-const load_file = (filename) => {
+const load_file = (filename: string) => {
   return fs.readFileSync(path.resolve(__dirname, filename), 'utf8')
 }
 
-const get_data = (filename) => {
+const get_data = (filename: string) => {
   return helpers.jsonParser(load_file(filename))
 }
 
