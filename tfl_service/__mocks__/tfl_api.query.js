@@ -1,7 +1,7 @@
 const responses = require('./tfl_api.query.axios_responses')
 console.log('mocking TfL API')
 
-const { check_params } = require('../tests/test_helpers')
+const { check_params } = require('../../test_helpers/test_helpers')
 
 
 let originalModule = jest.requireActual('../tfl_api.query')
