@@ -98,7 +98,7 @@ describe('test helper functions ', () => {
 })
 
 describe('test with a real query to TfL', () => {
-  const { query } = require('../../services/tfl_api.query')
+  const { query } = require('../tfl_api.query')
   test('test with a valid query actually hits the TfL API', async () => {
     const expected_result = get_data('get_line_meta_modes.json')
     const actual_result = await query('/Line/Meta/Modes')
