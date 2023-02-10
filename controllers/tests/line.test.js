@@ -1,6 +1,6 @@
 
 const line = require('../line')
-jest.mock('../../services/tfl_api.query')
+jest.mock('../../tfl_service/tfl_api.query')
 const validator = require('jsonschema')
 
 
