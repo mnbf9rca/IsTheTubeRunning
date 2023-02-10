@@ -2,7 +2,7 @@
 const logger = require('../utils/logger')
 const { query } = require('./tfl_api.query')
 
-const query_cache = require('../services/cache')
+const query_cache = require('./cache')
 
 const structure_cached_value = (cached_value, cache_ttl) => {
   /**
