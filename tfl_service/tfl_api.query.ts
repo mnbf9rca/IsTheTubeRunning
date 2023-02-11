@@ -2,24 +2,18 @@ import config from '../utils/config'
 import axios from 'axios'
 import logger from '../utils/logger'
 
-interface ITfLRequest {
-  querystring: string
-  params?: { [key: string]: number | string | boolean }
-}
-
 interface ITfLResponse {
-  data?: any
-  error?: string
+  data: any
   status: number
   success: boolean
 }
 
 interface ITfLAPIQuery {
-  query(query: ITfLRequest): Promise<ITfLResponse>
+  query(querystring: string, params?: { [key: string]: number | string | boolean }): Promise<ITfLResponse>
 }
 
 
-export const query: (query: ITfLRequest) => Promise<ITfLResponse>  = async function (query: ITfLRequest)  {
+export const query: (querystring: string, params?: { [key: string]: number | string | boolean }) => Promise<ITfLResponse>  = async function (querystring: string, params?: { [key: string]: number | string | boolean })  {
   /**
    * fetches data from tfl api
    *
@@ -27,7 +21,6 @@ export const query: (query: ITfLRequest) => Promise<ITfLResponse>  = async funct
    * @param {Object} params - the query parameters to append to the url
    * @returns {Object} - the response from the api
    */
-  const { querystring, params } = query
   if (!querystring) return Promise.reject({ error: 'no querystring', status: 500, success: false })
 
   const tfl_api_root = config.tfl_api_root

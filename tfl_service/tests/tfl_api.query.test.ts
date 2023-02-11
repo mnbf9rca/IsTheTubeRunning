@@ -104,11 +104,11 @@ describe('test helper functions ', () => {
 describe('test with a real query to TfL', () => {
   test('test with a valid query actually hits the TfL API', async () => {
     const expected_result = get_data('get_line_meta_modes.json')
-    const actual_result = await query({querystring: '/Line/Meta/Modes'})
+    const actual_result = await query('/Line/Meta/Modes')
     // check if actual_result toMatchObject either expected_day or expected_night
     expect(actual_result).toMatchObject(expected_result)
   })
   test('throw error on invalid query', async () => {
-    await expect(query({querystring: '/invalidurl'})).rejects.toThrowError('Request failed with status code 404')
+    await expect(query('/invalidurl')).rejects.toThrowError('Request failed with status code 404')
   })
 })
