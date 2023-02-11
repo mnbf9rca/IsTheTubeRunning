@@ -2,6 +2,8 @@ import { describe, expect, test } from '@jest/globals'
 import fs from 'fs'
 import path from 'node:path'
 import helpers from '../../utils/helpers'
+import {query} from '../tfl_api.query'
+
 
 type t = typeof test
 // https://stackoverflow.com/questions/44654210/logical-or-for-expected-results-in-jest
@@ -100,14 +102,13 @@ describe('test helper functions ', () => {
 })
 
 describe('test with a real query to TfL', () => {
-  const { query } = require('../tfl_api.query')
   test('test with a valid query actually hits the TfL API', async () => {
     const expected_result = get_data('get_line_meta_modes.json')
-    const actual_result = await query('/Line/Meta/Modes')
+    const actual_result = await query({querystring: '/Line/Meta/Modes'})
     // check if actual_result toMatchObject either expected_day or expected_night
     expect(actual_result).toMatchObject(expected_result)
   })
   test('throw error on invalid query', async () => {
-    await expect(query('/invalidurl')).rejects.toThrowError('Request failed with status code 404')
+    await expect(query({querystring: '/invalidurl'})).rejects.toThrowError('Request failed with status code 404')
   })
 })
