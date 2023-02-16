@@ -4,6 +4,7 @@ import logger from '../utils/logger'
 
 interface ITfLResponse {
   data: any
+  ttl: number
   status: number
   success: boolean
 }
