@@ -22,7 +22,7 @@ export function validate(modeToCheck: any): boolean {
   * returns false if the mode is not valid
   * */
   return modeToCheck !== undefined && modeToCheck !== null && typeof modeToCheck === 'object' &&
-    Object.prototype.hasOwnProperty.call(modeToCheck, 'type') && modeToCheck.type === 'mode' &&
+    Object.prototype.hasOwnProperty.call(modeToCheck, 'type') && modeToCheck.type.toLowerCase() === 'mode' &&
     Object.prototype.hasOwnProperty.call(modeToCheck, 'id') && typeof modeToCheck.id === 'string' &&
     Object.prototype.hasOwnProperty.call(modeToCheck, 'name') && typeof modeToCheck.name === 'string' &&
     Object.prototype.hasOwnProperty.call(modeToCheck, 'toString') && typeof modeToCheck.toString === 'function' && modeToCheck.toString() === String(modeToCheck.id)

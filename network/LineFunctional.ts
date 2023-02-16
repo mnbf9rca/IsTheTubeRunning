@@ -47,13 +47,17 @@ export function validate(lineToCheck: any): Boolean {
   * returns true if the line is valid
   * returns false if the line is not valid
   * */
-  return lineToCheck !== null && lineToCheck !== undefined &&
-    typeof lineToCheck === 'object' &&
-    Object.prototype.hasOwnProperty.call(lineToCheck, 'type') && lineToCheck.type === 'Line' &&
-    Object.prototype.hasOwnProperty.call(lineToCheck, 'lineName') && typeof lineToCheck.lineName === 'string' &&
-    Object.prototype.hasOwnProperty.call(lineToCheck, 'displayName') && typeof lineToCheck.displayName === 'string' &&
-    Object.prototype.hasOwnProperty.call(lineToCheck, 'mode') && Mode.validate(lineToCheck.mode) &&
-    Object.prototype.hasOwnProperty.call(lineToCheck, 'toString') && typeof lineToCheck.toString === 'function' && lineToCheck.toString() === String(lineToCheck.name)
+ const obj = lineToCheck !== null && lineToCheck !== undefined && typeof lineToCheck === 'object' 
+ const type = Object.prototype.hasOwnProperty.call(lineToCheck, 'type') && lineToCheck.type.toLowerCase() === 'line' 
+ const lineName = Object.prototype.hasOwnProperty.call(lineToCheck, 'lineName') && typeof lineToCheck.lineName === 'string' 
+ const displayName = Object.prototype.hasOwnProperty.call(lineToCheck, 'displayName') && typeof lineToCheck.displayName === 'string' 
+ const modes = Object.prototype.hasOwnProperty.call(lineToCheck, 'mode') && Mode.validate(lineToCheck.mode)
+ const toString = Object.prototype.hasOwnProperty.call(lineToCheck, 'toString') && typeof lineToCheck.toString === 'function' && lineToCheck.toString() === String(lineToCheck.lineName)
+  return obj && type &&     
+    lineName &&
+    displayName &&
+    modes &&
+    toString
 }
 
 export function getLine(lineName: string, mode: Mode.Mode | string): Line {

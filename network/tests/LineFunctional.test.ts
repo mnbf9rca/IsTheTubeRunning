@@ -6,7 +6,7 @@ describe('Functional Line tests', () => {
     let line_bakerloo_1: Line.Line;
     let line_bakerloo_2: Line.Line;
     let line_central_1: Line.Line;
-    let mode_tube = Mode.getMode('tube');
+    const mode_tube = Mode.getMode('tube');
     beforeEach(() => {
       line_bakerloo_1 = Line.getLine('bakerloo', mode_tube);
       line_bakerloo_2 = Line.getLine('bakerloo', mode_tube);
@@ -19,6 +19,19 @@ describe('Functional Line tests', () => {
       expect(line_bakerloo_1).not.toBe(line_central_1);
     })
   })
+  describe('test validate', () => {
+    const line_bakerloo_1 = Line.getLine('bakerloo',  Mode.getMode('tube'));
+    test('line_bakerloo_1 should be valid', () => {
+      expect(Line.validate(line_bakerloo_1)).toBe(true);      
+    })
+    test('removing a property should return false', () => {
+
+      let mutated_line: any= Object.assign({}, line_bakerloo_1);
+      expect(mutated_line).not.toBe(line_bakerloo_1);
+      delete mutated_line.lineName;
+      expect(Line.validate(mutated_line)).toBe(false);
+    })
+    })
   describe('getLine', () => {
     test('getLine should create an object which conforms to Line interface', () => {
       const mode_tube = Mode.getMode('tube');
