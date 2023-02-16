@@ -87,6 +87,71 @@ describe('Functional Line tests', () => {
     })
   })
   describe('all expected tfl_lines are supported', () => {
+    describe('isValidLine returns true for all lines in tfl_lines', () => {
+      test('isValidLine should return true for bakerloo', () => {
+        expect(Line.isValidLine('bakerloo')).toBe(true);
+      })
+      test('isValidLine should return true for central', () => {
+        expect(Line.isValidLine('central')).toBe(true);
+      })
+      test('isValidLine should return true for circle', () => {
+        expect(Line.isValidLine('circle')).toBe(true);
+      })
+      test('isValidLine should return true for district', () => {
+        expect(Line.isValidLine('district')).toBe(true);
+      })
+      test('isValidLine should return true for dlr', () => {
+        expect(Line.isValidLine('dlr')).toBe(true);
+      })
+      test('isValidLine should return true for elizabeth-line', () => {
+        expect(Line.isValidLine('elizabeth-line')).toBe(true);
+      })
+      test('isValidLine should return true for hammersmith-city', () => {
+        expect(Line.isValidLine('hammersmith-city')).toBe(true);
+      })
+      test('isValidLine should return true for jubilee', () => {
+        expect(Line.isValidLine('jubilee')).toBe(true);
+      })
+      test('isValidLine should return true for metropolitan', () => {
+        expect(Line.isValidLine('metropolitan')).toBe(true);
+      })
+      test('isValidLine should return true for northern', () => {
+        expect(Line.isValidLine('northern')).toBe(true);
+      })
+      test('isValidLine should return true for piccadilly', () => {
+        expect(Line.isValidLine('piccadilly')).toBe(true);
+      })
+      test('isValidLine should return true for victoria', () => {
+        expect(Line.isValidLine('victoria')).toBe(true);
+      })
+      test('isValidLine should return true for waterloo-city', () => {
+        expect(Line.isValidLine('waterloo-city')).toBe(true);
+      })
+      test('isValidLine should return true for london-overground', () => {
+        expect(Line.isValidLine('london-overground')).toBe(true);
+      })
+      test('isValidLine should return false for undefined', () => {
+        expect(Line.isValidLine(undefined)).toBe(false);
+      })
+      test('isValidLine should return false for null', () => {
+        expect(Line.isValidLine(<any>null)).toBe(false);
+      })
+      test('isValidLine should return false for empty string', () => {
+        expect(Line.isValidLine('')).toBe(false);
+      })
+      test('isValidLine should return false for NaN', () => {
+        expect(Line.isValidLine(<any>NaN)).toBe(false);
+      })
+      test('isValidLine should return false for numbers', () => {
+        expect(Line.isValidLine(<any>1)).toBe(false);
+      })
+      test('isValidLine should return false for numbers in strings', () => {
+        expect(Line.isValidLine('n14')).toBe(false);
+      })
+      test('isValidLine should return false forarrays of valid values', () => {
+        expect(Line.isValidLine(<any>['bakerloo', 'victoria'])).toBe(false);
+      })
+    })
     const mode_tube = Mode.getMode('tube');
     test('returns valid item for bakerloo', () => {
       const line = Line.getLine('bakerloo', mode_tube);

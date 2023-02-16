@@ -53,13 +53,17 @@ export function validate(lineToCheck: any): Boolean {
  const type = Object.prototype.hasOwnProperty.call(lineToCheck, 'type') && lineToCheck.type.toLowerCase() === 'line' 
  const lineName = Object.prototype.hasOwnProperty.call(lineToCheck, 'lineName') && typeof lineToCheck.lineName === 'string' 
  const displayName = Object.prototype.hasOwnProperty.call(lineToCheck, 'displayName') && typeof lineToCheck.displayName === 'string' 
- const modes = Object.prototype.hasOwnProperty.call(lineToCheck, 'mode') ? Mode.validate(lineToCheck.mode) : true
+ const modes = Object.prototype.hasOwnProperty.call(lineToCheck, 'mode') && lineToCheck.mode !== undefined ? Mode.validate(lineToCheck.mode) : true
  const toString = Object.prototype.hasOwnProperty.call(lineToCheck, 'toString') && typeof lineToCheck.toString === 'function' && lineToCheck.toString() === String(lineToCheck.lineName)
   return type &&     
     lineName &&
     displayName &&
     modes &&
     toString
+}
+
+export function isValidLine(lineName: string | undefined): boolean{
+  return lineName !== undefined && !Array.isArray(isValidLine) && tfl_lines[lineName] !== undefined;
 }
 
 export function getLine(lineName: string, mode?: Mode.Mode | string): Line {
@@ -71,7 +75,7 @@ export function getLine(lineName: string, mode?: Mode.Mode | string): Line {
   * @param {Mode.Mode | string} mode - the mode to get the line object for. If a string is passed, it will be used to retrieve the relevant Mode.Mode object
   * @returns {line} - the line object for the given line string
   */
-  if (!tfl_lines[lineName]) {
+  if (!isValidLine(lineName)) {
     throw new Error(`Line not found in tfl_lines: ${lineName}`);
   }
   const validated_mode = mode ? get_validated_mode(mode) : undefined
