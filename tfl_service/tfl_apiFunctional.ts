@@ -1,6 +1,6 @@
 //const config = require('../utils/config')
 import logger from '../utils/logger'
-import {query} from './tfl_api.query'
+import { query } from './tfl_api.query'
 import * as Line from '../network/LineFunctional'
 import * as Stoppoint from '../network/StoppointFunctional'
 import * as Mode from '../network/ModeFunctional'
@@ -21,7 +21,7 @@ const structure_cached_value = (cached_value: any, cache_ttl: number | undefined
 
   const currentDate = new Date()
   let remaining_ttl = 0
-  if (cache_ttl === undefined){
+  if (cache_ttl === undefined) {
     remaining_ttl = -1
   } else if (cache_ttl > 0) {
     remaining_ttl = Math.floor((cache_ttl - currentDate.getTime()) / 1000)
@@ -49,7 +49,7 @@ function summarise_lineStatuses(line) {
     return {
       ...base_disruption,
       // if disruption is not empty, return it, otherwise return false
-      ...(disrupted_route !== {}) && { affectedRoutes: disrupted_route } ,
+      ...(disrupted_route !== {}) && { affectedRoutes: disrupted_route },
     }
   })
 
@@ -156,12 +156,15 @@ export async function get_line_stoppoints(line: Line.Line) {
   const cached_value = query_cache.get(cache_key)
   if (cached_value) {
     logger.debug(`${cache_key} cache hit`)
-    return structure_cached_value(cached_value,  query_cache.getTtl(cache_key))
+    return structure_cached_value(cached_value, query_cache.getTtl(cache_key))
   }
   else {
     logger.debug(`${cache_key} cache miss`)
     const line_stoppoints_api_query = `Line/${line.lineName}/StopPoints`
     const line_stoppoints = await query(line_stoppoints_api_query)
+    if (!line_stoppoints.success) {
+      throw new Error(`Error fetching line stoppoints with query '${line_stoppoints_api_query}': ${line_stoppoints.status}`)
+    }
     const stoppoint_data = extract_stoppoints_from_stoppoint_array(line_stoppoints.data)
     query_cache.set(cache_key, stoppoint_data, line_stoppoints.ttl)
     return Promise.resolve({ data: stoppoint_data, ttl: line_stoppoints.ttl })
@@ -214,16 +217,16 @@ function extract_stoppoints_from_stoppoint_array(stoppoint_array: TfL_Types['Sto
 
   return stoppoint_array.map((sp) => {
 
-      const id: string= sp['id'] as string
-      //const type= 'StopPoint'
-      const name: string= returnFirstMatchingProperty(sp, ['name', 'commonName']) as string // Object.prototype.hasOwnProperty.call(sp, 'name') ? sp['name'] as string : sp['commonName'] as string
-      const naptanId: string= returnFirstMatchingProperty(sp, ['stationId','naptanId']) as string
-      const lat: number= sp['lat'] as number
-      const lon: number= sp['lon'] as number
-      const modes= getModes(sp['modes'] as string[])
-      const lines= extract_lines_from_line_array(sp['lines'] as TfL_Types['Identifier'][])
-      return Stoppoint.addStoppoint(id, name, naptanId, lat, lon, modes, lines)
-    
+    const id: string = sp['id'] as string
+    //const type= 'StopPoint'
+    const name: string = returnFirstMatchingProperty(sp, ['name', 'commonName']) as string // Object.prototype.hasOwnProperty.call(sp, 'name') ? sp['name'] as string : sp['commonName'] as string
+    const naptanId: string = returnFirstMatchingProperty(sp, ['stationId', 'naptanId']) as string
+    const lat: number = sp['lat'] as number
+    const lon: number = sp['lon'] as number
+    const modes = getModes(sp['modes'] as string[])
+    const lines = extract_lines_from_line_array(sp['lines'] as TfL_Types['Identifier'][])
+    return Stoppoint.addStoppoint(id, name, naptanId, lat, lon, modes, lines)
+
   }
   )
 }
@@ -238,16 +241,19 @@ function returnFirstMatchingProperty(object: any, properties: string[]) {
   throw new Error(`Could not find ${properties.join(', ')} in object`)
 }
 
-function getModes(modes: string[]): Mode.Mode[]{
+function getModes(modes: string[]): Mode.Mode[] {
   return modes.map((mode) => {
     return Mode.getMode(mode)
   })
 }
 
 function extract_lines_from_line_array(line_array: TfL_Types['Identifier'][]): Line.Line[] {
-  return line_array.map((line) => {
-    const mode = Mode.getMode(line['id'] as string)
-    return Line.getLine(line['id'] as string, mode)})
+  return line_array
+    .filter(line => Line.isValidLine(line.id))// some lines are busses etc. etc.
+    .map((line) => {
+      const mode = undefined //Mode.getMode(line['id'] as string)
+      return Line.getLine(line['id'] as string, mode)
+    })
 }
 
 async function get_lines_for_mode(modes = ['tube', 'dlr', 'overground']) {

@@ -1,6 +1,7 @@
 import * as TfL from '../tfl_apiFunctional'
 const TfL_api_mod = require('../tfl_apiFunctional')
 import TfL_Types from '../TfL_types'
+import * as Line from '../../network/LineFunctional'
 
 //const query = require('../tfl_api.query')
 jest.mock('../tfl_api.query')
@@ -36,7 +37,8 @@ describe('TfL tests', () => {
         expect(actual_response).toMatchObject(expected_response)
       })
       test('calls TFL API to get default Victoria line trains', async () => {
-        const actual_response = await TfL.get_line_stoppoints('victoria')
+        const line = Line.getLine('victoria')
+        const actual_response = await TfL.get_line_stoppoints(line)
         const expected_response = tfl_sdk_responses.get_line_stoppoints_victoria
         expect(actual_response).toMatchObject(expected_response)
       })
