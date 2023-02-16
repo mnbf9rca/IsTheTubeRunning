@@ -18,6 +18,10 @@ describe('Functional Line tests', () => {
     test('line_bakerloo_1 should not be equal to line_central_1', () => {
       expect(line_bakerloo_1).not.toBe(line_central_1);
     })
+    test('Will return the same line even if created without a mode', () => {
+      const line_bakerloo_3 = Line.getLine('bakerloo');
+      expect(line_bakerloo_1).toBe(line_bakerloo_3);
+    })
   })
   describe('test validate', () => {
     const line_bakerloo_1 = Line.getLine('bakerloo', Mode.getMode('tube'));
@@ -37,11 +41,11 @@ describe('Functional Line tests', () => {
       delete mutated_line.displayName;
       expect(Line.validate(mutated_line)).toBe(false);
     })
-    test('removing mode property should return false', () => {
+    test('removing mode property should return true', () => {
       let mutated_line: any = Object.assign({}, line_bakerloo_1);
       expect(mutated_line).not.toBe(line_bakerloo_1);
       delete mutated_line.mode;
-      expect(Line.validate(mutated_line)).toBe(false);
+      expect(Line.validate(mutated_line)).toBe(true);
     })
     test('removing toString method should return false', () => {
       let mutated_line: any = Object.assign({}, line_bakerloo_1);
