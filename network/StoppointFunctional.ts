@@ -1,6 +1,6 @@
-
 import * as Line from './LineFunctional';
 import * as Mode from './ModeFunctional';
+import * as Network from './Network';
 
 export interface Stoppoint {
   id: string;
@@ -49,46 +49,30 @@ export function getStoppointById(id: string): Stoppoint {
   return stoppointInstances[id];
 }
 
-function getObjectDifference<T>(obj1: Stoppoint, obj2: Stoppoint): string[] {
+export function compareStoppoints(obj1: Stoppoint, obj2: Stoppoint): string[] {
   let diff: string[] = [];
-  if (obj1 !== null && obj1 !== undefined && obj2 !== null && obj2 !== undefined) {
+  if (!validate(obj1)) {
+    diff.push('obj1 is not a valid stoppoint');
+  }
+  if (!validate(obj2)) {
+    diff.push('obj2 is not a valid stoppoint');
+  }
+  if (diff.length === 0) {
     diff = diff.concat(compareProperties(obj1, obj2, 'id'));
     diff = diff.concat(compareProperties(obj1, obj2, 'name'));
     diff = diff.concat(compareProperties(obj1, obj2, 'naptanId'));
     diff = diff.concat(compareProperties(obj1, obj2, 'lat'));
     diff = diff.concat(compareProperties(obj1, obj2, 'lon'));
-    if (!arraysContainSameObjects(obj1.modes, obj2.modes)) {
-      diff.push('modes differ across objects')
+    if (!Network.arraysContainSameModesOrLines(obj1.modes, obj2.modes)) {
+      diff.push(`modes differ across objects: ${obj1.modes} != ${obj2.modes}`);
     }
-    if (!arraysContainSameObjects(obj1.lines, obj2.lines)) {
-      diff.push('lines differ across objects')
-    }    return diff;
-  } else {
-    throw new Error(`obj1 and obj2 must be objects`);
+    if (!Network.arraysContainSameModesOrLines(obj1.lines, obj2.lines)) {
+      diff.push(`lines differ across objects: ${obj1.lines} != ${obj2.lines}`);
+    }    ;
   }
+  return diff
 }
 
-function arraysContainSameObjects<T>(arr1: T[], arr2: T[]): boolean {
-  if (arr1.length !== arr2.length) {
-    return false;
-  }
-  for (const obj1 of arr1) {
-    if (!isObjectInArray(obj1, arr2)) {
-      return false;
-    }
-  }
-  return true;
-}
-function isObjectInArray(obj: any, arr: any[]): boolean {
-  for (const arrObj of arr) {
-    /// note: JS checks for object equivalence. This works for us because Mode and Line use 
-    // a singleton pattern. But this wouldnt work for regular objects - you'd have to compare properties
-    if (obj === arrObj) {
-      return true;
-    }
-  }
-  return false;
-}
 
 function compareProperties<T>(obj1: T, obj2: T, property: string): string[] {
   const diff: string[] = [];
@@ -120,13 +104,33 @@ export function addStoppoint(id: string, name: string, naptanId: string, lat: nu
 
   // check that the modes and lines are valid
   if (!(Array.isArray(modes) && modes.every(m => Mode.validate(m)))) {
+    throw new Error(`Invalid modes in modes or not array: ${modes}`);
+  }
+  if (!(Array.isArray(lines) && lines.every(l => Line.validate(l)))) {
+    throw new Error(`Invalid lines in lines or not array: ${lines}`);
+  }
+  // check if properties is missing
+  if (!id || typeof id !== 'string') {
+    throw new Error(`Invalid id: ${id}`);
+  }
+  if (!name || typeof name !== 'string') {
+    throw new Error(`Invalid name: ${name}`);
+  }
+  if (!naptanId || typeof naptanId !== 'string') {
+    throw new Error(`Invalid naptanId: ${naptanId}`);
+  }
+  if (!lat || typeof lat !== 'number') {
+    throw new Error(`Invalid lat: ${lat}`);
+  }
+  if (!lon || typeof lon !== 'number') {
+    throw new Error(`Invalid lon: ${lon}`);
+  }
+  if (!(Array.isArray(modes) && modes.every(m => Mode.validate(m)))) {
     throw new Error(`Invalid modes in modes: ${modes}`);
   }
-  const e = lines.every(l => Line.validate(l))
   if (!(Array.isArray(lines) && lines.every(l => Line.validate(l)))) {
     throw new Error(`Invalid lines in lines: ${lines}`);
   }
-
   const newStoppoint: Stoppoint = {
     id: id,
     name: name,
@@ -139,10 +143,14 @@ export function addStoppoint(id: string, name: string, naptanId: string, lat: nu
     getLineNames: () => lines.map(line => line.lineName),
     getModeNames: () => modes.map(m => m.id)
   }
+  // validate that this would be a valid stoppoint
+  if (!validate(newStoppoint)) {
+    throw new Error(`Invalid stoppoint: ${newStoppoint}`);
+  }
 
-  //  check if this stoppoint exists. If it does, return that. If not, create a new stoppoint object and return it
+  //  check if this stoppoint exists. If it does, and the properties match, return that. If not, create a new stoppoint object and return it
   if (stoppointInstances[id]) {
-    const objDiff = getObjectDifference(stoppointInstances[id], newStoppoint)
+    const objDiff = compareStoppoints(stoppointInstances[id], newStoppoint)
     if (objDiff.length > 0) {
       throw new Error(`Stoppoint with id ${id} already exists but has different properties.\n${objDiff.join('\n')}`);
     }

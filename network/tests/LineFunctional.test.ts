@@ -20,18 +20,36 @@ describe('Functional Line tests', () => {
     })
   })
   describe('test validate', () => {
-    const line_bakerloo_1 = Line.getLine('bakerloo',  Mode.getMode('tube'));
+    const line_bakerloo_1 = Line.getLine('bakerloo', Mode.getMode('tube'));
     test('line_bakerloo_1 should be valid', () => {
-      expect(Line.validate(line_bakerloo_1)).toBe(true);      
+      expect(Line.validate(line_bakerloo_1)).toBe(true);
     })
-    test('removing a property should return false', () => {
+    test('removing linename property should return false', () => {
 
-      let mutated_line: any= Object.assign({}, line_bakerloo_1);
+      let mutated_line: any = Object.assign({}, line_bakerloo_1);
       expect(mutated_line).not.toBe(line_bakerloo_1);
       delete mutated_line.lineName;
       expect(Line.validate(mutated_line)).toBe(false);
     })
+    test('removing displayName property should return false', () => {
+      let mutated_line: any = Object.assign({}, line_bakerloo_1);
+      expect(mutated_line).not.toBe(line_bakerloo_1);
+      delete mutated_line.displayName;
+      expect(Line.validate(mutated_line)).toBe(false);
     })
+    test('removing mode property should return false', () => {
+      let mutated_line: any = Object.assign({}, line_bakerloo_1);
+      expect(mutated_line).not.toBe(line_bakerloo_1);
+      delete mutated_line.mode;
+      expect(Line.validate(mutated_line)).toBe(false);
+    })
+    test('removing toString method should return false', () => {
+      let mutated_line: any = Object.assign({}, line_bakerloo_1);
+      expect(mutated_line).not.toBe(line_bakerloo_1);
+      delete mutated_line.toString;
+      expect(Line.validate(mutated_line)).toBe(false);
+    })
+  })
   describe('getLine', () => {
     test('getLine should create an object which conforms to Line interface', () => {
       const mode_tube = Mode.getMode('tube');
@@ -165,5 +183,5 @@ describe('Functional Line tests', () => {
       expect(line.toString()).toBe('london-overground');
     })
   })
-  
+
 })

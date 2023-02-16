@@ -21,11 +21,17 @@ export function validate(modeToCheck: any): boolean {
   * returns true if the mode is valid
   * returns false if the mode is not valid
   * */
-  return modeToCheck !== undefined && modeToCheck !== null && typeof modeToCheck === 'object' &&
-    Object.prototype.hasOwnProperty.call(modeToCheck, 'type') && modeToCheck.type.toLowerCase() === 'mode' &&
-    Object.prototype.hasOwnProperty.call(modeToCheck, 'id') && typeof modeToCheck.id === 'string' &&
-    Object.prototype.hasOwnProperty.call(modeToCheck, 'name') && typeof modeToCheck.name === 'string' &&
-    Object.prototype.hasOwnProperty.call(modeToCheck, 'toString') && typeof modeToCheck.toString === 'function' && modeToCheck.toString() === String(modeToCheck.id)
+ if ((modeToCheck === undefined || modeToCheck === null || typeof modeToCheck !== 'object')){
+  return false
+ }
+ const type = Object.prototype.hasOwnProperty.call(modeToCheck, 'type') && modeToCheck.type.toLowerCase() === 'mode' 
+ const id = Object.prototype.hasOwnProperty.call(modeToCheck, 'id') && typeof modeToCheck.id === 'string'
+ const name = Object.prototype.hasOwnProperty.call(modeToCheck, 'name') && typeof modeToCheck.name === 'string' 
+ const toString = Object.prototype.hasOwnProperty.call(modeToCheck, 'toString') && typeof modeToCheck.toString === 'function' && modeToCheck.toString() === String(modeToCheck.id)
+  return type &&
+    id &&
+    name &&
+    toString
 }
 
 export function getMode(mode: string): Mode {

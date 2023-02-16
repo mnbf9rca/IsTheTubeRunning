@@ -47,13 +47,15 @@ export function validate(lineToCheck: any): Boolean {
   * returns true if the line is valid
   * returns false if the line is not valid
   * */
- const obj = lineToCheck !== null && lineToCheck !== undefined && typeof lineToCheck === 'object' 
+ if (lineToCheck === null || lineToCheck === undefined || typeof lineToCheck !== 'object') {
+  return false
+ }
  const type = Object.prototype.hasOwnProperty.call(lineToCheck, 'type') && lineToCheck.type.toLowerCase() === 'line' 
  const lineName = Object.prototype.hasOwnProperty.call(lineToCheck, 'lineName') && typeof lineToCheck.lineName === 'string' 
  const displayName = Object.prototype.hasOwnProperty.call(lineToCheck, 'displayName') && typeof lineToCheck.displayName === 'string' 
  const modes = Object.prototype.hasOwnProperty.call(lineToCheck, 'mode') && Mode.validate(lineToCheck.mode)
  const toString = Object.prototype.hasOwnProperty.call(lineToCheck, 'toString') && typeof lineToCheck.toString === 'function' && lineToCheck.toString() === String(lineToCheck.lineName)
-  return obj && type &&     
+  return type &&     
     lineName &&
     displayName &&
     modes &&
