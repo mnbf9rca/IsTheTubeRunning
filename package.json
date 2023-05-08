@@ -13,7 +13,7 @@
     "dotenv": "^16.0.3",
     "dotenv-vault-core": "^0.7.0",
     "enumify": "^2.0.0",
-    "eslint": "^8.32.0",
+    "eslint": "^8.40.0",
     "gremlin": "^3.6.1",
     "jsonschema": "^1.4.1",
     "node-cache": "^5.1.2"
