@@ -14,10 +14,10 @@ interface IGraphDB {
 
 export default class GraphDB implements IGraphDB {
   private _gremlin_db_string = `/dbs/${config.graph_database}/colls/${config.graph_stoppoint_colleciton}`
-  private _stoppoint_authenticator = new Gremlin.driver.auth.PlainTextSaslAuthenticator(this._gremlin_db_string, config.graph_primary_key)
+  private _stoppoint_authenticator = new Gremlin.driver.auth.PlainTextSaslAuthenticator(this._gremlin_db_string, config.cosmos_primary_key)
   private static _instance: GraphDB = new GraphDB()
   private _gremlin_client = new Gremlin.driver.Client(
-    config.GRAPH_DATABASE_ENDPOINT,
+    config.COSMOS_ENDPOINT,
     {
       authenticator: this._stoppoint_authenticator,
       traversalsource: 'g',
