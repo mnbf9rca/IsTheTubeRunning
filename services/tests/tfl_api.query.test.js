@@ -65,7 +65,9 @@ describe('test helper functions ', () => {
         'app_id': '123',
         'app_key': 'abc'
       }
-      const expected = new URL('https://api.tfl.gov.uk/Line/victoria/StopPoints?app_id=123&app_key=abc')
+      let expected = new URL('https://api.tfl.gov.uk/Line/victoria/StopPoints')
+      expected.searchParams.append('app_id', '123')
+      expected.searchParams.append('app_key', 'abc')
       const actual = tfl_api_query.add_search_params(url, params)
       expect(actual).toStrictEqual(expected)
     })
