@@ -52,7 +52,7 @@ export const query: (querystring: string, params?: { [key: string]: number | str
   } catch (error) {
     let error_message = error instanceof Error ? error.message : JSON.stringify(error)
     logger.error(`Error fetching ${tfl_api_url.toString()} : ${error_message}`)
-    throw Error(error_message)
+    throw new Error(error_message)
     // return Promise.reject({ error: error_message, status: 500, success: false })
   }
 
