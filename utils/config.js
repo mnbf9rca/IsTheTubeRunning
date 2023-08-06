@@ -1,4 +1,4 @@
-require('dotenv-vault-core').config()
+require('dotenv').config()
 
 
 const PORT = process.env.PORT || 8081
