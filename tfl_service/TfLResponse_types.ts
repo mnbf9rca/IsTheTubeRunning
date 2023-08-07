@@ -1,3 +1,6 @@
+// contains the TfL types that i need, rearranged under a single namespace
+// so that they can automtically be imported into zod types
+
 export namespace TfLResponse {
   export interface Identifier {
     id: string;
@@ -81,4 +84,108 @@ export namespace TfLResponse {
     stopPointSequences: StopPointSequence[];
     orderedLineRoutes: OrderedRoute[];
   }
+
+ // export interface StopPointArray extends Array<StopPoint> {}
+  export type StopPointArray = StopPoint[];
+
+
+  export interface StopPoint {
+    naptanId: string;
+    platformName?: string;
+    /** @description The indicator of the stop point e.g. "Stop K" */
+    indicator?: string;
+    /** @description The stop letter, if it could be cleansed from the Indicator e.g. "K" */
+    stopLetter?: string;
+    modes: string[];
+    icsCode?: string;
+    smsCode?: string;
+    stopType: string;
+    stationNaptan: string;
+    accessibilitySummary?: string;
+    hubNaptanCode?: string;
+    lines: Identifier[];
+    lineGroup: LineGroup[];
+    lineModeGroups: LineModeGroup[];
+    fullName?: string;
+    naptanMode?: string;
+    status: boolean;
+    /** @description A unique identifier. */
+    id: string;
+    /** @description The unique location of this resource. */
+    url?: string;
+    /** @description A human readable name. */
+    commonName: string;
+    /**
+     * Format: double
+     * @description The distance of the place from its search point, if this is the result
+     *             of a geographical search, otherwise zero.
+     */
+    distance?: number;
+    /** @description The type of Place. See /Place/Meta/placeTypes for possible values. */
+    placeType?: string;
+    /** @description A bag of additional key/value pairs with extra information about this place. */
+    additionalProperties?: AdditionalProperties[];
+    children?: Place[];
+    childrenUrls?: string[];
+    /**
+     * Format: double
+     * @description WGS84 latitude of the location.
+     */
+    lat: number;
+    /**
+     * Format: double
+     * @description WGS84 longitude of the location.
+     */
+    lon: number;
+  };
+  export interface LineGroup {
+    naptanIdReference?: string;
+    stationAtcoCode?: string;
+    lineIdentifier?: string[];
+  };
+  export interface LineModeGroup {
+    modeName: string;
+    lineIdentifier: string[];
+  };
+
+  export interface AdditionalProperties {
+    category?: string;
+    key?: string;
+    sourceSystemKey?: string;
+    value?: string;
+    /** Format: date-time */
+    modified?: string;
+  };
+
+  export interface Place {
+    /** @description A unique identifier. */
+    id: string;
+    /** @description The unique location of this resource. */
+    url?: string;
+    /** @description A human readable name. */
+    commonName: string;
+    /**
+     * Format: double
+     * @description The distance of the place from its search point, if this is the result
+     *             of a geographical search, otherwise zero.
+     */
+    distance?: number;
+    /** @description The type of Place. See /Place/Meta/placeTypes for possible values. */
+    placeType: string;
+    /** @description A bag of additional key/value pairs with extra information about this place. */
+    additionalProperties?: AdditionalProperties[];
+    children?: Place[];
+    childrenUrls?: string[];
+    /**
+     * Format: double
+     * @description WGS84 latitude of the location.
+     */
+    lat: number;
+    /**
+     * Format: double
+     * @description WGS84 longitude of the location.
+     */
+    lon: number;
+  };
+
 }

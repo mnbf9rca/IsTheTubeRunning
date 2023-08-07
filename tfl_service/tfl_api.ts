@@ -9,7 +9,7 @@ import { z } from "zod";
 // importt the ManagedTfL_types types
 // import TfLResponse from '../tfl_service/TfLResponse_types'
 
-import { tfLResponseRouteSequenceSchema, tfLResponseStopPointSequenceSchema, tfLResponseMatchedStopSchema, tfLResponseIdentifierSchema } from '../tfl_service/TfLResponse_types_zod'
+import { tfLResponseRouteSequenceSchema, tfLResponseStopPointSequenceSchema, tfLResponseMatchedStopSchema, tfLResponseIdentifierSchema, tfLResponseStopPointSchema, tfLResponseStopPointArraySchema } from '../tfl_service/TfLResponse_types_zod'
 
 const query_cache = require('./cache')
 
@@ -165,6 +165,9 @@ async function get_line_stoppoints(line_id) {
     logger.debug(`${cache_key} cache miss`)
     const line_stoppoints_api_query = `Line/${line_id}/StopPoints`
     const line_stoppoints = await tfl_query.query(line_stoppoints_api_query)
+    // TODO: tfLResponseStopPointArraySchema is manually added...
+    // need the fix from ts-to-zod
+    const tfl_response = tfLResponseStopPointArraySchema.parse(line_stoppoints.data)
     const stoppoint_data = extract_stoppoints_from_stoppoint_array(line_stoppoints.data)
     query_cache.set(cache_key, stoppoint_data, line_stoppoints.ttl)
     return { data: stoppoint_data, ttl: line_stoppoints.ttl }
@@ -196,8 +199,6 @@ async function get_line_stoppoints_in_order(line_id) {
     return { data: directional_points, ttl: line_stoppoints.ttl }
   }
 }
-
-
 
 function get_matchedStoppoints(stoppoint: z.infer<typeof tfLResponseStopPointSequenceSchema>) {
 
