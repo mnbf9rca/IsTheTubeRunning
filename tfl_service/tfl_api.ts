@@ -1,6 +1,7 @@
 //const config = require('../utils/config')
 const logger = require('../utils/logger')
-const runQuery = require('./tfl_api.query')
+const tfl_query = require('./tfl_api.query')
+const config = require('../utils/config')
 
 const query_cache = require('./cache')
 
@@ -127,7 +128,7 @@ async function get_disruption(for_modes, detailed = false) {
   } else {
     logger.debug(`${cache_key} cache miss`)
     const disruption_api_query = `Line/Mode/${modes}/Status`
-    const api_response = await runQuery(disruption_api_query, { detail: detailed })
+    const api_response = await tfl_query.query(disruption_api_query, { detail: detailed })
     const disruption = {
       data: extract_disruption(api_response.data),
       ttl: api_response.ttl
@@ -155,7 +156,7 @@ async function get_line_stoppoints(line_id) {
   else {
     logger.debug(`${cache_key} cache miss`)
     const line_stoppoints_api_query = `Line/${line_id}/StopPoints`
-    const line_stoppoints = await runQuery(line_stoppoints_api_query)
+    const line_stoppoints = await tfl_query.query(line_stoppoints_api_query)
     const stoppoint_data = extract_stoppoints_from_stoppoint_array(line_stoppoints.data)
     query_cache.set(cache_key, stoppoint_data, line_stoppoints.ttl)
     return { data: stoppoint_data, ttl: line_stoppoints.ttl }
@@ -180,7 +181,7 @@ async function get_line_stoppoints_in_order(line_id) {
   else {
     logger.debug(`${cache_key} cache miss`)
     const line_stoppoints_api_query = `Line/${line_id}/Route/Sequence/all`
-    const line_stoppoints = await runQuery(line_stoppoints_api_query, { excludeCrowding: true })
+    const line_stoppoints = await tfl_query.query(line_stoppoints_api_query, { excludeCrowding: true })
 
     const directional_points = line_stoppoints.data.stopPointSequences.map(sp => get_directional_stoppoints(sp))
 
@@ -202,6 +203,7 @@ function get_directional_stoppoints(stoppoint) {
   }
 
 }
+
 function extract_stoppoints_from_stoppoint_array(stoppoint_array) {
   return stoppoint_array.map((sp) => {
     return {
@@ -212,11 +214,43 @@ function extract_stoppoints_from_stoppoint_array(stoppoint_array) {
       lat: sp['lat'],
       lon: sp['lon'],
       modes: sp['modes'],
-      lines: sp['lines'].map(l => l['id'])
+      lines: get_lines_from_lineModeGroups(sp['lineModeGroups']) // sp['lines'].map(l => simplify_line(l))
     }
   }
   )
 }
+
+function get_lines_from_lineModeGroups(linemodegroups) {
+  return linemodegroups.map((lmg) => {
+    const mode = lmg['modeName']
+    if (!config.modes_of_transport.includes(mode)) {
+      return []
+    }
+    return lmg['lineIdentifier'].map((line) => {
+      return {
+        id: line,
+        mode: mode
+      }
+    })
+    /*
+    return {
+      mode: lmg['modeName'],
+      lines: lmg['lineIdentifier']
+
+    }*/
+  }).flat()
+}
+
+
+
+
+function simplify_line(line) {
+  return {
+    lineName: line['id'],
+    displayName: line['name']
+  }
+}
+
 
 async function get_lines_for_mode(modes = ['tube', 'dlr', 'overground']) {
   /**
@@ -240,7 +274,7 @@ async function get_lines_for_mode(modes = ['tube', 'dlr', 'overground']) {
   else {
     logger.debug(`${cache_key} cache miss`)
     const all_lines_api_query = `Line/Mode/${modes}/Route`
-    const all_lines = await runQuery(all_lines_api_query)
+    const all_lines = await tfl_query.query(all_lines_api_query)
     const all_lines_summarised = all_lines.data.map((line) => {
       return {
         id: line['id'],

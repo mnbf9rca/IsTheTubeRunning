@@ -7,17 +7,12 @@
       "lat": 51.586919,
       "lon": -0.04115,
       "modes": [
-        {
-          "type": "mode",
-          "id": "tube",
-          "name": "Tube"
-        }
+        "tube"
       ],
       "lines": [
         {
-          "type": "line",
-          "lineName": "victoria",
-          "displayName": "Victoria Line"
+          "id": "victoria",
+          "mode": "tube"
         }
       ]
     },
@@ -28,17 +23,12 @@
       "lat": 51.462618,
       "lon": -0.114888,
       "modes": [
-        {
-          "type": "mode",
-          "id": "tube",
-          "name": "Tube"
-        }
+        "tube"
       ],
       "lines": [
         {
-          "type": "line",
-          "lineName": "victoria",
-          "displayName": "Victoria Line"
+          "id": "victoria",
+          "mode": "tube"
         }
       ]
     },
@@ -49,22 +39,16 @@
       "lat": 51.528344,
       "lon": -0.1323,
       "modes": [
-        {
-          "type": "mode",
-          "id": "tube",
-          "name": "Tube"
-        }
+        "tube"
       ],
       "lines": [
         {
-          "type": "line",
-          "lineName": "northern",
-          "displayName": "Northern Line"
+          "id": "northern",
+          "mode": "tube"
         },
         {
-          "type": "line",
-          "lineName": "victoria",
-          "displayName": "Victoria Line"
+          "id": "victoria",
+          "mode": "tube"
         }
       ]
     },
@@ -75,22 +59,16 @@
       "lat": 51.564158,
       "lon": -0.106825,
       "modes": [
-        {
-          "type": "mode",
-          "id": "tube",
-          "name": "Tube"
-        }
+        "tube"
       ],
       "lines": [
         {
-          "type": "line",
-          "lineName": "piccadilly",
-          "displayName": "Piccadilly Line"
+          "id": "piccadilly",
+          "mode": "tube"
         },
         {
-          "type": "line",
-          "lineName": "victoria",
-          "displayName": "Victoria Line"
+          "id": "victoria",
+          "mode": "tube"
         }
       ]
     },
@@ -101,32 +79,21 @@
       "lat": 51.506947,
       "lon": -0.142787,
       "modes": [
-        {
-          "type": "mode",
-          "id": "bus",
-          "name": "Bus"
-        },
-        {
-          "type": "mode",
-          "id": "tube",
-          "name": "Tube"
-        }
+        "bus",
+        "tube"
       ],
       "lines": [
         {
-          "type": "line",
-          "lineName": "jubilee",
-          "displayName": "Jubilee Line"
+          "id": "jubilee",
+          "mode": "tube"
         },
         {
-          "type": "line",
-          "lineName": "piccadilly",
-          "displayName": "Piccadilly Line"
+          "id": "piccadilly",
+          "mode": "tube"
         },
         {
-          "type": "line",
-          "lineName": "victoria",
-          "displayName": "Victoria Line"
+          "id": "victoria",
+          "mode": "tube"
         }
       ]
     },
@@ -137,17 +104,12 @@
       "lat": 51.54635,
       "lon": -0.103324,
       "modes": [
-        {
-          "type": "mode",
-          "id": "tube",
-          "name": "Tube"
-        }
+        "tube"
       ],
       "lines": [
         {
-          "type": "line",
-          "lineName": "victoria",
-          "displayName": "Victoria Line"
+          "id": "victoria",
+          "mode": "tube"
         }
       ]
     },
@@ -158,42 +120,32 @@
       "lat": 51.530663,
       "lon": -0.123194,
       "modes": [
-        {
-          "type": "mode",
-          "id": "tube",
-          "name": "Tube"
-        }
+        "tube"
       ],
       "lines": [
         {
-          "type": "line",
-          "lineName": "circle",
-          "displayName": "Circle Line"
+          "id": "circle",
+          "mode": "tube"
         },
         {
-          "type": "line",
-          "lineName": "hammersmith-city",
-          "displayName": "Hammersmith & City Line"
+          "id": "hammersmith-city",
+          "mode": "tube"
         },
         {
-          "type": "line",
-          "lineName": "metropolitan",
-          "displayName": "Metropolitan Line"
+          "id": "metropolitan",
+          "mode": "tube"
         },
         {
-          "type": "line",
-          "lineName": "northern",
-          "displayName": "Northern Line"
+          "id": "northern",
+          "mode": "tube"
         },
         {
-          "type": "line",
-          "lineName": "piccadilly",
-          "displayName": "Piccadilly Line"
+          "id": "piccadilly",
+          "mode": "tube"
         },
         {
-          "type": "line",
-          "lineName": "victoria",
-          "displayName": "Victoria Line"
+          "id": "victoria",
+          "mode": "tube"
         }
       ]
     },
@@ -204,32 +156,21 @@
       "lat": 51.515224,
       "lon": -0.141903,
       "modes": [
-        {
-          "type": "mode",
-          "id": "bus",
-          "name": "Bus"
-        },
-        {
-          "type": "mode",
-          "id": "tube",
-          "name": "Tube"
-        }
+        "bus",
+        "tube"
       ],
       "lines": [
         {
-          "type": "line",
-          "lineName": "bakerloo",
-          "displayName": "Bakerloo Line"
+          "id": "bakerloo",
+          "mode": "tube"
         },
         {
-          "type": "line",
-          "lineName": "central",
-          "displayName": "Central Line"
+          "id": "central",
+          "mode": "tube"
         },
         {
-          "type": "line",
-          "lineName": "victoria",
-          "displayName": "Victoria Line"
+          "id": "victoria",
+          "mode": "tube"
         }
       ]
     },
@@ -240,22 +181,13 @@
       "lat": 51.489097,
       "lon": -0.133761,
       "modes": [
-        {
-          "type": "mode",
-          "id": "tube",
-          "name": "Tube"
-        },
-        {
-          "type": "mode",
-          "id": "bus",
-          "name": "Bus"
-        }
+        "tube",
+        "bus"
       ],
       "lines": [
         {
-          "type": "line",
-          "lineName": "victoria",
-          "displayName": "Victoria Line"
+          "id": "victoria",
+          "mode": "tube"
         }
       ]
     },
@@ -266,27 +198,17 @@
       "lat": 51.472184,
       "lon": -0.122644,
       "modes": [
-        {
-          "type": "mode",
-          "id": "bus",
-          "name": "Bus"
-        },
-        {
-          "type": "mode",
-          "id": "tube",
-          "name": "Tube"
-        }
+        "bus",
+        "tube"
       ],
       "lines": [
         {
-          "type": "line",
-          "lineName": "northern",
-          "displayName": "Northern Line"
+          "id": "northern",
+          "mode": "tube"
         },
         {
-          "type": "line",
-          "lineName": "victoria",
-          "displayName": "Victoria Line"
+          "id": "victoria",
+          "mode": "tube"
         }
       ]
     },
@@ -297,17 +219,12 @@
       "lat": 51.58333,
       "lon": -0.072584,
       "modes": [
-        {
-          "type": "mode",
-          "id": "tube",
-          "name": "Tube"
-        }
+        "tube"
       ],
       "lines": [
         {
-          "type": "line",
-          "lineName": "victoria",
-          "displayName": "Victoria Line"
+          "id": "victoria",
+          "mode": "tube"
         }
       ]
     },
@@ -318,17 +235,12 @@
       "lat": 51.588108,
       "lon": -0.060241,
       "modes": [
-        {
-          "type": "mode",
-          "id": "tube",
-          "name": "Tube"
-        }
+        "tube"
       ],
       "lines": [
         {
-          "type": "line",
-          "lineName": "victoria",
-          "displayName": "Victoria Line"
+          "id": "victoria",
+          "mode": "tube"
         }
       ]
     },
@@ -339,27 +251,20 @@
       "lat": 51.496359,
       "lon": -0.143102,
       "modes": [
-        {
-          "type": "mode",
-          "id": "tube",
-          "name": "Tube"
-        }
+        "tube"
       ],
       "lines": [
         {
-          "type": "line",
-          "lineName": "circle",
-          "displayName": "Circle Line"
+          "id": "circle",
+          "mode": "tube"
         },
         {
-          "type": "line",
-          "lineName": "district",
-          "displayName": "District Line"
+          "id": "district",
+          "mode": "tube"
         },
         {
-          "type": "line",
-          "lineName": "victoria",
-          "displayName": "Victoria Line"
+          "id": "victoria",
+          "mode": "tube"
         }
       ]
     },
@@ -370,17 +275,12 @@
       "lat": 51.485743,
       "lon": -0.124204,
       "modes": [
-        {
-          "type": "mode",
-          "id": "tube",
-          "name": "Tube"
-        }
+        "tube"
       ],
       "lines": [
         {
-          "type": "line",
-          "lineName": "victoria",
-          "displayName": "Victoria Line"
+          "id": "victoria",
+          "mode": "tube"
         }
       ]
     },
@@ -391,27 +291,17 @@
       "lat": 51.524951,
       "lon": -0.138321,
       "modes": [
-        {
-          "type": "mode",
-          "id": "bus",
-          "name": "Bus"
-        },
-        {
-          "type": "mode",
-          "id": "tube",
-          "name": "Tube"
-        }
+        "bus",
+        "tube"
       ],
       "lines": [
         {
-          "type": "line",
-          "lineName": "northern",
-          "displayName": "Northern Line"
+          "id": "northern",
+          "mode": "tube"
         },
         {
-          "type": "line",
-          "lineName": "victoria",
-          "displayName": "Victoria Line"
+          "id": "victoria",
+          "mode": "tube"
         }
       ]
     },
@@ -422,17 +312,12 @@
       "lat": 51.582965,
       "lon": -0.019885,
       "modes": [
-        {
-          "type": "mode",
-          "id": "tube",
-          "name": "Tube"
-        }
+        "tube"
       ],
       "lines": [
         {
-          "type": "line",
-          "lineName": "victoria",
-          "displayName": "Victoria Line"
+          "id": "victoria",
+          "mode": "tube"
         }
       ]
     }

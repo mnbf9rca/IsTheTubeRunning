@@ -13,6 +13,7 @@ const graph_database = get_envvar_or_throw('GRAPH_DATABASE_NAME')
 const graph_stoppoint_colleciton = 'stoppoints'
 const eventhub_sender_connection_string = get_envvar_or_throw('cynexia_tube_sender_EVENTHUB')
 const eventhub_name = get_envvar_or_throw('EVENTHUB_NAME')
+const modes_of_transport = ['tube', 'overground', 'dlr', 'elizabeth-line']
 
 
 function get_envvar_or_throw(envvar_name) {
@@ -35,5 +36,6 @@ module.exports = {
   graph_database,
   graph_stoppoint_colleciton,
   eventhub_sender_connection_string,
-  eventhub_name
+  eventhub_name,
+  modes_of_transport
 }
