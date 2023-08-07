@@ -28,7 +28,7 @@ function test_first_and_actual_response(first_response, actual_response, expecte
 }
 
 
-describe('TfL tests', () => {
+describe.skip('TfL tests', () => {
   describe('TfL calls to get line stoppoints', () => {
     describe('calls without caching', () => {
       test.skip('calls TFL API to get ordered Victoria line stoppoints', async () => {

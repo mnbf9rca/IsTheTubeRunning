@@ -3,6 +3,14 @@ const logger = require('../utils/logger')
 const tfl_query = require('./tfl_api.query')
 const config = require('../utils/config')
 
+import { z } from "zod";
+
+
+// importt the ManagedTfL_types types
+// import TfLResponse from '../tfl_service/TfLResponse_types'
+
+import { tfLResponseRouteSequenceSchema, tfLResponseStopPointSequenceSchema, tfLResponseMatchedStopSchema, tfLResponseIdentifierSchema } from '../tfl_service/TfLResponse_types_zod'
+
 const query_cache = require('./cache')
 
 const structure_cached_value = (cached_value, cache_ttl) => {
@@ -182,26 +190,47 @@ async function get_line_stoppoints_in_order(line_id) {
     logger.debug(`${cache_key} cache miss`)
     const line_stoppoints_api_query = `Line/${line_id}/Route/Sequence/all`
     const line_stoppoints = await tfl_query.query(line_stoppoints_api_query, { excludeCrowding: true })
-
-    const directional_points = line_stoppoints.data.stopPointSequences.map(sp => get_directional_stoppoints(sp))
-
+    const tfl_response = tfLResponseRouteSequenceSchema.parse(line_stoppoints.data)
+    const directional_points = tfl_response.stopPointSequences.map(sp => get_matchedStoppoints(sp))
     query_cache.set(cache_key, directional_points, line_stoppoints.ttl)
     return { data: directional_points, ttl: line_stoppoints.ttl }
   }
 }
 
-function get_directional_stoppoints(stoppoint) {
+
+
+function get_matchedStoppoints(stoppoint: z.infer<typeof tfLResponseStopPointSequenceSchema>) {
 
   return {
-    id: stoppoint['lineId'],
-    lineName: stoppoint['lineName'],
-    branchId: stoppoint['branchId'],
-    nextBranchIds: stoppoint['nextBranchIds'],
-    prevBranchIds: stoppoint['prevBranchIds'],
-    direction: stoppoint['direction'],
-    points: extract_stoppoints_from_stoppoint_array(stoppoint['stopPoint'])
+    id: stoppoint.lineId,
+    lineName: stoppoint.lineName,
+    branchId: stoppoint.branchId,
+    nextBranchIds: stoppoint.nextBranchIds,
+    prevBranchIds: stoppoint.prevBranchIds,
+    direction: stoppoint.direction,
+    points: extract_stoppoints_from_MatchedStop_array(stoppoint.stopPoint)
   }
 
+}
+
+function extract_stoppoints_from_MatchedStop_array(MatchedStop_array: z.infer<typeof tfLResponseMatchedStopSchema>[]) {
+  return MatchedStop_array.map((sp) => {
+    return {
+      id: sp.id,
+      type: 'StopPoint',
+      name: sp.name, // ('name' in sp) ? sp['name'] : sp['commonName'],
+      naptanId:  sp.stationId === undefined ? null : sp.stationId, // ('stationId' in sp) ? sp['stationId'] : sp['naptanId'],
+      lat: sp.lat, // ['lat'],
+      lon: sp.lon, //['lon'],
+      modes: sp.modes, //['modes'],
+      lines: get_lines_from_MatchedStop(sp.lines)
+    }
+  }
+  )
+}
+
+function get_lines_from_MatchedStop(lines: z.infer<typeof tfLResponseIdentifierSchema>[]) {
+  return lines.map((l) => l.id)
 }
 
 function extract_stoppoints_from_stoppoint_array(stoppoint_array) {
