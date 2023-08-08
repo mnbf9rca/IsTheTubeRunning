@@ -13,12 +13,11 @@ import { DataWithTTL, APIResponse, TfLAPIQuery } from './tfl_service_types'
 
 // import { TfLResponse.RouteSequenceSchema, TfLResponse.StopPointSequenceSchema, TfLResponse.MatchedStopSchema, TfLResponse.IdentifierSchema, , TfLResponse.StopPointArraySchema } from '../tfl_service/TfLResponse_types_zod'
 import * as TfLResponse from '../tfl_service/TfLResponse_types_zod'
-import TfL from "./TfL_types";
 
 
 const query_cache = require('./cache')
 
-const structure_cached_value = (cached_value, cache_ttl) => {
+const structure_cached_value = function (cached_value: Object, cache_ttl: number): DataWithTTL {
   /**
    * structures cached value for return
    *
@@ -284,14 +283,8 @@ function get_lines_from_lineModeGroups(linemodegroups: z.infer<typeof TfLRespons
   }).flat()
 }
 
-function simplify_line(line) {
-  return {
-    lineName: line['id'],
-    displayName: line['name']
-  }
-}
 
-async function get_lines_for_mode(modes = ['tube', 'dlr', 'overground']): Promise<DataWithTTL> {
+async function get_lines_for_mode(modes = ['tube', 'dlr', 'overground', 'elizabeth-line']): Promise<DataWithTTL> {
   /**
    * fetches lines from tfl for given modes
    *
@@ -317,10 +310,10 @@ async function get_lines_for_mode(modes = ['tube', 'dlr', 'overground']): Promis
     const all_lines = TfLResponse.lineArraySchema.parse(tfl_response.data)
     const all_lines_summarised = all_lines.map((line) => {
       return {
-        id: line['id'],
-        name: line['name'],
-        modeName: line['modeName'],
-        serviceTypes: line['serviceTypes'].map((st) => st['name'])
+        id: line.id,
+        name: line.name,
+        modeName: line.modeName,
+        serviceTypes: line.serviceTypes.map((st) => st.name)
       }
     })
 
