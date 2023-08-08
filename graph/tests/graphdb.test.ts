@@ -9,7 +9,7 @@ import { driver } from 'gremlin'
 
 // set up a connection to the database
 // TODO: move to a helper file for tests
-const gremlin_db_string = `/dbs/${config.graph_database}/colls/${config.graph_stoppoint_colleciton}`
+const gremlin_db_string = `/dbs/${config.graph_database_name}/colls/${config.graph_stoppoint_colleciton}`
 const stoppoint_authenticator = new Gremlin.driver.auth.PlainTextSaslAuthenticator(gremlin_db_string, config.cosmos_primary_key)
 
 const graph_test_client: driver.Client = new Gremlin.driver.Client(
