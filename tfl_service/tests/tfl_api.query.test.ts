@@ -3,13 +3,15 @@ import fs from 'fs'
 import path from 'node:path'
 import helpers from '../../utils/helpers'
 import {query} from '../tfl_api.query'
+import { TfLAPIQuery, APIResponse } from '../tfl_service_types'
+
 
 
 type t = typeof test
 // https://stackoverflow.com/questions/44654210/logical-or-for-expected-results-in-jest
 const expect_or = (...tests: t[]) => {
   try {
-    TODO!!
+    // TODO!!
     tests.shift()()
   } catch (e) {
     if (tests.length) expect_or(...tests)
@@ -113,6 +115,7 @@ describe('test with a real query to TfL', () => {
     expect(actual_result).toMatchObject(expected_result)
   })
   test('throw error on invalid query', async () => {
-    await expect(query('/invalidurl')).rejects.toThrowError('Request failed with status code 404')
+    const expected = {data: null, error: 'Request failed with status code 404', status: 500, success: false, ttl: 0}
+    await expect(query('/invalidurl')).rejects.toStrictEqual(expected)
   })
 })

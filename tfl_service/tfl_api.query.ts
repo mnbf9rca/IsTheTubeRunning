@@ -35,7 +35,7 @@ export const query: TfLAPIQuery = async function (querystring: string, params?: 
     let error_message = error instanceof Error ? error.message : JSON.stringify(error)
     logger.error(`Error fetching ${tfl_api_url.toString()} : ${error_message}`)
     const errorResponse: APIResponse = { data: null, ttl: 0, status: 500, success: false, error: error_message }
-    return Promise.resolve(errorResponse)
+    return Promise.reject(errorResponse)
   }
 }
 

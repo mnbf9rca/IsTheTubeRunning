@@ -57,6 +57,30 @@ export const placeSchema: z.ZodSchema<Place> = z.lazy(() =>
   })
 );
 
+export const matchedRouteSchema = z.object({
+  routeCode: z.string().optional(),
+  name: z.string(),
+  direction: z.string().optional(),
+  originationName: z.string(),
+  destinationName: z.string(),
+  originator: z.string(),
+  destination: z.string(),
+  serviceType: z.string().optional(),
+  validTo: z.string().optional(),
+  validFrom: z.string().optional(),
+});
+
+export const lineServiceTypeInfoSchema = z.object({
+  name: z.string(),
+  uri: z.string().optional(),
+});
+
+export const validityPeriodSchema = z.object({
+  fromDate: z.string(),
+  toDate: z.string(),
+  isNow: z.boolean().optional(),
+});
+
 export const crowdingSchema = z.object({
   passengerFlows: z.array(passengerFlowSchema).optional(),
   trainLoadings: z.array(trainLoadingSchema).optional(),
@@ -149,21 +173,78 @@ export const stopPointSchema = z.object({
   lon: z.number(),
 });
 
+export const routeSectionNaptanEntrySequenceSchema = z.object({
+  ordinal: z.number(),
+  stopPoint: stopPointSchema,
+});
+
 export const stopPointArraySchema = z.array(stopPointSchema);
 
-export const anyResponseSchema = z.union([
-  identifierSchema,
-  crowdingSchema,
-  passengerFlowSchema,
-  trainLoadingSchema,
-  matchedStopSchema,
-  stopPointSequenceSchema,
-  orderedRouteSchema,
-  routeSequenceSchema,
-  stopPointArraySchema,
-  stopPointSchema,
-  lineGroupSchema,
-  lineModeGroupSchema,
-  additionalPropertiesSchema,
-  placeSchema,
-]);
+export const disruptedRouteSchema = z.object({
+  id: z.string().optional(),
+  lineId: z.string().optional(),
+  routeCode: z.string().optional(),
+  name: z.string().optional(),
+  lineString: z.string().optional(),
+  direction: z.string().optional(),
+  originationName: z.string().optional(),
+  destinationName: z.string().optional(),
+  via: routeSectionNaptanEntrySequenceSchema.optional(),
+  isEntireRouteSection: z.boolean().optional(),
+  validTo: z.string().optional(),
+  validFrom: z.string().optional(),
+  routeSectionNaptanEntrySequence: z
+    .array(routeSectionNaptanEntrySequenceSchema)
+    .optional(),
+});
+
+export const disruptionSchema = z.object({
+  category: z
+    .union([
+      z.literal("Undefined"),
+      z.literal("RealTime"),
+      z.literal("PlannedWork"),
+      z.literal("Information"),
+      z.literal("Event"),
+      z.literal("Crowding"),
+      z.literal("StatusAlert"),
+    ])
+    .optional(),
+  type: z.string().optional(),
+  categoryDescription: z.string().optional(),
+  description: z.string().optional(),
+  summary: z.string().optional(),
+  additionalInfo: z.string().optional(),
+  created: z.string().optional(),
+  lastUpdate: z.string().optional(),
+  affectedRoutes: z.array(disruptedRouteSchema).optional(),
+  affectedStops: z.array(stopPointSchema).optional(),
+  closureText: z.string().optional(),
+});
+
+export const lineStatusSchema = z.object({
+  id: z.number(),
+  lineId: z.string(),
+  statusSeverity: z.number(),
+  statusSeverityDescription: z.string().optional(),
+  reason: z.string().optional(),
+  created: z.string().optional(),
+  modified: z.string().optional(),
+  validityPeriods: z.array(validityPeriodSchema).optional(),
+  disruption: disruptionSchema,
+});
+
+export const lineSchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  modeName: z.string(),
+  disruptions: z.array(disruptionSchema).optional(),
+  created: z.string().optional(),
+  modified: z.string().optional(),
+  lineStatuses: z.array(lineStatusSchema),
+  routeSections: z.array(matchedRouteSchema),
+  serviceTypes: z.array(lineServiceTypeInfoSchema),
+  crowding: crowdingSchema.optional(),
+});
+
+export const lineArraySchema = z.array(lineSchema);

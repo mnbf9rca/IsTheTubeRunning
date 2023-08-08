@@ -196,7 +196,7 @@ async function get_line_stoppoints(line_id: string): Promise<DataWithTTL> {
 }
 
 
-async function get_line_stoppoints_in_order(line_id: string): Promise<DataWithTTL>  {
+async function get_line_stoppoints_in_order(line_id: string): Promise<DataWithTTL> {
   /**
    * fetches stoppoints for a given line in order
    *
@@ -284,9 +284,6 @@ function get_lines_from_lineModeGroups(linemodegroups: z.infer<typeof TfLRespons
   }).flat()
 }
 
-
-
-
 function simplify_line(line) {
   return {
     lineName: line['id'],
@@ -294,8 +291,7 @@ function simplify_line(line) {
   }
 }
 
-
-async function get_lines_for_mode(modes = ['tube', 'dlr', 'overground']) {
+async function get_lines_for_mode(modes = ['tube', 'dlr', 'overground']): Promise<DataWithTTL> {
   /**
    * fetches lines from tfl for given modes
    *
@@ -317,8 +313,9 @@ async function get_lines_for_mode(modes = ['tube', 'dlr', 'overground']) {
   else {
     logger.debug(`${cache_key} cache miss`)
     const all_lines_api_query = `Line/Mode/${modes}/Route`
-    const all_lines = await tfl_query.query(all_lines_api_query)
-    const all_lines_summarised = all_lines.data.map((line) => {
+    const tfl_response = await tfl_query.query(all_lines_api_query)
+    const all_lines = TfLResponse.lineArraySchema.parse(tfl_response.data)
+    const all_lines_summarised = all_lines.map((line) => {
       return {
         id: line['id'],
         name: line['name'],
@@ -327,8 +324,8 @@ async function get_lines_for_mode(modes = ['tube', 'dlr', 'overground']) {
       }
     })
 
-    query_cache.set(cache_key, all_lines_summarised, all_lines.ttl)
-    return { data: all_lines_summarised, ttl: all_lines.ttl }
+    query_cache.set(cache_key, all_lines_summarised, tfl_response.ttl)
+    return { data: all_lines_summarised, ttl: tfl_response.ttl }
   }
 }
 
