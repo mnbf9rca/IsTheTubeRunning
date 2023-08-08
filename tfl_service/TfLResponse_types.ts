@@ -1,7 +1,7 @@
 // contains the TfL types that i need, rearranged under a single namespace
 // so that they can automtically be imported into zod types
 
-export namespace TfLResponse {
+// export namespace TfLResponse {
   export interface Identifier {
     id: string;
     name: string;
@@ -85,8 +85,8 @@ export namespace TfLResponse {
     orderedLineRoutes: OrderedRoute[];
   }
 
- // export interface StopPointArray extends Array<StopPoint> {}
-  export type StopPointArray = StopPoint[];
+ // https://github.com/fabien0102/ts-to-zod/issues/153
+  export type StopPointArray = Array<StopPoint> 
 
 
   export interface StopPoint {
@@ -188,4 +188,20 @@ export namespace TfLResponse {
     lon: number;
   };
 
-}
+export type AnyResponse = 
+  | Identifier
+  | Crowding
+  | PassengerFlow
+  | TrainLoading
+  | MatchedStop
+  | StopPointSequence
+  | OrderedRoute
+  | RouteSequence
+  | StopPointArray
+  | StopPoint
+  | LineGroup
+  | LineModeGroup
+  | AdditionalProperties
+  | Place
+
+// }

@@ -2,33 +2,17 @@ import config from '../utils/config'
 import axios from 'axios'
 import logger from '../utils/logger'
 
-interface ITfLResponse {
-  data: any
-  ttl: number
-  status: number
-  success: boolean
-}
+import { TfLAPIQuery, APIResponse } from './tfl_service_types'
 
-interface ITfLAPIQuery {
-  query(querystring: string, params?: { [key: string]: number | string | boolean }): Promise<ITfLResponse>
-}
+//  query(querystring: string, params?: { [key: string]: number | string | boolean }): Promise<
 
-
-export const query: (querystring: string, params?: { [key: string]: number | string | boolean }) => Promise<ITfLResponse>  = async function (querystring: string, params?: { [key: string]: number | string | boolean })  {
-  /**
-   * fetches data from tfl api
-   *
-   * @param {String} querystring - the query string to append to the base url
-   * @param {Object} params - the query parameters to append to the url
-   * @returns {Object} - the response from the api
-   */
+export const query: TfLAPIQuery = async function (querystring: string, params?: { [key: string]: number | string | boolean }) {
   if (!querystring) return Promise.reject({ error: 'no querystring', status: 500, success: false })
 
   const tfl_api_root = config.tfl_api_root
   const tfl_app_key = config.TFL_APP_KEY
 
   let tfl_api_url = new URL(querystring, tfl_api_root)
-  // add params to tfl_api_url as search parameters
   if (params) tfl_api_url = add_search_params(tfl_api_url, params)
 
   const tfl_api_headers = {
@@ -37,28 +21,24 @@ export const query: (querystring: string, params?: { [key: string]: number | str
     'Accept': 'application/json',
     'app_key': tfl_app_key
   }
-  let tfl_api_response = null
 
   try {
     logger.debug(`fetching ${tfl_api_url.toString()}`)
-    tfl_api_response = await axios.get(tfl_api_url.toString(), { headers: tfl_api_headers })
+    const tfl_api_response = await axios.get(tfl_api_url.toString(), { headers: tfl_api_headers })
     const ttl = get_s_maxage(tfl_api_response.headers['cache-control'])
     const data = tfl_api_response.data
     const status = tfl_api_response.status
     const success = tfl_api_response.status === 200
-    //logger.debug({ data, ttl })
-    return Promise.resolve({ data, ttl, status, success })
-
+    const response: APIResponse = { data, ttl, status, success }
+    return Promise.resolve(response)
   } catch (error) {
     let error_message = error instanceof Error ? error.message : JSON.stringify(error)
     logger.error(`Error fetching ${tfl_api_url.toString()} : ${error_message}`)
-    throw new Error(error_message)
-    // return Promise.reject({ error: error_message, status: 500, success: false })
+    const errorResponse: APIResponse = { data: null, ttl: 0, status: 500, success: false, error: error_message }
+    return Promise.resolve(errorResponse)
   }
-
-  // extract s-maxage from cache-control header
-
 }
+
 
 export const get_s_maxage = (cache_control_header: string): number => {
   /**

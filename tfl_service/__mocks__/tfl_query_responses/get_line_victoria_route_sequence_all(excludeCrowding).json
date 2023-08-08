@@ -1,4 +1,5 @@
 {
+  "status":200,"statusText":"OK",
   "headers": {
     "cache-control": "public, must-revalidate, max-age=43200, s-maxage=86400"
   },

@@ -1,4 +1,5 @@
-{"headers" : { "cache-control": "public, must-revalidate, max-age=30, s-maxage=60" },
+{"status":200,"statusText":"OK",
+"headers" : { "cache-control": "public, must-revalidate, max-age=30, s-maxage=60" },
 "data" : [
   {
     "$type": "Tfl.Api.Presentation.Entities.Line, Tfl.Api.Presentation.Entities",
