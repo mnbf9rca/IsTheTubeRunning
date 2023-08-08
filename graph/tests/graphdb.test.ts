@@ -70,7 +70,7 @@ interface EdgeResult {
   }
 }
 
-interface iKnown_Graph {
+interface KnownGraph {
   first: Vertex
   second: Vertex
   edge: Edge
@@ -135,7 +135,7 @@ function edge_to_edge_result(edge: Edge): EdgeResult {
 }
 
 
-function create_known_graph(): iKnown_Graph {
+function create_known_graph(): KnownGraph {
   const first = generate_vertex()
   const second = generate_vertex()
   const edge = generate_edge(first.id, second.id)
