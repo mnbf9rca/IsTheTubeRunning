@@ -81,6 +81,20 @@ export function escape_single_quotes(str: string) {
   return str.replace(/'/g, '\\\'')
 }
 
+export async function execute(client: Gremlin.driver.Client, query: string, params?: { [key: string]: string | number | boolean }): Promise<any> {
+  /* executes a gremlin query */
+  // TODO: move db retries to config
+  const retries = 5
+  try {
+    await connectGraphClient(client);
+    return await GraphExecute.execute_query(client, query, retries, params);
+  } catch (error) {
+    console.error(`Failed to execute query: ${error}`);
+    throw error;
+  }
+}
+
+
 export async function add_stoppoint(client: Gremlin.driver.Client, stoppoint: NetworkTypes.StopPoint, upsert = true) {
   /**
    * Adds a stoppoint to the graphdb.
@@ -114,8 +128,7 @@ export async function add_stoppoint(client: Gremlin.driver.Client, stoppoint: Ne
   // log the query, removing the newlines
   // logger.debug(query.replace(/\n/g, ''))
   try {
-
-    const result = client.execute(client, query, 5, params)
+    const result = execute(client, query)
     // const result = await .execute(stoppoint_client, query, 5)
     return result
   }
@@ -124,15 +137,4 @@ export async function add_stoppoint(client: Gremlin.driver.Client, stoppoint: Ne
     return [{ success: false }]
   }
 
-}
-
-export async function execute(client: Gremlin.driver.Client, query: string, params?: { [key: string]: string | number | boolean }): Promise<any> {
-  /* executes a gremlin query */
-  try {
-    await connectGraphClient(client);
-    return await GraphExecute.execute_query(client, query, 5, params);
-  } catch (error) {
-    console.error(`Failed to execute query: ${error}`);
-    throw error;
-  }
 }
