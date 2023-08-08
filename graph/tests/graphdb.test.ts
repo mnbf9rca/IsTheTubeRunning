@@ -1,4 +1,4 @@
-import GraphDB from "../graphdb"
+import * as GraphDB from "../graphdb"
 
 //const Stoppoint = require('../../models/Stoppoint')
 const { describe, expect, test } = require('@jest/globals')
@@ -213,19 +213,7 @@ describe('GraphDB tests', () => {
         expect(actual).toBe(expected)
       })
     })
-  }),
-    describe('test singleton', () => {
-      test('can create instance', () => {
-        const instance = GraphDB.getInstance()
-        expect(instance).toBeInstanceOf(GraphDB)
-      }),
-        test('requesting instance twice returns same instance', () => {
-          const instance1 = GraphDB.getInstance()
-          const instance2 = GraphDB.getInstance()
-          expect(instance1).toBe(instance2)
-        })
-
-    })
+  })
 
 
 
@@ -234,16 +222,20 @@ describe('GraphDB tests', () => {
     afterAll(async () => {
       console.info('closing stoppoint_client')
       //const stoppoint_client = graph.__get__('stoppoint_client')
-      await GraphDB.getInstance().close()
+     //  await graph_client.close()
     })
 
     describe('tests with actual DB queries', () => {
       let list_of_added_vertices: string[] = []
       let known_graph = create_known_graph()
+      let graph_client: Gremlin.driver.Client
 
       beforeAll(async () => {
-        if (await GraphDB.getInstance().isOpen === false) {
-          await GraphDB.getInstance().connect()
+        console.info('beforeAll')
+        // open the graphdb connection
+        graph_client = await GraphDB.getGraphClient() 
+        if (graph_client.isOpen === false) {
+          await GraphDB.connectGraphClient(graph_client) 
         }
 
         await add_and_push_vertex(known_graph.first)
@@ -272,21 +264,22 @@ describe('GraphDB tests', () => {
         // TODO: report any that arent deleted
         console.log(`deleted ${list_of_added_vertices.length} stoppoints. Success?`, delete_promise !== undefined)
         await graph_test_client.close()
+        await graph_client.close()
       })
       test('can connect to stoppoint_collection', async () => {
         // const stoppoint_client = graph.__get__('stoppoint_client')
-        expect(GraphDB.getInstance()).toBeDefined()
-        const actual_result = await GraphDB.getInstance().execute('g.V(\'no-object\').count()')
+        expect(graph_client).toBeDefined()
+        const actual_result = await GraphDB.execute(graph_client, 'g.V(\'no-object\').count()')
         expect(actual_result['data']['length']).toBeDefined()
         expect(actual_result['success']).toBe(true)
       })
       test('can tell whether client is open or closed', async () => {
         // const stoppoint_client = graph.__get__('stoppoint_client')
-        expect(GraphDB.getInstance()).toBeDefined()
-        const actual_result = await GraphDB.getInstance().isOpen
+        expect(graph_client).toBeDefined()
+        const actual_result = graph_client.isOpen
         expect(actual_result).toBe(true)
-        await GraphDB.getInstance().close()
-        const actual_result2 = await GraphDB.getInstance().isOpen
+        await graph_client.close()
+        const actual_result2 = graph_client.isOpen
         expect(actual_result2).toBe(false)
       })
       test('can add a graph', async () => {
@@ -296,9 +289,9 @@ describe('GraphDB tests', () => {
         const first_query = create_gremlin_vertex(new_known_graph.first)
         const second_query = create_gremlin_vertex(new_known_graph.second)
         const edge_query = create_gremlin_edge(new_known_graph.edge)
-        const first_result = await GraphDB.getInstance().execute(first_query)
-        const second_result = await GraphDB.getInstance().execute(second_query)
-        const edge_result = await GraphDB.getInstance().execute(edge_query)
+        const first_result = await GraphDB.execute(graph_client, first_query)
+        const second_result = await GraphDB.execute(graph_client, second_query)
+        const edge_result = await GraphDB.execute(graph_client, edge_query)
         expect(first_result['success']).toBe(true)
         expect(second_result['success']).toBe(true)
         expect(edge_result['success']).toBe(true)
@@ -306,14 +299,14 @@ describe('GraphDB tests', () => {
       test('can query for a single vertex', async () => {
         const expected_result = vertex_to_vertex_result(known_graph.first)
         const query = `g.V('${known_graph.first.id}')`
-        const actual_result = await GraphDB.getInstance().execute(query)
+        const actual_result = await GraphDB.execute(graph_client, query)
         expect(actual_result['success']).toBe(true)
         expect(actual_result['data']['_items'][0]).toMatchObject(expected_result)
       })
       test('can query for two vertices', async () => {
         const expected_result = [vertex_to_vertex_result(known_graph.first), vertex_to_vertex_result(known_graph.second)]
         const query = `g.V('${known_graph.first.id}', '${known_graph.second.id}')`
-        const actual_result = await GraphDB.getInstance().execute(query)
+        const actual_result = await GraphDB.execute(graph_client, query)
         expect(actual_result['success']).toBe(true)
         expect(actual_result['data']['_items']).toMatchObject(expected_result)
       })
@@ -331,7 +324,7 @@ describe('GraphDB tests', () => {
           label: new_vertex.label,
           naptanId: new_vertex.naptanId
         }
-        const actual_result = await GraphDB.getInstance().execute(parameterised_query, params)
+        const actual_result = await GraphDB.execute(graph_client, parameterised_query, params)
         expect(actual_result['success']).toBe(true)
         expect(actual_result['data']['_items']).toMatchObject(expected_result)
       })
@@ -347,7 +340,7 @@ describe('GraphDB tests', () => {
           id: new_vertex.id,
           label: new_vertex.label,
         }
-        const actual_result = await GraphDB.getInstance().execute(parameterised_query, params)
+        const actual_result = await GraphDB.execute(graph_client, parameterised_query, params)
         expect(actual_result['success']).toBe(false)
         expect(actual_result['error']).toEqual(expect.stringContaining('Gremlin Query Compilation Error: Unable to resolve symbol \'naptanId\' in the current context'))
       })
@@ -355,23 +348,23 @@ describe('GraphDB tests', () => {
       test('can query for a single edge', async () => {
         const expected_result = edge_to_edge_result(known_graph.edge)
         const query = `g.E('${known_graph.edge.id}')`
-        const actual_result = await GraphDB.getInstance().execute(query)
+        const actual_result = await GraphDB.execute(graph_client, query)
         expect(actual_result['success']).toBe(true)
         expect(actual_result['data']['_items'][0]).toMatchObject(expected_result)
       })
       test('reopens the connection if closed', async () => {
         const expected_result = edge_to_edge_result(known_graph.edge)
         const query = `g.E('${known_graph.edge.id}')`
-        const actual_result = await GraphDB.getInstance().execute(query)
+        const actual_result = await GraphDB.execute(graph_client, query)
         expect(actual_result['success']).toBe(true)
         expect(actual_result['data']['_items'][0]).toMatchObject(expected_result)
-        await GraphDB.getInstance().close()
-        const is_open = await GraphDB.getInstance().isOpen
+        await graph_client.close()
+        const is_open = await graph_client.isOpen
         expect(is_open).toBe(false)
-        const actual_result2 = await GraphDB.getInstance().execute(query)
+        const actual_result2 = await GraphDB.execute(graph_client, query)
         expect(actual_result2['success']).toBe(true)
         expect(actual_result2['data']['_items'][0]).toMatchObject(expected_result)
-        const is_open2 = await GraphDB.getInstance().isOpen
+        const is_open2 = graph_client.isOpen
         expect(is_open2).toBe(true)
       })
     })

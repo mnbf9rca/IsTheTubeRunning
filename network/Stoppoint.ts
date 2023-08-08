@@ -1,40 +1,16 @@
 import Line from './Line';
 import Mode from './Mode';
 
-interface IStoppoint {
-  id: string;
-  name: string;
-  naptanId: string;
-  lat: number | string;
-  lon: number | string;
-  modes: Mode[];
-  lines: Line[];
-  getObject: () => IStoppoint_Object;
-  toString: () => string;
-  getLineNames: () => string[];
-  getModeNames: () => string[];
-  [Symbol.toStringTag]: string;
-}
+import * as NetworkTypes from './NetworkTypes';
 
-interface IStoppoint_Object {
-  type: string;
-  id: string;
-  name: string;
-  naptanId: string;
-  lat: number | string;
-  lon: number | string;
-  modes: String[];
-  lines: String[];
-}
-
-export default class Stoppoint implements IStoppoint {
+export default class Stoppoint implements NetworkTypes.StopPointClass {
   private _id: string;
   private _name: string;
   private _naptanId: string;
   private _lat: number;
   private _lon: number;
-  private _modes: Mode[];
-  private _lines: Line[];
+  private _modes: String[];
+  private _lines: String[];
 
   constructor(
     id: string,
@@ -42,8 +18,8 @@ export default class Stoppoint implements IStoppoint {
     naptanId: string,
     lat: number | string,
     lon: number | string,
-    modes: Mode[],
-    lines: Line[]
+    modes: String[],
+    lines: String[]
   ) {
     if (isNaN(lat as number) || isNaN(lon as number)) {
       throw new Error(`Invalid lat/lon for stoppoint ${id}`);
@@ -101,6 +77,10 @@ export default class Stoppoint implements IStoppoint {
     return this._lines;
   }
 
+  get type() {
+    return 'stoppoint';
+  }
+
   getLineNames() {
     return this._lines.map((line) => line.toString());
   }
@@ -109,7 +89,7 @@ export default class Stoppoint implements IStoppoint {
     return this._modes.map((mode) => mode.toString());
   }
 
-  getObject(): IStoppoint_Object {
+  getObject(): NetworkTypes.StopPoint {
     return {
       type: 'stoppoint',
       id: this._id,
