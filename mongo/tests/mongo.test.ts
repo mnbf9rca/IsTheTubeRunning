@@ -1,5 +1,5 @@
 import * as mongo from '../mongo';
-import { MongoClient, Db, Document, Collection } from 'mongodb';
+import { MongoClient, Db, Document, Collection, ObjectId } from 'mongodb';
 const config = require('../../utils/config')
 
 // set up a connection to the database
@@ -206,15 +206,17 @@ describe('mongo client wrapper', () => {
       const query = { id: testing_edge.id }
       // add the edge using the module's connection to the DB
       const insert_result = await mongo.add_edge(test_db, testing_edge)
-      // check the insert result using our connection to the DB
-      const actual_result = await test_edge_collection.find(query).toArray()
+      expect(insert_result).toBeInstanceOf(ObjectId)
+
+      // create the expected result
       const expected_result = {
         ...additional_known_graph.edge, // existing edge
         from: added_from.insertedId, // new from reference
         to: added_to.insertedId, // new to reference
-        _id: insert_result.insertedId // new _id from the insert
+        _id: insert_result // new _id from the insert
       }
-
+      // check the insert result using our connection to the DB
+      const actual_result = await test_edge_collection.find(query).toArray()
       // should only be 1
       expect(actual_result.length).toBe(1)
       // should be the object we inserted
