@@ -25,23 +25,7 @@ jobs:
         name: execute tests
         env:
           DOTENV_KEY: ${{ secrets.DOTENV_KEY }}
-  coverage:
-    permissions:
-      checks: write
-      pull-requests: write
-      contents: write
-    runs-on: ubuntu-latest
-    steps:
-      - name: check out source code
-        uses: actions/checkout@v3
-      - uses: jwalton/gh-find-current-pr@v1
-        id: findPr
-      - uses: ArtiomTr/jest-coverage-report-action@v2
-        id: coverage
-        with:
-          output: report-markdown
+      - name: Upload coverage reports to Codecov
+        uses: codecov/codecov-action@v3
         env:
-          DOTENV_KEY: ${{ secrets.DOTENV_KEY }}
-      - uses: marocchino/sticky-pull-request-comment@v2
-        with:
-            message: ${{ steps.coverage.outputs.report }}
+          CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
