@@ -109,7 +109,7 @@ function vertex_to_vertex_result(vertex: Vertex): VertexResult {
 function generate_edge(from: string, to: string): Edge {
   const id = randomString()
   const edge: Edge = {
-    id: `TEST-${id}}`,
+    id: `TEST-${id}`,
     label: 'known-edge-to',
     string_property: randomString(),
     number_property: Math.round(Math.random() * 10000) / 100,
