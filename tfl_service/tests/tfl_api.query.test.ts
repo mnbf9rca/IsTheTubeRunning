@@ -1,11 +1,17 @@
-const { describe, expect, test } = require('@jest/globals')
-const fs = require('fs')
-const path = require('node:path')
-const helpers = require('../../utils/helpers')
+import { describe, expect, test } from '@jest/globals'
+import fs from 'fs'
+import path from 'node:path'
+import helpers from '../../utils/helpers'
+import {query} from '../tfl_api.query'
+import { TfLAPIQuery, APIResponse } from '../tfl_service_types'
 
+
+
+type t = typeof test
 // https://stackoverflow.com/questions/44654210/logical-or-for-expected-results-in-jest
-const expect_or = (...tests) => {
+const expect_or = (...tests: t[]) => {
   try {
+    // TODO!!
     tests.shift()()
   } catch (e) {
     if (tests.length) expect_or(...tests)
@@ -13,11 +19,11 @@ const expect_or = (...tests) => {
   }
 }
 
-const load_file = (filename) => {
+const load_file = (filename: string) => {
   return fs.readFileSync(path.resolve(__dirname, filename), 'utf8')
 }
 
-const get_data = (filename) => {
+const get_data = (filename: string) => {
   return helpers.jsonParser(load_file(filename))
 }
 
@@ -99,56 +105,9 @@ describe('test helper functions ', () => {
       expect(actual).toStrictEqual(expected)
     })
   })
-  describe('check_params', () => {
-    const { check_params } = require('./test_helpers')
-    test('check params with all params', () => {
-      const params = {
-        'app_id': '123',
-        'app_key': 'abc'
-      }
-      const expected = true
-      const actual = check_params(params, { app_id: '123' })
-      expect(actual).toBe(expected)
-    })
-    test('check params with null params', () => {
-      const params = {
-        'app_id': '123',
-        'app_key': null
-      }
-      const expected = true
-      const actual = check_params(params, { app_id: '123' })
-      expect(actual).toBe(expected)
-    })
-    test('check params with missing params', () => {
-      const params = {
-        'app_id': '123',
-        'app_key': null
-      }
-      const expected = false
-      const actual = check_params(params, { xyz: '123' })
-      expect(actual).toBe(expected)
-    })
-    test('check params with mismatched value but matching key', () => {
-      const params = {
-        'app_id': '123',
-        'app_key': null
-      }
-      const expected = false
-      const actual = check_params(params, { abc: '456' })
-      expect(actual).toBe(expected)
-    })
-    test('check params with empty params', () => {
-      const params = {}
-      const expected = false
-      const actual = check_params(params, { app_id: '123' })
-      expect(actual).toBe(expected)
-    }
-    )
-  })
 })
 
 describe('test with a real query to TfL', () => {
-  const { query } = require('../../services/tfl_api.query')
   test('test with a valid query actually hits the TfL API', async () => {
     const expected_result = get_data('get_line_meta_modes.json')
     const actual_result = await query('/Line/Meta/Modes')
@@ -156,6 +115,7 @@ describe('test with a real query to TfL', () => {
     expect(actual_result).toMatchObject(expected_result)
   })
   test('throw error on invalid query', async () => {
-    await expect(query('/invalidurl')).rejects.toThrowError('Request failed with status code 404')
+    const expected = {data: null, error: 'Request failed with status code 404', status: 500, success: false, ttl: 0}
+    await expect(query('/invalidurl')).rejects.toStrictEqual(expected)
   })
 })

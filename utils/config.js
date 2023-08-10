@@ -1,4 +1,4 @@
-require('dotenv-vault-core').config()
+require('dotenv').config()
 
 
 const PORT = process.env.PORT || 8081
@@ -9,11 +9,14 @@ const service_name='tfl_poller_service'
 const tfl_api_root = 'https://api.tfl.gov.uk'
 const COSMOS_ENDPOINT = get_envvar_or_throw('COSMOS_ENDPOINT')
 const cosmos_primary_key = get_envvar_or_throw('COSMOS_PRIMARY_KEY')
-const graph_database = get_envvar_or_throw('GRAPH_DATABASE_NAME')
+const graph_database_name = get_envvar_or_throw('GRAPH_DATABASE_NAME')
 const graph_stoppoint_colleciton = 'stoppoints'
 const eventhub_sender_connection_string = get_envvar_or_throw('cynexia_tube_sender_EVENTHUB')
 const eventhub_name = get_envvar_or_throw('EVENTHUB_NAME')
-
+const modes_of_transport = ['tube', 'overground', 'dlr', 'elizabeth-line']
+const mongo_endpoint = get_envvar_or_throw('MONGO_ENDPOINT')
+const mongo_username = get_envvar_or_throw('MONGO_USERNAME')
+const mongo_password = get_envvar_or_throw('MONGO_PASSWORD')
 
 function get_envvar_or_throw(envvar_name) {
   const envvar = process.env[envvar_name]
@@ -32,8 +35,12 @@ module.exports = {
   tfl_api_root,
   COSMOS_ENDPOINT,
   cosmos_primary_key,
-  graph_database,
+  graph_database_name,
   graph_stoppoint_colleciton,
   eventhub_sender_connection_string,
-  eventhub_name
+  eventhub_name,
+  modes_of_transport,
+  mongo_endpoint,
+  mongo_username,
+  mongo_password
 }

@@ -1,4 +1,4 @@
-const tfl_api = require('../services/tfl_api')
+const tfl_api = require('../tfl_service/tfl_api')
 const logger = require('../utils/logger')
 const validate_json = require('jsonschema')
 

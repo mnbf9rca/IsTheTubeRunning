@@ -33,7 +33,7 @@ describe('TfL tests', () => {
         const expected_response = tfl_sdk_responses.get_line_stoppoints_in_order_victoria_no_crowding
         expect(actual_response).toMatchObject(expected_response)
       })
-      test('calls TFL API to get default Victoria line trains', async () => {
+      test('calls TFL API to get default Victoria line stoppoints', async () => {
         const actual_response = await tfl_api.get_line_stoppoints('victoria')
         const expected_response = tfl_sdk_responses.get_line_stoppoints_victoria
         expect(actual_response).toMatchObject(expected_response)
@@ -46,7 +46,7 @@ describe('TfL tests', () => {
         const actual_response = await tfl_api.get_line_stoppoints_in_order('victoria')
         test_first_and_actual_response(first_response, actual_response, expected_response)
       })
-      test('calls TFL API to get default Victoria line trains', async () => {
+      test('calls TFL API to get default Victoria line stoppoints', async () => {
         const expected_response = tfl_sdk_responses.get_line_stoppoints_victoria
         const first_response = await tfl_api.get_line_stoppoints('victoria')
         const actual_response = await tfl_api.get_line_stoppoints('victoria')

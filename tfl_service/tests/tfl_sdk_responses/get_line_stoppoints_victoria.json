@@ -2,7 +2,6 @@
   "data": [
     {
       "id": "940GZZLUBLR",
-      "type": "StopPoint",
       "name": "Blackhorse Road Underground Station",
       "naptanId": "940GZZLUBLR",
       "lat": 51.586919,
@@ -11,12 +10,14 @@
         "tube"
       ],
       "lines": [
-        "victoria"
+        {
+          "id": "victoria",
+          "mode": "tube"
+        }
       ]
     },
     {
       "id": "940GZZLUBXN",
-      "type": "StopPoint",
       "name": "Brixton Underground Station",
       "naptanId": "940GZZLUBXN",
       "lat": 51.462618,
@@ -25,12 +26,14 @@
         "tube"
       ],
       "lines": [
-        "victoria"
+        {
+          "id": "victoria",
+          "mode": "tube"
+        }
       ]
     },
     {
       "id": "940GZZLUEUS",
-      "type": "StopPoint",
       "name": "Euston Underground Station",
       "naptanId": "940GZZLUEUS",
       "lat": 51.528344,
@@ -39,13 +42,18 @@
         "tube"
       ],
       "lines": [
-        "northern",
-        "victoria"
+        {
+          "id": "northern",
+          "mode": "tube"
+        },
+        {
+          "id": "victoria",
+          "mode": "tube"
+        }
       ]
     },
     {
       "id": "940GZZLUFPK",
-      "type": "StopPoint",
       "name": "Finsbury Park Underground Station",
       "naptanId": "940GZZLUFPK",
       "lat": 51.564158,
@@ -54,13 +62,18 @@
         "tube"
       ],
       "lines": [
-        "piccadilly",
-        "victoria"
+        {
+          "id": "piccadilly",
+          "mode": "tube"
+        },
+        {
+          "id": "victoria",
+          "mode": "tube"
+        }
       ]
     },
     {
       "id": "940GZZLUGPK",
-      "type": "StopPoint",
       "name": "Green Park Underground Station",
       "naptanId": "940GZZLUGPK",
       "lat": 51.506947,
@@ -70,25 +83,22 @@
         "tube"
       ],
       "lines": [
-        "14",
-        "19",
-        "22",
-        "38",
-        "6",
-        "9",
-        "jubilee",
-        "n19",
-        "n22",
-        "n38",
-        "n9",
-        "n97",
-        "piccadilly",
-        "victoria"
+        {
+          "id": "jubilee",
+          "mode": "tube"
+        },
+        {
+          "id": "piccadilly",
+          "mode": "tube"
+        },
+        {
+          "id": "victoria",
+          "mode": "tube"
+        }
       ]
     },
     {
       "id": "940GZZLUHAI",
-      "type": "StopPoint",
       "name": "Highbury & Islington Underground Station",
       "naptanId": "940GZZLUHAI",
       "lat": 51.54635,
@@ -97,12 +107,14 @@
         "tube"
       ],
       "lines": [
-        "victoria"
+        {
+          "id": "victoria",
+          "mode": "tube"
+        }
       ]
     },
     {
       "id": "940GZZLUKSX",
-      "type": "StopPoint",
       "name": "King's Cross St. Pancras Underground Station",
       "naptanId": "940GZZLUKSX",
       "lat": 51.530663,
@@ -111,17 +123,34 @@
         "tube"
       ],
       "lines": [
-        "circle",
-        "hammersmith-city",
-        "metropolitan",
-        "northern",
-        "piccadilly",
-        "victoria"
+        {
+          "id": "circle",
+          "mode": "tube"
+        },
+        {
+          "id": "hammersmith-city",
+          "mode": "tube"
+        },
+        {
+          "id": "metropolitan",
+          "mode": "tube"
+        },
+        {
+          "id": "northern",
+          "mode": "tube"
+        },
+        {
+          "id": "piccadilly",
+          "mode": "tube"
+        },
+        {
+          "id": "victoria",
+          "mode": "tube"
+        }
       ]
     },
     {
       "id": "940GZZLUOXC",
-      "type": "StopPoint",
       "name": "Oxford Circus Underground Station",
       "naptanId": "940GZZLUOXC",
       "lat": 51.515224,
@@ -131,28 +160,22 @@
         "tube"
       ],
       "lines": [
-        "12",
-        "139",
-        "159",
-        "22",
-        "88",
-        "94",
-        "bakerloo",
-        "central",
-        "n109",
-        "n113",
-        "n136",
-        "n137",
-        "n15",
-        "n18",
-        "n22",
-        "n3",
-        "victoria"
+        {
+          "id": "bakerloo",
+          "mode": "tube"
+        },
+        {
+          "id": "central",
+          "mode": "tube"
+        },
+        {
+          "id": "victoria",
+          "mode": "tube"
+        }
       ]
     },
     {
       "id": "940GZZLUPCO",
-      "type": "StopPoint",
       "name": "Pimlico Underground Station",
       "naptanId": "940GZZLUPCO",
       "lat": 51.489097,
@@ -162,19 +185,14 @@
         "bus"
       ],
       "lines": [
-        "185",
-        "2",
-        "36",
-        "360",
-        "c10",
-        "n136",
-        "n2",
-        "victoria"
+        {
+          "id": "victoria",
+          "mode": "tube"
+        }
       ]
     },
     {
       "id": "940GZZLUSKW",
-      "type": "StopPoint",
       "name": "Stockwell Underground Station",
       "naptanId": "940GZZLUSKW",
       "lat": 51.472184,
@@ -184,16 +202,18 @@
         "tube"
       ],
       "lines": [
-        "155",
-        "345",
-        "n155",
-        "northern",
-        "victoria"
+        {
+          "id": "northern",
+          "mode": "tube"
+        },
+        {
+          "id": "victoria",
+          "mode": "tube"
+        }
       ]
     },
     {
       "id": "940GZZLUSVS",
-      "type": "StopPoint",
       "name": "Seven Sisters Underground Station",
       "naptanId": "940GZZLUSVS",
       "lat": 51.58333,
@@ -202,12 +222,14 @@
         "tube"
       ],
       "lines": [
-        "victoria"
+        {
+          "id": "victoria",
+          "mode": "tube"
+        }
       ]
     },
     {
       "id": "940GZZLUTMH",
-      "type": "StopPoint",
       "name": "Tottenham Hale Underground Station",
       "naptanId": "940GZZLUTMH",
       "lat": 51.588108,
@@ -216,12 +238,14 @@
         "tube"
       ],
       "lines": [
-        "victoria"
+        {
+          "id": "victoria",
+          "mode": "tube"
+        }
       ]
     },
     {
       "id": "940GZZLUVIC",
-      "type": "StopPoint",
       "name": "Victoria Underground Station",
       "naptanId": "940GZZLUVIC",
       "lat": 51.496359,
@@ -230,14 +254,22 @@
         "tube"
       ],
       "lines": [
-        "circle",
-        "district",
-        "victoria"
+        {
+          "id": "circle",
+          "mode": "tube"
+        },
+        {
+          "id": "district",
+          "mode": "tube"
+        },
+        {
+          "id": "victoria",
+          "mode": "tube"
+        }
       ]
     },
     {
       "id": "940GZZLUVXL",
-      "type": "StopPoint",
       "name": "Vauxhall Underground Station",
       "naptanId": "940GZZLUVXL",
       "lat": 51.485743,
@@ -246,12 +278,14 @@
         "tube"
       ],
       "lines": [
-        "victoria"
+        {
+          "id": "victoria",
+          "mode": "tube"
+        }
       ]
     },
     {
       "id": "940GZZLUWRR",
-      "type": "StopPoint",
       "name": "Warren Street Underground Station",
       "naptanId": "940GZZLUWRR",
       "lat": 51.524951,
@@ -261,30 +295,18 @@
         "tube"
       ],
       "lines": [
-        "134",
-        "18",
-        "205",
-        "24",
-        "27",
-        "29",
-        "30",
-        "390",
-        "73",
-        "n20",
-        "n205",
-        "n253",
-        "n27",
-        "n279",
-        "n29",
-        "n5",
-        "n73",
-        "northern",
-        "victoria"
+        {
+          "id": "northern",
+          "mode": "tube"
+        },
+        {
+          "id": "victoria",
+          "mode": "tube"
+        }
       ]
     },
     {
       "id": "940GZZLUWWL",
-      "type": "StopPoint",
       "name": "Walthamstow Central Underground Station",
       "naptanId": "940GZZLUWWL",
       "lat": 51.582965,
@@ -293,7 +315,10 @@
         "tube"
       ],
       "lines": [
-        "victoria"
+        {
+          "id": "victoria",
+          "mode": "tube"
+        }
       ]
     }
   ],

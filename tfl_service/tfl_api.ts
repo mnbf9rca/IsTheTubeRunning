@@ -1,10 +1,23 @@
 //const config = require('../utils/config')
 const logger = require('../utils/logger')
-const { query } = require('./tfl_api.query')
+const tfl_query = require('./tfl_api.query')
+const config = require('../utils/config')
 
-const query_cache = require('../services/cache')
+import { z } from "zod";
+import { DataWithTTL, APIResponse, TfLAPIQuery } from './tfl_service_types'
 
-const structure_cached_value = (cached_value, cache_ttl) => {
+
+
+// importt the ManagedTfL_types types
+// import TfLResponse from '../tfl_service/TfLResponse_types'
+
+// import { TfLResponse.RouteSequenceSchema, TfLResponse.StopPointSequenceSchema, TfLResponse.MatchedStopSchema, TfLResponse.IdentifierSchema, , TfLResponse.StopPointArraySchema } from '../tfl_service/TfLResponse_types_zod'
+import * as TfLResponse from '../tfl_service/TfLResponse_types_zod'
+
+
+const query_cache = require('./cache')
+
+const structure_cached_value = function (cached_value: Object, cache_ttl: number): DataWithTTL {
   /**
    * structures cached value for return
    *
@@ -25,6 +38,24 @@ const structure_cached_value = (cached_value, cache_ttl) => {
   return { data: cached_value, ttl: remaining_ttl }
 }
 
+const call_query_throw_on_error: TfLAPIQuery = async function (querystring, params): Promise<APIResponse> {
+  /**
+   * calls the query and catches errors
+   * @param {Function} query - the query to call
+   * @param {String} querystring - the querystring to pass to the query
+   * @param {Object} params - the params to pass to the query
+   * @returns {Object} - the response from the query
+   * @throws {Error} - if the query fails
+   * @throws {Error} - if the query returns an error
+   * @throws {Error} - if the query returns a status code other than 200
+   * */
+  const tfl_response: APIResponse = await tfl_query.query(querystring, params)
+  if (tfl_response.success === false) {
+    throw new Error(`Error calling TfL API to query: ${tfl_response.error}`)
+  }
+  return tfl_response
+}
+
 function summarise_lineStatuses(line) {
   /**
    * summarises disruption data for a given line
@@ -42,7 +73,7 @@ function summarise_lineStatuses(line) {
     return {
       ...base_disruption,
       // if disruption is not empty, return it, otherwise return false
-      ...(disrupted_route !== {}) && { affectedRoutes: disrupted_route } ,
+      ...(disrupted_route !== {}) && { affectedRoutes: disrupted_route },
     }
   })
 
@@ -127,7 +158,7 @@ async function get_disruption(for_modes, detailed = false) {
   } else {
     logger.debug(`${cache_key} cache miss`)
     const disruption_api_query = `Line/Mode/${modes}/Status`
-    const api_response = await query(disruption_api_query, { detail: detailed })
+    const api_response = await tfl_query.query(disruption_api_query, { detail: detailed })
     const disruption = {
       data: extract_disruption(api_response.data),
       ttl: api_response.ttl
@@ -137,7 +168,7 @@ async function get_disruption(for_modes, detailed = false) {
   }
 }
 
-async function get_line_stoppoints(line_id) {
+async function get_line_stoppoints(line_id: string): Promise<DataWithTTL> {
   /**
    * fetches stoppoints for a given line in order
    *
@@ -155,14 +186,16 @@ async function get_line_stoppoints(line_id) {
   else {
     logger.debug(`${cache_key} cache miss`)
     const line_stoppoints_api_query = `Line/${line_id}/StopPoints`
-    const line_stoppoints = await query(line_stoppoints_api_query)
-    const stoppoint_data = extract_stoppoints_from_stoppoint_array(line_stoppoints.data)
-    query_cache.set(cache_key, stoppoint_data, line_stoppoints.ttl)
-    return { data: stoppoint_data, ttl: line_stoppoints.ttl }
+    const tfl_response = await call_query_throw_on_error(line_stoppoints_api_query)
+    const line_stoppoints = TfLResponse.stopPointArraySchema.parse(tfl_response.data)
+    const stoppoint_data = extract_stoppoints_from_stoppoint_array(line_stoppoints)
+    query_cache.set(cache_key, stoppoint_data, tfl_response.ttl)
+    return { data: stoppoint_data, ttl: tfl_response.ttl }
   }
 }
 
-async function get_line_stoppoints_in_order(line_id) {
+
+async function get_line_stoppoints_in_order(line_id: string): Promise<DataWithTTL> {
   /**
    * fetches stoppoints for a given line in order
    *
@@ -180,29 +213,46 @@ async function get_line_stoppoints_in_order(line_id) {
   else {
     logger.debug(`${cache_key} cache miss`)
     const line_stoppoints_api_query = `Line/${line_id}/Route/Sequence/all`
-    const line_stoppoints = await query(line_stoppoints_api_query, { excludeCrowding: true })
-
-    const directional_points = line_stoppoints.data.stopPointSequences.map(sp => get_directional_stoppoints(sp))
-
+    const line_stoppoints = await call_query_throw_on_error(line_stoppoints_api_query, { excludeCrowding: true })
+    const tfl_response = TfLResponse.routeSequenceSchema.parse(line_stoppoints.data)
+    const stoppoint_sequences = tfl_response.stopPointSequences
+    const directional_points = stoppoint_sequences.map(sp => get_matchedStoppoints(sp))
     query_cache.set(cache_key, directional_points, line_stoppoints.ttl)
     return { data: directional_points, ttl: line_stoppoints.ttl }
   }
 }
 
-function get_directional_stoppoints(stoppoint) {
+function get_matchedStoppoints(stoppoint: z.infer<typeof TfLResponse.stopPointSequenceSchema>) {
 
   return {
-    id: stoppoint['lineId'],
-    lineName: stoppoint['lineName'],
-    branchId: stoppoint['branchId'],
-    nextBranchIds: stoppoint['nextBranchIds'],
-    prevBranchIds: stoppoint['prevBranchIds'],
-    direction: stoppoint['direction'],
-    points: extract_stoppoints_from_stoppoint_array(stoppoint['stopPoint'])
+    id: stoppoint.lineId,
+    lineName: stoppoint.lineName,
+    branchId: stoppoint.branchId,
+    nextBranchIds: stoppoint.nextBranchIds,
+    prevBranchIds: stoppoint.prevBranchIds,
+    direction: stoppoint.direction,
+    points: extract_stoppoints_from_MatchedStop_array(stoppoint.stopPoint)
   }
 
 }
-function extract_stoppoints_from_stoppoint_array(stoppoint_array) {
+
+function extract_stoppoints_from_MatchedStop_array(MatchedStop_array: z.infer<typeof TfLResponse.matchedStopSchema>[]) {
+  return MatchedStop_array.map((sp) => {
+    return {
+      id: sp.id,
+      type: 'StopPoint',
+      name: sp.name, // ('name' in sp) ? sp['name'] : sp['commonName'],
+      naptanId: sp.stationId === undefined ? null : sp.stationId, // ('stationId' in sp) ? sp['stationId'] : sp['naptanId'],
+      lat: sp.lat, // ['lat'],
+      lon: sp.lon, //['lon'],
+      modes: sp.modes, //['modes'],
+      lines: sp.lines.map((l) => l.id)
+    }
+  }
+  )
+}
+
+function extract_stoppoints_from_stoppoint_array(stoppoint_array: z.infer<typeof TfLResponse.stopPointArraySchema>) {
   return stoppoint_array.map((sp) => {
     return {
       id: sp['id'],
@@ -212,13 +262,29 @@ function extract_stoppoints_from_stoppoint_array(stoppoint_array) {
       lat: sp['lat'],
       lon: sp['lon'],
       modes: sp['modes'],
-      lines: sp['lines'].map(l => l['id'])
+      lines: get_lines_from_lineModeGroups(sp['lineModeGroups']) // sp['lines'].map(l => simplify_line(l))
     }
   }
   )
 }
 
-async function get_lines_for_mode(modes = ['tube', 'dlr', 'overground']) {
+function get_lines_from_lineModeGroups(linemodegroups: z.infer<typeof TfLResponse.lineModeGroupSchema>[]) {
+  return linemodegroups.map((lmg) => {
+    const mode = lmg['modeName']
+    if (!config.modes_of_transport.includes(mode)) {
+      return []
+    }
+    return lmg['lineIdentifier'].map((line) => {
+      return {
+        id: line,
+        mode: mode
+      }
+    })
+  }).flat()
+}
+
+
+async function get_lines_for_mode(modes = ['tube', 'dlr', 'overground', 'elizabeth-line']): Promise<DataWithTTL> {
   /**
    * fetches lines from tfl for given modes
    *
@@ -240,18 +306,19 @@ async function get_lines_for_mode(modes = ['tube', 'dlr', 'overground']) {
   else {
     logger.debug(`${cache_key} cache miss`)
     const all_lines_api_query = `Line/Mode/${modes}/Route`
-    const all_lines = await query(all_lines_api_query)
-    const all_lines_summarised = all_lines.data.map((line) => {
+    const tfl_response = await tfl_query.query(all_lines_api_query)
+    const all_lines = TfLResponse.lineArraySchema.parse(tfl_response.data)
+    const all_lines_summarised = all_lines.map((line) => {
       return {
-        id: line['id'],
-        name: line['name'],
-        modeName: line['modeName'],
-        serviceTypes: line['serviceTypes'].map((st) => st['name'])
+        id: line.id,
+        name: line.name,
+        modeName: line.modeName,
+        serviceTypes: line.serviceTypes.map((st) => st.name)
       }
     })
 
-    query_cache.set(cache_key, all_lines_summarised, all_lines.ttl)
-    return { data: all_lines_summarised, ttl: all_lines.ttl }
+    query_cache.set(cache_key, all_lines_summarised, tfl_response.ttl)
+    return { data: all_lines_summarised, ttl: tfl_response.ttl }
   }
 }
 
@@ -261,4 +328,5 @@ module.exports = {
   get_line_stoppoints,
   get_lines_for_mode,
   get_line_stoppoints_in_order
+
 }
