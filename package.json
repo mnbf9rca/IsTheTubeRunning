@@ -6,7 +6,7 @@
     "pretest": "npx ts-to-zod ./tfl_service/TfLResponse_types.ts ./tfl_service/TfLResponse_types_zod.ts",
     "start": "func start",
     "test": "NODE_ENV=test jest --verbose --runInBand --coverage --detectOpenHandles --forceExit",
-    "test:ci": "NODE_ENV=test jest --ci --json --coverage --testLocationInResults --outputFile=report.json --reporters=github-actions --detectOpenHandles --forceExit"
+    "test:ci": "NODE_ENV=test jest --ci --verbose --json --coverage --testLocationInResults --outputFile=report.json --reporters=github-actions --detectOpenHandles --forceExit"
   },
   "dependencies": {
     "@azure/event-hubs": "^5.8.0",
