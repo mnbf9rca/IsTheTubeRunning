@@ -5,18 +5,7 @@ import { performance } from 'perf_hooks';
 
 jest.mock('../mongo.client')
 
-// set up a connection to the database
-// TODO: move to a helper file for tests
-//const mongo_endpoint = config.mongo_endpoint// "mongodb+srv://<username>:<password>@cluster0.yih6sor.mongodb.net/?retryWrites=true&w=majority"
-//const username = encodeURIComponent(config.mongo_username)
-//const password = encodeURIComponent(config.mongo_password)
 const dbname = config.graph_database_name
-//const authMechanism = "DEFAULT"
-//const mongo_connection_string =
-//  `mongodb+srv://${username}:${password}@${mongo_endpoint}/?retryWrites=true&w=majority&authMechanism=${authMechanism}`
-
-
-
 
 interface Edge extends mongo.GenericEdge {
   label: string;
@@ -140,7 +129,11 @@ describe('mongo client wrapper', () => {
       console.debug(`Aquiring independent DB connection to '${dbname}' for use in testing....`)
       try {
         // Connect to our MongoDB database hosted on MongoDB Atlas
-        test_client = mongo.getMongoClient() //dont use this - we're mocking Mongo nownew MongoClient(mongo_connection_string, { tls: true })
+        test_client = mongo.getMongoClient()
+        // next line is if we want to use an actual connection to the DB
+        // but because we've mocked the mongo client, we can't use it
+        // test_client = mongo.new MongoClient(mongo_connection_string, { tls: true })
+
         await test_client.connect()
         // Specify which database we want to use
         test_db = test_client.db(dbname)
@@ -171,23 +164,55 @@ describe('mongo client wrapper', () => {
       return await test_vertex_collection.insertMany(vertex)
       //return await test_vertex_collection.insertOne(vertex)
     }
-    async function add_and_push_edge(edge: Edge) {
-      const from_edge = await test_vertex_collection.find({ id: edge.from }).toArray()
-      const to_edge = await test_vertex_collection.find({ id: edge.to }).toArray()
-      if (!from_edge || from_edge.length !== 1) {
-        throw new Error(`Could not find unique vertex with id '${edge.from}' generating test edge`)
+    async function findVertexById(vertexId: string, collection: Collection) {
+      const vertex = await collection.find({ id: vertexId }).toArray();
+      if (!vertex || vertex.length !== 1) {
+        throw new Error(`Could not find unique vertex with id '${vertexId}'`);
       }
-      if (!to_edge || to_edge.length !== 1) {
-        throw new Error(`Could not find unique vertex with id '${edge.to}' generating test edge`)
-      }
-      const new_edge = { ...edge, from: from_edge, to: to_edge }
-      list_of_added_edges.push(edge['id'])
-      return await test_edge_collection.insertOne(new_edge)
+      return vertex[0];
     }
+    
+    async function updateVertexProperty(vertexId: ObjectId, property: string, value: any, collection: Collection, session: ClientSession) {
+      await collection.updateOne(
+        { _id: vertexId },
+        { $push: { [property]: value } },
+        { session }
+      );
+    }
+    
+    async function add_and_push_edge(edge: Edge) {
+      const session = test_client.startSession();
+      try {
+        session.startTransaction();
+    
+        const fromVertex = await findVertexById(edge.from, test_vertex_collection);
+        const toVertex = await findVertexById(edge.to, test_vertex_collection);
+    
+        const newEdge = { ...edge, from: fromVertex._id, to: toVertex._id };
+        const insertedEdgeResult = await test_edge_collection.insertOne(newEdge, { session });
+        if (!insertedEdgeResult.acknowledged) {
+          throw new Error('Failed to insert edge.');
+        }
+    
+        const edgeObjectId = insertedEdgeResult.insertedId;
+        await updateVertexProperty(fromVertex._id, 'out', edgeObjectId, test_vertex_collection, session);
+        await updateVertexProperty(toVertex._id, 'in', edgeObjectId, test_vertex_collection, session);
+    
+        await session.commitTransaction();
+        return edgeObjectId;
+    
+      } catch (error) {
+        await session.abortTransaction();
+        console.error('Transaction failed:', error);
+        throw error;
+      } finally {
+        session.endSession();
+      }
+    }
+    
     afterAll(async () => {
       console.debug("Cleaning up after tests")
       // delete the vertices we added
-      /*
       const vertex_delete_result = await test_vertex_collection.deleteMany({ id: { $in: list_of_added_vertices } })
       if (vertex_delete_result.deletedCount !== list_of_added_vertices.length) {
         console.error(`Failed to delete all vertices added to the test DB!`)
@@ -198,7 +223,6 @@ describe('mongo client wrapper', () => {
         console.error(`Failed to delete all edges added to the test DB!`)
         // TODO: show the IDs of the items that failed to delete
       }
-      */
       // close the connection to the DB
       await test_client.close()
     }, 30000)

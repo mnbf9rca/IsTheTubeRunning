@@ -1,7 +1,8 @@
 import { describe, expect, test } from '@jest/globals'
-import { MongoServerError, ErrorDescription } from 'mongodb'
+//import { MongoServerError, ErrorDescription } from 'mongodb'
 import * as mongo from '../mongo.client';
-import config from '../../utils/config'
+import config = require('../../utils/config');
+
 
 
 

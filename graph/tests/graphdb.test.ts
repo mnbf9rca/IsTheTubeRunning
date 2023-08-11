@@ -222,7 +222,7 @@ describe('GraphDB tests', () => {
     afterAll(async () => {
       console.info('closing stoppoint_client')
       //const stoppoint_client = graph.__get__('stoppoint_client')
-     //  await graph_client.close()
+      //  await graph_client.close()
     })
 
     describe('tests with actual DB queries', () => {
@@ -233,9 +233,9 @@ describe('GraphDB tests', () => {
       beforeAll(async () => {
         console.info('beforeAll')
         // open the graphdb connection
-        graph_client = await GraphDB.getGraphClient() 
+        graph_client = await GraphDB.getGraphClient()
         if (graph_client.isOpen === false) {
-          await GraphDB.connectGraphClient(graph_client) 
+          await GraphDB.connectGraphClient(graph_client)
         }
 
         await add_and_push_vertex(known_graph.first)
@@ -366,7 +366,7 @@ describe('GraphDB tests', () => {
         expect(actual_result2['data']['_items'][0]).toMatchObject(expected_result)
         const is_open2 = graph_client.isOpen
         expect(is_open2).toBe(true)
-      })
+      }, 15000)
     })
   })
 })
