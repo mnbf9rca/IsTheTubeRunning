@@ -1,6 +1,8 @@
 import * as mongo from '../mongo';
 import { MongoClient, Db, Document, Collection, ObjectId } from 'mongodb';
 const config = require('../../utils/config')
+import { performance } from 'perf_hooks';
+
 
 // set up a connection to the database
 // TODO: move to a helper file for tests
@@ -32,8 +34,12 @@ interface Vertex {
 
 interface KnownGraph {
   first: Vertex
-  second: Vertex
   edge: Edge
+  second: Vertex
+  edge_two_three?: Edge
+  third?: Vertex
+  edge_three_four?: Edge
+  fourth?: Vertex
 }
 
 const randomString = () => Math.random().toString(36).slice(2, 7)
@@ -91,11 +97,20 @@ describe('mongo client wrapper', () => {
       expect(result).resolves.toBeUndefined()
     })
   })
+  
   describe('test direct graph methods', () => {
     let list_of_added_vertices: String[] = []
     let list_of_added_edges: String[] = []
 
-    let known_graph = create_known_graph()
+    const first_graph = create_known_graph()
+    const second_graph = create_known_graph()
+    let known_graph = {
+      ...first_graph, // first, edge, second
+      edge_two_three: generate_edge(first_graph.second.id, second_graph.first.id),
+      third: second_graph.first, // third is vertex first in graph 2
+      edge_three_four: second_graph.edge, // edge from third to fourth is edge from second to third in graph 2
+      fourth: second_graph.second // fourth is vertex second in graph 2
+    }
     // independent database connections for our tests
     let test_client: MongoClient
     let test_vertex_collection: Collection
@@ -120,7 +135,6 @@ describe('mongo client wrapper', () => {
       await get_graph_client()
     })
 
-
     beforeAll(async () => {
       console.debug(`Aquiring independent DB connection to '${dbname}' for use in testing....`)
       try {
@@ -139,19 +153,22 @@ describe('mongo client wrapper', () => {
       console.debug("Populating a known graph in the DB for testing")
 
       try {
-        console.log(await add_and_push_vertex(known_graph.first))
-        console.log(await add_and_push_vertex(known_graph.second))
+        console.log(await add_and_push_vertex([known_graph.first, known_graph.second, known_graph.third, known_graph.fourth]))
+
         console.log(await add_and_push_edge(known_graph.edge))
+        console.log(await add_and_push_edge(known_graph.edge_two_three))
+        console.log(await add_and_push_edge(known_graph.edge_three_four))
 
       } catch (error) {
-        console.error("ERROR adding known graph to DB!")
+        console.error(`ERROR adding known graph ${known_graph} to DB: ${error}`)
         throw error
       }
 
-    })
-    async function add_and_push_vertex(vertex: Vertex) {
-      list_of_added_vertices.push(vertex['id'])
-      return await test_vertex_collection.insertOne(vertex)
+    }, 30000)
+    async function add_and_push_vertex(vertex: Vertex[]) {
+      vertex.map(v => list_of_added_vertices.push(v['id']))
+      return await test_vertex_collection.insertMany(vertex)
+      //return await test_vertex_collection.insertOne(vertex)
     }
     async function add_and_push_edge(edge: Edge) {
       const from_edge = await test_vertex_collection.find({ id: edge.from }).toArray()
@@ -169,6 +186,7 @@ describe('mongo client wrapper', () => {
     afterAll(async () => {
       console.debug("Cleaning up after tests")
       // delete the vertices we added
+      /*
       const vertex_delete_result = await test_vertex_collection.deleteMany({ id: { $in: list_of_added_vertices } })
       if (vertex_delete_result.deletedCount !== list_of_added_vertices.length) {
         console.error(`Failed to delete all vertices added to the test DB!`)
@@ -179,22 +197,46 @@ describe('mongo client wrapper', () => {
         console.error(`Failed to delete all edges added to the test DB!`)
         // TODO: show the IDs of the items that failed to delete
       }
+      */
       // close the connection to the DB
       await test_client.close()
-    })
+    }, 30000)
+    describe.skip('Performance profiling for add_edge', () => {
+      test('Profile add_edge function', async () => {
+        const iterations = 100;
+        let totalExecutionTime = 0;
+    
+        for (let i = 0; i < iterations; i++) {
+          const additionalKnownGraph = create_known_graph();
+          const testingEdge = additionalKnownGraph.edge;
+          list_of_added_edges.push(testingEdge.id);
+          await add_and_push_vertex([additionalKnownGraph.first, additionalKnownGraph.second]);
+    
+          const startTime = performance.now();
+          const mongoClient = mongo.getMongoClient();
+          await mongo.add_edge(mongoClient, mongo_db, test_db.databaseName, testingEdge);
+          const endTime = performance.now();
+    
+          const executionTime = endTime - startTime;
+          totalExecutionTime += executionTime;
+        }
+    
+        const averageExecutionTime = totalExecutionTime / iterations;
+        console.log(`Average execution time for add_edge over ${iterations} iterations: ${averageExecutionTime.toFixed(2)} ms`);
+      }, 30000 * 100); // Extended timeout for 100 iterations
+    });
     test('can query for a single vertex', async () => {
       const expected_result = known_graph.first
       const query = { id: known_graph.first.id }
 
       const actual_result = await mongo_vertex_collection.find(query).toArray()
       expect(actual_result[0].id == expected_result.id).toBeTruthy()
-    })
+    }, 30000)
 
     test('can add an edge using add_edge', async () => {
       // add two vertices to the DB
       const additional_known_graph = create_known_graph()
-      const added_from = await add_and_push_vertex(additional_known_graph.first)
-      const added_to = await add_and_push_vertex(additional_known_graph.second)
+      const added_vertex = await add_and_push_vertex([additional_known_graph.first, additional_known_graph.second])
       const check_vertices_added = await test_vertex_collection.find({ id: { $in: [additional_known_graph.first.id, additional_known_graph.second.id] } }).toArray()
       expect(check_vertices_added.length).toBe(2)
 
@@ -205,14 +247,15 @@ describe('mongo client wrapper', () => {
 
       const query = { id: testing_edge.id }
       // add the edge using the module's connection to the DB
-      const insert_result = await mongo.add_edge(test_db, testing_edge)
+      const mongo_client = mongo.getMongoClient()
+      const insert_result = await mongo.add_edge(mongo_client, mongo_db, test_db.databaseName, testing_edge)
       expect(insert_result).toBeInstanceOf(ObjectId)
 
       // create the expected result
       const expected_result = {
         ...additional_known_graph.edge, // existing edge
-        from: added_from.insertedId, // new from reference
-        to: added_to.insertedId, // new to reference
+        from: added_vertex.insertedIds[0], // new from reference
+        to: added_vertex.insertedIds[1], // new to reference
         _id: insert_result // new _id from the insert
       }
       // check the insert result using our connection to the DB

@@ -1,5 +1,5 @@
 
-import { MongoClient, Db, Document, Collection, ObjectId } from 'mongodb';
+import { MongoClient, Db, ClientSession, Collection, ObjectId } from 'mongodb';
 import config from '../utils/config'
 
 
@@ -12,7 +12,7 @@ interface ValidJSONObject {
   [key: string]: ValidJSONValue;
 }
 
-interface ValidJSONArray extends Array<ValidJSONValue> {}
+interface ValidJSONArray extends Array<ValidJSONValue> { }
 
 export interface GenericEdge extends ValidJSONObject {
   id: string;
@@ -20,8 +20,8 @@ export interface GenericEdge extends ValidJSONObject {
   to: string;
 }
 
-export function getGraphClientDb(): Promise<Db>{
-  return mongoclient.GetInstance()
+export function getGraphClientDb(): Promise<Db> {
+  return mongoclient.GetDbInstance()
 }
 
 export async function connectGraphClient(client: Db): Promise<void> {
@@ -33,9 +33,9 @@ export async function connectGraphClient(client: Db): Promise<void> {
   }
 }
 
-export async function add_edge(client: Db, edge: GenericEdge): Promise<ObjectId> {
-  const edge_collection = client.collection("edges");
-  const vertex_collection = client.collection("vertices");
+export async function add_edge_local(client_db: Db, edge: GenericEdge): Promise<ObjectId> {
+  const edge_collection = client_db.collection("edges");
+  const vertex_collection = client_db.collection("vertices");
   // need to find the existing vertices 
   const { from_vertex, to_vertex } = await find_from_and_to_vertex(vertex_collection, edge);
   // create a new GenericEdge which has the from and to fields as the vertex ids
@@ -47,6 +47,95 @@ export async function add_edge(client: Db, edge: GenericEdge): Promise<ObjectId>
   }
   return result.insertedId; // return the inserted document ID
 }
+
+export async function add_edge(client: MongoClient, clientDatabase: Db, databaseName: string, edge: GenericEdge): Promise<ObjectId> {
+  const session = client.startSession();
+
+  try {
+    // Start the transaction
+    session.startTransaction();
+
+    // Step 1: Perform aggregation to find the existing vertices
+    const aggregationFindExistingVertices = [
+      {
+        $match: { id: { $in: [edge.from, edge.to] } }
+      },
+      {
+        $facet: {
+          from: [{ $match: { id: edge.from } }],
+          to: [{ $match: { id: edge.to } }]
+        }
+      },
+      {
+        $addFields: {
+          fromCount: { $size: '$from' },
+          toCount: { $size: '$to' }
+        }
+      }
+    ];
+
+    const existingVerticesAggregationResult = await clientDatabase.collection('vertices').aggregate(aggregationFindExistingVertices, { session }).toArray();
+
+    const existingVertices = existingVerticesAggregationResult[0];
+
+    // Check if there is exactly one 'from' and one 'to' vertex
+    if (existingVertices.fromCount > 1 || existingVertices.toCount > 1) {
+      throw new Error(`Vertices referenced by the edge are not unique: ${JSON.stringify(existingVertices)}`);
+    }
+
+    if (existingVertices.fromCount < 1 || existingVertices.toCount < 1) {
+      throw new Error(`Vertices referenced by the edge (${edge.from}, ${edge.to}) are not found: ${JSON.stringify(existingVertices)}`);
+    }
+
+    const fromVertex = existingVertices.from[0];
+    const toVertex = existingVertices.to[0];
+
+    // Step 2: Create the new edge
+    const newEdge = { ...edge, from: fromVertex._id, to: toVertex._id };
+    const insertedEdge = await clientDatabase.collection('edges').insertOne(newEdge, { session });
+
+    // Check if the insertion was successful
+    if (insertedEdge.acknowledged === false) {
+      throw new Error(`Failed to add edge: ${newEdge}`);
+    }
+
+    // Step 3: Update the existing vertices 'from' and 'to'
+    await clientDatabase.collection('vertices').updateOne(
+      { _id: fromVertex._id },
+      {
+        $push: { 'out': insertedEdge.insertedId }
+      },
+      { session }
+    );
+
+    await clientDatabase.collection('vertices').updateOne(
+      { _id: toVertex._id },
+      {
+        $push: { 'in': insertedEdge.insertedId }
+      },
+      { session }
+    );
+
+    await session.commitTransaction();
+    return insertedEdge.insertedId;
+
+  } catch (error) {
+    // If an error is thrown, abort the transaction
+    await session.abortTransaction();
+    console.error('Transaction failed:', error);
+    throw error
+  } finally {
+    // Always end the session
+    session.endSession();
+  }
+}
+
+
+
+export function getMongoClient() {
+  return mongoclient.getMongoClient()
+}
+
 
 async function find_from_and_to_vertex(vertex_collection: Collection, edge: GenericEdge) {
   const find_unique_vertex = async (vertex_id: string) => {

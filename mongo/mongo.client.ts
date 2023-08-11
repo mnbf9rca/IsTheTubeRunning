@@ -15,7 +15,7 @@ let cachedDb: Db | null = null
 
 
 
-export async function GetInstance(overwrite_password?: string): Promise<Db> {
+export async function GetDbInstance(overwrite_password?: string): Promise<Db> {
   const used_password = overwrite_password ? encodeURIComponent(overwrite_password) : password
   const uri =
     `mongodb+srv://${username}:${used_password}@${mongo_endpoint}/?retryWrites=true&w=majority&authMechanism=${authMechanism}`
@@ -37,6 +37,10 @@ export async function GetInstance(overwrite_password?: string): Promise<Db> {
     logger.error("ERROR aquiring DB Connection!")
     throw error
   }
+}
+
+export function getMongoClient(){
+  return client
 }
 
 export async function close() {
