@@ -1,13 +1,16 @@
 import * as mongo from '../mongo';
-import { MongoClient, Db, Document, Collection, ObjectId } from 'mongodb';
+import { describe, expect, test } from '@jest/globals'
+import { Mock } from 'jest-mock';
+import { MongoClient, Db, Document, Collection, ObjectId, InsertOneResult, ClientSession } from 'mongodb';
 const config = require('../../utils/config')
 import { performance } from 'perf_hooks';
+import * as GraphTypes from '../GraphTypes'
 
 jest.mock('../mongo.client')
 
 const dbname = config.graph_database_name
 
-interface Edge extends mongo.GenericEdge {
+interface Edge extends GraphTypes.GenericEdge {
   label: string;
   string_property: string;
   number_property: number;
@@ -74,18 +77,40 @@ function create_known_graph(): KnownGraph {
 }
 
 
-describe('mongo client wrapper', () => {
-  describe('test methods to return the db client', () => {
-    test('Test getGraphClient returns a connection to the configured database', async () => {
-      expect(mongo.getGraphClientDb()).resolves.toBeInstanceOf(Db)
-      const clientdb = await mongo.getGraphClientDb()
-      expect(clientdb.databaseName).toBe(config.graph_database_name)
+describe('test with mocked mongo client', () => {
+  describe('test methods to return the db client and db', () => {
+    beforeAll(() => {
+      // check that the db name is defined
+      expect(dbname).toBeDefined()
     })
-    test('Test connectGraphClient does not throw', async () => {
-      const clientdb = await mongo.getGraphClientDb()
-      const result = mongo.connectGraphClient(clientdb)
-      expect(result).resolves.toBeUndefined()
+    test('getMongoClient returns a MongoClient', async () => {
+      expect(mongo.getMongoClient()).resolves.toBeInstanceOf(MongoClient)
     })
+    test('getGraphClient returns a connection to the configured database', async () => {
+      
+      const client = await mongo.getMongoClient()
+      expect(mongo.getMongoDbFromClient(client, dbname)).resolves.toBeInstanceOf(Db)
+      const clientdb = await mongo.getMongoDbFromClient(client, dbname)
+      expect(clientdb.databaseName).toBe(dbname)
+    }, 60000)
+    test('verifyDbConnection does not throw when ping succeeds', async () => {
+      const client = await mongo.getMongoClient()
+
+      const clientdb = await mongo.getMongoDbFromClient(client, dbname)
+      expect(mongo.verifyDbConnection(clientdb)).resolves.toBeUndefined()
+    })
+    test('verifyDbConnection throws when ping fails', async () => {
+      // Mock the client object and make the command method reject with an error
+      const mockClient: Partial<Db> = {
+        command: jest.fn().mockRejectedValue(new Error('Failed to ping'))
+      };
+  
+      // Call connectGraphClient and expect it to throw the mocked error
+      await expect(mongo.verifyDbConnection(mockClient as Db)).rejects.toThrow('Failed to ping');
+  
+      // Optionally, verify that the command method was called with the correct arguments
+      expect(mockClient.command).toHaveBeenCalledWith({ ping: 1 });
+    });
   })
   
   describe('test direct graph methods', () => {
@@ -108,13 +133,15 @@ describe('mongo client wrapper', () => {
     let test_db: Db
 
     // database connection via the graph client
+    let mongo_client: MongoClient
     let mongo_db: Db
     let mongo_vertex_collection: Collection
     let mongo_edge_collection: Collection
 
     async function get_graph_client() {
       try {
-        mongo_db = await mongo.getGraphClientDb()
+        mongo_client = await mongo.getMongoClient()
+        mongo_db = await mongo.getMongoDbFromClient(mongo_client, dbname)
         mongo_vertex_collection = mongo_db.collection("vertices")
         mongo_edge_collection = mongo_db.collection("edges")
       } catch (error) {
@@ -126,28 +153,25 @@ describe('mongo client wrapper', () => {
     })
 
     beforeAll(async () => {
-      console.debug(`Aquiring independent DB connection to '${dbname}' for use in testing....`)
+      console.debug(`Aquiring DB connection to '${dbname}' for use in testing....`)
       try {
-        // Connect to our MongoDB database hosted on MongoDB Atlas
-        test_client = mongo.getMongoClient()
-        // next line is if we want to use an actual connection to the DB
-        // but because we've mocked the mongo client, we can't use it
-        // test_client = mongo.new MongoClient(mongo_connection_string, { tls: true })
-
-        await test_client.connect()
+        const uri = await mongo.getUnderlyingURI()
+        // independent connection for our tests
+        // incase the underlying connection is closed
+        test_client = new MongoClient(uri)
         // Specify which database we want to use
-        test_db = test_client.db(dbname)
+        test_db = await mongo.getMongoDbFromClient(test_client, dbname) 
         // Specify which collection we want to use
         test_vertex_collection = test_db.collection("vertices")
         test_edge_collection = test_db.collection("edges")
       } catch (error) {
-        console.error("ERROR aquiring DB Connection!")
+        console.error("ERROR aquiring DB Connection!", error)
         throw error
       }
       console.debug("Populating a known graph in the DB for testing")
 
       try {
-        console.log(await add_and_push_vertex([known_graph.first, known_graph.second, known_graph.third, known_graph.fourth]))
+        console.log(await add_and_push_vertex([known_graph.first, known_graph.second, known_graph.third, known_graph.fourth], test_vertex_collection))
 
         console.log(await add_and_push_edge(known_graph.edge))
         console.log(await add_and_push_edge(known_graph.edge_two_three))
@@ -159,10 +183,15 @@ describe('mongo client wrapper', () => {
       }
 
     }, 30000)
-    async function add_and_push_vertex(vertex: Vertex[]) {
-      vertex.map(v => list_of_added_vertices.push(v['id']))
-      return await test_vertex_collection.insertMany(vertex)
-      //return await test_vertex_collection.insertOne(vertex)
+    async function add_and_push_vertex(vertex: Vertex[], vertex_collection: Collection) {
+      try{
+        vertex.map(v => list_of_added_vertices.push(v['id']))
+      
+        return await vertex_collection.insertMany(vertex)
+      } catch (error) {
+        console.error('unable to add vertex to db', error)
+        throw error
+      }
     }
     async function findVertexById(vertexId: string, collection: Collection) {
       const vertex = await collection.find({ id: vertexId }).toArray();
@@ -224,7 +253,7 @@ describe('mongo client wrapper', () => {
         // TODO: show the IDs of the items that failed to delete
       }
       // close the connection to the DB
-      await test_client.close()
+      await mongo_client.close()
     }, 30000)
     describe.skip('Performance profiling for add_edge', () => {
       test('Profile add_edge function', async () => {
@@ -235,11 +264,10 @@ describe('mongo client wrapper', () => {
           const additionalKnownGraph = create_known_graph();
           const testingEdge = additionalKnownGraph.edge;
           list_of_added_edges.push(testingEdge.id);
-          await add_and_push_vertex([additionalKnownGraph.first, additionalKnownGraph.second]);
+          await add_and_push_vertex([additionalKnownGraph.first, additionalKnownGraph.second], test_vertex_collection);
     
           const startTime = performance.now();
-          const mongoClient = mongo.getMongoClient();
-          await mongo.add_edge(mongoClient, mongo_db, test_db.databaseName, testingEdge);
+          await mongo.add_edge(mongo_client, mongo_db, testingEdge);
           const endTime = performance.now();
     
           const executionTime = endTime - startTime;
@@ -261,7 +289,7 @@ describe('mongo client wrapper', () => {
     test('can add an edge using add_edge', async () => {
       // add two vertices to the DB
       const additional_known_graph = create_known_graph()
-      const added_vertex = await add_and_push_vertex([additional_known_graph.first, additional_known_graph.second])
+      const added_vertex = await add_and_push_vertex([additional_known_graph.first, additional_known_graph.second], test_vertex_collection)
       const check_vertices_added = await test_vertex_collection.find({ id: { $in: [additional_known_graph.first.id, additional_known_graph.second.id] } }).toArray()
       expect(check_vertices_added.length).toBe(2)
 
@@ -270,10 +298,9 @@ describe('mongo client wrapper', () => {
       // store for cleanup
       list_of_added_edges.push(testing_edge.id)
 
-      const query = { id: testing_edge.id }
+
       // add the edge using the module's connection to the DB
-      const mongo_client = mongo.getMongoClient()
-      const insert_result = await mongo.add_edge(mongo_client, mongo_db, test_db.databaseName, testing_edge)
+      const insert_result = await mongo.add_edge(mongo_client, mongo_db, testing_edge)
       expect(insert_result).toBeInstanceOf(ObjectId)
 
       // create the expected result
@@ -284,12 +311,42 @@ describe('mongo client wrapper', () => {
         _id: insert_result // new _id from the insert
       }
       // check the insert result using our connection to the DB
+      const query = { id: testing_edge.id }      
       const actual_result = await test_edge_collection.find(query).toArray()
       // should only be 1
       expect(actual_result.length).toBe(1)
       // should be the object we inserted
       expect(actual_result[0]).toStrictEqual(expected_result)
     }, 25000)
+    test('should throw an error if the insertion is not acknowledged', async () => {
+      const additional_known_graph = create_known_graph();
+      await add_and_push_vertex([additional_known_graph.first, additional_known_graph.second], test_vertex_collection);
+      const check_vertices_added = await test_vertex_collection.find({ id: { $in: [additional_known_graph.first.id, additional_known_graph.second.id] } }).toArray();
+      expect(check_vertices_added.length).toBe(2);
+    
+      // create a mock response
+      const mockInsertOneResult: InsertOneResult<Document> = {
+        acknowledged: false,
+        insertedId: null
+      };
 
+      // mock response is provided by a mock collection
+      let mock_collection = jest.fn(() => { }) as unknown as Collection<Document>
+      mock_collection = {
+        insertOne: jest.fn(() => Promise.resolve(mockInsertOneResult))
+      } as unknown as Collection<Document>;
+
+      // mock collection is provided by a mock DB
+      let mock_mongo_db = jest.fn(() => { }) as unknown as Db
+      mock_mongo_db = {
+        ...mongo_db,
+        collection: mock_collection
+      } as unknown as Db;
+
+      expect(mongo.add_edge(mongo_client, mock_mongo_db, additional_known_graph.edge)).rejects.toThrow('failed to add edge');
+
+
+    });
+    
   })
 })

@@ -1,7 +1,9 @@
 
-import { MongoClient, Db, MongoServerError } from 'mongodb'
-import config from '../utils/config'
-import logger from '../utils/logger'
+import { MongoClient, Db, MongoServerError, Document, ClientSession } from 'mongodb'
+import * as config from '../utils/config'
+import * as logger from '../utils/logger'
+import * as graphTypes from './GraphTypes';
+
 
 const mongo_endpoint = config.mongo_endpoint// "mongodb+srv://<username>:<password>@cluster0.yih6sor.mongodb.net/?retryWrites=true&w=majority"
 const username = encodeURIComponent(config.mongo_username)
@@ -14,57 +16,30 @@ let cachedDb: Db | null = null
 //https://www.mongodb.com/community/forums/t/mongo-isconnected-alternative-for-node-driver-v-4/117041/6
 
 
-
-export async function GetDbInstance(overwrite_password?: string): Promise<Db> {
-  const used_password = overwrite_password ? encodeURIComponent(overwrite_password) : password
-  const uri = getURI(username, used_password, mongo_endpoint, authMechanism)
-  if (cachedDb) {
-    logger.debug("Existing cached connection found!")
-    return cachedDb
-  }
-  logger.debug("Aquiring new DB connection....")
-  try {
-    // Connect to our MongoDB database hosted on MongoDB Atlas
-
-    client = new MongoClient(uri, { tls: true })
-    await client.connect()
-    // Specify which database we want to use
-
-    cachedDb = client.db(dbname)
-    return cachedDb
-  } catch (error) {
-    logger.error("ERROR aquiring DB Connection!")
-    throw error
-  }
+export async function getURI(): Promise<string> {
+  console.debug("returning Atlas URI")
+  // we use this so that we can mock the response and use mongodb-memory-server
+  const uri = buildURI(username, password, mongo_endpoint, authMechanism)
+  return Promise.resolve(uri)
 }
 
-function getURI(username: string,
+export function buildURI(username: string,
   password: string,
   mongo_endpoint: string,
   authMechanism: string = "DEFAULT"): string {
-  // we use this so that we can mock the response and use mongodb-memory-server
-  return `mongodb+srv://${username}:${password}@${mongo_endpoint}/?retryWrites=true&w=majority&authMechanism=${authMechanism}`
+  const uri = `mongodb+srv://${username}:${password}@${mongo_endpoint}/?retryWrites=true&w=majority&authMechanism=${authMechanism}`
+  return uri
 }
 
-export function getMongoClient() {
-  return client
-}
 
-export async function close() {
-  try {
-    logger.debug("Closing DB connection....")
-    if (client) {
-      logger.debug("... requesting client to close")
-      await client.close()
-      logger.debug("... client close resolved")
-    }
-    logger.debug("... releasing cachedDb")
-    cachedDb = null
-    return Promise.resolve()
-  } catch (error) {
-    logger.error("ERROR closing DB Connection!")
-    throw error
+
+export async function insertNewEdge(edge: graphTypes.GenericEdge, fromVertex: Document, toVertex: Document, clientDatabase: Db, session: ClientSession) {
+  const newEdge = { ...edge, from: fromVertex._id, to: toVertex._id };
+  const insertedEdge = await clientDatabase.collection('edges').insertOne(newEdge, { session });
+
+  // Check if the insertion was successful
+  if (insertedEdge.acknowledged === false) {
+    throw new Error(`Failed to add edge: ${newEdge}`);
   }
-
+  return insertedEdge;
 }
-
