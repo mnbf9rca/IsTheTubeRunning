@@ -3,16 +3,17 @@ import { MongoClient, Db, Document, Collection, ObjectId } from 'mongodb';
 const config = require('../../utils/config')
 import { performance } from 'perf_hooks';
 
+jest.mock('../mongo.client')
 
 // set up a connection to the database
 // TODO: move to a helper file for tests
-const mongo_endpoint = config.mongo_endpoint// "mongodb+srv://<username>:<password>@cluster0.yih6sor.mongodb.net/?retryWrites=true&w=majority"
-const username = encodeURIComponent(config.mongo_username)
-const password = encodeURIComponent(config.mongo_password)
+//const mongo_endpoint = config.mongo_endpoint// "mongodb+srv://<username>:<password>@cluster0.yih6sor.mongodb.net/?retryWrites=true&w=majority"
+//const username = encodeURIComponent(config.mongo_username)
+//const password = encodeURIComponent(config.mongo_password)
 const dbname = config.graph_database_name
-const authMechanism = "DEFAULT"
-const mongo_connection_string =
-  `mongodb+srv://${username}:${password}@${mongo_endpoint}/?retryWrites=true&w=majority&authMechanism=${authMechanism}`
+//const authMechanism = "DEFAULT"
+//const mongo_connection_string =
+//  `mongodb+srv://${username}:${password}@${mongo_endpoint}/?retryWrites=true&w=majority&authMechanism=${authMechanism}`
 
 
 
@@ -139,7 +140,7 @@ describe('mongo client wrapper', () => {
       console.debug(`Aquiring independent DB connection to '${dbname}' for use in testing....`)
       try {
         // Connect to our MongoDB database hosted on MongoDB Atlas
-        test_client = new MongoClient(mongo_connection_string, { tls: true })
+        test_client = mongo.getMongoClient() //dont use this - we're mocking Mongo nownew MongoClient(mongo_connection_string, { tls: true })
         await test_client.connect()
         // Specify which database we want to use
         test_db = test_client.db(dbname)

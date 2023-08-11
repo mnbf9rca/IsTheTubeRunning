@@ -17,8 +17,7 @@ let cachedDb: Db | null = null
 
 export async function GetDbInstance(overwrite_password?: string): Promise<Db> {
   const used_password = overwrite_password ? encodeURIComponent(overwrite_password) : password
-  const uri =
-    `mongodb+srv://${username}:${used_password}@${mongo_endpoint}/?retryWrites=true&w=majority&authMechanism=${authMechanism}`
+  const uri = getURI(username, used_password, mongo_endpoint, authMechanism)
   if (cachedDb) {
     logger.debug("Existing cached connection found!")
     return cachedDb
@@ -39,7 +38,15 @@ export async function GetDbInstance(overwrite_password?: string): Promise<Db> {
   }
 }
 
-export function getMongoClient(){
+function getURI(username: string,
+  password: string,
+  mongo_endpoint: string,
+  authMechanism: string = "DEFAULT"): string {
+  // we use this so that we can mock the response and use mongodb-memory-server
+  return `mongodb+srv://${username}:${password}@${mongo_endpoint}/?retryWrites=true&w=majority&authMechanism=${authMechanism}`
+}
+
+export function getMongoClient() {
   return client
 }
 

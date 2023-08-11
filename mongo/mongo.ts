@@ -1,6 +1,8 @@
 
-import { MongoClient, Db, ClientSession, Collection, ObjectId } from 'mongodb';
+import { MongoClient, Db, ClientSession, Document, Collection, ObjectId } from 'mongodb';
 import config from '../utils/config'
+
+import { z } from 'zod';
 
 
 import * as mongoclient from './mongo.client';
@@ -13,6 +15,22 @@ interface ValidJSONObject {
 }
 
 interface ValidJSONArray extends Array<ValidJSONValue> { }
+
+type ExistingVertices = { from: Document[]; to: Document[]; fromCount: number; toCount: number; }
+
+// zod type for a Document
+const mongoDocumentSchema = z.object({
+  _id: z.instanceof(ObjectId),
+}).nonstrict();
+
+
+const ExistingVerticesSchema = z.object({
+  from: z.array(mongoDocumentSchema),
+  to: z.array(mongoDocumentSchema),
+  fromCount: z.number(),
+  toCount: z.number(),
+});
+
 
 export interface GenericEdge extends ValidJSONObject {
   id: string;
@@ -56,48 +74,11 @@ export async function add_edge(client: MongoClient, clientDatabase: Db, database
     session.startTransaction();
 
     // Step 1: Perform aggregation to find the existing vertices
-    const aggregationFindExistingVertices = [
-      {
-        $match: { id: { $in: [edge.from, edge.to] } }
-      },
-      {
-        $facet: {
-          from: [{ $match: { id: edge.from } }],
-          to: [{ $match: { id: edge.to } }]
-        }
-      },
-      {
-        $addFields: {
-          fromCount: { $size: '$from' },
-          toCount: { $size: '$to' }
-        }
-      }
-    ];
+    const { fromVertex, toVertex }  = await getExistingVerticesForEdge(edge, clientDatabase, session);
 
-    const existingVerticesAggregationResult = await clientDatabase.collection('vertices').aggregate(aggregationFindExistingVertices, { session }).toArray();
-
-    const existingVertices = existingVerticesAggregationResult[0];
-
-    // Check if there is exactly one 'from' and one 'to' vertex
-    if (existingVertices.fromCount > 1 || existingVertices.toCount > 1) {
-      throw new Error(`Vertices referenced by the edge are not unique: ${JSON.stringify(existingVertices)}`);
-    }
-
-    if (existingVertices.fromCount < 1 || existingVertices.toCount < 1) {
-      throw new Error(`Vertices referenced by the edge (${edge.from}, ${edge.to}) are not found: ${JSON.stringify(existingVertices)}`);
-    }
-
-    const fromVertex = existingVertices.from[0];
-    const toVertex = existingVertices.to[0];
 
     // Step 2: Create the new edge
-    const newEdge = { ...edge, from: fromVertex._id, to: toVertex._id };
-    const insertedEdge = await clientDatabase.collection('edges').insertOne(newEdge, { session });
-
-    // Check if the insertion was successful
-    if (insertedEdge.acknowledged === false) {
-      throw new Error(`Failed to add edge: ${newEdge}`);
-    }
+    const insertedEdge = await insertNewEdge(edge, fromVertex, toVertex, clientDatabase, session);
 
     // Step 3: Update the existing vertices 'from' and 'to'
     await clientDatabase.collection('vertices').updateOne(
@@ -131,6 +112,67 @@ export async function add_edge(client: MongoClient, clientDatabase: Db, database
 }
 
 
+
+async function insertNewEdge(edge: GenericEdge, fromVertex: Document, toVertex: Document, clientDatabase: Db, session: ClientSession) {
+  const newEdge = { ...edge, from: fromVertex._id, to: toVertex._id };
+  const insertedEdge = await clientDatabase.collection('edges').insertOne(newEdge, { session });
+
+  // Check if the insertion was successful
+  if (insertedEdge.acknowledged === false) {
+    throw new Error(`Failed to add edge: ${newEdge}`);
+  }
+  return insertedEdge;
+}
+
+function checkFromAndToVerticesAreUnique(existingVertices: z.infer<typeof ExistingVerticesSchema>, edge: GenericEdge): { fromVertex: Document; toVertex: Document;} {
+  if (existingVertices.fromCount > 1 || existingVertices.toCount > 1) {
+    throw new Error(`Vertices referenced by the edge are not unique: ${JSON.stringify(existingVertices)}`);
+  }
+
+  if (existingVertices.fromCount < 1 || existingVertices.toCount < 1) {
+    throw new Error(`Vertices referenced by the edge (${edge.from}, ${edge.to}) are not found: ${JSON.stringify(existingVertices)}`);
+  }
+
+  const fromVertex = existingVertices.from[0];
+  const toVertex = existingVertices.to[0];
+  if (fromVertex._id === undefined || toVertex._id === undefined) {
+    throw new Error(`Vertices referenced by the edge (${edge.from}, ${edge.to}) are not found: ${JSON.stringify(existingVertices)}`);
+  }
+  if (fromVertex._id === toVertex._id) {
+    throw new Error(`Vertices referenced by the edge (${edge.from}, ${edge.to}) are the same: ${JSON.stringify(existingVertices)}`);
+  }
+
+  return { fromVertex, toVertex };
+}
+
+async function getExistingVerticesForEdge(edge: GenericEdge, clientDatabase: Db, session: ClientSession) {
+  const aggregationFindExistingVertices = [
+    {
+      $match: { id: { $in: [edge.from, edge.to] } }
+    },
+    {
+      $facet: {
+        from: [{ $match: { id: edge.from } }],
+        to: [{ $match: { id: edge.to } }]
+      }
+    },
+    {
+      $addFields: {
+        fromCount: { $size: '$from' },
+        toCount: { $size: '$to' }
+      }
+    }
+  ];
+
+  const existingVerticesAggregationResult = await clientDatabase.collection('vertices').aggregate(aggregationFindExistingVertices, { session }).toArray();
+  
+  // validate the aggregation result
+  const existingVertices = ExistingVerticesSchema.parse(existingVerticesAggregationResult[0]) 
+    
+  // Check if there is exactly one 'from' and one 'to' vertex
+  const {fromVertex, toVertex}  = checkFromAndToVerticesAreUnique(existingVertices, edge);
+  return {fromVertex, toVertex};
+}
 
 export function getMongoClient() {
   return mongoclient.getMongoClient()

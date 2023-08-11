@@ -5,7 +5,7 @@ import config from '../../utils/config'
 
 
 
-describe('test mongo.client database connection', () => {
+describe('test mongo.client with actual database connection', () => {
   afterEach(async () => {
     console.log("closing connection in mongo client afterEach")
     await mongo.close()
