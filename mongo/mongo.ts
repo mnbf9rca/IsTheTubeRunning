@@ -96,21 +96,6 @@ export async function verifyDbConnection(db: Db): Promise<void> {
   }
 }
 
-export async function add_edge_local(client_db: Db, edge: graphTypes.GenericEdge): Promise<ObjectId> {
-  const edge_collection = client_db.collection("edges");
-  const vertex_collection = client_db.collection("vertices");
-  // need to find the existing vertices 
-  const { from_vertex, to_vertex } = await find_from_and_to_vertex(vertex_collection, edge);
-  // create a new graphTypes.GenericEdge which has the from and to fields as the vertex ids
-  let new_edge = { ...edge, from: from_vertex._id, to: to_vertex._id };
-
-  const result = await edge_collection.insertOne(new_edge);
-  if (result.acknowledged === false) {
-    throw new Error(`failed to add local edge: ${JSON.stringify(edge)}`);
-  }
-  return result.insertedId; // return the inserted document ID
-}
-
 export async function add_edge(client: MongoClient, clientDatabase: Db, edge: graphTypes.GenericEdge): Promise<ObjectId> {
   const session = client.startSession();
 
@@ -165,9 +150,6 @@ export async function add_edge(client: MongoClient, clientDatabase: Db, edge: gr
 }
 
 
-
-
-
 function checkFromAndToVerticesAreUnique(existingVertices: z.infer<typeof ExistingVerticesSchema>, edge: graphTypes.GenericEdge): { fromVertex: Document; toVertex: Document; } {
   if (existingVertices.fromCount !== 1 || existingVertices.toCount !== 1) {
     throw new Error(`Vertices referenced by the edge (${edge.from}, ${edge.to}) must be unique and found exactly once: ${JSON.stringify(existingVertices)}`);
@@ -176,14 +158,14 @@ function checkFromAndToVerticesAreUnique(existingVertices: z.infer<typeof Existi
   const fromVertex = existingVertices.from[0];
   const toVertex = existingVertices.to[0];
 
-  if (fromVertex._id === undefined || toVertex._id === undefined || fromVertex._id === toVertex._id) {
+  if (fromVertex._id === undefined || toVertex._id === undefined || fromVertex._id.equals(toVertex._id)) {
     throw new Error(`Invalid vertices referenced by the edge (${edge.from}, ${edge.to}): ${JSON.stringify(existingVertices)}`);
   }
 
   return { fromVertex, toVertex };
 }
 
-async function getExistingVerticesForEdge(edge: graphTypes.GenericEdge, clientDatabase: Db, session: ClientSession) {
+export async function getExistingVerticesForEdge(edge: graphTypes.GenericEdge, clientDatabase: Db, session: ClientSession) {
   /*const check_vertices_added_mongo = await clientDatabase.collection('vertices').find({ id: { $in: [edge.from, edge.to] } }).toArray();
   console.log('found vertices: ', check_vertices_added_mongo)
   const check_vertices_added_mongo_with_session = await clientDatabase.collection('vertices').find({ id: { $in: [edge.from, edge.to] } }, { session }).toArray();
@@ -213,7 +195,7 @@ async function getExistingVerticesForEdge(edge: graphTypes.GenericEdge, clientDa
     const existingVerticesAggregationResult = await collection.aggregate(aggregationFindExistingVertices, { session }).toArray();
 
     // validate the aggregation result
-    const existingVertices = ExistingVerticesSchema.parse(existingVerticesAggregationResult[0])
+    const existingVertices = validateAggregationSchema(existingVerticesAggregationResult)
 
     // Check if there is exactly one 'from' and one 'to' vertex
     const { fromVertex, toVertex } = checkFromAndToVerticesAreUnique(existingVertices, edge);
@@ -242,31 +224,19 @@ async function getExistingVerticesForEdge(edge: graphTypes.GenericEdge, clientDa
     console.error("unable to getExistingVerticesForEdge: ", error);
     throw error
   }
-}
 
-
-async function find_from_and_to_vertex(vertex_collection: Collection, edge: graphTypes.GenericEdge) {
-  try {
-    const find_unique_vertex = async (vertex_id: string) => {
-      const found_vertex = await vertex_collection.find({ id: vertex_id }).toArray();
-      if (found_vertex.length === 0) {
-        throw new Error(`vertex not found: ${vertex_id}`);
-      }
-      if (found_vertex.length > 1) {
-        throw new Error(`multiple from vertices found: ${vertex_id}`);
-      }
-      return found_vertex[0];
-    };
-
-    const from_vertex = await find_unique_vertex(edge.from as string);
-    const to_vertex = await find_unique_vertex(edge.to as string);
-
-    return { from_vertex, to_vertex };
-  } catch (error) {
-    console.error("unable to find_from_and_to_vertex: ", error);
-    throw error
+  function validateAggregationSchema(existingVerticesAggregationResult: Document[]) {
+    try {
+      return ExistingVerticesSchema.parse(existingVerticesAggregationResult[0]);
+    }
+    catch (error) {
+      console.error("unable to validate aggregation schema: ", error);
+      throw error
+    }
   }
 }
+
+
 
 
 export async function add_stoppoint(client: Db, stoppoint: NetworkTypes.StopPoint, upsert = true) {
@@ -276,19 +246,4 @@ export async function add_stoppoint(client: Db, stoppoint: NetworkTypes.StopPoin
   const options = { upsert: upsert }
   const result = await stoppoint_collection.updateOne(query, update, options)
   return result
-}
-
-async function printCurrentSessions(client: MongoClient) {
-  try {
-    // Use the admin database as the currentOp command usually requires administrative access
-    const db = client.db('admin');
-
-    // Run the currentOp command with $ownOps and sessions filters
-    const result = await db.command({ currentOp: true, $ownOps: true, sessions: [] });
-
-    // Print the result to the console
-    console.log("current sessions", result);
-  } catch (error) {
-    console.error('An error occurred while fetching current sessions:', error);
-  }
 }
