@@ -18,12 +18,13 @@ const mockGetURI = async (username: string,
   // mongoServer = await MongoMemoryServer.create();
   mongoServer = await MongoMemoryReplSet.create({ replSet: { count: 3 } }); // This will create an ReplSet with 3 members
   const uri = mongoServer.getUri()
+
   // check it's running properly
   const con = await MongoClient.connect(uri, {});
   // await while all SECONDARIES will be ready
-  await new Promise((resolve) => setTimeout(resolve, 2000));
+  await mongoServer.waitUntilRunning();
 
-  const db = await con.db('admin');
+  const db = con.db('admin');
   const admin = db.admin();
   const status = await admin.replSetGetStatus();
   const primaries = status.members.filter((m: any) => m.stateStr === 'PRIMARY')

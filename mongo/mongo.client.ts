@@ -34,12 +34,18 @@ export function buildURI(username: string,
 
 
 export async function insertNewEdge(edge: graphTypes.GenericEdge, fromVertex: Document, toVertex: Document, clientDatabase: Db, session: ClientSession) {
-  const newEdge = { ...edge, from: fromVertex._id, to: toVertex._id };
-  const insertedEdge = await clientDatabase.collection('edges').insertOne(newEdge, { session });
-
-  // Check if the insertion was successful
-  if (insertedEdge.acknowledged === false) {
-    throw new Error(`Failed to add edge: ${newEdge}`);
+  try {
+    const newEdge = { ...edge, from: fromVertex._id, to: toVertex._id };
+    const insertedEdge = await clientDatabase.collection('edges').insertOne(newEdge, { session });
+  
+    // Check if the insertion was successful
+    if (insertedEdge.acknowledged === false) {
+      throw new Error(`insertNewEdge couldnt add edge: ${newEdge}`);
+    }
+    return insertedEdge;
+  } catch (error) {
+    console.error("failed to insert new edge", error)
+    throw error
   }
-  return insertedEdge;
+
 }

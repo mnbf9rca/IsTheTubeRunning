@@ -1,7 +1,7 @@
 import * as mongo from '../mongo';
 import { describe, expect, test } from '@jest/globals'
 import { Mock } from 'jest-mock';
-import { MongoClient, Db, Document, Collection, ObjectId, InsertOneResult, ClientSession } from 'mongodb';
+import { MongoClient, Db, Document, Collection, ObjectId, InsertOneResult, OptionalId, InsertOneOptions, ClientSession, CollectionOptions } from 'mongodb';
 const config = require('../../utils/config')
 import { performance } from 'perf_hooks';
 import * as GraphTypes from '../GraphTypes'
@@ -77,6 +77,81 @@ function create_known_graph(): KnownGraph {
 }
 
 
+async function add_and_push_vertex(vertex: Vertex[], vertex_collection: Collection) {
+  try {
+    const new_ids = vertex.map(v => v['id'])
+    const insert_result = await vertex_collection.insertMany(vertex)
+
+    return { new_ids, insert_result }
+  } catch (error) {
+    console.error('unable to add vertex to db', error)
+    throw error
+  }
+}
+async function findVertexById(vertexId: string, collection: Collection) {
+  const vertex = await collection.find({ id: vertexId }).toArray();
+  if (!vertex || vertex.length !== 1) {
+    throw new Error(`Could not find unique vertex with id '${vertexId}'`);
+  }
+  return vertex[0];
+}
+
+async function updateVertexProperty(vertexId: ObjectId, property: string, value: any, collection: Collection, session: ClientSession) {
+  await collection.updateOne(
+    { _id: vertexId },
+    { $push: { [property]: value } },
+    { session }
+  );
+}
+
+async function add_and_push_edge(client: MongoClient, edge: Edge, vertex_collection: Collection, edge_collection: Collection) {
+  const session = client.startSession();
+  try {
+    console.log("starting transaction in add_and_push_edge")
+    session.startTransaction();
+
+    const fromVertex = await findVertexById(edge.from, vertex_collection);
+    const toVertex = await findVertexById(edge.to, vertex_collection);
+
+    const newEdge = { ...edge, from: fromVertex._id, to: toVertex._id };
+    const insertedEdgeResult = await edge_collection.insertOne(newEdge, { session });
+    if (!insertedEdgeResult.acknowledged) {
+      throw new Error('Failed to insert edge.');
+    }
+
+    const edgeObjectId = insertedEdgeResult.insertedId;
+    await updateVertexProperty(fromVertex._id, 'out', edgeObjectId, vertex_collection, session);
+    await updateVertexProperty(toVertex._id, 'in', edgeObjectId, vertex_collection, session);
+
+    await session.commitTransaction();
+    return edgeObjectId;
+
+  } catch (error) {
+    await session.abortTransaction();
+    console.error('Transaction failed:', error);
+    throw error;
+  } finally {
+    console.log('ending session in add_and_push_edge')
+    session.endSession();
+  }
+}
+
+async function printCurrentSessions(client: MongoClient) {
+  try {
+    // Use the admin database as the currentOp command usually requires administrative access
+    const db = client.db('admin');
+
+    // Run the currentOp command with $ownOps and sessions filters
+    const result = await db.command({ currentOp: true, $ownOps: true, sessions: [] });
+
+    // Print the result to the console
+    console.log("current sessions", result);
+  } catch (error) {
+    console.error('An error occurred while fetching current sessions:', error);
+  }
+}
+
+
 describe('test with mocked mongo client', () => {
   describe('test methods to return the db client and db', () => {
     beforeAll(() => {
@@ -87,7 +162,7 @@ describe('test with mocked mongo client', () => {
       expect(mongo.getMongoClient()).resolves.toBeInstanceOf(MongoClient)
     })
     test('getGraphClient returns a connection to the configured database', async () => {
-      
+
       const client = await mongo.getMongoClient()
       expect(mongo.getMongoDbFromClient(client, dbname)).resolves.toBeInstanceOf(Db)
       const clientdb = await mongo.getMongoDbFromClient(client, dbname)
@@ -104,15 +179,15 @@ describe('test with mocked mongo client', () => {
       const mockClient: Partial<Db> = {
         command: jest.fn().mockRejectedValue(new Error('Failed to ping'))
       };
-  
+
       // Call connectGraphClient and expect it to throw the mocked error
       await expect(mongo.verifyDbConnection(mockClient as Db)).rejects.toThrow('Failed to ping');
-  
+
       // Optionally, verify that the command method was called with the correct arguments
       expect(mockClient.command).toHaveBeenCalledWith({ ping: 1 });
     });
   })
-  
+
   describe('test direct graph methods', () => {
     let list_of_added_vertices: String[] = []
     let list_of_added_edges: String[] = []
@@ -158,9 +233,10 @@ describe('test with mocked mongo client', () => {
         const uri = await mongo.getUnderlyingURI()
         // independent connection for our tests
         // incase the underlying connection is closed
+        console.log('test_client will connect to:', uri)
         test_client = new MongoClient(uri)
         // Specify which database we want to use
-        test_db = await mongo.getMongoDbFromClient(test_client, dbname) 
+        test_db = await mongo.getMongoDbFromClient(test_client, dbname)
         // Specify which collection we want to use
         test_vertex_collection = test_db.collection("vertices")
         test_edge_collection = test_db.collection("edges")
@@ -171,75 +247,25 @@ describe('test with mocked mongo client', () => {
       console.debug("Populating a known graph in the DB for testing")
 
       try {
-        console.log(await add_and_push_vertex([known_graph.first, known_graph.second, known_graph.third, known_graph.fourth], test_vertex_collection))
+        const { new_ids, insert_result } = await add_and_push_vertex(
+          [known_graph.first, known_graph.second, known_graph.third, known_graph.fourth],
+          test_vertex_collection)
+        list_of_added_vertices = [...list_of_added_vertices, ...new_ids]
+        console.log(insert_result)
 
-        console.log(await add_and_push_edge(known_graph.edge))
-        console.log(await add_and_push_edge(known_graph.edge_two_three))
-        console.log(await add_and_push_edge(known_graph.edge_three_four))
+        console.log(await add_and_push_edge(test_client, known_graph.edge, test_vertex_collection, test_edge_collection))
+        console.log(await add_and_push_edge(test_client, known_graph.edge_two_three, test_vertex_collection, test_edge_collection))
+        console.log(await add_and_push_edge(test_client, known_graph.edge_three_four, test_vertex_collection, test_edge_collection))
 
       } catch (error) {
         console.error(`ERROR adding known graph ${known_graph} to DB: ${error}`)
         throw error
       }
-
+      console.log("added known graph to DB")
     }, 30000)
-    async function add_and_push_vertex(vertex: Vertex[], vertex_collection: Collection) {
-      try{
-        vertex.map(v => list_of_added_vertices.push(v['id']))
-      
-        return await vertex_collection.insertMany(vertex)
-      } catch (error) {
-        console.error('unable to add vertex to db', error)
-        throw error
-      }
-    }
-    async function findVertexById(vertexId: string, collection: Collection) {
-      const vertex = await collection.find({ id: vertexId }).toArray();
-      if (!vertex || vertex.length !== 1) {
-        throw new Error(`Could not find unique vertex with id '${vertexId}'`);
-      }
-      return vertex[0];
-    }
-    
-    async function updateVertexProperty(vertexId: ObjectId, property: string, value: any, collection: Collection, session: ClientSession) {
-      await collection.updateOne(
-        { _id: vertexId },
-        { $push: { [property]: value } },
-        { session }
-      );
-    }
-    
-    async function add_and_push_edge(edge: Edge) {
-      const session = test_client.startSession();
-      try {
-        session.startTransaction();
-    
-        const fromVertex = await findVertexById(edge.from, test_vertex_collection);
-        const toVertex = await findVertexById(edge.to, test_vertex_collection);
-    
-        const newEdge = { ...edge, from: fromVertex._id, to: toVertex._id };
-        const insertedEdgeResult = await test_edge_collection.insertOne(newEdge, { session });
-        if (!insertedEdgeResult.acknowledged) {
-          throw new Error('Failed to insert edge.');
-        }
-    
-        const edgeObjectId = insertedEdgeResult.insertedId;
-        await updateVertexProperty(fromVertex._id, 'out', edgeObjectId, test_vertex_collection, session);
-        await updateVertexProperty(toVertex._id, 'in', edgeObjectId, test_vertex_collection, session);
-    
-        await session.commitTransaction();
-        return edgeObjectId;
-    
-      } catch (error) {
-        await session.abortTransaction();
-        console.error('Transaction failed:', error);
-        throw error;
-      } finally {
-        session.endSession();
-      }
-    }
-    
-    afterAll(async () => {
+
+
+    /*afterAll(async () => {
       console.debug("Cleaning up after tests")
       // delete the vertices we added
       const vertex_delete_result = await test_vertex_collection.deleteMany({ id: { $in: list_of_added_vertices } })
@@ -254,26 +280,27 @@ describe('test with mocked mongo client', () => {
       }
       // close the connection to the DB
       await mongo_client.close()
-    }, 30000)
+    }, 30000)*/
     describe.skip('Performance profiling for add_edge', () => {
       test('Profile add_edge function', async () => {
         const iterations = 100;
         let totalExecutionTime = 0;
-    
+
         for (let i = 0; i < iterations; i++) {
           const additionalKnownGraph = create_known_graph();
           const testingEdge = additionalKnownGraph.edge;
           list_of_added_edges.push(testingEdge.id);
-          await add_and_push_vertex([additionalKnownGraph.first, additionalKnownGraph.second], test_vertex_collection);
-    
+          const { new_ids, insert_result } = await add_and_push_vertex([additionalKnownGraph.first, additionalKnownGraph.second], test_vertex_collection);
+          list_of_added_vertices = [...list_of_added_vertices, ...new_ids]
+
           const startTime = performance.now();
           await mongo.add_edge(mongo_client, mongo_db, testingEdge);
           const endTime = performance.now();
-    
+
           const executionTime = endTime - startTime;
           totalExecutionTime += executionTime;
         }
-    
+
         const averageExecutionTime = totalExecutionTime / iterations;
         console.log(`Average execution time for add_edge over ${iterations} iterations: ${averageExecutionTime.toFixed(2)} ms`);
       }, 30000 * 100); // Extended timeout for 100 iterations
@@ -289,7 +316,9 @@ describe('test with mocked mongo client', () => {
     test('can add an edge using add_edge', async () => {
       // add two vertices to the DB
       const additional_known_graph = create_known_graph()
-      const added_vertex = await add_and_push_vertex([additional_known_graph.first, additional_known_graph.second], test_vertex_collection)
+      const { new_ids, insert_result: added_vertex } = await add_and_push_vertex([additional_known_graph.first, additional_known_graph.second], test_vertex_collection)
+      list_of_added_vertices = [...list_of_added_vertices, ...new_ids]
+
       const check_vertices_added = await test_vertex_collection.find({ id: { $in: [additional_known_graph.first.id, additional_known_graph.second.id] } }).toArray()
       expect(check_vertices_added.length).toBe(2)
 
@@ -311,42 +340,20 @@ describe('test with mocked mongo client', () => {
         _id: insert_result // new _id from the insert
       }
       // check the insert result using our connection to the DB
-      const query = { id: testing_edge.id }      
+      const query = { id: testing_edge.id }
       const actual_result = await test_edge_collection.find(query).toArray()
       // should only be 1
       expect(actual_result.length).toBe(1)
       // should be the object we inserted
       expect(actual_result[0]).toStrictEqual(expected_result)
     }, 25000)
-    test('should throw an error if the insertion is not acknowledged', async () => {
+    test('should throw an error if the vertices cant be found', async () => {
       const additional_known_graph = create_known_graph();
-      await add_and_push_vertex([additional_known_graph.first, additional_known_graph.second], test_vertex_collection);
-      const check_vertices_added = await test_vertex_collection.find({ id: { $in: [additional_known_graph.first.id, additional_known_graph.second.id] } }).toArray();
-      expect(check_vertices_added.length).toBe(2);
-    
-      // create a mock response
-      const mockInsertOneResult: InsertOneResult<Document> = {
-        acknowledged: false,
-        insertedId: null
-      };
 
-      // mock response is provided by a mock collection
-      let mock_collection = jest.fn(() => { }) as unknown as Collection<Document>
-      mock_collection = {
-        insertOne: jest.fn(() => Promise.resolve(mockInsertOneResult))
-      } as unknown as Collection<Document>;
-
-      // mock collection is provided by a mock DB
-      let mock_mongo_db = jest.fn(() => { }) as unknown as Db
-      mock_mongo_db = {
-        ...mongo_db,
-        collection: mock_collection
-      } as unknown as Db;
-
-      expect(mongo.add_edge(mongo_client, mock_mongo_db, additional_known_graph.edge)).rejects.toThrow('failed to add edge');
+      expect(mongo.add_edge(mongo_client, mongo_db, additional_known_graph.edge)).rejects.toThrow('must be unique and found exactly once: {\"from\":[],\"to\":[],\"fromCount\":0,\"toCount\":0}');
 
 
     });
-    
+
   })
 })
