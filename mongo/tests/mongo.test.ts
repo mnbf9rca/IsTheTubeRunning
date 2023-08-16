@@ -373,7 +373,7 @@ describe('test with mocked mongo client', () => {
         await expect(mongo.getExistingVerticesForEdge(edge, mongo_db, session)).rejects.toThrowError(expected_error);
         //session.endSession();
       })
-      test('should throw if only one vertex exists', async () => {
+      test('should throw if only from vertex exists', async () => {
         const known_graph = create_known_graph();
         const { new_ids, insert_result } = await add_and_push_vertex([known_graph.first], test_vertex_collection);
         list_of_added_vertices = [...list_of_added_vertices, ...new_ids]
@@ -382,6 +382,20 @@ describe('test with mocked mongo client', () => {
           ...known_graph.first
         }
         const expected_find_result = {from: [inserted_vertex], to: [], fromCount: 1, toCount: 0}
+        const edge = known_graph.edge;
+
+        const expected_error = `Vertices referenced by the edge (${edge.from}, ${edge.to}) must be unique and found exactly once: ${JSON.stringify(expected_find_result)}`
+        await expect(mongo.getExistingVerticesForEdge(edge, mongo_db, session)).rejects.toThrowError(expected_error);
+      })
+      test('should throw if only to vertex exists', async () => {
+        const known_graph = create_known_graph();
+        const { new_ids, insert_result } = await add_and_push_vertex([known_graph.second], test_vertex_collection);
+        list_of_added_vertices = [...list_of_added_vertices, ...new_ids]
+        const inserted_vertex = {
+          _id: insert_result.insertedIds[0],
+          ...known_graph.second
+        }
+        const expected_find_result = {from: [], to: [inserted_vertex], fromCount: 0, toCount: 1}
         const edge = known_graph.edge;
 
         const expected_error = `Vertices referenced by the edge (${edge.from}, ${edge.to}) must be unique and found exactly once: ${JSON.stringify(expected_find_result)}`
