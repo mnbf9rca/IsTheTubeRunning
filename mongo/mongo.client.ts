@@ -1,8 +1,8 @@
 
-import { MongoClient, Db, Document, ClientSession, InsertOneResult } from 'mongodb'
+import { MongoClient, Db, Document, ClientSession, InsertOneResult, ObjectId } from 'mongodb'
 import * as config from '../utils/config'
 import * as logger from '../utils/logger'
-import * as graphTypesZod from './GraphTypesZod';
+import * as graphTypesZod from './GraphTypesZodManual';
 import { z } from "zod";
 
 
@@ -33,30 +33,18 @@ export function buildURI(username: string,
   return uri
 }
 
-
-function extractId(document: Document): typeof document._id {
-  if (document._id === undefined) {
-    throw new Error('Document ID is undefined');
-  }
-  return document._id;
-}
-
 /**
  * Inserts a new edge into the database.
  * @param edge The edge object to insert.
- * @param fromVertex The starting vertex document.
- * @param toVertex The ending vertex document.
  * @param clientDatabase The MongoDB database instance.
  * @param session The MongoDB client session.
  * @returns The result of the insert operation.
  * @throws {Error} If the insertion is not acknowledged, ._id property is found, or other errors occur.
  */
 export async function insertNewEdge(
-  edge: z.infer<typeof graphTypesZod.genericEdgeSchema>,
-  fromVertex: Document,
-  toVertex: Document,
+  edge: z.infer<typeof graphTypesZod.edgeWithObjectIdsSchema>,
   clientDatabase: Db,
-  session: ClientSession
+  session?: ClientSession
 ): Promise<InsertOneResult<Document>> {
   try {
     // Check if the edge object contains an ._id property
@@ -64,19 +52,33 @@ export async function insertNewEdge(
       throw new Error("The edge object should not contain an ._id property");
     }
 
-    // create new edge. Will throw an error if the edge object is invalid.
-    const newEdge = {
-      ...graphTypesZod.genericEdgeSchema.parse(edge),
-      from: extractId(fromVertex),
-      to: extractId(toVertex),
-    };
-    
-    const insertedEdge = await clientDatabase.collection('edges').insertOne(newEdge, { session });
-    
-    if (insertedEdge.acknowledged === false) {
-      throw new Error(`insertNewEdge couldn't add edge: ${JSON.stringify(newEdge)}`);
+    // validate the .from and .to are ObectIds 
+    // if they are not, then we will throw an error
+    if (!(edge.from instanceof ObjectId) || !(edge.to instanceof ObjectId)) {
+      throw new Error("The edge object should contain a .from and .to property that are ObjectIds");
     }
     
+    // remove the from and to and validate the rest as valid JSON
+    const {from, to, ...edgeWithoutFromTo } = edge as any;
+    // Parse. Will throw an error if the edge object is invalid or can't be serialised
+    const parsedEdge: any = graphTypesZod.jsonSerializable.parse(edgeWithoutFromTo)
+    const finalEdge = { ...parsedEdge, from, to }
+
+    // by now we know:
+    // - from and to are ObjectIds
+    // - the rest of the edge object is valid JSON
+    // so we can use the object directly
+
+    const insertedEdge = await clientDatabase
+      .collection('edges')
+      .insertOne(
+        finalEdge,
+        { session });
+
+    if (insertedEdge.acknowledged === false) {
+      throw new Error(`insertNewEdge couldn't add edge: ${JSON.stringify(finalEdge)}`);
+    }
+
     return insertedEdge;
   } catch (error) {
     console.error("failed to insert new edge", error);

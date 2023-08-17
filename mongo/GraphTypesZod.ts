@@ -2,9 +2,11 @@
 import { z } from "zod";
 import { Json } from "./GraphTypes";
 
-const literalSchema = z.union([z.string(), z.number(), z.boolean()]).nullable();
+export const literalSchema = z
+  .union([z.string(), z.number(), z.boolean()])
+  .nullable();
 
-const jsonSchema: z.ZodSchema<Json> = z.lazy(() =>
+export const jsonSchema: z.ZodSchema<Json> = z.lazy(() =>
   z.union([literalSchema, z.record(jsonSchema), z.array(jsonSchema)])
 );
 
@@ -19,4 +21,4 @@ export const genericVertexSchema = z
   .object({
     id: z.string(),
   })
-  .and(z.record(z.any()));
+  .and(jsonSchema);

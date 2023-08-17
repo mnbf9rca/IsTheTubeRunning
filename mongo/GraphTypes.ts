@@ -1,3 +1,5 @@
+
+
 /**
  * Represents a literal value, which can be a string, number, boolean, or null.
  * 
@@ -12,13 +14,23 @@ export type Literal = string | number | boolean | null;
  */
 export type Json = Literal | { [key: string]: Json } | Json[];
 
+export const isJsonSerializable = (value: any): value is Json => {
+  try {
+    JSON.stringify(value);
+    return true;
+  } catch {
+    return false;
+  }
+};
+
 /**
- * Represents a generic edge object that includes 'from' and 'to' fields as strings.
+ * Represents a generic edge object that includes 'from' and 'to' fields.
+ * The 'from' and 'to' fields can be either strings (matching the .id property of a vertex) or Documents.
  * The type allows for any additional JSON-compatible properties.
  * 
  * @typedef {object} GenericEdge
- * @property {string} from - The starting point of the edge. Must match the .id property of a vertex.
- * @property {string} to - The ending point of the edge. Must match the .id property of a vertex.
+ * @property {string } from - The starting point of the edge. Must match the ._id property of a vertex.
+ * @property {string } to - The ending point of the edge. Must match the ._id property of a vertex.
  * @property {Json} [key] - Optional additional properties with string keys.
  */
 export type GenericEdge = {
