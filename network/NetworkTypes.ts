@@ -1,11 +1,3 @@
-export interface StopPointClass extends StopPoint {
-  getObject: () => StopPoint;
-  toString: () => string;
-  getLineNames: () => string[];
-  getModeNames: () => string[];
-  [Symbol.toStringTag]: string;
-}
-
 export interface StopPoint {
   type: string;
   id: string;
@@ -13,7 +5,7 @@ export interface StopPoint {
   naptanId: string;
   lat: number | string;
   lon: number | string;
-  modes: String[];
-  lines: String[];
+  modes: string[];
+  lines: string[];
 }
 
