@@ -153,7 +153,7 @@ async function printCurrentSessions(client: MongoClient) {
 }
 
 
-describe('test with mocked mongo client', () => {
+describe('test with mongo-memory-server', () => {
   describe('test methods to return the db client and db', () => {
     beforeAll(() => {
       // check that the db name is defined
@@ -324,13 +324,17 @@ describe('test with mocked mongo client', () => {
       expect(check_vertices_added.length).toBe(2)
 
       // add the edge using the module's connection to the DB
-      const testing_edge = additional_known_graph.edge
+      const testing_edge = additional_known_graph.edge 
       // store for cleanup
       list_of_added_edges.push(testing_edge.id)
 
 
       // add the edge using the module's connection to the DB
-      const insert_result = await mongo.add_edge(mongo_client, mongo_db, testing_edge)
+      const insert_result = await mongo
+        .add_edge(
+          mongo_client,
+          mongo_db,
+          testing_edge)
       expect(insert_result).toBeInstanceOf(ObjectId)
 
       // create the expected result
@@ -358,7 +362,7 @@ describe('test with mocked mongo client', () => {
     describe('test for getExistingVerticesForEdge', () => {
 
       let session: ClientSession
-      beforeEach(() => {  
+      beforeEach(() => {
         session = mongo_client.startSession();
       })
       afterEach(() => {
@@ -382,7 +386,7 @@ describe('test with mocked mongo client', () => {
           _id: insert_result.insertedIds[0],
           ...known_graph.first
         }
-        const expected_find_result = {from: [inserted_vertex], to: [], fromCount: 1, toCount: 0}
+        const expected_find_result = { from: [inserted_vertex], to: [], fromCount: 1, toCount: 0 }
         const edge = known_graph.edge;
 
         const expected_error = `Vertices referenced by the edge (${edge.from}, ${edge.to}) must be unique and found exactly once: ${JSON.stringify(expected_find_result)}`
@@ -396,7 +400,7 @@ describe('test with mocked mongo client', () => {
           _id: insert_result.insertedIds[0],
           ...known_graph.second
         }
-        const expected_find_result = {from: [], to: [inserted_vertex], fromCount: 0, toCount: 1}
+        const expected_find_result = { from: [], to: [inserted_vertex], fromCount: 0, toCount: 1 }
         const edge = known_graph.edge;
 
         const expected_error = `Vertices referenced by the edge (${edge.from}, ${edge.to}) must be unique and found exactly once: ${JSON.stringify(expected_find_result)}`
@@ -412,7 +416,7 @@ describe('test with mocked mongo client', () => {
         }
         const edge = known_graph.edge;
 
-        const expected_find_result = {from: [inserted_vertex], to: [inserted_vertex], fromCount: 1, toCount: 1}
+        const expected_find_result = { from: [inserted_vertex], to: [inserted_vertex], fromCount: 1, toCount: 1 }
         const expected_error = `Invalid vertices referenced by the edge (${edge.from}, ${edge.from}): ${JSON.stringify(expected_find_result)}`
         edge.to = edge.from
         await expect(mongo.getExistingVerticesForEdge(edge, mongo_db, session)).rejects.toThrowError(expected_error);
@@ -434,11 +438,11 @@ describe('test with mocked mongo client', () => {
         const edge = known_graph.edge;
         const actual_result = await mongo.getExistingVerticesForEdge(edge, mongo_db, session)
         expect(actual_result).toStrictEqual(expected_result)
-      } )
+      })
       test.skip('should throw if from vertex exists more than once', async () => {
         // can't run this test - index requires .id to be unique
         const known_graph = create_known_graph();
-        const { new_ids, insert_result } = await add_and_push_vertex([known_graph.first,  known_graph.first, known_graph.second], test_vertex_collection);
+        const { new_ids, insert_result } = await add_and_push_vertex([known_graph.first, known_graph.first, known_graph.second], test_vertex_collection);
         list_of_added_vertices = [...list_of_added_vertices, ...new_ids]
         const inserted_vertices = {
           from: [{
@@ -455,7 +459,7 @@ describe('test with mocked mongo client', () => {
           }
         }
         const edge = known_graph.edge;
-        const expected_find_result = {from: inserted_vertices.from, to: [inserted_vertices.to], fromCount: 2, toCount: 1}
+        const expected_find_result = { from: inserted_vertices.from, to: [inserted_vertices.to], fromCount: 2, toCount: 1 }
         const expected_error = `Vertices referenced by the edge (${edge.from}, ${edge.to}) must be unique and found exactly once: ${JSON.stringify(expected_find_result)}`
         await expect(mongo.getExistingVerticesForEdge(edge, mongo_db, session)).rejects.toThrowError(expected_error);
       })

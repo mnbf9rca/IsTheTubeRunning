@@ -14,14 +14,6 @@ export type Literal = string | number | boolean | null;
  */
 export type Json = Literal | { [key: string]: Json } | Json[];
 
-export const isJsonSerializable = (value: any): value is Json => {
-  try {
-    JSON.stringify(value);
-    return true;
-  } catch {
-    return false;
-  }
-};
 
 /**
  * Represents a generic edge object that includes 'from' and 'to' fields.

@@ -4,7 +4,7 @@ import * as config from '../utils/config'
 import * as logger from '../utils/logger'
 
 
-import * as graphTypesZod from './GraphTypesZod';
+import * as graphTypesZod from './GraphTypesZodManual';
 
 import { z } from 'zod';
 
@@ -96,7 +96,11 @@ export async function verifyDbConnection(db: Db): Promise<void> {
   }
 }
 
-export async function add_edge(client: MongoClient, clientDatabase: Db, edge: z.infer<typeof graphTypesZod.genericEdgeSchema>): Promise<ObjectId> {
+export async function add_edge(
+  client: MongoClient,
+  clientDatabase: Db,
+  edge: z.infer<typeof graphTypesZod.genericEdgeSchema>
+): Promise<ObjectId> {
 
   const session = client.startSession();
 
@@ -110,8 +114,12 @@ export async function add_edge(client: MongoClient, clientDatabase: Db, edge: z.
     // Step 1: Perform aggregation to find the existing vertices
     const { fromVertex, toVertex } = await getExistingVerticesForEdge(edge, clientDatabase, session);
     console.log("discovered fromVertex", fromVertex, "discovered toVertex", toVertex)
+    const resolvedEdge: z.infer<typeof graphTypesZod.edgeWithObjectIdsSchema> = { ...edge as any, from: fromVertex._id, to: toVertex._id }
     // Step 2: Create the new edge
-    const insertedEdge: InsertOneResult<Document> = await mongoclient.insertNewEdge(edge, fromVertex, toVertex, clientDatabase, session);
+    const insertedEdge: InsertOneResult<Document> = await mongoclient
+      .insertNewEdge(resolvedEdge,
+        clientDatabase,
+        session);
     if (!insertedEdge || !insertedEdge.acknowledged) {
       throw new Error(`failed to add edge: ${edge}`);
     }
