@@ -3,7 +3,7 @@
   "version": "1.0.0",
   "description": "",
   "scripts": {
-    "pretest": "npm run gen:tfl",
+    "pretest": "npm run gen:all",
     "gen:tfl": "npx ts-to-zod --config tfl_service",
     "gen:network": "npx ts-to-zod --config network",
     "gen:all": "node scripts/generate-zod-schemas.js",
