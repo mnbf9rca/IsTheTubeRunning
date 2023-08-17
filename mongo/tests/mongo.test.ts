@@ -11,6 +11,7 @@ jest.mock('../mongo.client')
 const dbname = config.graph_database_name
 
 interface Edge extends GraphTypes.GenericEdge {
+  id: string;
   label: string;
   string_property: string;
   number_property: number;
@@ -356,7 +357,7 @@ describe('test with mocked mongo client', () => {
     });
     describe('test for getExistingVerticesForEdge', () => {
 
-      let session
+      let session: ClientSession
       beforeEach(() => {  
         session = mongo_client.startSession();
       })

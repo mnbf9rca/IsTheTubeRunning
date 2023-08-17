@@ -6,6 +6,7 @@
     "pretest": "npm run gen:all",
     "gen:tfl": "npx ts-to-zod --config tfl_service",
     "gen:network": "npx ts-to-zod --config network",
+    "gen:graph": "npx ts-to-zod --config graph",
     "gen:all": "node scripts/generate-zod-schemas.js",
     "start": "func start",
     "test": "NODE_ENV=test jest --verbose --runInBand --coverage --detectOpenHandles --forceExit",

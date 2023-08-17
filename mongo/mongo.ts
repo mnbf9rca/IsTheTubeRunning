@@ -4,7 +4,7 @@ import * as config from '../utils/config'
 import * as logger from '../utils/logger'
 
 
-import * as graphTypes from './GraphTypes';
+import * as graphTypesZod from './GraphTypesZod';
 
 import { z } from 'zod';
 
@@ -96,10 +96,13 @@ export async function verifyDbConnection(db: Db): Promise<void> {
   }
 }
 
-export async function add_edge(client: MongoClient, clientDatabase: Db, edge: graphTypes.GenericEdge): Promise<ObjectId> {
+export async function add_edge(client: MongoClient, clientDatabase: Db, edge: typeof graphTypesZod.genericEdgeSchema): Promise<ObjectId> {
+
   const session = client.startSession();
 
   try {
+    // test edge using zod schema
+    graphTypesZod.genericEdgeSchema.parse(edge);
     // Start the transaction
     session.startTransaction();
 

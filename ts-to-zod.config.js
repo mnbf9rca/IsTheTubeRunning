@@ -13,4 +13,10 @@ module.exports = [
     input: 'network/NetworkTypes.ts',
     output: 'network/NetworkTypesZod.ts'
   },
+  {
+    name: 'graph',
+    input: 'mongo/GraphTypes.ts',
+    output: 'mongo/GraphTypesZod.ts'
+  },
+
 ]
