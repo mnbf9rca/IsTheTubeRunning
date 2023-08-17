@@ -96,9 +96,10 @@ export async function verifyDbConnection(db: Db): Promise<void> {
   }
 }
 
-export async function add_edge(client: MongoClient, clientDatabase: Db, edge: typeof graphTypesZod.genericEdgeSchema): Promise<ObjectId> {
+export async function add_edge(client: MongoClient, clientDatabase: Db, edge: z.infer<typeof graphTypesZod.genericEdgeSchema>): Promise<ObjectId> {
 
   const session = client.startSession();
+
 
   try {
     // test edge using zod schema
@@ -153,37 +154,35 @@ export async function add_edge(client: MongoClient, clientDatabase: Db, edge: ty
 }
 
 
-function checkFromAndToVerticesAreUnique(existingVertices: z.infer<typeof ExistingVerticesSchema>, edge: graphTypes.GenericEdge): { fromVertex: Document; toVertex: Document; } {
+function checkFromAndToVerticesAreUnique(existingVertices: z.infer<typeof ExistingVerticesSchema>, edge: z.infer<typeof graphTypesZod.genericEdgeSchema>): { fromVertex: Document; toVertex: Document; } {
+  const validatedEdge = graphTypesZod.genericEdgeSchema.parse(edge);
   if (existingVertices.fromCount !== 1 || existingVertices.toCount !== 1) {
-    throw new Error(`Vertices referenced by the edge (${edge.from}, ${edge.to}) must be unique and found exactly once: ${JSON.stringify(existingVertices)}`);
+    throw new Error(`Vertices referenced by the edge (${validatedEdge.from}, ${validatedEdge.to}) must be unique and found exactly once: ${JSON.stringify(existingVertices)}`);
   }
 
   const fromVertex = existingVertices.from[0];
   const toVertex = existingVertices.to[0];
 
   if (fromVertex._id === undefined || toVertex._id === undefined || fromVertex._id.equals(toVertex._id)) {
-    throw new Error(`Invalid vertices referenced by the edge (${edge.from}, ${edge.to}): ${JSON.stringify(existingVertices)}`);
+    throw new Error(`Invalid vertices referenced by the edge (${validatedEdge.from}, ${validatedEdge.to}): ${JSON.stringify(existingVertices)}`);
   }
 
   return { fromVertex, toVertex };
 }
 
-export async function getExistingVerticesForEdge(edge: graphTypes.GenericEdge, clientDatabase: Db, session: ClientSession) {
-  /*const check_vertices_added_mongo = await clientDatabase.collection('vertices').find({ id: { $in: [edge.from, edge.to] } }).toArray();
-  console.log('found vertices: ', check_vertices_added_mongo)
-  const check_vertices_added_mongo_with_session = await clientDatabase.collection('vertices').find({ id: { $in: [edge.from, edge.to] } }, { session }).toArray();
-  console.log('found vertices in session: ', check_vertices_added_mongo_with_session)
-  */
+export async function getExistingVerticesForEdge(edge: z.infer<typeof graphTypesZod.genericEdgeSchema>, clientDatabase: Db, session: ClientSession) {
+
   try {
+    const validatedEdge = graphTypesZod.genericEdgeSchema.parse(edge);
 
     const aggregationFindExistingVertices = [
       {
-        $match: { id: { $in: [edge.from, edge.to] } }
+        $match: { id: { $in: [validatedEdge.from, validatedEdge.to] } }
       },
       {
         $facet: {
-          from: [{ $match: { id: edge.from } }],
-          to: [{ $match: { id: edge.to } }]
+          from: [{ $match: { id: validatedEdge.from } }],
+          to: [{ $match: { id: validatedEdge.to } }]
         }
       },
       {
@@ -201,7 +200,7 @@ export async function getExistingVerticesForEdge(edge: graphTypes.GenericEdge, c
     const existingVertices = validateAggregationSchema(existingVerticesAggregationResult)
 
     // Check if there is exactly one 'from' and one 'to' vertex
-    const { fromVertex, toVertex } = checkFromAndToVerticesAreUnique(existingVertices, edge);
+    const { fromVertex, toVertex } = checkFromAndToVerticesAreUnique(existingVertices, validatedEdge);
     return { fromVertex, toVertex };
     /*
     // this should be slower...

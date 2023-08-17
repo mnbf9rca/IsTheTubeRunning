@@ -3,6 +3,8 @@ import { MongoClient, Db, Document, ClientSession, InsertOneResult } from 'mongo
 import * as config from '../utils/config'
 import * as logger from '../utils/logger'
 import * as graphTypesZod from './GraphTypesZod';
+import { z } from "zod";
+
 
 
 const mongo_endpoint = config.mongo_endpoint// "mongodb+srv://<username>:<password>@cluster0.yih6sor.mongodb.net/?retryWrites=true&w=majority"
@@ -50,7 +52,7 @@ function extractId(document: Document): typeof document._id {
  * @throws {Error} If the insertion is not acknowledged, ._id property is found, or other errors occur.
  */
 export async function insertNewEdge(
-  edge: typeof graphTypesZod.genericEdgeSchema,
+  edge: z.infer<typeof graphTypesZod.genericEdgeSchema>,
   fromVertex: Document,
   toVertex: Document,
   clientDatabase: Db,
@@ -62,6 +64,7 @@ export async function insertNewEdge(
       throw new Error("The edge object should not contain an ._id property");
     }
 
+    // create new edge. Will throw an error if the edge object is invalid.
     const newEdge = {
       ...graphTypesZod.genericEdgeSchema.parse(edge),
       from: extractId(fromVertex),
