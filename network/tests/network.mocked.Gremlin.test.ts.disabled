@@ -1,8 +1,8 @@
-const graph = require('../../graph/graphdb')
-jest.mock('../../graph/graphdb.execute')
+// const graph = require('../../graph/graphdb')
+// jest.mock('../../graph/graphdb.execute')
 const validator = require('jsonschema')
 
-
+/*
 const mockdata = require('../../graph/__mocks__/graphdb.execute.responses')
 
 describe.skip('graphdb.execute tests with mocked graph response', () => {
@@ -157,3 +157,4 @@ describe.skip('graphdb.execute tests with mocked graph response', () => {
 
   })
 })
+*/
