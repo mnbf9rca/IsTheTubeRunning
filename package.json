@@ -3,7 +3,8 @@
   "version": "1.0.0",
   "description": "",
   "scripts": {
-    "pretest": "npx ts-to-zod ./tfl_service/TfLResponse_types.ts ./tfl_service/TfLResponse_types_zod.ts",
+    "pretest": "npm run gen:tfl",
+    "gen:tfl": "npx ts-to-zod --config tfl_service",
     "start": "func start",
     "test": "NODE_ENV=test jest --verbose --runInBand --coverage --detectOpenHandles --forceExit",
     "test:ci": "NODE_ENV=test jest --ci --verbose --json --coverage --testLocationInResults --outputFile=report.json --reporters=github-actions --detectOpenHandles --forceExit"
