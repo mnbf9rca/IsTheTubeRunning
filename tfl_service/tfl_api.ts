@@ -11,8 +11,8 @@ import { DataWithTTL, APIResponse, TfLAPIQuery } from './tfl_service_types'
 // importt the ManagedTfL_types types
 // import TfLResponse from '../tfl_service/TfLResponse_types'
 
-// import { TfLResponse.RouteSequenceSchema, TfLResponse.StopPointSequenceSchema, TfLResponse.MatchedStopSchema, TfLResponse.IdentifierSchema, , TfLResponse.StopPointArraySchema } from '../tfl_service/TfLResponse_types_zod'
-import * as TfLResponse from '../tfl_service/TfLResponse_types_zod'
+// import { TfLResponse.RouteSequenceSchema, TfLResponse.StopPointSequenceSchema, TfLResponse.MatchedStopSchema, TfLResponse.IdentifierSchema, , TfLResponse.StopPointArraySchema } from '../tfl_service/TfLResponseTypesZod'
+import * as TfLResponse from '../tfl_service/TfLResponseTypesZod'
 
 
 const query_cache = require('./cache')
