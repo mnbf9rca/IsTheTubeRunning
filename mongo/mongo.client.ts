@@ -1,11 +1,10 @@
 
+import { z } from "zod";
 import { MongoClient, Db, Document, ClientSession, InsertOneResult, ObjectId } from 'mongodb'
 import * as config from '../utils/config'
 import * as logger from '../utils/logger'
-import * as graphTypesZod from './GraphTypesZodManual';
-import { z } from "zod";
-
-
+import * as GraphTypes from './GraphTypesZodManual';
+import { fromZodError } from 'zod-validation-error';
 
 const mongo_endpoint = config.mongo_endpoint// "mongodb+srv://<username>:<password>@cluster0.yih6sor.mongodb.net/?retryWrites=true&w=majority"
 const username = encodeURIComponent(config.mongo_username)
@@ -42,33 +41,27 @@ export function buildURI(username: string,
  * @throws {Error} If the insertion is not acknowledged, ._id property is found, or other errors occur.
  */
 export async function insertNewEdge(
-  edge: z.infer<typeof graphTypesZod.edgeWithObjectIdsSchema>,
+  edge: z.infer<typeof GraphTypes.jsonWithoutFromOrTo>,
+  from: ObjectId,
+  to: ObjectId,
   clientDatabase: Db,
   session?: ClientSession
 ): Promise<InsertOneResult<Document>> {
+
   try {
     // Check if the edge object contains an ._id property
     if (edge.hasOwnProperty('_id')) {
       throw new Error("The edge object should not contain an ._id property");
     }
-
+  
     // validate the .from and .to are ObectIds 
     // if they are not, then we will throw an error
-    if (!(edge.from instanceof ObjectId) || !(edge.to instanceof ObjectId)) {
-      throw new Error("The edge object should contain a .from and .to property that are ObjectIds");
+    if (!(from) || !(from instanceof ObjectId) || !(to) || !(to instanceof ObjectId)) {
+      throw new Error("Must provide from and to that are ObjectIds");
     }
-    
-    // remove the from and to and validate the rest as valid JSON
-    const {from, to, ...edgeWithoutFromTo } = edge as any;
-    // Parse. Will throw an error if the edge object is invalid or can't be serialised
-    const parsedEdge: any = graphTypesZod.jsonSerializable.parse(edgeWithoutFromTo)
+
+    const parsedEdge =  GraphTypes.jsonWithoutFromOrTo.parse(edge)
     const finalEdge = { ...parsedEdge, from, to }
-
-    // by now we know:
-    // - from and to are ObjectIds
-    // - the rest of the edge object is valid JSON
-    // so we can use the object directly
-
     const insertedEdge = await clientDatabase
       .collection('edges')
       .insertOne(
@@ -81,6 +74,9 @@ export async function insertNewEdge(
 
     return insertedEdge;
   } catch (error) {
+    if (error instanceof z.ZodError) {
+      throw fromZodError(error);
+    }
     console.error("failed to insert new edge", error);
     throw error;
   }

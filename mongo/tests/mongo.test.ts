@@ -5,17 +5,33 @@ import { MongoClient, Db, Document, Collection, ObjectId, InsertOneResult, Optio
 const config = require('../../utils/config')
 import { performance } from 'perf_hooks';
 import * as GraphTypes from '../GraphTypes'
+import * as graphTypesZod from '../GraphTypesZodManual';
+import { z } from 'zod';
+import { ValidationError } from 'zod-validation-error';
+
 
 jest.mock('../mongo.client')
 
 const dbname = config.graph_database_name
 
-interface Edge extends GraphTypes.GenericEdge {
+type Edge = {
+  [key: string]: GraphTypes.Json;
+} & {
+  from: string;
+  to: string;
   id: string;
   label: string;
   string_property: string;
   number_property: number;
 }
+
+/*
+interface Edge extends GenericEdgeWithoutFromOrTo {
+  id: string;
+  label: string;
+  string_property: string;
+  number_property: number;
+}*/
 
 interface Vertex {
   id: string
@@ -324,7 +340,7 @@ describe('test with mongo-memory-server', () => {
       expect(check_vertices_added.length).toBe(2)
 
       // add the edge using the module's connection to the DB
-      const testing_edge = additional_known_graph.edge 
+      const testing_edge = additional_known_graph.edge
       // store for cleanup
       list_of_added_edges.push(testing_edge.id)
 
@@ -426,14 +442,8 @@ describe('test with mongo-memory-server', () => {
         const { new_ids, insert_result } = await add_and_push_vertex([known_graph.first, known_graph.second], test_vertex_collection);
         list_of_added_vertices = [...list_of_added_vertices, ...new_ids]
         const expected_result = {
-          fromVertex: {
-            _id: insert_result.insertedIds[0],
-            ...known_graph.first
-          },
-          toVertex: {
-            _id: insert_result.insertedIds[1],
-            ...known_graph.second
-          }
+          fromVertex: insert_result.insertedIds[0],
+          toVertex: insert_result.insertedIds[1]
         }
         const edge = known_graph.edge;
         const actual_result = await mongo.getExistingVerticesForEdge(edge, mongo_db, session)
@@ -463,6 +473,76 @@ describe('test with mongo-memory-server', () => {
         const expected_error = `Vertices referenced by the edge (${edge.from}, ${edge.to}) must be unique and found exactly once: ${JSON.stringify(expected_find_result)}`
         await expect(mongo.getExistingVerticesForEdge(edge, mongo_db, session)).rejects.toThrowError(expected_error);
       })
+    })
+
+  })
+  describe('tests for getMatcherType', () => {
+    test('should return "id" matchers for string type from, to', () => {
+      const edge = create_known_graph().edge;
+      const expected_result = {
+        fromMatcher: { id: edge.from },
+        toMatcher: { id: edge.to }
+      }
+      const actual_result = mongo.getMatcherType(edge)
+      expect(actual_result).toStrictEqual(expected_result)
+    })
+    test('should return "_id" matchers for ObjectId type from, to', () => {
+      const { from, to, ...edgeProperties } = create_known_graph().edge;
+      const edge: z.infer<typeof graphTypesZod.edgeWithObjectIds> = {
+        ...edgeProperties,
+        from: new ObjectId('thisisthefro'),
+        to: new ObjectId('thisisthefro'),
+      }
+      const expected_result = {
+        fromMatcher: { _id: edge.from },
+        toMatcher: { _id: edge.to }
+      }
+      const actual_result = mongo.getMatcherType(edge)
+      expect(actual_result).toStrictEqual(expected_result)
+    })
+    test('should throw if from and to arent same type', () => {
+      const { from, ...edgeProperties } = create_known_graph().edge;
+      const edge: any = {
+        ...edgeProperties,
+        from: new ObjectId('thisisthefro'),
+      };
+
+      expect(() => mongo.getMatcherType(edge as z.infer<typeof graphTypesZod.anyEdge>))
+        .toThrow("Expected 'from' and 'to' to be either strings or ObjectIds");
+    });
+  })
+  describe('tests for mongo.validateAggregationSchema', () => {
+    type ExistingVerticesResult = {
+      from: Document[],
+      to: Document[],
+      fromCount: number,
+      toCount: number
+    }
+    test('should throw if aggregation result is empty', () => {
+      const aggregation_result: Document[] = [];
+      expect(() => mongo.validateAggregationSchema(aggregation_result))
+        .toThrow('Expected exactly one result from aggregation');
+    })
+    test('should throw if aggregation result contains empty document', () => {
+      const aggregation_result: ExistingVerticesResult[] = [{} as unknown as ExistingVerticesResult];
+      expect(() => mongo.validateAggregationSchema(aggregation_result))
+        .toThrow(new ValidationError('Validation error: Required at "from"; Required at "to"; Required at "fromCount"; Required at "toCount"'));
+    })
+
+    test('should throw if aggregation result contains no fromcount', () => {
+      const aggregation_result: ExistingVerticesResult[] = [{ from: [], to: [], toCount: 0 } as unknown as ExistingVerticesResult];
+      expect(() => mongo.validateAggregationSchema(aggregation_result))
+        .toThrow(new ValidationError('Validation error: Required at "fromCount"'));
+    })
+    test('should return when sent a valid object with 0 results', () => {
+      const aggregation_result: ExistingVerticesResult[] = [{ from: [], to: [], fromCount: 0, toCount: 0 }];
+      const actual_result = mongo.validateAggregationSchema(aggregation_result)
+      expect(actual_result).toStrictEqual(aggregation_result[0])
+    })
+    test('should throw if aggregation result contains more than one valid document', () => {
+      const aggregation_result: ExistingVerticesResult[] = [{ from: [], to: [], fromCount: 0, toCount: 0 }, { from: [], to: [], fromCount: 0, toCount: 0 }];
+      expect(() => mongo.validateAggregationSchema(aggregation_result))
+        .toThrow('Expected exactly one result from aggregation');
     })
   })
 })

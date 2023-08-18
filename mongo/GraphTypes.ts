@@ -25,10 +25,18 @@ export type Json = Literal | { [key: string]: Json } | Json[];
  * @property {string } to - The ending point of the edge. Must match the ._id property of a vertex.
  * @property {Json} [key] - Optional additional properties with string keys.
  */
+/*export type GenericEdgeWithoutFromOrTo = {
+  [key: string]: Json;
+} & {
+  from?: never;
+  to?: never;
+};*/
+
+/*
 export type GenericEdge = {
   from: string;
   to: string;
-} & Json;
+} & Json;*/
 
 /**
  * Represents a generic vertex object that includes an 'id' field as a string.

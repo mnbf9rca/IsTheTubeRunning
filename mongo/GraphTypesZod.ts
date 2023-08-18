@@ -10,13 +10,6 @@ export const jsonSchema: z.ZodSchema<Json> = z.lazy(() =>
   z.union([literalSchema, z.record(jsonSchema), z.array(jsonSchema)])
 );
 
-export const genericEdgeSchema = z
-  .object({
-    from: z.string(),
-    to: z.string(),
-  })
-  .and(jsonSchema);
-
 export const genericVertexSchema = z
   .object({
     id: z.string(),

@@ -7,9 +7,9 @@ import * as mongoClient from '../mongo.client';
 import config = require('../../utils/config');
 import * as GraphTypes from '../GraphTypesZodManual';
 import * as z from "zod";
+import { ValidationError } from 'zod-validation-error';
 
-type edgeWithObjectIdsSchemaType = z.infer<typeof GraphTypes.edgeWithObjectIdsSchema>
-
+type jsonWithoutFromOrTo = z.z.infer<typeof GraphTypes.jsonWithoutFromOrTo>
 
 const invalidObjectId = (propertyName: string): z.ZodIssue => {
   return {
@@ -79,40 +79,39 @@ describe('test insertNewEdge', () => {
     const mongo_client = await mongo.getMongoClient();
     const db = await mongo.getMongoDbFromClient(mongo_client, config.graph_database_name);
     const session = mongo_client.startSession()
-    const edge: edgeWithObjectIdsSchemaType = {
-      from: new ObjectId('thisisthefro'),
-      to: new ObjectId('thisistheto!'),
+    const edge: jsonWithoutFromOrTo = {
       _id: "arbitrary id"
     }
+    const from = new ObjectId('thisisthefro')
+    const to = new ObjectId('thisistheto!')
 
-    await expect(mongoClient.insertNewEdge(edge, db, session)).rejects.toThrowError('The edge object should not contain an ._id property')
+    await expect(mongoClient
+      .insertNewEdge(
+        edge as unknown as jsonWithoutFromOrTo,
+        from as unknown as ObjectId,
+        to as unknown as ObjectId,
+        db,
+        session))
+      .rejects
+      .toThrowError('The edge object should not contain an ._id property')
   })
   test('rejects with missing .from property', async () => {
     const mongo_client = await mongo.getMongoClient();
     const db = await mongo.getMongoDbFromClient(mongo_client, config.graph_database_name);
     const session = mongo_client.startSession()
-    const edge = { to: new ObjectId('thisistheto!') }
+    const edge = {}
+    const to = new ObjectId('thisistheto!')
+    const from = undefined
 
-
-    const expected_issue: z.ZodIssue[] = [
-      {
-        code: z.ZodIssueCode.invalid_union,
-        unionErrors: [
-          new z.ZodError([invalidObjectId('to')]),
-          new z.ZodError([missingString('from'), isObjectExpectString('to')])
-        ],
-        path: [],
-        message: 'Invalid input'
-      }
-    ]
-
-    const expected_error = 'The edge object should contain a .from and .to property that are ObjectIds'
+    const expected_error = 'Must provide from and to that are ObjectIds'
     //const expected_error = new z.ZodError(expected_issue)
 
     // coerce type
     await expect(mongoClient
       .insertNewEdge(
-        edge as unknown as z.infer<typeof GraphTypes.edgeWithObjectIdsSchema>,
+        edge as unknown as jsonWithoutFromOrTo,
+        from as unknown as ObjectId,
+        to as unknown as ObjectId,
         db,
         session))
       .rejects
@@ -123,14 +122,18 @@ describe('test insertNewEdge', () => {
     const mongo_client = await mongo.getMongoClient();
     const db = await mongo.getMongoDbFromClient(mongo_client, config.graph_database_name);
     const session = mongo_client.startSession()
-    const edge = { from: new ObjectId('thisisthefro') }
+    const edge = {}
+    const from = new ObjectId('thisisthefro')
+    const to = undefined
 
-    const expected_error = 'The edge object should contain a .from and .to property that are ObjectIds'
+    const expected_error = 'Must provide from and to that are ObjectIds'
 
     // coerce type
     await expect(mongoClient
       .insertNewEdge(
-        edge as unknown as z.infer<typeof GraphTypes.edgeWithObjectIdsSchema>,
+        edge as unknown as jsonWithoutFromOrTo,
+        from as unknown as ObjectId,
+        to as unknown as ObjectId,
         db,
         session))
       .rejects
@@ -142,12 +145,16 @@ describe('test insertNewEdge', () => {
     const db = await mongo.getMongoDbFromClient(mongo_client, config.graph_database_name);
     const session = mongo_client.startSession()
     const edge = {}
+    const from = undefined
+    const to = undefined
 
-    const expected_error = 'The edge object should contain a .from and .to property that are ObjectIds'
+    const expected_error = 'Must provide from and to that are ObjectIds'
     // coerce type
     await expect(mongoClient
       .insertNewEdge(
-        edge as unknown as z.infer<typeof GraphTypes.edgeWithObjectIdsSchema>,
+        edge as unknown as jsonWithoutFromOrTo,
+        from as unknown as ObjectId,
+        to as unknown as ObjectId,
         db,
         session))
       .rejects
@@ -158,88 +165,151 @@ describe('test insertNewEdge', () => {
     const mongo_client = await mongo.getMongoClient();
     const db = await mongo.getMongoDbFromClient(mongo_client, config.graph_database_name);
     const session = mongo_client.startSession()
-    const edge = { from: 'from', to: new ObjectId('thisistheto!') }
-    const expected_error = 'The edge object should contain a .from and .to property that are ObjectIds'
+    const edge = {}
+    const from = 'from'
+    const to = new ObjectId('thisistheto!')
+    const expected_error = 'Must provide from and to that are ObjectIds'
 
     // coerce type
     await expect(mongoClient
       .insertNewEdge(
-        edge as unknown as z.infer<typeof GraphTypes.edgeWithObjectIdsSchema>,
+        edge as unknown as jsonWithoutFromOrTo,
+        from as unknown as ObjectId,
+        to as unknown as ObjectId,
         db,
         session))
       .rejects
-      .toThrowError(expected_error)
+      .toThrow(expected_error)
   })
   test('rejects when to is not instance of ObjectId', async () => {
     const mongo_client = await mongo.getMongoClient();
     const db = await mongo.getMongoDbFromClient(mongo_client, config.graph_database_name);
     const session = mongo_client.startSession()
-    const edge = { to: 'to', from: new ObjectId('thisistheto!') }
-    const expected_error = 'The edge object should contain a .from and .to property that are ObjectIds'
+    const edge = {}
+    const to = 'to'
+    const from = new ObjectId('thisisthefro')
+    const expected_error = 'Must provide from and to that are ObjectIds'
 
+    // coerce type
     // coerce type
     await expect(mongoClient
       .insertNewEdge(
-        edge as unknown as z.infer<typeof GraphTypes.edgeWithObjectIdsSchema>,
+        edge as unknown as jsonWithoutFromOrTo,
+        from as unknown as ObjectId,
+        to as unknown as ObjectId,
         db,
         session))
       .rejects
-      .toThrowError(expected_error)
+      .toThrow(expected_error)
   })
   test('rejects when properties include a function', async () => {
     const mongo_client = await mongo.getMongoClient();
     const db = await mongo.getMongoDbFromClient(mongo_client, config.graph_database_name);
     const session = mongo_client.startSession()
     const edge = {
-      from: new ObjectId('thisisthefro'),
-      to: new ObjectId('thisistheto!'),
       erritem: () => { } // functions are not valid JSON
     }
+    const from = new ObjectId('thisisthefro')
+    const to = new ObjectId('thisistheto!')
 
-    const expected_error = "Invalid JSON value" // somewhere...
+    const expected_error = new ValidationError('Validation error: Invalid JSON value at "erritem"')
+    "Invalid JSON value" // somewhere...
 
     // coerce type
     await expect(mongoClient
       .insertNewEdge(
-        edge as unknown as z.infer<typeof GraphTypes.edgeWithObjectIdsSchema>,
+        edge as unknown as jsonWithoutFromOrTo,
+        from as unknown as ObjectId,
+        to as unknown as ObjectId,
         db,
         session))
       .rejects
-      .toThrowError(expected_error)
+      .toThrow(expected_error)
+  })
+  test('rejects when edge includes from with ObjectID', async () => {
+    const mongo_client = await mongo.getMongoClient();
+    const db = await mongo.getMongoDbFromClient(mongo_client, config.graph_database_name);
+    const session = mongo_client.startSession()
+    const edge = {
+      from: new ObjectId('thisisthefr2') // functions are not valid JSON
+    }
+    const from = new ObjectId('thisisthefro')
+    const to = new ObjectId('thisistheto!')
+
+    const expected_error = new ValidationError('Validation error: Expected never, received object at "from"')
+
+    // coerce type
+    await expect(mongoClient
+      .insertNewEdge(
+        edge as unknown as jsonWithoutFromOrTo,
+        from as unknown as ObjectId,
+        to as unknown as ObjectId,
+        db,
+        session))
+      .rejects
+      .toThrow(expected_error)
+  })
+  test('rejects when edge includes from with string', async () => {
+    const mongo_client = await mongo.getMongoClient();
+    const db = await mongo.getMongoDbFromClient(mongo_client, config.graph_database_name);
+    const session = mongo_client.startSession()
+    const edge = {
+      from: 'someFrom' // functions are not valid JSON
+    }
+    const from = new ObjectId('thisisthefro')
+    const to = new ObjectId('thisistheto!')
+
+    const expected_error = new ValidationError('Validation error: Expected never, received string at "from"')
+
+    // coerce type
+    await expect(mongoClient
+      .insertNewEdge(
+        edge as unknown as jsonWithoutFromOrTo,
+        from as unknown as ObjectId,
+        to as unknown as ObjectId,
+        db,
+        session))
+      .rejects
+      .toThrow(expected_error)
   })
   test('rejects when properties include a nonserializable object', async () => {
     const mongo_client = await mongo.getMongoClient();
     const db = await mongo.getMongoDbFromClient(mongo_client, config.graph_database_name);
     const session = mongo_client.startSession()
     const edge = {
-      from: new ObjectId('thisisthefro'),
-      to: new ObjectId('thisistheto!'),
       erritem: mongo_client
     }
+    const from = new ObjectId('thisisthefro')
+    const to = new ObjectId('thisistheto!')
 
     const expected_error = "Invalid JSON value" // somewhere...
 
     // coerce type
     await expect(mongoClient
       .insertNewEdge(
-        edge as unknown as z.infer<typeof GraphTypes.edgeWithObjectIdsSchema>,
+        edge as unknown as jsonWithoutFromOrTo,
+        from as unknown as ObjectId,
+        to as unknown as ObjectId,
         db,
         session))
       .rejects
-      .toThrowError(expected_error)
+      .toThrow(expected_error)
   })
   test('inserts a valid simple object', async () => {
     const mongo_client = await mongo.getMongoClient();
     const db = await mongo.getMongoDbFromClient(mongo_client, config.graph_database_name);
     const session = mongo_client.startSession()
     const edge = {
-      from: new ObjectId('thisisthefro'),
-      to: new ObjectId('thisistheto!')
+
     }
+    const from = new ObjectId('thisisthefro')
+    const to = new ObjectId('thisistheto!')
 
     const result = await mongoClient
       .insertNewEdge(
-        edge,
+        edge as unknown as jsonWithoutFromOrTo,
+        from as unknown as ObjectId,
+        to as unknown as ObjectId,
         db,
         session)
     expect(result.acknowledged).toBeTruthy()
@@ -251,8 +321,6 @@ describe('test insertNewEdge', () => {
     const db = await mongo.getMongoDbFromClient(mongo_client, config.graph_database_name);
     const session = mongo_client.startSession()
     const edge = {
-      from: new ObjectId('thisisthefro'),
-      to: new ObjectId('thisistheto!'),
       stringProp: 'string',
       numberProp: 1,
       booleanProp: true,
@@ -260,12 +328,16 @@ describe('test insertNewEdge', () => {
       objectProp: { key: 'value' },
       arrayProp: ['value1', 'value2']
     }
+    const from = new ObjectId('thisisthefro')
+    const to = new ObjectId('thisistheto!')
 
     const result = await mongoClient
-      .insertNewEdge(
-        edge,
-        db,
-        session)
+    .insertNewEdge(
+      edge as unknown as jsonWithoutFromOrTo,
+      from as unknown as ObjectId,
+      to as unknown as ObjectId,
+      db,
+      session)
     expect(result.acknowledged).toBeTruthy()
     expect(result.insertedId).toBeDefined()
     expect(result.insertedId).toBeInstanceOf(ObjectId)

@@ -2,6 +2,8 @@
 import { MongoClient, Db, ClientSession, Document, Collection, ObjectId, InsertOneResult, UpdateResult } from 'mongodb';
 import * as config from '../utils/config'
 import * as logger from '../utils/logger'
+import { fromZodError } from 'zod-validation-error';
+
 
 
 import * as graphTypesZod from './GraphTypesZodManual';
@@ -11,11 +13,6 @@ import { z } from 'zod';
 
 import * as mongoclient from './mongo.client';
 import * as NetworkTypes from '../network/NetworkTypes';
-
-// our edges can contain any properties we want that can be expressed in JSON
-
-
-type ExistingVertices = { from: Document[]; to: Document[]; fromCount: number; toCount: number; }
 
 // zod type for a Document
 const mongoDocumentSchema = z.object({
@@ -99,7 +96,7 @@ export async function verifyDbConnection(db: Db): Promise<void> {
 export async function add_edge(
   client: MongoClient,
   clientDatabase: Db,
-  edge: z.infer<typeof graphTypesZod.genericEdgeSchema>
+  edge: z.infer<typeof graphTypesZod.anyEdge>
 ): Promise<ObjectId> {
 
   const session = client.startSession();
@@ -107,17 +104,29 @@ export async function add_edge(
 
   try {
     // test edge using zod schema
-    graphTypesZod.genericEdgeSchema.parse(edge);
+    const validatedEdge = graphTypesZod.anyEdge.parse(edge);
     // Start the transaction
     session.startTransaction();
 
     // Step 1: Perform aggregation to find the existing vertices
-    const { fromVertex, toVertex } = await getExistingVerticesForEdge(edge, clientDatabase, session);
+    const { fromVertex, toVertex } = await getExistingVerticesForEdge(
+      validatedEdge,
+      clientDatabase,
+      session);
+
     console.log("discovered fromVertex", fromVertex, "discovered toVertex", toVertex)
-    const resolvedEdge: z.infer<typeof graphTypesZod.edgeWithObjectIdsSchema> = { ...edge as any, from: fromVertex._id, to: toVertex._id }
+    // remove from and to from the edge prior to sending to insertNewEdge
+    // which requires from and to NOT to be included
+    const { from, to, ...resolvedEdge } = validatedEdge
+    /*   const resolvedEdge: z.infer<typeof graphTypesZod.edgeWithObjectIds> = { ...edge as any,
+          from: fromVertex,
+          to: toVertex}
+   */
     // Step 2: Create the new edge
     const insertedEdge: InsertOneResult<Document> = await mongoclient
       .insertNewEdge(resolvedEdge,
+        fromVertex,
+        toVertex,
         clientDatabase,
         session);
     if (!insertedEdge || !insertedEdge.acknowledged) {
@@ -126,7 +135,7 @@ export async function add_edge(
 
     // Step 3: Update the existing vertices 'from' and 'to'
     const fromUpdate: UpdateResult<Document> = await clientDatabase.collection('vertices').updateOne(
-      { _id: fromVertex._id },
+      { _id: fromVertex },
       {
         $push: { 'out': insertedEdge.insertedId }
       },
@@ -137,7 +146,7 @@ export async function add_edge(
     }
 
     const to_update: UpdateResult<Document> = await clientDatabase.collection('vertices').updateOne(
-      { _id: toVertex._id },
+      { _id: toVertex },
       {
         $push: { 'in': insertedEdge.insertedId }
       },
@@ -162,8 +171,11 @@ export async function add_edge(
 }
 
 
-function checkFromAndToVerticesAreUnique(existingVertices: z.infer<typeof ExistingVerticesSchema>, edge: z.infer<typeof graphTypesZod.genericEdgeSchema>): { fromVertex: Document; toVertex: Document; } {
-  const validatedEdge = graphTypesZod.genericEdgeSchema.parse(edge);
+function checkFromAndToVerticesAreUnique(
+  existingVertices: z.infer<typeof ExistingVerticesSchema>,
+  edge: z.infer<typeof graphTypesZod.anyEdge>
+): { fromVertex: Document; toVertex: Document; } {
+  const validatedEdge = graphTypesZod.anyEdge.parse(edge);
   if (existingVertices.fromCount !== 1 || existingVertices.toCount !== 1) {
     throw new Error(`Vertices referenced by the edge (${validatedEdge.from}, ${validatedEdge.to}) must be unique and found exactly once: ${JSON.stringify(existingVertices)}`);
   }
@@ -178,10 +190,15 @@ function checkFromAndToVerticesAreUnique(existingVertices: z.infer<typeof Existi
   return { fromVertex, toVertex };
 }
 
-export async function getExistingVerticesForEdge(edge: z.infer<typeof graphTypesZod.genericEdgeSchema>, clientDatabase: Db, session: ClientSession) {
+export async function getExistingVerticesForEdge(
+  edge: z.infer<typeof graphTypesZod.anyEdge>,
+  clientDatabase: Db,
+  session: ClientSession)
+  : Promise<{ fromVertex: ObjectId; toVertex: ObjectId; }> {
 
   try {
-    const validatedEdge = graphTypesZod.genericEdgeSchema.parse(edge);
+    const validatedEdge = graphTypesZod.anyEdge.parse(edge);
+    const { fromMatcher, toMatcher } = getMatcherType(validatedEdge);
 
     const aggregationFindExistingVertices = [
       {
@@ -189,8 +206,8 @@ export async function getExistingVerticesForEdge(edge: z.infer<typeof graphTypes
       },
       {
         $facet: {
-          from: [{ $match: { id: validatedEdge.from } }],
-          to: [{ $match: { id: validatedEdge.to } }]
+          from: [{ $match: fromMatcher }],
+          to: [{ $match: toMatcher }]
         }
       },
       {
@@ -209,7 +226,7 @@ export async function getExistingVerticesForEdge(edge: z.infer<typeof graphTypes
 
     // Check if there is exactly one 'from' and one 'to' vertex
     const { fromVertex, toVertex } = checkFromAndToVerticesAreUnique(existingVertices, validatedEdge);
-    return { fromVertex, toVertex };
+    return { fromVertex: fromVertex._id, toVertex: toVertex._id };
     /*
     // this should be slower...
     const from_vertex = await clientDatabase.collection('vertices').find({ id: edge.from }, { session }).toArray();
@@ -235,14 +252,35 @@ export async function getExistingVerticesForEdge(edge: z.infer<typeof graphTypes
     throw error
   }
 
-  function validateAggregationSchema(existingVerticesAggregationResult: Document[]) {
-    try {
-      return ExistingVerticesSchema.parse(existingVerticesAggregationResult[0]);
+
+}
+export function validateAggregationSchema(existingVerticesAggregationResult: Document[]) {
+  if (existingVerticesAggregationResult.length !== 1) {
+    throw new Error(`Expected exactly one result from aggregation: ${JSON.stringify(existingVerticesAggregationResult)}`);
+  }
+  try {
+    return ExistingVerticesSchema.parse(existingVerticesAggregationResult[0]);
+  }
+  catch (error) {
+    if (error instanceof z.ZodError) {
+      throw fromZodError(error);
     }
-    catch (error) {
-      console.error("unable to validate aggregation schema: ", error);
-      throw error
-    }
+    console.error("unable to validate aggregation schema: ", error);
+    throw error
+  }
+}
+
+export function getMatcherType(
+  edge: z.infer<typeof graphTypesZod.anyEdge>
+):
+  | { fromMatcher: { id: string }, toMatcher: { id: string } }
+  | { fromMatcher: { _id: ObjectId }, toMatcher: { _id: ObjectId } } {
+  if (typeof edge.from === 'string' && typeof edge.to === 'string') {
+    return { fromMatcher: { id: edge.from }, toMatcher: { id: edge.to } };
+  } else if (edge.from instanceof ObjectId && edge.to instanceof ObjectId) {
+    return { fromMatcher: { _id: edge.from }, toMatcher: { _id: edge.to } };
+  } else {
+    throw new Error(`Invalid edge: ${JSON.stringify(edge)}. Expected 'from' and 'to' to be either strings or ObjectIds.`);
   }
 }
 

@@ -21,7 +21,8 @@
     "jsonschema": "^1.4.1",
     "mongodb": "^5.7.0",
     "node-cache": "^5.1.2",
-    "zod": "^3.21.4"
+    "zod": "^3.21.4",
+    "zod-validation-error": "^1.4.0"
   },
   "devDependencies": {
     "@babel/core": "^7.20.12",

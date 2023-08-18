@@ -25,21 +25,47 @@ export const jsonSerializable: z.ZodSchema<Json> = z.custom<Json>(
   { message: "Invalid JSON value" }
 );
 
-export const ObjectIdSchema = z.custom<ObjectId>(
+
+export const jsonWithoutFromOrTo = z.
+  record(jsonSerializable)
+  .and(
+    z.object({
+      from: z.never().optional(),
+      to: z.never().optional(),
+    })
+  );
+
+const objectIdSchema = z.custom<ObjectId>(
   (value): value is ObjectId => value instanceof ObjectId,
   { message: 'Invalid ObjectId' }
 );
 
-export const edgeWithObjectIdsSchemaBase = z
-  .object({
-    from: ObjectIdSchema,
-    to: ObjectIdSchema,
-  })
+/*
+// this doesnt work
+export const edgeWithObjectIdsOld = z.object({
+  from: objectIdSchema,
+  to: objectIdSchema,
+}).and(
+  z.record(jsonSerializable)
+);
+*/
 
-export const edgeWithObjectIdsSchema = z
-  .union([
-    edgeWithObjectIdsSchemaBase,
-    GraphTypesZod.genericEdgeSchema
-  ])
+export const edgeWithObjectIds = z.object({
+  from: objectIdSchema,
+  to: objectIdSchema,
+}).catchall(jsonSerializable);
+
+
+
+  export const edgeWithStringss = z
+  .record(jsonSerializable)
+  .and(
+    z.object({
+      from: z.string(),
+      to: z.string(),
+    })
+  );
+
+  export const anyEdge = z.union([edgeWithObjectIds, edgeWithStringss]);
 
 export * from "./GraphTypesZod";
