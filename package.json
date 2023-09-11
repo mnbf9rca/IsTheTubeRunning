@@ -12,7 +12,7 @@
     "@azure/event-hubs": "^5.8.0",
     "axios": "^1.4.0",
     "dotenv": "^16.3.1",
-    "eslint": "^8.40.0",
+    "eslint": "^8.49.0",
     "gremlin": "^3.6.1",
     "jsonschema": "^1.4.1",
     "mongodb": "^5.7.0",
