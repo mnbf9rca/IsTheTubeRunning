@@ -4,14 +4,13 @@ from collections.abc import AsyncGenerator, Generator
 from typing import Any
 
 import pytest
+from app.main import app
 from fastapi.testclient import TestClient
 from httpx import ASGITransport, AsyncClient
 
-from app.main import app
-
 
 @pytest.fixture
-def client() -> Generator[TestClient, None, None]:
+def client() -> Generator[TestClient]:
     """
     Synchronous test client fixture.
 
@@ -23,7 +22,7 @@ def client() -> Generator[TestClient, None, None]:
 
 
 @pytest.fixture
-async def async_client() -> AsyncGenerator[AsyncClient, None]:
+async def async_client() -> AsyncGenerator[AsyncClient]:
     """
     Async test client fixture.
 

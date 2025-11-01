@@ -88,8 +88,6 @@ select = [
     "RUF",    # ruff-specific rules
 ]
 ignore = [
-    "ANN101",  # Missing type annotation for self
-    "ANN102",  # Missing type annotation for cls
     "PLR0913", # Too many arguments
     "B008",    # Do not perform function call in argument defaults (needed for FastAPI Depends)
 ]

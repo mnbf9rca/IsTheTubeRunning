@@ -1,10 +1,9 @@
 """Tests for main API endpoints."""
 
 import pytest
+from app import __version__
 from fastapi.testclient import TestClient
 from httpx import AsyncClient
-
-from app import __version__
 
 
 def test_root_endpoint(client: TestClient) -> None:
