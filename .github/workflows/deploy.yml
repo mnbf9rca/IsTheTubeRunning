@@ -12,6 +12,8 @@ jobs:
   deploy:
     name: Deploy to Azure VM
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     # Uncomment when ready to deploy (Phase 12)
     # environment:
     #   name: production
