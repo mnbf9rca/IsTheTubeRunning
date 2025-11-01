@@ -27,7 +27,12 @@
       "Bash(node -e:*)",
       "Bash(node:*)",
       "Bash(git check-ignore:*)",
-      "Bash(git add:*)"
+      "Bash(git add:*)",
+      "Bash(gh label create:*)",
+      "Bash(gh label list:*)",
+      "mcp__context7__resolve-library-id",
+      "mcp__context7__get-library-docs",
+      "WebFetch(domain:www.npmjs.com)"
     ],
     "deny": [],
     "ask": [
