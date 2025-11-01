@@ -1,0 +1,61 @@
+name: Deploy to Production
+
+# This workflow is a stub for Phase 12 deployment
+# Will be fully implemented when deploying to Azure VM
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:  # Allow manual triggering
+
+jobs:
+  deploy:
+    name: Deploy to Azure VM
+    runs-on: ubuntu-latest
+    # Uncomment when ready to deploy (Phase 12)
+    # environment:
+    #   name: production
+    #   url: https://your-domain.com
+
+    steps:
+      - name: Placeholder - Phase 12
+        run: |
+          echo "Deployment workflow stub - To be implemented in Phase 12"
+          echo ""
+          echo "Planned deployment steps:"
+          echo "1. Build Docker images"
+          echo "2. Push images to GitHub Container Registry"
+          echo "3. SSH to Azure VM"
+          echo "4. Pull latest images"
+          echo "5. Run Alembic migrations"
+          echo "6. Restart services with docker-compose"
+          echo "7. Run health checks"
+          echo "8. Rollback on failure"
+
+      # TODO: Implement in Phase 12
+      # - name: Checkout code
+      #   uses: actions/checkout@v4
+      #
+      # - name: Build Docker images
+      #   run: |
+      #     docker build -t ghcr.io/${{ github.repository }}/backend:latest ./backend
+      #     docker build -t ghcr.io/${{ github.repository }}/frontend:latest ./frontend
+      #
+      # - name: Push to GitHub Container Registry
+      #   run: |
+      #     echo ${{ secrets.GITHUB_TOKEN }} | docker login ghcr.io -u ${{ github.actor }} --password-stdin
+      #     docker push ghcr.io/${{ github.repository }}/backend:latest
+      #     docker push ghcr.io/${{ github.repository }}/frontend:latest
+      #
+      # - name: Deploy to Azure VM
+      #   uses: appleboy/ssh-action@master
+      #   with:
+      #     host: ${{ secrets.AZURE_VM_HOST }}
+      #     username: ${{ secrets.AZURE_VM_USER }}
+      #     key: ${{ secrets.AZURE_VM_SSH_KEY }}
+      #     script: |
+      #       cd /app
+      #       docker-compose pull
+      #       docker-compose run --rm backend alembic upgrade head
+      #       docker-compose up -d --remove-orphans
+      #       docker-compose exec backend curl -f http://localhost:8000/health || exit 1
