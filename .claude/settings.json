@@ -25,7 +25,9 @@
       "Bash(uv pip show:*)",
       "Bash(gh run:*)",
       "Bash(node -e:*)",
-      "Bash(node:*)"
+      "Bash(node:*)",
+      "Bash(git check-ignore:*)",
+      "Bash(git add:*)"
     ],
     "deny": [],
     "ask": [
