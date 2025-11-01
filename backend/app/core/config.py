@@ -24,9 +24,7 @@ class Settings(BaseSettings):
     @classmethod
     def parse_cors(cls, v: str) -> list[str]:
         """Parse comma-separated CORS origins."""
-        if isinstance(v, str):
-            return [origin.strip() for origin in v.split(",")]
-        return v
+        return [origin.strip() for origin in v.split(",")] if isinstance(v, str) else v
 
     # Database Settings
     DATABASE_URL: str = "postgresql+asyncpg://postgres:postgres@localhost:5432/isthetube"
@@ -44,9 +42,7 @@ class Settings(BaseSettings):
     @classmethod
     def parse_auth0_algorithms(cls, v: str) -> list[str]:
         """Parse comma-separated Auth0 algorithms."""
-        if isinstance(v, str):
-            return [algo.strip() for algo in v.split(",")]
-        return v
+        return [algo.strip() for algo in v.split(",")] if isinstance(v, str) else v
 
     # TfL API Settings (for Phase 5)
     TFL_API_KEY: str = ""

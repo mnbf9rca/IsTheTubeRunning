@@ -8,7 +8,7 @@ export default function Home() {
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    async function fetchData() {
+    const fetchData = async () => {
       try {
         const [root, health] = await Promise.all([getRoot(), checkHealth()]);
         setApiInfo(root);
@@ -18,7 +18,7 @@ export default function Home() {
       } finally {
         setLoading(false);
       }
-    }
+    };
 
     fetchData();
   }, []);
