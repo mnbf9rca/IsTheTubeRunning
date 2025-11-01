@@ -22,7 +22,10 @@
       "Bash(gh api:*)",
       "WebFetch(domain:github.com)",
       "Bash(timeout 30 uv run ruff check:*)",
-      "Bash(uv pip show:*)"
+      "Bash(uv pip show:*)",
+      "Bash(gh run:*)",
+      "Bash(node -e:*)",
+      "Bash(node:*)"
     ],
     "deny": [],
     "ask": [
