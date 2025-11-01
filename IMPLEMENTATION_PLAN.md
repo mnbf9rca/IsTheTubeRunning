@@ -33,7 +33,7 @@ Monorepo with FastAPI backend, React frontend, Celery worker for alert processin
 
 ### Frontend
 - **React**: 19
-- **Vite**: ~6.0
+- **Vite**: ~7
 - **shadcn/ui**: Latest (canary for React 19)
 - **Tailwind CSS**: v4
 - **React Router**: Latest
@@ -527,6 +527,8 @@ Once this plan is committed, Phase 1 implementation will begin with:
 8. **shadcn/ui**: Lightweight, customizable, modern Tailwind-based components
 9. **Code-based verification**: Consistent UX for email and SMS
 10. **uv for Python**: Fast, modern package management
+11. **Tailwind CSS v4**: Using latest v4 (not v3). Configuration and syntax differ significantly from v3. Use Context7 or WebFetch tools to get current v4 documentation when needed.
+
 
 ### Future Enhancements (Post-MVP)
 - SMS implementation via Twilio
