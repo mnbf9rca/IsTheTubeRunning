@@ -498,12 +498,12 @@ Once this plan is committed, Phase 1 implementation will begin with:
 ### Completed Phases
 - [x] Planning and Architecture Design
 - [x] Phase 1: Project Foundation (Completed: November 2025)
+- [x] Phase 2: Database Models & Migrations (Completed: November 2025)
 
 ### Current Phase
-- [ ] Phase 2: Database Models & Migrations
+- [ ] Phase 3: Auth0 Integration
 
 ### Upcoming Phases
-- [ ] Phase 3: Auth0 Integration
 - [ ] Phase 4: Contact Verification
 - [ ] Phase 5: TfL Data Integration
 - [ ] Phase 6: Route Management
@@ -528,6 +528,10 @@ Once this plan is committed, Phase 1 implementation will begin with:
 9. **Code-based verification**: Consistent UX for email and SMS
 10. **uv for Python**: Fast, modern package management
 11. **Tailwind CSS v4**: Using latest v4 (not v3). Configuration and syntax differ significantly from v3. Use Context7 or WebFetch tools to get current v4 documentation when needed.
+12. **UUIDs for Primary Keys**: Prevents enumeration attacks, better security for user data (Phase 2)
+13. **Soft Deletes**: Audit trail and data recovery capability via deleted_at timestamp (Phase 2)
+14. **JSON for Route Schedules**: PostgreSQL JSON support for days_of_week arrays (Phase 2)
+15. **Required Config**: DATABASE_URL, REDIS_URL, ALLOWED_ORIGINS must be provided; no misleading defaults (Phase 2)
 
 
 ### Future Enhancements (Post-MVP)

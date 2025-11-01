@@ -18,7 +18,7 @@ class Settings(BaseSettings):
     API_V1_PREFIX: str = "/api/v1"
     PROJECT_NAME: str = "IsTheTubeRunning"
     DEBUG: bool = False
-    ALLOWED_ORIGINS: str = "http://localhost:5173,http://localhost:3000"
+    ALLOWED_ORIGINS: str
 
     @field_validator("ALLOWED_ORIGINS", mode="after")
     @classmethod
@@ -27,15 +27,15 @@ class Settings(BaseSettings):
         return [origin.strip() for origin in v.split(",")] if isinstance(v, str) else v
 
     # Database Settings
-    DATABASE_URL: str = "postgresql+asyncpg://postgres:postgres@localhost:5432/isthetube"
+    DATABASE_URL: str
     DATABASE_ECHO: bool = False
 
     # Redis Settings
-    REDIS_URL: str = "redis://localhost:6379/0"
+    REDIS_URL: str
 
-    # Auth0 Settings (placeholders for Phase 3)
-    AUTH0_DOMAIN: str = ""
-    AUTH0_API_AUDIENCE: str = ""
+    # Auth0 Settings (for Phase 3)
+    AUTH0_DOMAIN: str | None = None
+    AUTH0_API_AUDIENCE: str | None = None
     AUTH0_ALGORITHMS: str = "RS256"
 
     @field_validator("AUTH0_ALGORITHMS", mode="after")
@@ -45,18 +45,18 @@ class Settings(BaseSettings):
         return [algo.strip() for algo in v.split(",")] if isinstance(v, str) else v
 
     # TfL API Settings (for Phase 5)
-    TFL_API_KEY: str = ""
+    TFL_API_KEY: str | None = None
 
     # Email Settings (for Phase 4)
-    SMTP_HOST: str = ""
+    SMTP_HOST: str | None = None
     SMTP_PORT: int = 587
-    SMTP_USER: str = ""
-    SMTP_PASSWORD: str = ""
-    SMTP_FROM_EMAIL: str = ""
+    SMTP_USER: str | None = None
+    SMTP_PASSWORD: str | None = None
+    SMTP_FROM_EMAIL: str | None = None
 
     # Celery Settings (for Phase 8)
-    CELERY_BROKER_URL: str = "redis://localhost:6379/1"
-    CELERY_RESULT_BACKEND: str = "redis://localhost:6379/2"
+    CELERY_BROKER_URL: str
+    CELERY_RESULT_BACKEND: str
 
 
 settings = Settings()
