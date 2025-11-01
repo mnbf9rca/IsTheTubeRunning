@@ -121,6 +121,11 @@ Monorepo with FastAPI backend, React frontend, Celery worker for alert processin
    - AdminUser (user_id, role)
    - Analytics events
 
+6. **Database Security** (Deployment)
+   - App container runs with limited DB user (SELECT, INSERT, UPDATE, DELETE only)
+   - Migrations run separately in CI or init container with elevated privileges
+   - Principle of least privilege - production app cannot ALTER tables or DROP database
+
 ### Phase 3: Auth0 Integration
 **Goal**: Secure authentication with local testing
 
@@ -532,6 +537,7 @@ Once this plan is committed, Phase 1 implementation will begin with:
 13. **Soft Deletes**: Audit trail and data recovery capability via deleted_at timestamp (Phase 2)
 14. **JSON for Route Schedules**: PostgreSQL JSON support for days_of_week arrays (Phase 2)
 15. **Required Config**: DATABASE_URL, REDIS_URL, ALLOWED_ORIGINS must be provided; no misleading defaults (Phase 2)
+16. **DB Credential Separation**: App runs with limited DB permissions; migrations in separate CI/init container with admin access (Phase 2)
 
 
 ### Future Enhancements (Post-MVP)
