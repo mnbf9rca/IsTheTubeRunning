@@ -130,23 +130,31 @@ async def verify_jwt(credentials: HTTPAuthorizationCredentials = Depends(securit
             jwks = await get_jwks(settings.AUTH0_DOMAIN)
 
         # Find matching key
-        rsa_key: dict[str, str] = {}
-        for key in jwks.get("keys", []):
-            if key["kid"] == kid:
-                rsa_key = {
-                    "kty": key["kty"],
-                    "kid": key["kid"],
-                    "use": key["use"],
-                    "n": key["n"],
-                    "e": key["e"],
-                }
-                break
+        matching_key = next((key for key in jwks.get("keys", []) if key.get("kid") == kid), None)
 
-        if not rsa_key:
+        if not matching_key:
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail="Unable to find appropriate signing key",
             )
+
+        # Validate required JWKS fields are present
+        required_fields = ["kty", "kid", "use", "n", "e"]
+        missing_fields = [field for field in required_fields if field not in matching_key]
+        if missing_fields:
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail=f"JWKS key is missing required fields: {', '.join(missing_fields)}",
+            )
+
+        # Extract RSA key components
+        rsa_key = {
+            "kty": matching_key["kty"],
+            "kid": matching_key["kid"],
+            "use": matching_key["use"],
+            "n": matching_key["n"],
+            "e": matching_key["e"],
+        }
 
         # Verify and decode JWT
         issuer = urlunparse(("https", settings.AUTH0_DOMAIN, "/", "", "", ""))

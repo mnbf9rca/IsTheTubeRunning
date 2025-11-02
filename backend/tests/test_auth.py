@@ -13,11 +13,12 @@ from app.models.user import User
 from app.services.auth_service import AuthService
 from fastapi import HTTPException
 from fastapi.security import HTTPAuthorizationCredentials
+from freezegun import freeze_time
 from jose import jwt
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from tests.conftest import make_unique_external_id
-from tests.mock_jwt import MockJWTGenerator
+from tests.helpers.jwt_helpers import MockJWTGenerator
+from tests.helpers.test_data import make_unique_external_id
 
 
 class TestAuthService:
@@ -308,3 +309,39 @@ class TestVerifyJWTEdgeCases:
             assert result2 == mock_jwks
             # Call count should still be 1 (cached)
             assert mock_client_instance.get.call_count == 1
+
+    @pytest.mark.asyncio
+    async def test_get_jwks_cache_expiry(self, reset_jwks_cache: None) -> None:
+        """Test get_jwks fetches fresh JWKS after cache TTL expires."""
+        mock_jwks_1 = {"keys": [{"kid": "cached-key-1"}]}
+        mock_jwks_2 = {"keys": [{"kid": "cached-key-2"}]}
+
+        initial_time = datetime(2025, 1, 1, 12, 0, 0, tzinfo=UTC)
+
+        with patch("app.core.auth.httpx.AsyncClient") as mock_client_cls:
+            mock_response_1 = MagicMock()
+            mock_response_1.json.return_value = mock_jwks_1
+            mock_response_1.raise_for_status.return_value = None
+
+            mock_response_2 = MagicMock()
+            mock_response_2.json.return_value = mock_jwks_2
+            mock_response_2.raise_for_status.return_value = None
+
+            mock_client_instance = AsyncMock()
+            # First call returns mock_jwks_1, second call returns mock_jwks_2
+            mock_client_instance.get = AsyncMock(side_effect=[mock_response_1, mock_response_2])
+            mock_client_cls.return_value.__aenter__.return_value = mock_client_instance
+
+            # First call should fetch from Auth0 at initial time
+            with freeze_time(initial_time):
+                result1 = await get_jwks("test.auth0.com")
+                assert result1 == mock_jwks_1
+                assert mock_client_instance.get.call_count == 1
+
+            # Fast forward 2 hours (beyond TTL) to simulate cache expiry
+            expired_time = initial_time + timedelta(hours=2)
+            with freeze_time(expired_time):
+                # Next call should fetch fresh JWKS after expiry
+                result2 = await get_jwks("test.auth0.com")
+                assert result2 == mock_jwks_2
+                assert mock_client_instance.get.call_count == 2

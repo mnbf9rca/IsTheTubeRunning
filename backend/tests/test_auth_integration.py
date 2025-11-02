@@ -12,8 +12,8 @@ from fastapi.testclient import TestClient
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from tests.conftest import make_unique_external_id
-from tests.mock_jwt import MockJWTGenerator
+from tests.helpers.jwt_helpers import MockJWTGenerator
+from tests.helpers.test_data import make_unique_external_id
 
 
 class TestAuthMeEndpoint:

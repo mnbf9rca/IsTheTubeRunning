@@ -3,6 +3,7 @@
 from uuid import UUID
 
 from sqlalchemy import and_, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.user import User
@@ -58,16 +59,33 @@ class AuthService:
             auth_provider: Authentication provider name (default: 'auth0')
 
         Returns:
-            Newly created User instance
+            Newly created User instance or existing User if already present
 
         Raises:
-            IntegrityError: If user with external_id + auth_provider already exists
+            Exception: If user with external_id + auth_provider already exists and cannot be retrieved
         """
         user = User(external_id=external_id, auth_provider=auth_provider)
         self.db.add(user)
-        await self.db.commit()
-        await self.db.refresh(user)
-        return user
+        try:
+            await self.db.commit()
+            await self.db.refresh(user)
+            return user
+        except IntegrityError:
+            await self.db.rollback()
+            # Race condition: user was created between our check and insert
+            # Try to retrieve the existing user
+            result = await self.db.execute(
+                select(User).where(and_(User.external_id == external_id, User.auth_provider == auth_provider))
+            )
+            existing_user = result.scalar_one_or_none()
+            if existing_user:
+                return existing_user
+            # This should never happen, but handle it gracefully
+            msg = (
+                f"User with external_id={external_id} and auth_provider={auth_provider} "
+                "already exists, but could not be retrieved."
+            )
+            raise Exception(msg) from None
 
     async def get_or_create_user(self, external_id: str, auth_provider: str = "auth0") -> User:
         """

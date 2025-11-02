@@ -5,8 +5,8 @@ from datetime import UTC, datetime, timedelta
 
 from jose import jwt
 
-from tests.conftest import make_unique_external_id
-from tests.mock_jwt import MockJWTGenerator
+from tests.helpers.jwt_helpers import MockJWTGenerator
+from tests.helpers.test_data import make_unique_external_id
 
 
 class TestMockJWTGeneration:
@@ -94,11 +94,7 @@ class TestMockJWTDecoding:
         jwks = MockJWTGenerator.get_mock_jwks()
 
         # Find matching key
-        matching_key = None
-        for key in jwks["keys"]:
-            if key["kid"] == header["kid"]:
-                matching_key = key
-                break
+        matching_key = next((key for key in jwks["keys"] if key["kid"] == header["kid"]), None)
 
         assert matching_key is not None
         assert matching_key["kid"] == MockJWTGenerator.KID

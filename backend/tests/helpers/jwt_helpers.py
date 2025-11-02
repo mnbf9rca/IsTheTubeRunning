@@ -1,4 +1,4 @@
-"""Mock JWT generator for testing."""
+"""JWT helper utilities for testing."""
 
 import base64
 from datetime import UTC, datetime, timedelta
@@ -93,7 +93,7 @@ class MockJWTGenerator:
         now = datetime.now(UTC)
 
         # Build issuer URL using urllib for proper escaping
-        domain = settings.AUTH0_DOMAIN if settings.AUTH0_DOMAIN else "test.auth0.com"
+        domain = settings.AUTH0_DOMAIN or "test.auth0.com"
         issuer = urlunparse(("https", domain, "/", "", "", ""))
 
         payload = {

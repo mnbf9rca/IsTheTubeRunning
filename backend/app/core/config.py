@@ -30,8 +30,10 @@ class Settings(BaseSettings):
 
     @field_validator("ALLOWED_ORIGINS", mode="after")
     @classmethod
-    def parse_cors(cls, v: str) -> list[str]:
-        """Parse comma-separated CORS origins."""
+    def parse_cors(cls, v: str | list[str]) -> list[str]:
+        """Parse comma-separated CORS origins or pass through list."""
+        if isinstance(v, list):
+            return v
         return [origin.strip() for origin in v.split(",")]
 
     # Database Settings
@@ -48,8 +50,10 @@ class Settings(BaseSettings):
 
     @field_validator("AUTH0_ALGORITHMS", mode="after")
     @classmethod
-    def parse_auth0_algorithms(cls, v: str) -> list[str]:
-        """Parse comma-separated Auth0 algorithms."""
+    def parse_auth0_algorithms(cls, v: str | list[str]) -> list[str]:
+        """Parse comma-separated Auth0 algorithms or pass through list."""
+        if isinstance(v, list):
+            return v
         return [algo.strip() for algo in v.split(",")]
 
     # TfL API Settings (for Phase 5)

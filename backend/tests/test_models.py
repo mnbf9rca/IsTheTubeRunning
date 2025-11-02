@@ -27,7 +27,7 @@ from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from tests.conftest import make_unique_email, make_unique_external_id, make_unique_phone
+from tests.helpers.test_data import make_unique_email, make_unique_external_id, make_unique_phone
 
 
 class TestUserModel:

@@ -111,7 +111,9 @@ You can test your Auth0 setup before implementing the frontend:
 4. Use curl to test your API:
 
 ```bash
-curl -H "Authorization: Bearer YOUR_TOKEN_HERE" http://localhost:8000/api/v1/auth/me
+# Store your token in an environment variable for security
+export AUTH0_TEST_TOKEN="your_token_from_auth0_dashboard"
+curl -H "Authorization: Bearer $AUTH0_TEST_TOKEN" http://localhost:8000/api/v1/auth/me
 ```
 
 ### Using Auth0 Authentication API Explorer

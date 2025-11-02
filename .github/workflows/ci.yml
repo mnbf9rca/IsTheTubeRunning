@@ -71,6 +71,8 @@ jobs:
 
       - name: Run tests
         working-directory: backend
+        env:
+          DEBUG: "true"  # Required for self-signed JWT authentication in tests
         run: uv run pytest -v
 
   frontend:
