@@ -1,6 +1,11 @@
 """Pytest configuration and fixtures."""
 
 import os
+
+# Set DEBUG=true for all tests BEFORE any app imports
+# This must be done before app.core.config loads settings
+os.environ["DEBUG"] = "true"
+
 import subprocess
 import uuid
 from collections.abc import AsyncGenerator, Generator
@@ -42,7 +47,7 @@ DB_PASSWORD = "postgres"
 
 
 # Configure pytest-postgresql to use our existing Docker PostgreSQL
-postgresql_noproc = factories.postgresql_noproc(
+postgresql_noproc = factories.postgresql_noproc(  # pyright: ignore[reportUnknownMemberType]
     host=DB_HOST,
     port=DB_PORT,
     user=DB_USER,
