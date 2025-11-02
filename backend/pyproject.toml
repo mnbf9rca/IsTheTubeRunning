@@ -71,10 +71,7 @@ omit = [
 precision = 2
 show_missing = true
 skip_covered = false
-# Set to 88% to account for Auth0 production JWT verification code
-# which is not tested in DEBUG=true mode (uses mock JWTs instead)
-# The untested code is standard Auth0 integration (httpx + JWT verification)
-fail_under = 88.0
+fail_under = 95.0
 exclude_lines = [
     "pragma: no cover",
     "def __repr__",
