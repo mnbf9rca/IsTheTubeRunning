@@ -41,6 +41,7 @@ dev = [
     "cryptography>=46.0.3",
     "types-python-jose>=3.5.0.20250531",
     "freezegun>=1.5.5",
+    "celery-types>=0.23.0",
 ]
 
 [tool.pytest.ini_options]
@@ -152,21 +153,18 @@ follow_imports = "normal"
 plugins = ["pydantic.mypy"]
 
 # Strict mode ONLY for our own code
+# Allow importing partially typed libraries (aiocache, dotenv_vault) without py.typed markers
 [[tool.mypy.overrides]]
 module = "app.*"
 strict = true
 disallow_untyped_calls = true
 disallow_untyped_defs = true
 warn_return_any = true
+disable_error_code = ["import-untyped"]
 
-# Permissive for third-party libraries - use their types if they exist, don't fail if they don't
+# Libraries with partial types - use what's there, don't fail on gaps
 [[tool.mypy.overrides]]
-module = [
-    "celery.*",
-    "dotenv_vault.*",
-    "aiocache.*",
-    "pytest_postgresql.*",
-]
+module = "pytest_postgresql.*"
 disallow_untyped_calls = false
 disallow_untyped_defs = false
 warn_return_any = false

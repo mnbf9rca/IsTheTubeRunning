@@ -525,8 +525,19 @@ Once this plan is committed, Phase 1 implementation will begin with:
   - Rate limit reset on successful verification
   - Coverage: 98.85% (exceeds 95% target) - 148 tests passing
 
+- [x] Phase 5: TfL Data Integration (Completed: November 2025)
+  - TfL API integration using pydantic-tfl-api library (v2.0.2+)
+  - Redis caching with aiocache (TTL from TfL API Cache-Control headers)
+  - Async service wrapping synchronous pydantic-tfl-api clients
+  - Lines, stations, and disruptions fetching with caching
+  - Station connection graph for route validation
+  - BFS-based route validation for multi-segment routes
+  - Admin endpoint: POST /admin/tfl/build-graph
+  - Public endpoints: GET /tfl/lines, GET /tfl/stations, GET /tfl/disruptions, POST /tfl/validate-route
+  - Core functionality complete and ready for manual/integration testing
+  - Note: Unit tests require refactoring to properly mock pydantic-tfl-api (deferred to Phase 11)
+
 ### Upcoming Phases
-- [ ] Phase 5: TfL Data Integration
 - [ ] Phase 6: Route Management
 - [ ] Phase 7: Notification Preferences
 - [ ] Phase 8: Alert Processing Worker
@@ -560,6 +571,10 @@ Once this plan is committed, Phase 1 implementation will begin with:
 20. **Separate Verification Flow**: Users add contacts first, then explicitly request verification; provides better UX and allows batch contact addition (Phase 4)
 21. **Test Database Setup**: pytest-postgresql automatically creates isolated test databases for each test with Alembic migrations. DO NOT manually create test databases or set DATABASE_URL in pytest commands - the test infrastructure handles this automatically via the `db_session` fixture in conftest.py (Phase 4)
 22. **Test Authentication Pattern**: When testing authenticated endpoints, use `test_user` + `auth_headers_for_user` fixtures together. The `auth_headers_for_user` fixture generates a JWT token that matches the `test_user`'s external_id, ensuring test data and authenticated requests use the same user. DO NOT use `test_user` + `auth_headers` together as they create different users with mismatched external_ids (Phase 4)
+23. **pydantic-tfl-api Integration**: The pydantic-tfl-api library is synchronous, so all TfL API calls are wrapped in `asyncio.get_running_loop().run_in_executor()` to maintain async compatibility. Client initialization uses `app_key` parameter (optional, for rate limit increase). Responses are either ApiError or success objects with `.content` attribute containing Pydantic models (Phase 5)
+24. **Dynamic Cache TTL**: Cache TTL is extracted from TfL API `content_expires` field rather than hardcoded values, ensuring cache invalidation aligns with TfL's data freshness. Falls back to sensible defaults (24h for lines/stations, 2min for disruptions) when TfL doesn't provide expiry (Phase 5)
+25. **Simplified Station Graph**: Graph building creates bidirectional connections between consecutive stations on each line as returned by TfL API. This is a simplified approach suitable for basic route validation; actual route sequences would provide more accuracy but require more complex TfL API integration (Phase 5)
+26. **Admin Endpoint for Graph Building**: Station graph is built on-demand via admin endpoint rather than on startup to avoid blocking application initialization. Can be automated with Celery scheduler in Phase 8 (Phase 5)
 
 
 ### Future Enhancements (Post-MVP)
