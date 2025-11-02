@@ -31,14 +31,23 @@ def make_unique_email(domain: str = "example.com") -> str:
 
 def make_unique_phone(country_code: str = "+44") -> str:
     """
-    Generate unique phone number for tests to prevent collisions.
+    Generate unique valid phone number for tests to prevent collisions.
 
     Args:
-        country_code: Phone country code (default: UK)
+        country_code: Phone country code (default: UK +44, also supports US +1)
 
     Returns:
-        Unique phone number
+        Unique valid phone number in E.164 format
     """
-    # Generate a random 10-digit number for UK format
+    if country_code == "+44":
+        # UK mobile format: +447911123XXX
+        # Using a known valid base number and varying last 3 digits
+        random_int = uuid.uuid4().int % 1000  # Get number between 0-999
+        return f"+447911123{random_int:03d}"  # Zero-pad to 3 digits
+    if country_code == "+1":
+        # US format: +1 202-555-1XXX (Washington DC area code)
+        random_int = uuid.uuid4().int % 1000  # Get number between 0-999
+        return f"+12025551{random_int:03d}"  # Zero-pad to 3 digits
+    # Generic: use provided country code + random 10 digits (may not be valid)
     random_digits = str(uuid.uuid4().int)[:10]
     return f"{country_code}{random_digits}"

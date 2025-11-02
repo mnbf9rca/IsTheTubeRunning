@@ -139,6 +139,12 @@ class VerificationCode(BaseModel):
         nullable=False,
         index=True,
     )
+    contact_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        nullable=False,
+        index=True,
+        comment="UUID of the EmailAddress or PhoneNumber being verified",
+    )
     code: Mapped[str] = mapped_column(
         String(6),
         nullable=False,

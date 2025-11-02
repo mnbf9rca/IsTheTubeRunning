@@ -62,6 +62,9 @@ class Settings(BaseSettings):
     SMTP_PASSWORD: str | None = None
     SMTP_FROM_EMAIL: str | None = None
 
+    # SMS Settings (for Phase 4)
+    SMS_LOG_DIR: str | None = None  # Directory for SMS stub logging (optional)
+
     # Celery Settings (for Phase 8)
     CELERY_BROKER_URL: str
     CELERY_RESULT_BACKEND: str

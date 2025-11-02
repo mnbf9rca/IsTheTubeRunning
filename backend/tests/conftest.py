@@ -1,10 +1,12 @@
 """Pytest configuration and fixtures."""
 
 import os
+import tempfile
 
 # Set DEBUG=true for all tests BEFORE any app imports
 # This must be done before app.core.config loads settings
 os.environ["DEBUG"] = "true"
+os.environ["SMS_LOG_DIR"] = tempfile.gettempdir()  # For SMS service tests
 
 import subprocess
 import uuid
@@ -56,6 +58,38 @@ postgresql_noproc = factories.postgresql_noproc(  # pyright: ignore[reportUnknow
 
 # Create a test database for each test
 postgresql = factories.postgresql("postgresql_noproc", dbname="test_db")
+
+
+def pytest_sessionstart(session: pytest.Session) -> None:
+    """
+    Drop leftover test template database before test collection.
+
+    This hook runs before pytest collection, ensuring the template database
+    from interrupted test runs is cleaned up before pytest-postgresql tries
+    to create a new one.
+    """
+    import psycopg  # noqa: PLC0415
+
+    try:
+        conn = psycopg.connect(
+            f"host={DB_HOST} port={DB_PORT} user={DB_USER} password={DB_PASSWORD} dbname=postgres",
+            autocommit=True,
+        )
+        with conn.cursor() as cur:
+            # Unmark as template database (required to drop it)
+            cur.execute("UPDATE pg_database SET datistemplate = false WHERE datname = 'tests_tmpl'")
+            # Terminate any existing connections to the template database
+            cur.execute("""
+                SELECT pg_terminate_backend(pid)
+                FROM pg_stat_activity
+                WHERE datname = 'tests_tmpl' AND pid <> pg_backend_pid()
+            """)
+            # Drop the template database
+            cur.execute("DROP DATABASE IF EXISTS tests_tmpl")
+        conn.close()
+    except Exception:
+        # Silently ignore errors - database might not exist or connection failed
+        pass
 
 
 @pytest.fixture
@@ -229,6 +263,47 @@ async def test_user(db_session: AsyncSession) -> User:
     await db_session.commit()
     await db_session.refresh(user)
     return user
+
+
+@pytest.fixture
+async def another_user(db_session: AsyncSession) -> User:
+    """
+    Second persisted test user for multi-user test scenarios.
+
+    Creates another user in the test database with a unique external_id
+    for testing cross-user interactions.
+
+    Args:
+        db_session: Isolated database session for this test
+
+    Returns:
+        User instance persisted in test database
+    """
+    # Generate unique external_id to prevent collisions
+    unique_external_id = f"auth0|another_user_{uuid.uuid4().hex[:8]}"
+    user = User(external_id=unique_external_id, auth_provider="auth0")
+    db_session.add(user)
+    await db_session.commit()
+    await db_session.refresh(user)
+    return user
+
+
+@pytest.fixture
+def auth_headers_for_user(test_user: User) -> dict[str, str]:
+    """
+    HTTP Authorization headers with Bearer token for the test_user fixture.
+
+    Generates a JWT token that matches the test_user's external_id,
+    ensuring authenticated API requests are associated with the correct user.
+
+    Args:
+        test_user: Test user fixture
+
+    Returns:
+        Dictionary with Authorization header for authenticated requests
+    """
+    token = MockJWTGenerator.generate(auth0_id=test_user.external_id)
+    return {"Authorization": f"Bearer {token}"}
 
 
 @pytest.fixture
