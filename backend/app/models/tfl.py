@@ -81,7 +81,7 @@ class Station(BaseModel):
     lines: Mapped[list[str]] = mapped_column(
         JSON,
         nullable=False,
-        default=list,
+        default=lambda: [],
     )
     last_updated: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
@@ -152,7 +152,4 @@ class StationConnection(BaseModel):
 
     def __repr__(self) -> str:
         """String representation of the station connection."""
-        return (
-            f"<StationConnection(id={self.id}, "
-            f"from={self.from_station_id}, to={self.to_station_id})>"
-        )
+        return f"<StationConnection(id={self.id}, from={self.from_station_id}, to={self.to_station_id})>"

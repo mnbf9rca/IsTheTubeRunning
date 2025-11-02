@@ -50,7 +50,12 @@ class NotificationPreference(BaseModel):
         index=True,
     )
     method: Mapped[NotificationMethod] = mapped_column(
-        Enum(NotificationMethod, name="notification_method", create_constraint=True),
+        Enum(
+            NotificationMethod,
+            name="notification_method",
+            create_constraint=True,
+            values_callable=lambda x: [e.value for e in x],
+        ),
         nullable=False,
     )
     # One of these must be set based on method
@@ -106,11 +111,21 @@ class NotificationLog(BaseModel):
         index=True,  # For time-based queries
     )
     method: Mapped[NotificationMethod] = mapped_column(
-        Enum(NotificationMethod, name="notification_method", create_constraint=True),
+        Enum(
+            NotificationMethod,
+            name="notification_method",
+            create_constraint=True,
+            values_callable=lambda x: [e.value for e in x],
+        ),
         nullable=False,
     )
     status: Mapped[NotificationStatus] = mapped_column(
-        Enum(NotificationStatus, name="notification_status", create_constraint=True),
+        Enum(
+            NotificationStatus,
+            name="notification_status",
+            create_constraint=True,
+            values_callable=lambda x: [e.value for e in x],
+        ),
         nullable=False,
     )
     error_message: Mapped[str | None] = mapped_column(

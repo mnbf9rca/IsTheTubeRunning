@@ -65,7 +65,7 @@ def upgrade() -> None:
         sa.Column("user_id", sa.UUID(), nullable=False),
         sa.Column(
             "role",
-            sa.Enum("ADMIN", "SUPERADMIN", name="admin_role", create_constraint=True),
+            sa.Enum("admin", "superadmin", name="admin_role", create_constraint=True),
             nullable=False,
         ),
         sa.Column("granted_at", sa.DateTime(timezone=True), nullable=False),
@@ -93,9 +93,7 @@ def upgrade() -> None:
         sa.PrimaryKeyConstraint("id"),
         sa.UniqueConstraint("email"),
     )
-    op.create_index(
-        op.f("ix_email_addresses_user_id"), "email_addresses", ["user_id"], unique=False
-    )
+    op.create_index(op.f("ix_email_addresses_user_id"), "email_addresses", ["user_id"], unique=False)
     op.create_index(
         "ix_email_addresses_user_id_primary",
         "email_addresses",
@@ -117,9 +115,7 @@ def upgrade() -> None:
         sa.UniqueConstraint("phone"),
     )
     op.create_index(op.f("ix_phone_numbers_user_id"), "phone_numbers", ["user_id"], unique=False)
-    op.create_index(
-        "ix_phone_numbers_user_id_primary", "phone_numbers", ["user_id", "is_primary"], unique=False
-    )
+    op.create_index("ix_phone_numbers_user_id_primary", "phone_numbers", ["user_id", "is_primary"], unique=False)
     op.create_table(
         "routes",
         sa.Column("user_id", sa.UUID(), nullable=False),
@@ -147,9 +143,7 @@ def upgrade() -> None:
         sa.ForeignKeyConstraint(["line_id"], ["lines.id"], ondelete="CASCADE"),
         sa.ForeignKeyConstraint(["to_station_id"], ["stations.id"], ondelete="CASCADE"),
         sa.PrimaryKeyConstraint("id"),
-        sa.UniqueConstraint(
-            "from_station_id", "to_station_id", "line_id", name="uq_station_connection"
-        ),
+        sa.UniqueConstraint("from_station_id", "to_station_id", "line_id", name="uq_station_connection"),
     )
     op.create_index(
         "ix_station_connections_from_station",
@@ -158,16 +152,14 @@ def upgrade() -> None:
         unique=False,
     )
     op.create_index("ix_station_connections_line", "station_connections", ["line_id"], unique=False)
-    op.create_index(
-        "ix_station_connections_to_station", "station_connections", ["to_station_id"], unique=False
-    )
+    op.create_index("ix_station_connections_to_station", "station_connections", ["to_station_id"], unique=False)
     op.create_table(
         "verification_codes",
         sa.Column("user_id", sa.UUID(), nullable=False),
         sa.Column("code", sa.String(length=6), nullable=False),
         sa.Column(
             "type",
-            sa.Enum("EMAIL", "SMS", name="verification_type", create_constraint=True),
+            sa.Enum("email", "sms", name="verification_type", create_constraint=True),
             nullable=False,
         ),
         sa.Column("expires_at", sa.DateTime(timezone=True), nullable=False),
@@ -185,9 +177,7 @@ def upgrade() -> None:
         ["user_id", "code", "type"],
         unique=False,
     )
-    op.create_index(
-        op.f("ix_verification_codes_user_id"), "verification_codes", ["user_id"], unique=False
-    )
+    op.create_index(op.f("ix_verification_codes_user_id"), "verification_codes", ["user_id"], unique=False)
     op.create_table(
         "notification_logs",
         sa.Column("user_id", sa.UUID(), nullable=False),
@@ -195,14 +185,12 @@ def upgrade() -> None:
         sa.Column("sent_at", sa.DateTime(timezone=True), nullable=False),
         sa.Column(
             "method",
-            sa.Enum("EMAIL", "SMS", name="notification_method", create_constraint=True),
+            sa.Enum("email", "sms", name="notification_method", create_constraint=True),
             nullable=False,
         ),
         sa.Column(
             "status",
-            sa.Enum(
-                "SENT", "FAILED", "PENDING", name="notification_status", create_constraint=True
-            ),
+            sa.Enum("sent", "failed", "pending", name="notification_status", create_constraint=True),
             nullable=False,
         ),
         sa.Column("error_message", sa.Text(), nullable=True),
@@ -214,30 +202,22 @@ def upgrade() -> None:
         sa.ForeignKeyConstraint(["user_id"], ["users.id"], ondelete="CASCADE"),
         sa.PrimaryKeyConstraint("id"),
     )
-    op.create_index(
-        op.f("ix_notification_logs_route_id"), "notification_logs", ["route_id"], unique=False
-    )
+    op.create_index(op.f("ix_notification_logs_route_id"), "notification_logs", ["route_id"], unique=False)
     op.create_index(
         "ix_notification_logs_route_sent",
         "notification_logs",
         ["route_id", "sent_at"],
         unique=False,
     )
-    op.create_index(
-        op.f("ix_notification_logs_sent_at"), "notification_logs", ["sent_at"], unique=False
-    )
-    op.create_index(
-        op.f("ix_notification_logs_user_id"), "notification_logs", ["user_id"], unique=False
-    )
-    op.create_index(
-        "ix_notification_logs_user_sent", "notification_logs", ["user_id", "sent_at"], unique=False
-    )
+    op.create_index(op.f("ix_notification_logs_sent_at"), "notification_logs", ["sent_at"], unique=False)
+    op.create_index(op.f("ix_notification_logs_user_id"), "notification_logs", ["user_id"], unique=False)
+    op.create_index("ix_notification_logs_user_sent", "notification_logs", ["user_id", "sent_at"], unique=False)
     op.create_table(
         "notification_preferences",
         sa.Column("route_id", sa.UUID(), nullable=False),
         sa.Column(
             "method",
-            sa.Enum("EMAIL", "SMS", name="notification_method", create_constraint=True),
+            sa.Enum("email", "sms", name="notification_method", create_constraint=True),
             nullable=False,
         ),
         sa.Column("target_email_id", sa.UUID(), nullable=True),
@@ -255,9 +235,7 @@ def upgrade() -> None:
         sa.ForeignKeyConstraint(["target_phone_id"], ["phone_numbers.id"], ondelete="CASCADE"),
         sa.PrimaryKeyConstraint("id"),
     )
-    op.create_index(
-        "ix_notification_preferences_route", "notification_preferences", ["route_id"], unique=False
-    )
+    op.create_index("ix_notification_preferences_route", "notification_preferences", ["route_id"], unique=False)
     op.create_index(
         op.f("ix_notification_preferences_route_id"),
         "notification_preferences",
@@ -277,9 +255,7 @@ def upgrade() -> None:
         sa.ForeignKeyConstraint(["route_id"], ["routes.id"], ondelete="CASCADE"),
         sa.PrimaryKeyConstraint("id"),
     )
-    op.create_index(
-        op.f("ix_route_schedules_route_id"), "route_schedules", ["route_id"], unique=False
-    )
+    op.create_index(op.f("ix_route_schedules_route_id"), "route_schedules", ["route_id"], unique=False)
     op.create_table(
         "route_segments",
         sa.Column("route_id", sa.UUID(), nullable=False),
@@ -296,12 +272,8 @@ def upgrade() -> None:
         sa.PrimaryKeyConstraint("id"),
         sa.UniqueConstraint("route_id", "sequence", name="uq_route_segment_sequence"),
     )
-    op.create_index(
-        op.f("ix_route_segments_route_id"), "route_segments", ["route_id"], unique=False
-    )
-    op.create_index(
-        "ix_route_segments_route_sequence", "route_segments", ["route_id", "sequence"], unique=False
-    )
+    op.create_index(op.f("ix_route_segments_route_id"), "route_segments", ["route_id"], unique=False)
+    op.create_index("ix_route_segments_route_sequence", "route_segments", ["route_id", "sequence"], unique=False)
     # ### end Alembic commands ###
 
 
@@ -313,9 +285,7 @@ def downgrade() -> None:
     op.drop_table("route_segments")
     op.drop_index(op.f("ix_route_schedules_route_id"), table_name="route_schedules")
     op.drop_table("route_schedules")
-    op.drop_index(
-        op.f("ix_notification_preferences_route_id"), table_name="notification_preferences"
-    )
+    op.drop_index(op.f("ix_notification_preferences_route_id"), table_name="notification_preferences")
     op.drop_index("ix_notification_preferences_route", table_name="notification_preferences")
     op.drop_table("notification_preferences")
     op.drop_index("ix_notification_logs_user_sent", table_name="notification_logs")

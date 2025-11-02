@@ -34,8 +34,8 @@ class TestGetDb:
         async for session in get_db():
             session_yielded = True
             session_instance = session
-            assert isinstance(session, AsyncSession)
-            assert session.is_active  # Session is active when yielded
+            assert isinstance(session_instance, AsyncSession)
+            assert session_instance.is_active  # Session is active when yielded
             break
 
         assert session_yielded
