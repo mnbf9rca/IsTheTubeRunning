@@ -83,8 +83,7 @@ async def db_session(postgresql: Any) -> AsyncGenerator[AsyncSession]:  # noqa: 
     """
     # Build async connection string from postgresql info (with password)
     db_url = (
-        f"postgresql+asyncpg://postgres:postgres@"
-        f"{postgresql.info.host}:{postgresql.info.port}/{postgresql.info.dbname}"
+        f"postgresql+asyncpg://postgres:postgres@{postgresql.info.host}:{postgresql.info.port}/{postgresql.info.dbname}"
     )
 
     # Run Alembic migrations (convert asyncpg to psycopg2 for sync migrations)
