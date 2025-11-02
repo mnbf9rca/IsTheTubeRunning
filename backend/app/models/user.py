@@ -137,7 +137,12 @@ class VerificationCode(BaseModel):
         nullable=False,
     )
     type: Mapped[VerificationType] = mapped_column(
-        Enum(VerificationType, name="verification_type", create_constraint=True),
+        Enum(
+            VerificationType,
+            name="verification_type",
+            create_constraint=True,
+            values_callable=lambda x: [e.value for e in x],
+        ),
         nullable=False,
     )
     expires_at: Mapped[datetime] = mapped_column(

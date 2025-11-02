@@ -23,6 +23,7 @@ from app.models import (
     VerificationType,
 )
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 
@@ -99,6 +100,42 @@ class TestUserModel:
         assert len(saved_user.phone_numbers) == 1
         assert saved_user.phone_numbers[0].phone == "+447700900000"
         assert not saved_user.phone_numbers[0].verified
+
+    @pytest.mark.asyncio
+    async def test_duplicate_email_raises_error(self, db_session: AsyncSession) -> None:
+        """Test that duplicate emails raise integrity error."""
+        user1 = User(auth0_id="auth0|user1")
+        user2 = User(auth0_id="auth0|user2")
+        email1 = EmailAddress(user=user1, email="duplicate@example.com", verified=True, is_primary=True)
+
+        db_session.add(user1)
+        db_session.add(email1)
+        await db_session.commit()
+
+        email2 = EmailAddress(user=user2, email="duplicate@example.com", verified=True, is_primary=True)
+        db_session.add(user2)
+        db_session.add(email2)
+
+        with pytest.raises(IntegrityError):
+            await db_session.commit()
+
+    @pytest.mark.asyncio
+    async def test_duplicate_phone_raises_error(self, db_session: AsyncSession) -> None:
+        """Test that duplicate phone numbers raise integrity error."""
+        user1 = User(auth0_id="auth0|user1")
+        user2 = User(auth0_id="auth0|user2")
+        phone1 = PhoneNumber(user=user1, phone="+447700900000", verified=True, is_primary=True)
+
+        db_session.add(user1)
+        db_session.add(phone1)
+        await db_session.commit()
+
+        phone2 = PhoneNumber(user=user2, phone="+447700900000", verified=True, is_primary=True)
+        db_session.add(user2)
+        db_session.add(phone2)
+
+        with pytest.raises(IntegrityError):
+            await db_session.commit()
 
 
 class TestVerificationCode:
@@ -242,6 +279,92 @@ class TestTfLModels:
         assert saved_connection.to_station_id == station2.id
         assert saved_connection.line_id == line.id
 
+    @pytest.mark.asyncio
+    async def test_duplicate_station_tfl_id_raises_error(self, db_session: AsyncSession) -> None:
+        """Test that duplicate station tfl_id raises integrity error."""
+        station1 = Station(
+            tfl_id="940GZZLUVXL",
+            name="Vauxhall",
+            latitude=51.486,
+            longitude=-0.125,
+            lines=["victoria"],
+            last_updated=datetime.now(UTC),
+        )
+        db_session.add(station1)
+        await db_session.commit()
+
+        station2 = Station(
+            tfl_id="940GZZLUVXL",
+            name="Duplicate Station",
+            latitude=51.5,
+            longitude=-0.1,
+            lines=["northern"],
+            last_updated=datetime.now(UTC),
+        )
+        db_session.add(station2)
+
+        with pytest.raises(IntegrityError):
+            await db_session.commit()
+
+    @pytest.mark.asyncio
+    async def test_duplicate_line_tfl_id_raises_error(self, db_session: AsyncSession) -> None:
+        """Test that duplicate line tfl_id raises integrity error."""
+        line1 = Line(
+            tfl_id="victoria",
+            name="Victoria Line",
+            color="#0019A8",
+            last_updated=datetime.now(UTC),
+        )
+        db_session.add(line1)
+        await db_session.commit()
+
+        line2 = Line(
+            tfl_id="victoria",
+            name="Duplicate Line",
+            color="#000000",
+            last_updated=datetime.now(UTC),
+        )
+        db_session.add(line2)
+
+        with pytest.raises(IntegrityError):
+            await db_session.commit()
+
+    @pytest.mark.asyncio
+    async def test_duplicate_station_connection_raises_error(self, db_session: AsyncSession) -> None:
+        """Test that duplicate station connections raise integrity error."""
+        line = Line(
+            tfl_id="victoria",
+            name="Victoria Line",
+            color="#0019A8",
+            last_updated=datetime.now(UTC),
+        )
+        station1 = Station(
+            tfl_id="940GZZLUVXL",
+            name="Vauxhall",
+            latitude=51.486,
+            longitude=-0.125,
+            lines=["victoria"],
+            last_updated=datetime.now(UTC),
+        )
+        station2 = Station(
+            tfl_id="940GZZLUPCO",
+            name="Pimlico",
+            latitude=51.489,
+            longitude=-0.133,
+            lines=["victoria"],
+            last_updated=datetime.now(UTC),
+        )
+
+        connection1 = StationConnection(from_station=station1, to_station=station2, line=line)
+        db_session.add_all([line, station1, station2, connection1])
+        await db_session.commit()
+
+        connection2 = StationConnection(from_station=station1, to_station=station2, line=line)
+        db_session.add(connection2)
+
+        with pytest.raises(IntegrityError):
+            await db_session.commit()
+
 
 class TestRouteModels:
     """Tests for route models."""
@@ -308,14 +431,51 @@ class TestRouteModels:
         db_session.add_all([user, route, schedule])
         await db_session.commit()
 
-        result = await db_session.execute(
-            select(RouteSchedule).where(RouteSchedule.route_id == route.id)
-        )
+        result = await db_session.execute(select(RouteSchedule).where(RouteSchedule.route_id == route.id))
         saved_schedule = result.scalar_one()
 
         assert saved_schedule.days_of_week == ["MON", "TUE", "WED", "THU", "FRI"]
         assert saved_schedule.start_time == time(8, 0)
         assert saved_schedule.end_time == time(9, 30)
+
+    @pytest.mark.asyncio
+    async def test_duplicate_route_segment_sequence_raises_error(self, db_session: AsyncSession) -> None:
+        """Test that duplicate route segment sequence numbers raise integrity error."""
+        user = User(auth0_id="auth0|segment_test")
+        line = Line(
+            tfl_id="victoria",
+            name="Victoria Line",
+            color="#0019A8",
+            last_updated=datetime.now(UTC),
+        )
+        station1 = Station(
+            tfl_id="940GZZLUVXL",
+            name="Vauxhall",
+            latitude=51.486,
+            longitude=-0.125,
+            lines=["victoria"],
+            last_updated=datetime.now(UTC),
+        )
+        station2 = Station(
+            tfl_id="940GZZLUPCO",
+            name="Pimlico",
+            latitude=51.489,
+            longitude=-0.133,
+            lines=["victoria"],
+            last_updated=datetime.now(UTC),
+        )
+
+        db_session.add_all([user, line, station1, station2])
+        await db_session.flush()
+
+        route = Route(user=user, name="Test Route", active=True)
+        segment1 = RouteSegment(route=route, sequence=0, station_id=station1.id, line_id=line.id)
+        segment2 = RouteSegment(route=route, sequence=0, station_id=station2.id, line_id=line.id)
+
+        db_session.add_all([route, segment1, segment2])
+
+        with pytest.raises(IntegrityError):
+            await db_session.commit()
 
 
 class TestNotificationModels:
@@ -331,9 +491,7 @@ class TestNotificationModels:
         db_session.add_all([user, email, route])
         await db_session.flush()  # Flush to get IDs
 
-        preference = NotificationPreference(
-            route=route, method=NotificationMethod.EMAIL, target_email_id=email.id
-        )
+        preference = NotificationPreference(route=route, method=NotificationMethod.EMAIL, target_email_id=email.id)
 
         db_session.add(preference)
         await db_session.commit()
@@ -363,14 +521,35 @@ class TestNotificationModels:
         db_session.add_all([user, route, log])
         await db_session.commit()
 
-        result = await db_session.execute(
-            select(NotificationLog).where(NotificationLog.user_id == user.id)
-        )
+        result = await db_session.execute(select(NotificationLog).where(NotificationLog.user_id == user.id))
         saved_log = result.scalar_one()
 
         assert saved_log.method == NotificationMethod.EMAIL
         assert saved_log.status == NotificationStatus.SENT
         assert saved_log.error_message is None
+
+    @pytest.mark.asyncio
+    async def test_notification_preference_with_both_targets_raises_error(self, db_session: AsyncSession) -> None:
+        """Test that NotificationPreference with both target_email_id and target_phone_id raises error."""
+        user = User(auth0_id="auth0|both_targets")
+        email = EmailAddress(user=user, email="test@example.com", verified=True, is_primary=True)
+        phone = PhoneNumber(user=user, phone="+447700900000", verified=True, is_primary=True)
+        route = Route(user=user, name="Test Route", active=True)
+
+        db_session.add_all([user, email, phone, route])
+        await db_session.flush()
+
+        preference = NotificationPreference(
+            route=route,
+            method=NotificationMethod.EMAIL,
+            target_email_id=email.id,
+            target_phone_id=phone.id,
+        )
+
+        db_session.add(preference)
+
+        with pytest.raises(IntegrityError):
+            await db_session.commit()
 
 
 class TestAdminModel:
@@ -397,3 +576,28 @@ class TestAdminModel:
 
         assert saved_admin.role == AdminRole.ADMIN
         assert saved_admin.granted_at is not None
+
+    @pytest.mark.asyncio
+    async def test_duplicate_admin_user_raises_error(self, db_session: AsyncSession) -> None:
+        """Test that duplicate admin users raise integrity error."""
+        user = User(auth0_id="auth0|dup_admin")
+        db_session.add(user)
+        await db_session.flush()
+
+        admin1 = AdminUser(
+            user_id=user.id,
+            role=AdminRole.ADMIN,
+            granted_at=datetime.now(UTC),
+        )
+        db_session.add(admin1)
+        await db_session.commit()
+
+        admin2 = AdminUser(
+            user_id=user.id,
+            role=AdminRole.SUPERADMIN,
+            granted_at=datetime.now(UTC),
+        )
+        db_session.add(admin2)
+
+        with pytest.raises(IntegrityError):
+            await db_session.commit()

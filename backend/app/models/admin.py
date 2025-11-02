@@ -31,7 +31,12 @@ class AdminUser(BaseModel):
         index=True,
     )
     role: Mapped[AdminRole] = mapped_column(
-        Enum(AdminRole, name="admin_role", create_constraint=True),
+        Enum(
+            AdminRole,
+            name="admin_role",
+            create_constraint=True,
+            values_callable=lambda x: [e.value for e in x],
+        ),
         nullable=False,
         default=AdminRole.ADMIN,
     )
