@@ -6,7 +6,9 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import httpx
 import pytest
+from app.core import auth
 from app.core.auth import get_current_user, get_jwks, verify_jwt
+from app.core.config import settings
 from app.models.user import User
 from app.services.auth_service import AuthService
 from fastapi import HTTPException
@@ -145,6 +147,44 @@ class TestMockJWTGenerator:
         assert isinstance(payload["iat"], int)
         assert isinstance(payload["exp"], int)
         assert payload["exp"] > payload["iat"]
+
+
+class TestSetMockJWKS:
+    """Tests for set_mock_jwks function."""
+
+    def test_set_mock_jwks_raises_when_not_in_debug_mode(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Test that set_mock_jwks raises RuntimeError when DEBUG=False."""
+        # Temporarily set DEBUG to False
+        monkeypatch.setattr(settings, "DEBUG", False)
+
+        # Should raise RuntimeError
+        with pytest.raises(RuntimeError, match="can only be called in DEBUG mode"):
+            auth.set_mock_jwks({"keys": []})
+
+    @pytest.mark.asyncio
+    async def test_verify_jwt_raises_when_mock_jwks_not_configured(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Test that verify_jwt raises HTTPException when DEBUG=True but mock JWKS not set."""
+        # Save current state
+        original_mock_jwks = auth._mock_jwks
+
+        try:
+            # Set DEBUG to True and clear mock JWKS
+            monkeypatch.setattr(settings, "DEBUG", True)
+            auth._mock_jwks = None
+
+            # Generate a token (this will work because _ensure_keys creates keys)
+            token = MockJWTGenerator.generate(auth0_id=make_unique_external_id())
+            credentials = HTTPAuthorizationCredentials(scheme="Bearer", credentials=token)
+
+            # Should raise HTTPException about mock JWKS not configured
+            with pytest.raises(HTTPException) as exc_info:
+                await verify_jwt(credentials)
+
+            assert exc_info.value.status_code == 500
+            assert "mock jwks not configured" in exc_info.value.detail.lower()
+        finally:
+            # Restore original state
+            auth._mock_jwks = original_mock_jwks
 
 
 class TestVerifyJWTEdgeCases:
