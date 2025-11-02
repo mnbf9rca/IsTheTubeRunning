@@ -1,10 +1,12 @@
 """Pytest configuration and fixtures."""
 
 import os
+import tempfile
 
 # Set DEBUG=true for all tests BEFORE any app imports
 # This must be done before app.core.config loads settings
 os.environ["DEBUG"] = "true"
+os.environ["SMS_LOG_DIR"] = tempfile.gettempdir()  # For SMS service tests
 
 import subprocess
 import uuid
@@ -88,40 +90,6 @@ def pytest_sessionstart(session: pytest.Session) -> None:
     except Exception:
         # Silently ignore errors - database might not exist or connection failed
         pass
-
-
-def pytest_sessionfinish(session: pytest.Session, exitstatus: int) -> None:
-    """
-    Drop test template database after all tests complete (only on normal exit).
-
-    This hook runs after all tests finish. It only cleans up the template database
-    on successful or failed test runs, not on interrupts (KeyboardInterrupt, etc.),
-    to prevent leaving orphaned template databases.
-    """
-    import psycopg  # noqa: PLC0415
-
-    # Only cleanup on normal exit (success or test failures), not on interrupts
-    if exitstatus in (0, 1):  # 0 = success, 1 = test failures
-        try:
-            conn = psycopg.connect(
-                f"host={DB_HOST} port={DB_PORT} user={DB_USER} password={DB_PASSWORD} dbname=postgres",
-                autocommit=True,
-            )
-            with conn.cursor() as cur:
-                # Unmark as template database (required to drop it)
-                cur.execute("UPDATE pg_database SET datistemplate = false WHERE datname = 'tests_tmpl'")
-                # Terminate any existing connections to the template database
-                cur.execute("""
-                    SELECT pg_terminate_backend(pid)
-                    FROM pg_stat_activity
-                    WHERE datname = 'tests_tmpl' AND pid <> pg_backend_pid()
-                """)
-                # Drop the template database
-                cur.execute("DROP DATABASE IF EXISTS tests_tmpl")
-            conn.close()
-        except Exception:
-            # Silently ignore errors
-            pass
 
 
 @pytest.fixture
