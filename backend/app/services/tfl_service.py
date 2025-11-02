@@ -5,13 +5,14 @@ import re
 import uuid
 from collections import deque
 from datetime import UTC, datetime
+from typing import Any
 
 import structlog
 from aiocache import Cache
 from aiocache.serializers import PickleSerializer
 from fastapi import HTTPException, status
 from pydantic_tfl_api import LineClient, StopPointClient
-from pydantic_tfl_api.core import ApiError
+from pydantic_tfl_api.core import ApiError, ResponseModel
 from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -67,22 +68,34 @@ class TfLService:
         match = re.search(r"redis://[^:]+:(\d+)", settings.REDIS_URL)
         return int(match.group(1)) if match else 6379
 
-    def _extract_cache_ttl(self, response: object) -> int:
+    def _extract_cache_ttl(self, response: ResponseModel[Any]) -> int:
         """
         Extract cache TTL from TfL API response.
+
+        Uses shared_expires (s-maxage) for shared caches like Redis, falling back to
+        content_expires (max-age) if shared_expires is not available.
 
         Args:
             response: TfL API response object
 
         Returns:
-            TTL in seconds from content_expires, or 0 if not available
+            TTL in seconds from shared_expires/content_expires, or 0 if not available
         """
-        if hasattr(response, "content_expires") and response.content_expires:
-            # Calculate TTL from expiry time
-            ttl = int((response.content_expires - datetime.now(UTC)).total_seconds())
+        # Prefer shared_expires (s-maxage) for shared caches like Redis
+        expires = None
+        if hasattr(response, "shared_expires") and response.shared_expires:
+            expires = response.shared_expires
+            logger.debug("extracted_cache_ttl", source="shared_expires")
+        elif hasattr(response, "content_expires") and response.content_expires:
+            expires = response.content_expires
+            logger.debug("extracted_cache_ttl", source="content_expires")
+
+        if expires:
+            ttl = int((expires - datetime.now(UTC)).total_seconds())
             if ttl > 0:
-                logger.debug("extracted_cache_ttl", ttl=ttl, source="tfl_api")
+                logger.debug("cache_ttl_calculated", ttl=ttl)
                 return ttl
+
         return 0  # Return 0 to indicate no TTL found
 
     async def fetch_lines(self, use_cache: bool = True) -> list[Line]:
