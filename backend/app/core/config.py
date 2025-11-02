@@ -5,7 +5,8 @@ from dotenv_vault import load_dotenv
 # Load environment variables FIRST - before any other imports or config
 # Local: loads .env file
 # CI/Production: loads from .env.vault using DOTENV_KEY environment variable
-load_dotenv()
+# override=False ensures existing environment variables take precedence (important for tests)
+load_dotenv(override=False)
 
 from pydantic import field_validator  # noqa: E402
 from pydantic_settings import BaseSettings, SettingsConfigDict  # noqa: E402
