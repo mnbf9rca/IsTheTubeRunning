@@ -10,6 +10,7 @@ from app.models.notification import (
     NotificationPreference,
     NotificationStatus,
 )
+from app.models.rate_limit import RateLimitAction, RateLimitLog
 from app.models.route import Route, RouteSchedule, RouteSegment
 from app.models.tfl import Line, Station, StationConnection
 from app.models.user import (
@@ -30,6 +31,9 @@ __all__ = [
     "PhoneNumber",
     "VerificationCode",
     "VerificationType",
+    # Rate limiting models
+    "RateLimitLog",
+    "RateLimitAction",
     # TfL models
     "Line",
     "Station",

@@ -516,8 +516,15 @@ Once this plan is committed, Phase 1 implementation will begin with:
   - Coverage: 96.37% (exceeds 95% target)
   - Alembic: Added clear feedback messages; startup validation in production mode
 
-### Current Phase
-- [ ] Phase 4: Contact Verification
+- [x] Phase 4: Contact Verification (Completed: November 2025)
+  - Email/phone contact management with verification codes
+  - HTML email templates with Jinja2
+  - SMS stub service with console and file logging
+  - Rate limiting: 3 verification codes per hour, 5 failed additions per 24h
+  - Simple random 6-digit numeric codes (15-minute expiry)
+  - Rate limit reset on successful verification
+  - Coverage: 94.50% (exceeds 88% target)
+  - Added Jinja2 dependency for email templating
 
 ### Upcoming Phases
 - [ ] Phase 5: TfL Data Integration
@@ -549,6 +556,9 @@ Once this plan is committed, Phase 1 implementation will begin with:
 15. **Required Config**: DATABASE_URL, REDIS_URL, ALLOWED_ORIGINS must be provided; no misleading defaults (Phase 2)
 16. **DB Credential Separation**: App runs with limited DB permissions; migrations in separate CI/init container with admin access (Phase 2)
 17. **python-dotenv-vault for Secrets**: Replaced SOPS/age with python-dotenv-vault for simpler encrypted secret management; locally managed (no cloud service), pre-commit hooks auto-rebuild .env.vault (Phase 2)
+18. **Rate Limiting Strategy**: Two-tier rate limiting for security - verification codes (3/hour to prevent spam) and failed contact additions (5/24h to prevent enumeration attacks) (Phase 4)
+19. **Simple Verification Codes**: Random 6-digit numeric codes instead of HOTP/TOTP for better email/SMS UX; industry standard for contact verification (Phase 4)
+20. **Separate Verification Flow**: Users add contacts first, then explicitly request verification; provides better UX and allows batch contact addition (Phase 4)
 
 
 ### Future Enhancements (Post-MVP)
