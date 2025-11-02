@@ -8,8 +8,7 @@ from typing import Any, Protocol
 from urllib.parse import quote_plus, urlunparse
 
 import pytest
-from app.core import auth
-from app.core.auth import set_mock_jwks
+from app.core.auth import clear_jwks_cache, set_mock_jwks
 from app.core.utils import convert_async_db_url_to_sync
 from app.main import app
 from app.models.user import User
@@ -168,12 +167,10 @@ def reset_jwks_cache() -> Generator[None]:
         None
     """
     # Reset cache before test
-    auth._jwks_cache = None
-    auth._jwks_cache_time = None
+    clear_jwks_cache()
     yield
     # Reset cache after test
-    auth._jwks_cache = None
-    auth._jwks_cache_time = None
+    clear_jwks_cache()
 
 
 @pytest.fixture

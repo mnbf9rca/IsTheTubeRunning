@@ -32,9 +32,7 @@ class Settings(BaseSettings):
     @classmethod
     def parse_cors(cls, v: str | list[str]) -> list[str]:
         """Parse comma-separated CORS origins or pass through list."""
-        if isinstance(v, list):
-            return v
-        return [origin.strip() for origin in v.split(",")]
+        return v if isinstance(v, list) else [origin.strip() for origin in v.split(",")]
 
     # Database Settings
     DATABASE_URL: str
@@ -52,9 +50,7 @@ class Settings(BaseSettings):
     @classmethod
     def parse_auth0_algorithms(cls, v: str | list[str]) -> list[str]:
         """Parse comma-separated Auth0 algorithms or pass through list."""
-        if isinstance(v, list):
-            return v
-        return [algo.strip() for algo in v.split(",")]
+        return v if isinstance(v, list) else [algo.strip() for algo in v.split(",")]
 
     # TfL API Settings (for Phase 5)
     TFL_API_KEY: str | None = None

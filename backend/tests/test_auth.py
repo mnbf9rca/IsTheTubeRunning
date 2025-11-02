@@ -79,8 +79,8 @@ class TestAuthService:
         auth_service = AuthService(mock_db)
         external_id = "auth0|edge_case_user"
 
-        # Should raise Exception because user can't be retrieved after IntegrityError
-        with pytest.raises(Exception, match="already exists, but could not be retrieved"):
+        # Should raise RuntimeError because user can't be retrieved after IntegrityError
+        with pytest.raises(RuntimeError, match="already exists, but could not be retrieved"):
             await auth_service.create_user(external_id=external_id, auth_provider="auth0")
 
         # Verify rollback was called

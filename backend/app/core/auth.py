@@ -49,6 +49,17 @@ _jwks_cache_time: datetime | None = None
 _jwks_cache_ttl = timedelta(hours=1)
 
 
+def clear_jwks_cache() -> None:
+    """
+    Clear the JWKS cache.
+
+    This is primarily used in tests to reset cache state between test runs.
+    """
+    global _jwks_cache, _jwks_cache_time  # noqa: PLW0603
+    _jwks_cache = None
+    _jwks_cache_time = None
+
+
 async def get_jwks(domain: str) -> dict[str, Any]:
     """
     Fetch JWKS (JSON Web Key Set) from Auth0.
@@ -140,8 +151,7 @@ async def verify_jwt(credentials: HTTPAuthorizationCredentials = Depends(securit
 
         # Validate required JWKS fields are present
         required_fields = ["kty", "kid", "use", "n", "e"]
-        missing_fields = [field for field in required_fields if field not in matching_key]
-        if missing_fields:
+        if missing_fields := [field for field in required_fields if field not in matching_key]:
             raise HTTPException(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
                 detail=f"JWKS key is missing required fields: {', '.join(missing_fields)}",

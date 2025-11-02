@@ -79,9 +79,8 @@ class AuthService:
             result = await self.db.execute(
                 select(User).where(and_(User.external_id == external_id, User.auth_provider == auth_provider))
             )
-            existing_user = result.scalar_one_or_none()
 
-            if existing_user:
+            if existing_user := result.scalar_one_or_none():
                 return existing_user
 
             # This should never happen - integrity error implies user exists
@@ -89,7 +88,7 @@ class AuthService:
                 f"User with external_id={external_id} and auth_provider={auth_provider} "
                 "already exists, but could not be retrieved."
             )
-            raise Exception(msg) from None
+            raise RuntimeError(msg) from None
 
     async def get_or_create_user(self, external_id: str, auth_provider: str = "auth0") -> User:
         """

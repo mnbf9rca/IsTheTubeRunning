@@ -3,12 +3,14 @@
 import base64
 import json
 from collections.abc import AsyncGenerator
+from datetime import timedelta
 
 import pytest
 from app.core.database import get_db
 from app.main import app
 from app.models.user import User
 from fastapi.testclient import TestClient
+from freezegun import freeze_time
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -36,6 +38,36 @@ class TestAuthMeEndpoint:
 
             assert response.status_code == 401
             assert "detail" in response.json()
+
+    def test_get_me_with_malformed_authorization_header(self) -> None:
+        """Test /auth/me returns 403 with malformed Authorization header."""
+        with TestClient(app) as client:
+            # Missing 'Bearer' prefix
+            headers = {"Authorization": "NotBearerToken"}
+            response = client.get("/api/v1/auth/me", headers=headers)
+            assert response.status_code == 403
+            assert "detail" in response.json()
+
+    def test_get_me_with_expired_token(self) -> None:
+        """Test /auth/me returns 401 with expired JWT token."""
+        # Create an expired token using freezegun
+        external_id = make_unique_external_id("auth0|expired_test")
+
+        # Generate token in the past
+        with freeze_time("2024-01-01 12:00:00"):
+            # Token with 1 hour expiration
+            expired_token = MockJWTGenerator.generate(auth0_id=external_id, expires_in=timedelta(hours=1))
+
+        # Now we're "in the future" (current time), token should be expired
+        headers = {"Authorization": f"Bearer {expired_token}"}
+
+        with TestClient(app) as client:
+            response = client.get("/api/v1/auth/me", headers=headers)
+            assert response.status_code == 401
+            assert "detail" in response.json()
+            # Should mention expiration or invalid credentials
+            detail_lower = response.json()["detail"].lower()
+            assert "invalid" in detail_lower or "expired" in detail_lower
 
     def test_get_me_with_token_missing_kid(self) -> None:
         """Test /auth/me returns 401 when token missing kid in header."""
