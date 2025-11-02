@@ -39,18 +39,14 @@ def _check_alembic_migrations(sync_conn: Connection) -> str | None:
     context = migration.MigrationContext.configure(sync_conn)
     current_rev = context.get_current_revision()
 
-    # Find alembic.ini - could be in current dir or parent (backend)
-    alembic_ini = None
-    if Path("alembic.ini").exists():
-        alembic_ini = "alembic.ini"
-    elif Path("backend/alembic.ini").exists():
-        alembic_ini = "backend/alembic.ini"
-    else:
-        logger.warning("alembic.ini not found - skipping migration validation")
+    # Check if alembic.ini exists at configured path
+    alembic_ini_path = Path(settings.ALEMBIC_INI_PATH)
+    if not alembic_ini_path.exists():
+        logger.warning(f"alembic.ini not found at {settings.ALEMBIC_INI_PATH} - skipping migration validation")
         return current_rev
 
     # Get expected HEAD revision from migration files
-    alembic_cfg = Config(alembic_ini)
+    alembic_cfg = Config(str(alembic_ini_path))
     script_dir = script.ScriptDirectory.from_config(alembic_cfg)
     head_rev = script_dir.get_current_head()
 
@@ -92,8 +88,14 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
             current_rev = await conn.run_sync(_check_alembic_migrations)
             logger.info(f"✓ Database at correct revision: {current_rev}")
 
+    except RuntimeError as e:
+        logger.error(f"✗ Migration validation failed: {e}")
+        raise
+    except OSError as e:
+        logger.error(f"✗ File system error during startup: {e}")
+        raise
     except Exception as e:
-        logger.error(f"✗ Startup validation failed: {e}")
+        logger.error(f"✗ Database connection or startup failed: {e}")
         raise
 
     logger.info("✓ Application startup complete")
