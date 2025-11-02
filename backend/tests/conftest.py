@@ -58,6 +58,72 @@ postgresql_noproc = factories.postgresql_noproc(  # pyright: ignore[reportUnknow
 postgresql = factories.postgresql("postgresql_noproc", dbname="test_db")
 
 
+def pytest_sessionstart(session: pytest.Session) -> None:
+    """
+    Drop leftover test template database before test collection.
+
+    This hook runs before pytest collection, ensuring the template database
+    from interrupted test runs is cleaned up before pytest-postgresql tries
+    to create a new one.
+    """
+    import psycopg  # noqa: PLC0415
+
+    try:
+        conn = psycopg.connect(
+            f"host={DB_HOST} port={DB_PORT} user={DB_USER} password={DB_PASSWORD} dbname=postgres",
+            autocommit=True,
+        )
+        with conn.cursor() as cur:
+            # Unmark as template database (required to drop it)
+            cur.execute("UPDATE pg_database SET datistemplate = false WHERE datname = 'tests_tmpl'")
+            # Terminate any existing connections to the template database
+            cur.execute("""
+                SELECT pg_terminate_backend(pid)
+                FROM pg_stat_activity
+                WHERE datname = 'tests_tmpl' AND pid <> pg_backend_pid()
+            """)
+            # Drop the template database
+            cur.execute("DROP DATABASE IF EXISTS tests_tmpl")
+        conn.close()
+    except Exception:
+        # Silently ignore errors - database might not exist or connection failed
+        pass
+
+
+def pytest_sessionfinish(session: pytest.Session, exitstatus: int) -> None:
+    """
+    Drop test template database after all tests complete (only on normal exit).
+
+    This hook runs after all tests finish. It only cleans up the template database
+    on successful or failed test runs, not on interrupts (KeyboardInterrupt, etc.),
+    to prevent leaving orphaned template databases.
+    """
+    import psycopg  # noqa: PLC0415
+
+    # Only cleanup on normal exit (success or test failures), not on interrupts
+    if exitstatus in (0, 1):  # 0 = success, 1 = test failures
+        try:
+            conn = psycopg.connect(
+                f"host={DB_HOST} port={DB_PORT} user={DB_USER} password={DB_PASSWORD} dbname=postgres",
+                autocommit=True,
+            )
+            with conn.cursor() as cur:
+                # Unmark as template database (required to drop it)
+                cur.execute("UPDATE pg_database SET datistemplate = false WHERE datname = 'tests_tmpl'")
+                # Terminate any existing connections to the template database
+                cur.execute("""
+                    SELECT pg_terminate_backend(pid)
+                    FROM pg_stat_activity
+                    WHERE datname = 'tests_tmpl' AND pid <> pg_backend_pid()
+                """)
+                # Drop the template database
+                cur.execute("DROP DATABASE IF EXISTS tests_tmpl")
+            conn.close()
+        except Exception:
+            # Silently ignore errors
+            pass
+
+
 @pytest.fixture
 def client() -> Generator[TestClient]:
     """
@@ -224,6 +290,29 @@ async def test_user(db_session: AsyncSession) -> User:
     """
     # Generate unique external_id to prevent collisions across tests
     unique_external_id = f"auth0|test_user_{uuid.uuid4().hex[:8]}"
+    user = User(external_id=unique_external_id, auth_provider="auth0")
+    db_session.add(user)
+    await db_session.commit()
+    await db_session.refresh(user)
+    return user
+
+
+@pytest.fixture
+async def another_user(db_session: AsyncSession) -> User:
+    """
+    Second persisted test user for multi-user test scenarios.
+
+    Creates another user in the test database with a unique external_id
+    for testing cross-user interactions.
+
+    Args:
+        db_session: Isolated database session for this test
+
+    Returns:
+        User instance persisted in test database
+    """
+    # Generate unique external_id to prevent collisions
+    unique_external_id = f"auth0|another_user_{uuid.uuid4().hex[:8]}"
     user = User(external_id=unique_external_id, auth_provider="auth0")
     db_session.add(user)
     await db_session.commit()
