@@ -40,7 +40,9 @@
       "Bash(cat:*)",
       "Bash(find:*)"
     ],
-    "deny": [],
+    "deny": [
+      "Bash(npx dotenv-vault@latest keys:*)"
+    ],
     "ask": [
       "Bash(git commit:*)",
       "Bash(git push:*)",

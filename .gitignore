@@ -149,6 +149,9 @@ activemq-data/
 
 # Environments
 .env
+!.env.example
+!.env.vault
+.env.keys
 .envrc
 .venv
 env/
@@ -324,6 +327,8 @@ web_modules/
 .env
 .env.*
 !.env.example
+!.env.vault
+.env.keys
 
 # parcel-bundler cache (https://parceljs.org/)
 .cache
