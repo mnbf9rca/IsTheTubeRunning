@@ -102,37 +102,31 @@ class TestUserModel:
         assert not saved_user.phone_numbers[0].verified
 
     @pytest.mark.asyncio
-    async def test_duplicate_email_raises_error(self, db_session: AsyncSession) -> None:
-        """Test that duplicate emails raise integrity error."""
+    @pytest.mark.parametrize(
+        ("model_class", "field_name", "field_value"),
+        [
+            pytest.param(EmailAddress, "email", "duplicate@example.com", id="email"),
+            pytest.param(PhoneNumber, "phone", "+447700900000", id="phone"),
+        ],
+    )
+    async def test_duplicate_user_contact_raises_error(
+        self, db_session: AsyncSession, model_class: type, field_name: str, field_value: str
+    ) -> None:
+        """Test that duplicate emails/phones raise integrity error."""
         user1 = User(auth0_id="auth0|user1")
         user2 = User(auth0_id="auth0|user2")
-        email1 = EmailAddress(user=user1, email="duplicate@example.com", verified=True, is_primary=True)
+
+        contact1_kwargs = {"user": user1, field_name: field_value, "verified": True, "is_primary": True}
+        contact1 = model_class(**contact1_kwargs)
 
         db_session.add(user1)
-        db_session.add(email1)
+        db_session.add(contact1)
         await db_session.commit()
 
-        email2 = EmailAddress(user=user2, email="duplicate@example.com", verified=True, is_primary=True)
+        contact2_kwargs = {"user": user2, field_name: field_value, "verified": True, "is_primary": True}
+        contact2 = model_class(**contact2_kwargs)
         db_session.add(user2)
-        db_session.add(email2)
-
-        with pytest.raises(IntegrityError):
-            await db_session.commit()
-
-    @pytest.mark.asyncio
-    async def test_duplicate_phone_raises_error(self, db_session: AsyncSession) -> None:
-        """Test that duplicate phone numbers raise integrity error."""
-        user1 = User(auth0_id="auth0|user1")
-        user2 = User(auth0_id="auth0|user2")
-        phone1 = PhoneNumber(user=user1, phone="+447700900000", verified=True, is_primary=True)
-
-        db_session.add(user1)
-        db_session.add(phone1)
-        await db_session.commit()
-
-        phone2 = PhoneNumber(user=user2, phone="+447700900000", verified=True, is_primary=True)
-        db_session.add(user2)
-        db_session.add(phone2)
+        db_session.add(contact2)
 
         with pytest.raises(IntegrityError):
             await db_session.commit()
@@ -280,51 +274,35 @@ class TestTfLModels:
         assert saved_connection.line_id == line.id
 
     @pytest.mark.asyncio
-    async def test_duplicate_station_tfl_id_raises_error(self, db_session: AsyncSession) -> None:
-        """Test that duplicate station tfl_id raises integrity error."""
-        station1 = Station(
-            tfl_id="940GZZLUVXL",
-            name="Vauxhall",
-            latitude=51.486,
-            longitude=-0.125,
-            lines=["victoria"],
+    @pytest.mark.parametrize(
+        ("model_class", "tfl_id", "extra_kwargs"),
+        [
+            pytest.param(
+                Station, "940GZZLUVXL", {"latitude": 51.486, "longitude": -0.125, "lines": ["victoria"]}, id="station"
+            ),
+            pytest.param(Line, "victoria", {"color": "#0019A8"}, id="line"),
+        ],
+    )
+    async def test_duplicate_tfl_id_raises_error(
+        self, db_session: AsyncSession, model_class: type, tfl_id: str, extra_kwargs: dict
+    ) -> None:
+        """Test that duplicate tfl_id raises integrity error for stations and lines."""
+        entity1 = model_class(
+            tfl_id=tfl_id,
+            name="First Entity",
             last_updated=datetime.now(UTC),
+            **extra_kwargs,
         )
-        db_session.add(station1)
+        db_session.add(entity1)
         await db_session.commit()
 
-        station2 = Station(
-            tfl_id="940GZZLUVXL",
-            name="Duplicate Station",
-            latitude=51.5,
-            longitude=-0.1,
-            lines=["northern"],
+        entity2 = model_class(
+            tfl_id=tfl_id,
+            name="Duplicate Entity",
             last_updated=datetime.now(UTC),
+            **extra_kwargs,
         )
-        db_session.add(station2)
-
-        with pytest.raises(IntegrityError):
-            await db_session.commit()
-
-    @pytest.mark.asyncio
-    async def test_duplicate_line_tfl_id_raises_error(self, db_session: AsyncSession) -> None:
-        """Test that duplicate line tfl_id raises integrity error."""
-        line1 = Line(
-            tfl_id="victoria",
-            name="Victoria Line",
-            color="#0019A8",
-            last_updated=datetime.now(UTC),
-        )
-        db_session.add(line1)
-        await db_session.commit()
-
-        line2 = Line(
-            tfl_id="victoria",
-            name="Duplicate Line",
-            color="#000000",
-            last_updated=datetime.now(UTC),
-        )
-        db_session.add(line2)
+        db_session.add(entity2)
 
         with pytest.raises(IntegrityError):
             await db_session.commit()
