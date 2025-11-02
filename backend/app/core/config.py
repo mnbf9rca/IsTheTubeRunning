@@ -66,6 +66,9 @@ class Settings(BaseSettings):
     CELERY_BROKER_URL: str
     CELERY_RESULT_BACKEND: str
 
+    # Alembic Settings
+    ALEMBIC_INI_PATH: str = "alembic.ini"
+
 
 settings = Settings()
 

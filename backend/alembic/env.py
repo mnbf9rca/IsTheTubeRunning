@@ -1,12 +1,18 @@
+import logging
+from collections.abc import Collection, Mapping
 from logging.config import fileConfig
+from typing import Any
 
 from alembic import context
+from alembic.runtime.migration import MigrationContext, MigrationInfo
 
 # Import settings and models
 from app.core.config import settings
 from app.core.utils import convert_async_db_url_to_sync
 from app.models import Base  # This will import all models
 from sqlalchemy import engine_from_config, pool
+
+logger = logging.getLogger("alembic.env")
 
 # this is the Alembic Config object, which provides
 # access to the values within the .ini file in use.
@@ -69,10 +75,61 @@ def run_migrations_online() -> None:
     )
 
     with connectable.connect() as connection:
-        context.configure(connection=connection, target_metadata=target_metadata)
+        # Track migrations for logging
+        migrations_applied = []
+
+        def on_version_apply(
+            ctx: MigrationContext,
+            step: MigrationInfo,
+            heads: Collection[Any],
+            run_args: Mapping[str, Any],
+        ) -> None:
+            """Callback when a migration is applied."""
+            migrations_applied.append(step.up_revision_id)
+            logger.info(f"Applying migration {step.up_revision_id}")
+
+        context.configure(
+            connection=connection,
+            target_metadata=target_metadata,
+            on_version_apply=on_version_apply,
+        )
+
+        # Get current and target revisions
+        migration_context = context.get_context()
+        current_rev = migration_context.get_current_revision()
+        script = context.script
+        head_rev = script.get_current_head()
+
+        # Log migration status
+        if current_rev == head_rev:
+            logger.info(f"✓ Database already at target revision: {head_rev or 'base'}")
+        elif current_rev is None:
+            logger.info(f"Initializing database to revision: {head_rev}")
+        else:
+            logger.info(f"Upgrading database from {current_rev} to {head_rev}")
 
         with context.begin_transaction():
             context.run_migrations()
+
+        # Log completion
+        if migrations_applied:
+            logger.info(
+                f"✓ Successfully applied {len(migrations_applied)} migration(s). Database now at revision: {head_rev}"
+            )
+        elif current_rev != head_rev:
+            # This shouldn't happen, so log diagnostics and raise an error
+            logger.error(
+                "Migration completed but no migrations were applied. "
+                "This may indicate a bug or database inconsistency.\n"
+                f"Current revision: {current_rev}\n"
+                f"Head revision: {head_rev}\n"
+                f"Migrations applied: {migrations_applied}"
+            )
+            msg = (
+                "No migrations were applied despite differing revisions. "
+                "Please check the database state and migration scripts for inconsistencies."
+            )
+            raise RuntimeError(msg)
 
 
 if context.is_offline_mode():

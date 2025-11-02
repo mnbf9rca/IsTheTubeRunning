@@ -47,9 +47,9 @@ repos:
         pass_filenames: false
       - id: rebuild-dotenv-vault
         name: Sync and rebuild .env.vault
-        entry: bash -c 'npx dotenv-vault@latest push development && npx dotenv-vault@latest push ci && npx dotenv-vault@latest push production'
+        entry: bash -c 'cd backend && npx dotenv-vault@latest push development && npx dotenv-vault@latest push ci && (npx dotenv-vault@latest push production || true) && npx dotenv-vault@latest build'
         language: system
-        files: '^\.env(\.ci|\.production)?$'
+        always_run: true
         pass_filenames: false
 
   # Frontend: ESLint and TypeScript
