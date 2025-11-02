@@ -523,8 +523,7 @@ Once this plan is committed, Phase 1 implementation will begin with:
   - Rate limiting: 3 verification codes per hour, 5 failed additions per 24h
   - Simple random 6-digit numeric codes (15-minute expiry)
   - Rate limit reset on successful verification
-  - Coverage: 94.50% (exceeds 88% target)
-  - Added Jinja2 dependency for email templating
+  - Coverage: 98.85% (exceeds 95% target) - 148 tests passing
 
 ### Upcoming Phases
 - [ ] Phase 5: TfL Data Integration
@@ -559,6 +558,8 @@ Once this plan is committed, Phase 1 implementation will begin with:
 18. **Rate Limiting Strategy**: Two-tier rate limiting for security - verification codes (3/hour to prevent spam) and failed contact additions (5/24h to prevent enumeration attacks) (Phase 4)
 19. **Simple Verification Codes**: Random 6-digit numeric codes instead of HOTP/TOTP for better email/SMS UX; industry standard for contact verification (Phase 4)
 20. **Separate Verification Flow**: Users add contacts first, then explicitly request verification; provides better UX and allows batch contact addition (Phase 4)
+21. **Test Database Setup**: pytest-postgresql automatically creates isolated test databases for each test with Alembic migrations. DO NOT manually create test databases or set DATABASE_URL in pytest commands - the test infrastructure handles this automatically via the `db_session` fixture in conftest.py (Phase 4)
+22. **Test Authentication Pattern**: When testing authenticated endpoints, use `test_user` + `auth_headers_for_user` fixtures together. The `auth_headers_for_user` fixture generates a JWT token that matches the `test_user`'s external_id, ensuring test data and authenticated requests use the same user. DO NOT use `test_user` + `auth_headers` together as they create different users with mismatched external_ids (Phase 4)
 
 
 ### Future Enhancements (Post-MVP)

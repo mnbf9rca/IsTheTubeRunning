@@ -232,6 +232,24 @@ async def test_user(db_session: AsyncSession) -> User:
 
 
 @pytest.fixture
+def auth_headers_for_user(test_user: User) -> dict[str, str]:
+    """
+    HTTP Authorization headers with Bearer token for the test_user fixture.
+
+    Generates a JWT token that matches the test_user's external_id,
+    ensuring authenticated API requests are associated with the correct user.
+
+    Args:
+        test_user: Test user fixture
+
+    Returns:
+        Dictionary with Authorization header for authenticated requests
+    """
+    token = MockJWTGenerator.generate(auth0_id=test_user.external_id)
+    return {"Authorization": f"Bearer {token}"}
+
+
+@pytest.fixture
 def authenticated_client(auth_headers: dict[str, str]) -> TestClient:
     """
     Synchronous test client pre-configured with authentication.

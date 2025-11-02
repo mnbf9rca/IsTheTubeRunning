@@ -15,35 +15,11 @@ from httpx import AsyncClient
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from tests.helpers.jwt_helpers import MockJWTGenerator
 from tests.helpers.test_data import make_unique_email, make_unique_phone
 
 
 class TestContactsAPI:
     """Test cases for contacts API endpoints."""
-
-    @pytest.fixture
-    async def test_user_with_auth(self, db_session: AsyncSession) -> tuple[User, dict[str, str]]:
-        """
-        Create a test user and matching auth headers.
-
-        Returns:
-            Tuple of (User, auth_headers dict)
-        """
-        # Generate unique external_id
-        unique_external_id = f"auth0|test_api_{uuid.uuid4().hex[:8]}"
-
-        # Create user in database
-        user = User(external_id=unique_external_id, auth_provider="auth0")
-        db_session.add(user)
-        await db_session.commit()
-        await db_session.refresh(user)
-
-        # Generate JWT for this user
-        jwt_token = MockJWTGenerator.generate(auth0_id=unique_external_id)
-        auth_headers = {"Authorization": f"Bearer {jwt_token}"}
-
-        return user, auth_headers
 
     @pytest.fixture(autouse=True)
     async def setup_test(self, db_session: AsyncSession) -> AsyncGenerator[None]:
@@ -77,10 +53,9 @@ class TestContactsAPI:
 
     @pytest.mark.asyncio
     async def test_add_email_duplicate(
-        self, async_client: AsyncClient, db_session: AsyncSession, test_user_with_auth: tuple[User, dict[str, str]]
+        self, async_client: AsyncClient, db_session: AsyncSession, auth_headers: dict[str, str]
     ) -> None:
         """Test adding duplicate email returns 409."""
-        _test_user, auth_headers = test_user_with_auth
         email = make_unique_email()
 
         # Add email first time
@@ -103,10 +78,13 @@ class TestContactsAPI:
 
     @pytest.mark.asyncio
     async def test_add_email_rate_limit(
-        self, async_client: AsyncClient, db_session: AsyncSession, test_user_with_auth: tuple[User, dict[str, str]]
+        self,
+        async_client: AsyncClient,
+        db_session: AsyncSession,
+        auth_headers_for_user: dict[str, str],
+        test_user: User,
     ) -> None:
         """Test rate limiting on failed email additions."""
-        test_user, auth_headers = test_user_with_auth
 
         # Create 5 failed addition attempts
         for i in range(5):
@@ -123,7 +101,7 @@ class TestContactsAPI:
         response = await async_client.post(
             "/api/v1/contacts/email",
             json={"email": make_unique_email()},
-            headers=auth_headers,
+            headers=auth_headers_for_user,
         )
 
         assert response.status_code == status.HTTP_429_TOO_MANY_REQUESTS
@@ -150,7 +128,7 @@ class TestContactsAPI:
 
     @pytest.mark.asyncio
     async def test_add_phone_duplicate(
-        self, async_client: AsyncClient, auth_headers: dict[str, str], db_session: AsyncSession
+        self, async_client: AsyncClient, db_session: AsyncSession, auth_headers: dict[str, str]
     ) -> None:
         """Test adding duplicate phone returns 409."""
         phone = make_unique_phone()
@@ -180,10 +158,10 @@ class TestContactsAPI:
         mock_send_email: AsyncMock,
         async_client: AsyncClient,
         db_session: AsyncSession,
-        test_user_with_auth: tuple[User, dict[str, str]],
+        auth_headers_for_user: dict[str, str],
+        test_user: User,
     ) -> None:
         """Test sending verification code to email."""
-        test_user, auth_headers = test_user_with_auth
         mock_send_email.return_value = None
 
         # Add email first
@@ -201,7 +179,7 @@ class TestContactsAPI:
         # Send verification
         response = await async_client.post(
             f"/api/v1/contacts/{email_obj.id}/send-verification",
-            headers=auth_headers,
+            headers=auth_headers_for_user,
         )
 
         assert response.status_code == status.HTTP_200_OK
@@ -218,8 +196,8 @@ class TestContactsAPI:
         self,
         mock_send_sms: AsyncMock,
         async_client: AsyncClient,
-        auth_headers: dict[str, str],
         db_session: AsyncSession,
+        auth_headers_for_user: dict[str, str],
         test_user: User,
     ) -> None:
         """Test sending verification code to phone."""
@@ -240,7 +218,7 @@ class TestContactsAPI:
         # Send verification
         response = await async_client.post(
             f"/api/v1/contacts/{phone_obj.id}/send-verification",
-            headers=auth_headers,
+            headers=auth_headers_for_user,
         )
 
         assert response.status_code == status.HTTP_200_OK
@@ -269,8 +247,8 @@ class TestContactsAPI:
         self,
         mock_send_email: AsyncMock,
         async_client: AsyncClient,
-        auth_headers: dict[str, str],
         db_session: AsyncSession,
+        auth_headers_for_user: dict[str, str],
         test_user: User,
     ) -> None:
         """Test rate limiting on verification code requests."""
@@ -292,14 +270,14 @@ class TestContactsAPI:
         for _ in range(3):
             response = await async_client.post(
                 f"/api/v1/contacts/{email_obj.id}/send-verification",
-                headers=auth_headers,
+                headers=auth_headers_for_user,
             )
             assert response.status_code == status.HTTP_200_OK
 
         # 4th attempt should be rate limited
         response = await async_client.post(
             f"/api/v1/contacts/{email_obj.id}/send-verification",
-            headers=auth_headers,
+            headers=auth_headers_for_user,
         )
 
         assert response.status_code == status.HTTP_429_TOO_MANY_REQUESTS
@@ -308,8 +286,8 @@ class TestContactsAPI:
     async def test_verify_code_success(
         self,
         async_client: AsyncClient,
-        auth_headers: dict[str, str],
         db_session: AsyncSession,
+        auth_headers_for_user: dict[str, str],
         test_user: User,
     ) -> None:
         """Test successful code verification."""
@@ -341,7 +319,7 @@ class TestContactsAPI:
         response = await async_client.post(
             "/api/v1/contacts/verify",
             json={"contact_id": str(email_obj.id), "code": code},
-            headers=auth_headers,
+            headers=auth_headers_for_user,
         )
 
         assert response.status_code == status.HTTP_200_OK
@@ -353,9 +331,7 @@ class TestContactsAPI:
         assert email_obj.verified is True
 
     @pytest.mark.asyncio
-    async def test_verify_code_invalid(
-        self, async_client: AsyncClient, auth_headers: dict[str, str], test_user: User
-    ) -> None:
+    async def test_verify_code_invalid(self, async_client: AsyncClient, auth_headers: dict[str, str]) -> None:
         """Test verification with invalid code."""
         response = await async_client.post(
             "/api/v1/contacts/verify",
@@ -382,8 +358,8 @@ class TestContactsAPI:
     async def test_list_contacts_with_data(
         self,
         async_client: AsyncClient,
-        auth_headers: dict[str, str],
         db_session: AsyncSession,
+        auth_headers_for_user: dict[str, str],
         test_user: User,
     ) -> None:
         """Test listing contacts with emails and phones."""
@@ -415,7 +391,7 @@ class TestContactsAPI:
         # List contacts
         response = await async_client.get(
             "/api/v1/contacts",
-            headers=auth_headers,
+            headers=auth_headers_for_user,
         )
 
         assert response.status_code == status.HTTP_200_OK
@@ -432,8 +408,8 @@ class TestContactsAPI:
     async def test_delete_contact_email(
         self,
         async_client: AsyncClient,
-        auth_headers: dict[str, str],
         db_session: AsyncSession,
+        auth_headers_for_user: dict[str, str],
         test_user: User,
     ) -> None:
         """Test deleting an email contact."""
@@ -451,7 +427,7 @@ class TestContactsAPI:
         # Delete email
         response = await async_client.delete(
             f"/api/v1/contacts/{email.id}",
-            headers=auth_headers,
+            headers=auth_headers_for_user,
         )
 
         assert response.status_code == status.HTTP_204_NO_CONTENT
@@ -465,8 +441,8 @@ class TestContactsAPI:
     async def test_delete_contact_phone(
         self,
         async_client: AsyncClient,
-        auth_headers: dict[str, str],
         db_session: AsyncSession,
+        auth_headers_for_user: dict[str, str],
         test_user: User,
     ) -> None:
         """Test deleting a phone contact."""
@@ -484,7 +460,7 @@ class TestContactsAPI:
         # Delete phone
         response = await async_client.delete(
             f"/api/v1/contacts/{phone.id}",
-            headers=auth_headers,
+            headers=auth_headers_for_user,
         )
 
         assert response.status_code == status.HTTP_204_NO_CONTENT
@@ -510,8 +486,8 @@ class TestContactsAPI:
     async def test_set_primary_email(
         self,
         async_client: AsyncClient,
-        auth_headers: dict[str, str],
         db_session: AsyncSession,
+        auth_headers_for_user: dict[str, str],
         test_user: User,
     ) -> None:
         """Test setting an email as primary."""
@@ -536,7 +512,7 @@ class TestContactsAPI:
         # Set email2 as primary
         response = await async_client.patch(
             f"/api/v1/contacts/{email2.id}/primary",
-            headers=auth_headers,
+            headers=auth_headers_for_user,
         )
 
         assert response.status_code == status.HTTP_200_OK
@@ -555,7 +531,7 @@ class TestContactsAPI:
     async def test_set_primary_phone(
         self,
         async_client: AsyncClient,
-        auth_headers: dict[str, str],
+        auth_headers_for_user: dict[str, str],
         db_session: AsyncSession,
         test_user: User,
     ) -> None:
@@ -581,7 +557,7 @@ class TestContactsAPI:
         # Set phone2 as primary
         response = await async_client.patch(
             f"/api/v1/contacts/{phone2.id}/primary",
-            headers=auth_headers,
+            headers=auth_headers_for_user,
         )
 
         assert response.status_code == status.HTTP_200_OK
@@ -631,4 +607,7 @@ class TestContactsAPI:
             elif method == "PATCH":
                 response = await async_client.patch(url)
 
-            assert response.status_code == status.HTTP_401_UNAUTHORIZED, f"Endpoint {method} {url} should require auth"
+            # FastAPI returns 403 Forbidden for missing credentials, 401 for invalid credentials
+            assert response.status_code in [status.HTTP_401_UNAUTHORIZED, status.HTTP_403_FORBIDDEN], (
+                f"Endpoint {method} {url} should require auth"
+            )

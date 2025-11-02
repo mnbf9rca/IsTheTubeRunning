@@ -112,17 +112,20 @@ async def add_email(
     """
     verification_service = VerificationService(db)
 
+    # Store user_id before any potential rollback
+    user_id = current_user.id
+
     # Check rate limit for failed additions
-    await verification_service.check_add_contact_rate_limit(current_user.id)
+    await verification_service.check_add_contact_rate_limit(user_id)
 
     # Determine if this should be primary (first email)
-    result = await db.execute(select(EmailAddress).where(EmailAddress.user_id == current_user.id))
+    result = await db.execute(select(EmailAddress).where(EmailAddress.user_id == user_id))
     existing_emails = result.scalars().all()
     is_first = len(existing_emails) == 0
 
     # Create email address
     email = EmailAddress(
-        user_id=current_user.id,
+        user_id=user_id,
         email=request.email,
         verified=False,
         is_primary=is_first,
@@ -136,7 +139,7 @@ async def add_email(
     except IntegrityError:
         await db.rollback()
         # Record failed attempt for rate limiting
-        await verification_service.record_add_contact_failure(current_user.id, request.email)
+        await verification_service.record_add_contact_failure(user_id, request.email)
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail="This email address is already registered.",
@@ -168,17 +171,20 @@ async def add_phone(
     """
     verification_service = VerificationService(db)
 
+    # Store user_id before any potential rollback
+    user_id = current_user.id
+
     # Check rate limit for failed additions
-    await verification_service.check_add_contact_rate_limit(current_user.id)
+    await verification_service.check_add_contact_rate_limit(user_id)
 
     # Determine if this should be primary (first phone)
-    result = await db.execute(select(PhoneNumber).where(PhoneNumber.user_id == current_user.id))
+    result = await db.execute(select(PhoneNumber).where(PhoneNumber.user_id == user_id))
     existing_phones = result.scalars().all()
     is_first = len(existing_phones) == 0
 
     # Create phone number
     phone = PhoneNumber(
-        user_id=current_user.id,
+        user_id=user_id,
         phone=request.phone,
         verified=False,
         is_primary=is_first,
@@ -192,7 +198,7 @@ async def add_phone(
     except IntegrityError:
         await db.rollback()
         # Record failed attempt for rate limiting
-        await verification_service.record_add_contact_failure(current_user.id, request.phone)
+        await verification_service.record_add_contact_failure(user_id, request.phone)
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail="This phone number is already registered.",
