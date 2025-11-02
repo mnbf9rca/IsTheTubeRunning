@@ -1,7 +1,7 @@
 """Tests for configuration module."""
 
 import pytest
-from app.core.config import require_config, settings
+from app.core.config import Settings, require_config, settings
 
 
 class TestRequireConfig:
@@ -59,3 +59,55 @@ class TestRequireConfig:
         # Field that doesn't exist on settings object
         with pytest.raises(ValueError, match="Required configuration missing: NONEXISTENT_FIELD"):
             require_config("NONEXISTENT_FIELD")
+
+
+class TestParseCorsValidator:
+    """Tests for parse_cors field validator."""
+
+    def test_parse_cors_with_string(self) -> None:
+        """Test parse_cors splits comma-separated string into list."""
+        result = Settings.parse_cors("http://localhost:3000,http://localhost:8080")
+        assert result == ["http://localhost:3000", "http://localhost:8080"]
+
+    def test_parse_cors_with_string_strips_whitespace(self) -> None:
+        """Test parse_cors removes whitespace around origins."""
+        result = Settings.parse_cors("http://localhost:3000, http://localhost:8080 , http://example.com")
+        assert result == ["http://localhost:3000", "http://localhost:8080", "http://example.com"]
+
+    def test_parse_cors_with_single_origin(self) -> None:
+        """Test parse_cors handles single origin string."""
+        result = Settings.parse_cors("http://localhost:3000")
+        assert result == ["http://localhost:3000"]
+
+    def test_parse_cors_with_list_input(self) -> None:
+        """Test parse_cors passes through list unchanged (regression test)."""
+        input_list = ["http://localhost:3000", "http://localhost:8080"]
+        result = Settings.parse_cors(input_list)
+        assert result == input_list
+        assert result is input_list  # Same object, not a copy
+
+
+class TestParseAuth0AlgorithmsValidator:
+    """Tests for parse_auth0_algorithms field validator."""
+
+    def test_parse_auth0_algorithms_with_string(self) -> None:
+        """Test parse_auth0_algorithms splits comma-separated string into list."""
+        result = Settings.parse_auth0_algorithms("RS256,HS256")
+        assert result == ["RS256", "HS256"]
+
+    def test_parse_auth0_algorithms_with_string_strips_whitespace(self) -> None:
+        """Test parse_auth0_algorithms removes whitespace around algorithms."""
+        result = Settings.parse_auth0_algorithms("RS256, HS256 , ES256")
+        assert result == ["RS256", "HS256", "ES256"]
+
+    def test_parse_auth0_algorithms_with_single_algorithm(self) -> None:
+        """Test parse_auth0_algorithms handles single algorithm string."""
+        result = Settings.parse_auth0_algorithms("RS256")
+        assert result == ["RS256"]
+
+    def test_parse_auth0_algorithms_with_list_input(self) -> None:
+        """Test parse_auth0_algorithms passes through list unchanged (regression test)."""
+        input_list = ["RS256", "HS256"]
+        result = Settings.parse_auth0_algorithms(input_list)
+        assert result == input_list
+        assert result is input_list  # Same object, not a copy

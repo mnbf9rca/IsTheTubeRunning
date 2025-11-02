@@ -66,21 +66,25 @@ class AuthService:
         """
         user = User(external_id=external_id, auth_provider=auth_provider)
         self.db.add(user)
+
         try:
             await self.db.commit()
             await self.db.refresh(user)
             return user
         except IntegrityError:
+            # Race condition: user was created between check and insert
             await self.db.rollback()
-            # Race condition: user was created between our check and insert
-            # Try to retrieve the existing user
+
+            # Fetch and return the existing user
             result = await self.db.execute(
                 select(User).where(and_(User.external_id == external_id, User.auth_provider == auth_provider))
             )
             existing_user = result.scalar_one_or_none()
+
             if existing_user:
                 return existing_user
-            # This should never happen, but handle it gracefully
+
+            # This should never happen - integrity error implies user exists
             msg = (
                 f"User with external_id={external_id} and auth_provider={auth_provider} "
                 "already exists, but could not be retrieved."

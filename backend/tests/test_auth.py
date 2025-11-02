@@ -15,6 +15,7 @@ from fastapi import HTTPException
 from fastapi.security import HTTPAuthorizationCredentials
 from freezegun import freeze_time
 from jose import jwt
+from sqlalchemy.exc import IntegrityError as SQLAlchemyIntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from tests.helpers.jwt_helpers import MockJWTGenerator
@@ -36,6 +37,54 @@ class TestAuthService:
         assert user.auth_provider == "auth0"
         assert user.created_at is not None
         assert user.updated_at is not None
+
+    @pytest.mark.asyncio
+    async def test_create_user_handles_race_condition(self, db_session: AsyncSession) -> None:
+        """Test create_user handles IntegrityError race condition gracefully."""
+
+        auth_service = AuthService(db_session)
+        external_id = make_unique_external_id("auth0|race_condition_user")
+
+        # First, create a user to set up the race condition scenario
+        existing_user = await auth_service.create_user(external_id=external_id, auth_provider="auth0")
+        assert existing_user.id is not None
+
+        # Now simulate a race condition by trying to create the same user again
+        # This should trigger IntegrityError, rollback, and return the existing user
+        result_user = await auth_service.create_user(external_id=external_id, auth_provider="auth0")
+
+        # Should return the existing user, not raise an exception
+        assert result_user.id == existing_user.id
+        assert result_user.external_id == external_id
+        assert result_user.auth_provider == "auth0"
+
+    @pytest.mark.asyncio
+    async def test_create_user_integrity_error_cannot_retrieve_user(self) -> None:
+        """Test create_user raises when IntegrityError occurs but user cannot be retrieved."""
+        # Mock database session that simulates the edge case
+        mock_db = MagicMock(spec=AsyncSession)
+
+        # Mock add method (does nothing)
+        mock_db.add = MagicMock()
+
+        # Mock commit to raise IntegrityError
+        mock_db.commit = AsyncMock(side_effect=SQLAlchemyIntegrityError("", "", ""))  # type: ignore[arg-type]
+        mock_db.rollback = AsyncMock()
+
+        # Mock execute to return None (user not found after IntegrityError)
+        mock_result = MagicMock()
+        mock_result.scalar_one_or_none = MagicMock(return_value=None)
+        mock_db.execute = AsyncMock(return_value=mock_result)
+
+        auth_service = AuthService(mock_db)
+        external_id = "auth0|edge_case_user"
+
+        # Should raise Exception because user can't be retrieved after IntegrityError
+        with pytest.raises(Exception, match="already exists, but could not be retrieved"):
+            await auth_service.create_user(external_id=external_id, auth_provider="auth0")
+
+        # Verify rollback was called
+        mock_db.rollback.assert_called_once()
 
     @pytest.mark.asyncio
     async def test_get_user_by_external_id(self, db_session: AsyncSession, test_user: User) -> None:
@@ -227,6 +276,42 @@ class TestVerifyJWTEdgeCases:
 
         assert exc_info.value.status_code == 401
         assert "signing key" in exc_info.value.detail.lower()
+
+    @pytest.mark.asyncio
+    async def test_verify_jwt_with_missing_jwks_fields(self) -> None:
+        """Test verify_jwt fails when JWKS key is missing required fields."""
+        # Create a token
+        token = MockJWTGenerator.generate(auth0_id=make_unique_external_id())
+        credentials = HTTPAuthorizationCredentials(scheme="Bearer", credentials=token)
+
+        # Mock JWKS with incomplete key (missing 'n' field)
+        incomplete_jwks = {
+            "keys": [
+                {
+                    "kty": "RSA",
+                    "kid": MockJWTGenerator.KID,
+                    "use": "sig",
+                    "e": "AQAB",
+                    # Missing "n" field
+                }
+            ]
+        }
+
+        # Patch settings.DEBUG and _mock_jwks to use production code path
+        with (
+            patch("app.core.auth.settings.DEBUG", False),
+            patch("app.core.auth._mock_jwks", None),
+            patch("app.core.auth.get_jwks", new_callable=AsyncMock) as mock_get_jwks,
+        ):
+            mock_get_jwks.return_value = incomplete_jwks
+
+            # Should raise HTTPException with 500
+            with pytest.raises(HTTPException) as exc_info:
+                await verify_jwt(credentials)
+
+            assert exc_info.value.status_code == 500
+            assert "missing required fields" in exc_info.value.detail.lower()
+            assert "n" in exc_info.value.detail
 
     @pytest.mark.asyncio
     async def test_get_current_user_with_missing_sub(self, db_session: AsyncSession) -> None:
