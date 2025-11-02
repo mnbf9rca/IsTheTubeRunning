@@ -16,11 +16,15 @@ class User(BaseModel):
 
     __tablename__ = "users"
 
-    auth0_id: Mapped[str] = mapped_column(
+    external_id: Mapped[str] = mapped_column(
         String(255),
-        unique=True,
         nullable=False,
-        index=True,
+    )
+    auth_provider: Mapped[str] = mapped_column(
+        String(50),
+        nullable=False,
+        default="auth0",
+        server_default="auth0",
     )
 
     # Relationships
@@ -37,9 +41,12 @@ class User(BaseModel):
         cascade="all, delete-orphan",
     )
 
+    # Composite unique constraint on external_id + auth_provider
+    __table_args__ = (Index("ix_users_external_id_auth_provider", "external_id", "auth_provider", unique=True),)
+
     def __repr__(self) -> str:
         """String representation of the user."""
-        return f"<User(id={self.id}, auth0_id={self.auth0_id})>"
+        return f"<User(id={self.id}, external_id={self.external_id}, auth_provider={self.auth_provider})>"
 
 
 class EmailAddress(BaseModel):

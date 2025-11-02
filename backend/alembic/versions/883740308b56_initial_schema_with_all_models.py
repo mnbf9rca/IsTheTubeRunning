@@ -52,14 +52,20 @@ def upgrade() -> None:
     op.create_index(op.f("ix_stations_tfl_id"), "stations", ["tfl_id"], unique=True)
     op.create_table(
         "users",
-        sa.Column("auth0_id", sa.String(length=255), nullable=False),
+        sa.Column("external_id", sa.String(length=255), nullable=False),
+        sa.Column("auth_provider", sa.String(length=50), nullable=False, server_default="auth0"),
         sa.Column("id", sa.UUID(), nullable=False),
         sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
         sa.Column("updated_at", sa.DateTime(timezone=True), nullable=False),
         sa.Column("deleted_at", sa.DateTime(timezone=True), nullable=True),
         sa.PrimaryKeyConstraint("id"),
     )
-    op.create_index(op.f("ix_users_auth0_id"), "users", ["auth0_id"], unique=True)
+    op.create_index(
+        "ix_users_external_id_auth_provider",
+        "users",
+        ["external_id", "auth_provider"],
+        unique=True,
+    )
     op.create_table(
         "admin_users",
         sa.Column("user_id", sa.UUID(), nullable=False),
@@ -311,7 +317,7 @@ def downgrade() -> None:
     op.drop_table("email_addresses")
     op.drop_index(op.f("ix_admin_users_user_id"), table_name="admin_users")
     op.drop_table("admin_users")
-    op.drop_index(op.f("ix_users_auth0_id"), table_name="users")
+    op.drop_index("ix_users_external_id_auth_provider", table_name="users")
     op.drop_table("users")
     op.drop_index(op.f("ix_stations_tfl_id"), table_name="stations")
     op.drop_index(op.f("ix_stations_name"), table_name="stations")
