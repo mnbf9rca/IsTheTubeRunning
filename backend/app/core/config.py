@@ -42,9 +42,9 @@ class Settings(BaseSettings):
     REDIS_URL: str
 
     # Auth0 Settings (for Phase 3)
-    AUTH0_DOMAIN: str | None = None
-    AUTH0_API_AUDIENCE: str | None = None
-    AUTH0_ALGORITHMS: str = "RS256"
+    AUTH0_DOMAIN: str
+    AUTH0_API_AUDIENCE: str
+    AUTH0_ALGORITHMS: str
 
     @field_validator("AUTH0_ALGORITHMS", mode="after")
     @classmethod
@@ -68,3 +68,31 @@ class Settings(BaseSettings):
 
 
 settings = Settings()
+
+
+def require_config(*field_names: str) -> None:
+    """
+    Validate that required configuration fields are set.
+
+    This utility should be called by modules on import to verify their
+    required configuration is present.
+
+    Args:
+        *field_names: Names of required configuration fields
+
+    Raises:
+        ValueError: If any required field is missing or None
+
+    Example:
+        from app.core.config import require_config, settings
+        require_config("AUTH0_DOMAIN", "AUTH0_API_AUDIENCE")
+    """
+    missing = []
+    for field in field_names:
+        value = getattr(settings, field, None)
+        if value is None or (isinstance(value, str) and not value.strip()):
+            missing.append(field)
+
+    if missing:
+        msg = f"Required configuration missing: {', '.join(missing)}"
+        raise ValueError(msg)

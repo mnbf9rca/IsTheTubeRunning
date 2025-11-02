@@ -5,8 +5,10 @@ A TfL (Transport for London) disruption alert system that notifies users of serv
 ## Project Status
 
 **Phase 1: Project Foundation** ✅ Complete
+**Phase 2: Database Models & Migrations** ✅ Complete
+**Phase 3: Auth0 Integration** 🚧 In Progress
 
-See [IMPLEMENTATION_PLAN.md](./IMPLEMENTATION_PLAN.md) for the full roadmap.
+See [implementation_plan.md](./implementation_plan.md) for the full roadmap.
 
 ## Tech Stack
 
@@ -179,8 +181,11 @@ docker-compose logs -f
 - `GET /health` - Health check
 - `GET /ready` - Readiness check
 
+### Authentication (Phase 3)
+- `GET /api/v1/auth/me` - Get current user (auto-creates on first login)
+
 ### API Documentation
-- `http://localhost:8000/docs` - Swagger UI
+- `http://localhost:8000/docs` - Swagger UI (includes authentication)
 - `http://localhost:8000/redoc` - ReDoc
 
 ## Development Workflow
@@ -234,7 +239,32 @@ See `.env.example` for all available configuration options.
 - `DATABASE_URL` - PostgreSQL connection string
 - `REDIS_URL` - Redis connection string
 - `TFL_API_KEY` - TfL API key (required in Phase 5)
-- `AUTH0_DOMAIN` - Auth0 configuration (required in Phase 3)
+- `AUTH0_DOMAIN` - Auth0 tenant domain (required in Phase 3)
+- `AUTH0_API_AUDIENCE` - Auth0 API identifier (required in Phase 3)
+- `AUTH0_ALGORITHMS` - JWT signing algorithms (default: RS256)
+
+## Auth0 Setup
+
+Authentication is handled by Auth0. For detailed setup instructions, see [docs/auth0-setup.md](./docs/auth0-setup.md).
+
+**Quick start:**
+
+1. Create a free Auth0 account at https://auth0.com
+2. Create an API in the Auth0 dashboard with identifier `https://api.isthetube.com` (or your domain)
+3. Create a Single Page Application for the frontend
+4. Configure callback URLs and CORS settings
+5. Add Auth0 credentials to `backend/.env`:
+   ```bash
+   AUTH0_DOMAIN=your-tenant.auth0.com
+   AUTH0_API_AUDIENCE=https://api.isthetube.com
+   AUTH0_ALGORITHMS=RS256
+   ```
+
+**Local development:**
+The backend supports mock JWT mode for development without Auth0. When `DEBUG=True`, the application accepts locally generated mock JWTs, eliminating the need for Auth0 during local testing. See [docs/auth0-setup.md](./docs/auth0-setup.md) for details.
+
+**API Endpoints:**
+- `GET /api/v1/auth/me` - Get current authenticated user (auto-creates user on first login)
 
 ## Secret Management with python-dotenv-vault
 
@@ -319,14 +349,16 @@ MIT License - see [LICENSE](./LICENSE) file for details.
 
 ## Roadmap
 
-See [IMPLEMENTATION_PLAN.md](./IMPLEMENTATION_PLAN.md) for detailed implementation phases.
+See [implementation_plan.md](./implementation_plan.md) for detailed implementation phases.
 
 **Completed:**
 - ✅ Phase 1: Project Foundation
+- ✅ Phase 2: Database Models & Migrations
+
+**In Progress:**
+- 🚧 Phase 3: Auth0 Integration
 
 **Upcoming:**
-- Phase 2: Database Models & Migrations
-- Phase 3: Auth0 Integration
 - Phase 4: Contact Verification
 - Phase 5: TfL Data Integration
 - Phase 6: Route Management

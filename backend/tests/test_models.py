@@ -33,15 +33,18 @@ class TestUserModel:
     @pytest.mark.asyncio
     async def test_create_user(self, db_session: AsyncSession) -> None:
         """Test creating a user."""
-        user = User(auth0_id="auth0|12345")
+        user = User(external_id="auth0|12345", auth_provider="auth0")
         db_session.add(user)
         await db_session.commit()
 
-        result = await db_session.execute(select(User).where(User.auth0_id == "auth0|12345"))
+        result = await db_session.execute(
+            select(User).where(User.external_id == "auth0|12345").where(User.auth_provider == "auth0")
+        )
         saved_user = result.scalar_one()
 
         assert saved_user.id is not None
-        assert saved_user.auth0_id == "auth0|12345"
+        assert saved_user.external_id == "auth0|12345"
+        assert saved_user.auth_provider == "auth0"
         assert saved_user.created_at is not None
         assert saved_user.updated_at is not None
         assert saved_user.deleted_at is None
@@ -50,7 +53,7 @@ class TestUserModel:
     @pytest.mark.asyncio
     async def test_user_soft_delete(self, db_session: AsyncSession) -> None:
         """Test soft delete functionality."""
-        user = User(auth0_id="auth0|softdelete")
+        user = User(external_id="auth0|softdelete", auth_provider="auth0")
         db_session.add(user)
         await db_session.commit()
 
@@ -67,7 +70,7 @@ class TestUserModel:
     @pytest.mark.asyncio
     async def test_email_address_relationship(self, db_session: AsyncSession) -> None:
         """Test user-email relationship."""
-        user = User(auth0_id="auth0|email_test")
+        user = User(external_id="auth0|email_test", auth_provider="auth0")
         email = EmailAddress(user=user, email="test@example.com", verified=True, is_primary=True)
 
         db_session.add(user)
@@ -86,7 +89,7 @@ class TestUserModel:
     @pytest.mark.asyncio
     async def test_phone_number_relationship(self, db_session: AsyncSession) -> None:
         """Test user-phone relationship."""
-        user = User(auth0_id="auth0|phone_test")
+        user = User(external_id="auth0|phone_test", auth_provider="auth0")
         phone = PhoneNumber(user=user, phone="+447700900000", verified=False, is_primary=True)
 
         db_session.add(user)
@@ -113,8 +116,8 @@ class TestUserModel:
         self, db_session: AsyncSession, model_class: type, field_name: str, field_value: str
     ) -> None:
         """Test that duplicate emails/phones raise integrity error."""
-        user1 = User(auth0_id="auth0|user1")
-        user2 = User(auth0_id="auth0|user2")
+        user1 = User(external_id="auth0|user1", auth_provider="auth0")
+        user2 = User(external_id="auth0|user2", auth_provider="auth0")
 
         contact1_kwargs = {"user": user1, field_name: field_value, "verified": True, "is_primary": True}
         contact1 = model_class(**contact1_kwargs)
@@ -138,7 +141,7 @@ class TestVerificationCode:
     @pytest.mark.asyncio
     async def test_verification_code_expiry(self, db_session: AsyncSession) -> None:
         """Test verification code expiry logic."""
-        user = User(auth0_id="auth0|verification")
+        user = User(external_id="auth0|verification", auth_provider="auth0")
         expired_code = VerificationCode(
             user=user,
             code="123456",
@@ -157,7 +160,7 @@ class TestVerificationCode:
     @pytest.mark.asyncio
     async def test_verification_code_valid(self, db_session: AsyncSession) -> None:
         """Test valid verification code."""
-        user = User(auth0_id="auth0|valid_code")
+        user = User(external_id="auth0|valid_code", auth_provider="auth0")
         valid_code = VerificationCode(
             user=user,
             code="654321",
@@ -176,7 +179,7 @@ class TestVerificationCode:
     @pytest.mark.asyncio
     async def test_verification_code_used(self, db_session: AsyncSession) -> None:
         """Test used verification code."""
-        user = User(auth0_id="auth0|used_code")
+        user = User(external_id="auth0|used_code", auth_provider="auth0")
         used_code = VerificationCode(
             user=user,
             code="999999",
@@ -350,7 +353,7 @@ class TestRouteModels:
     @pytest.mark.asyncio
     async def test_create_route_with_segments(self, db_session: AsyncSession) -> None:
         """Test creating a route with segments."""
-        user = User(auth0_id="auth0|route_test")
+        user = User(external_id="auth0|route_test", auth_provider="auth0")
         line = Line(
             tfl_id="victoria",
             name="Victoria Line",
@@ -397,7 +400,7 @@ class TestRouteModels:
     @pytest.mark.asyncio
     async def test_route_schedule(self, db_session: AsyncSession) -> None:
         """Test route schedule."""
-        user = User(auth0_id="auth0|schedule_test")
+        user = User(external_id="auth0|schedule_test", auth_provider="auth0")
         route = Route(user=user, name="Test Route", active=True)
         schedule = RouteSchedule(
             route=route,
@@ -419,7 +422,7 @@ class TestRouteModels:
     @pytest.mark.asyncio
     async def test_duplicate_route_segment_sequence_raises_error(self, db_session: AsyncSession) -> None:
         """Test that duplicate route segment sequence numbers raise integrity error."""
-        user = User(auth0_id="auth0|segment_test")
+        user = User(external_id="auth0|segment_test", auth_provider="auth0")
         line = Line(
             tfl_id="victoria",
             name="Victoria Line",
@@ -462,7 +465,7 @@ class TestNotificationModels:
     @pytest.mark.asyncio
     async def test_notification_preference(self, db_session: AsyncSession) -> None:
         """Test notification preference."""
-        user = User(auth0_id="auth0|notif_test")
+        user = User(external_id="auth0|notif_test", auth_provider="auth0")
         email = EmailAddress(user=user, email="notif@example.com", verified=True, is_primary=True)
         route = Route(user=user, name="Test Route", active=True)
 
@@ -486,7 +489,7 @@ class TestNotificationModels:
     @pytest.mark.asyncio
     async def test_notification_log(self, db_session: AsyncSession) -> None:
         """Test notification log."""
-        user = User(auth0_id="auth0|log_test")
+        user = User(external_id="auth0|log_test", auth_provider="auth0")
         route = Route(user=user, name="Test Route", active=True)
         log = NotificationLog(
             user=user,
@@ -509,7 +512,7 @@ class TestNotificationModels:
     @pytest.mark.asyncio
     async def test_notification_preference_with_both_targets_raises_error(self, db_session: AsyncSession) -> None:
         """Test that NotificationPreference with both target_email_id and target_phone_id raises error."""
-        user = User(auth0_id="auth0|both_targets")
+        user = User(external_id="auth0|both_targets", auth_provider="auth0")
         email = EmailAddress(user=user, email="test@example.com", verified=True, is_primary=True)
         phone = PhoneNumber(user=user, phone="+447700900000", verified=True, is_primary=True)
         route = Route(user=user, name="Test Route", active=True)
@@ -536,7 +539,7 @@ class TestAdminModel:
     @pytest.mark.asyncio
     async def test_create_admin(self, db_session: AsyncSession) -> None:
         """Test creating an admin user."""
-        user = User(auth0_id="auth0|admin_test")
+        user = User(external_id="auth0|admin_test", auth_provider="auth0")
         db_session.add(user)
         await db_session.flush()  # Flush to get user.id before creating admin
 
@@ -558,7 +561,7 @@ class TestAdminModel:
     @pytest.mark.asyncio
     async def test_duplicate_admin_user_raises_error(self, db_session: AsyncSession) -> None:
         """Test that duplicate admin users raise integrity error."""
-        user = User(auth0_id="auth0|dup_admin")
+        user = User(external_id="auth0|dup_admin", auth_provider="auth0")
         db_session.add(user)
         await db_session.flush()
 
