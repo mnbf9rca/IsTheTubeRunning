@@ -117,8 +117,19 @@ def run_migrations_online() -> None:
                 f"✓ Successfully applied {len(migrations_applied)} migration(s). Database now at revision: {head_rev}"
             )
         elif current_rev != head_rev:
-            # This shouldn't happen, but log it if it does
-            logger.warning("Migration completed but no migrations were applied. This may indicate an issue.")
+            # This shouldn't happen, so log diagnostics and raise an error
+            logger.error(
+                "Migration completed but no migrations were applied. "
+                "This may indicate a bug or database inconsistency.\n"
+                f"Current revision: {current_rev}\n"
+                f"Head revision: {head_rev}\n"
+                f"Migrations applied: {migrations_applied}"
+            )
+            msg = (
+                "No migrations were applied despite differing revisions. "
+                "Please check the database state and migration scripts for inconsistencies."
+            )
+            raise RuntimeError(msg)
 
 
 if context.is_offline_mode():
