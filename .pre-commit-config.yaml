@@ -12,6 +12,19 @@ repos:
       - id: check-yaml
       - id: check-toml
       - id: check-merge-conflict
+      - id: check-added-large-files
+        args: ['--maxkb=500']
+      - id: forbid-new-submodules
+
+  # Prevent .env files in root directory
+  - repo: local
+    hooks:
+      - id: no-root-env-files
+        name: Block .env files in root directory
+        entry: bash -c 'if ls .env* 2>/dev/null | grep -v ".env.example\|.env.vault" > /dev/null; then echo "ERROR - .env files should be in backend/ directory not root"; exit 1; fi'
+        language: system
+        pass_filenames: false
+        always_run: true
 
   # Backend: Ruff linting and formatting
   - repo: https://github.com/astral-sh/ruff-pre-commit
