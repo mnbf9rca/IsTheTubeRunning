@@ -32,6 +32,12 @@ repos:
         language: system
         files: ^backend/app/.*\.py$
         pass_filenames: false
+      - id: rebuild-dotenv-vault
+        name: Sync and rebuild .env.vault
+        entry: bash -c 'npx dotenv-vault@latest push development && npx dotenv-vault@latest push ci && npx dotenv-vault@latest push production'
+        language: system
+        files: '^\.env(\.ci|\.production)?$'
+        pass_filenames: false
 
   # Frontend: ESLint and TypeScript
   - repo: local

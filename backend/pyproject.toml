@@ -20,6 +20,7 @@ dependencies = [
     "python-multipart>=0.0.17", # Form data support
     "email-validator>=2.2.0",
     "structlog>=24.4.0", # Structured logging
+    "python-dotenv-vault>=0.7.0", # Encrypted .env file management
 ]
 
 [dependency-groups]
@@ -146,5 +147,6 @@ plugins = ["pydantic.mypy"]
 module = [
     "celery.*",
     "pydantic_tfl_api.*",
+    "dotenv_vault.*",
 ]
 ignore_missing_imports = true

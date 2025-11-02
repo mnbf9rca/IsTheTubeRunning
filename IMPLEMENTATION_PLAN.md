@@ -504,6 +504,8 @@ Once this plan is committed, Phase 1 implementation will begin with:
 - [x] Planning and Architecture Design
 - [x] Phase 1: Project Foundation (Completed: November 2025)
 - [x] Phase 2: Database Models & Migrations (Completed: November 2025)
+  - CI tests fixed with python-dotenv-vault secret management
+  - Pre-commit hooks configured for automatic .env.vault rebuilding
 
 ### Current Phase
 - [ ] Phase 3: Auth0 Integration
@@ -538,6 +540,7 @@ Once this plan is committed, Phase 1 implementation will begin with:
 14. **JSON for Route Schedules**: PostgreSQL JSON support for days_of_week arrays (Phase 2)
 15. **Required Config**: DATABASE_URL, REDIS_URL, ALLOWED_ORIGINS must be provided; no misleading defaults (Phase 2)
 16. **DB Credential Separation**: App runs with limited DB permissions; migrations in separate CI/init container with admin access (Phase 2)
+17. **python-dotenv-vault for Secrets**: Replaced SOPS/age with python-dotenv-vault for simpler encrypted secret management; locally managed (no cloud service), pre-commit hooks auto-rebuild .env.vault (Phase 2)
 
 
 ### Future Enhancements (Post-MVP)

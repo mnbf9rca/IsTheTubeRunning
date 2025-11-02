@@ -236,6 +236,75 @@ See `.env.example` for all available configuration options.
 - `TFL_API_KEY` - TfL API key (required in Phase 5)
 - `AUTH0_DOMAIN` - Auth0 configuration (required in Phase 3)
 
+## Secret Management with python-dotenv-vault
+
+This project uses **python-dotenv-vault** for encrypted secret management across environments.
+
+### Local Development
+
+1. **Copy the example environment file:**
+   ```bash
+   cp .env.example .env
+   ```
+
+2. **Fill in your local values** in `.env`
+
+3. **Run the app** - `load_dotenv()` automatically loads `.env`
+
+### Managing Encrypted Secrets
+
+Environment-specific configuration files (`.env.ci`, `.env.production`) are encrypted into `.env.vault` for secure storage in version control.
+
+**Building .env.vault:**
+```bash
+# After editing .env.ci or .env.production
+npx dotenv-vault@latest build
+
+# Alternatively, pre-commit hooks automatically rebuild .env.vault when .env.* files change
+```
+
+**Viewing decryption keys:**
+```bash
+npx dotenv-vault@latest keys
+```
+
+This displays the `DOTENV_KEY_CI` and `DOTENV_KEY_PRODUCTION` values needed for decryption.
+
+### CI/CD Configuration
+
+**GitHub Actions:**
+1. Run `npx dotenv-vault@latest keys` to get the CI decryption key
+2. Go to GitHub repo → Settings → Secrets and variables → Actions
+3. Add secret: `DOTENV_KEY_CI` with the full key string from `.env.keys`
+4. CI workflow automatically decrypts `.env.vault` using this key
+
+**Production Deployment:**
+1. Set `DOTENV_KEY_PRODUCTION` as an environment variable on your production server
+2. The application automatically decrypts `.env.vault` at startup
+
+### How It Works
+
+1. **Config Loading** (`backend/app/core/config.py`):
+   - `load_dotenv()` is called BEFORE any configuration is read
+   - Local: loads plain `.env` file
+   - CI/Production: decrypts `.env.vault` using `DOTENV_KEY` environment variable
+
+2. **Pre-commit Hooks**:
+   - Automatically rebuild `.env.vault` when `.env.ci` or `.env.production` changes
+   - Ensures encrypted vault is always up-to-date
+
+3. **Security**:
+   - `.env`, `.env.ci`, `.env.production` - gitignored (never committed)
+   - `.env.vault` - encrypted, safe to commit
+   - `.env.keys` - gitignored, store in password manager (DO NOT COMMIT)
+
+### Updating Secrets
+
+1. Edit `.env.ci` or `.env.production`
+2. Run `npx dotenv-vault@latest build` (or let pre-commit do it)
+3. Commit the updated `.env.vault`
+4. Update GitHub Secrets if decryption keys changed
+
 ## Contributing
 
 1. Follow the existing code style

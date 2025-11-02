@@ -13,6 +13,9 @@ jobs:
     permissions:
       contents: read
 
+    env:
+      DOTENV_KEY: ${{ secrets.DOTENV_KEY_CI }}
+
     services:
       postgres:
         image: postgres:18
@@ -71,9 +74,6 @@ jobs:
 
       - name: Run tests
         working-directory: backend
-        env:
-          DATABASE_URL: postgresql+asyncpg://postgres:postgres@localhost:5432/isthetube_test
-          REDIS_URL: redis://localhost:6379/0
         run: uv run pytest -v
 
   frontend:

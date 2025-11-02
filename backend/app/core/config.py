@@ -1,7 +1,14 @@
 """Application configuration."""
 
-from pydantic import field_validator
-from pydantic_settings import BaseSettings, SettingsConfigDict
+from dotenv_vault import load_dotenv
+
+# Load environment variables FIRST - before any other imports or config
+# Local: loads .env file
+# CI/Production: loads from .env.vault using DOTENV_KEY environment variable
+load_dotenv()
+
+from pydantic import field_validator  # noqa: E402
+from pydantic_settings import BaseSettings, SettingsConfigDict  # noqa: E402
 
 
 class Settings(BaseSettings):
