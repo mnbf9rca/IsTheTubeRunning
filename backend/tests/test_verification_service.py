@@ -250,6 +250,7 @@ class TestVerificationService:
         code = "123456"
         verification_code = VerificationCode(
             user_id=test_user.id,
+            contact_id=email.id,
             code=code,
             type=VerificationType.EMAIL,
             expires_at=datetime.now(UTC) + timedelta(minutes=15),
@@ -291,6 +292,7 @@ class TestVerificationService:
         code = "654321"
         verification_code = VerificationCode(
             user_id=test_user.id,
+            contact_id=phone.id,
             code=code,
             type=VerificationType.SMS,
             expires_at=datetime.now(UTC) + timedelta(minutes=15),
@@ -344,6 +346,7 @@ class TestVerificationService:
         code = "123456"
         verification_code = VerificationCode(
             user_id=test_user.id,
+            contact_id=email.id,
             code=code,
             type=VerificationType.EMAIL,
             expires_at=datetime.now(UTC) - timedelta(minutes=1),  # Expired
@@ -379,6 +382,7 @@ class TestVerificationService:
         code = "123456"
         verification_code = VerificationCode(
             user_id=test_user.id,
+            contact_id=email.id,
             code=code,
             type=VerificationType.EMAIL,
             expires_at=datetime.now(UTC) + timedelta(minutes=15),
@@ -418,6 +422,7 @@ class TestVerificationService:
         code = "123456"
         verification_code = VerificationCode(
             user_id=test_user.id,
+            contact_id=email.id,
             code=code,
             type=VerificationType.EMAIL,
             expires_at=datetime.now(UTC) + timedelta(minutes=15),

@@ -3,8 +3,9 @@
 from datetime import datetime
 from uuid import UUID
 
+import phonenumbers
 from fastapi import APIRouter, Depends, HTTPException, status
-from pydantic import BaseModel, ConfigDict, EmailStr
+from pydantic import BaseModel, ConfigDict, EmailStr, field_validator
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -12,6 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.auth import get_current_user
 from app.core.database import get_db
 from app.models.user import EmailAddress, PhoneNumber, User, VerificationType
+from app.services.contact_service import get_contact_by_id
 from app.services.verification_service import VerificationService
 
 router = APIRouter(prefix="/contacts", tags=["contacts"])
@@ -25,11 +27,48 @@ class AddEmailRequest(BaseModel):
 
     email: EmailStr
 
+    @field_validator("email", mode="after")
+    @classmethod
+    def normalize_email(cls, v: str) -> str:
+        """Normalize email to lowercase for case-insensitive duplicate detection."""
+        return v.lower()
+
 
 class AddPhoneRequest(BaseModel):
     """Request to add a new phone number."""
 
     phone: str  # E.164 format recommended (e.g., +14155552671)
+
+    @field_validator("phone", mode="after")
+    @classmethod
+    def normalize_phone(cls, v: str) -> str:
+        """
+        Validate and normalize phone number to E.164 format.
+
+        This ensures consistent storage and duplicate detection regardless of input formatting.
+
+        Args:
+            v: Phone number in any format
+
+        Returns:
+            Normalized E.164 format phone number (e.g., +442012345678)
+
+        Raises:
+            ValueError: If phone number is invalid
+        """
+        try:
+            # Parse with None region (requires + prefix) or try common defaults
+            parsed = phonenumbers.parse(v, None if v.startswith("+") else "US")
+
+            # Validate the number
+            if not phonenumbers.is_valid_number(parsed):
+                raise ValueError
+
+            # Return in E.164 format
+            return phonenumbers.format_number(parsed, phonenumbers.PhoneNumberFormat.E164)
+        except phonenumbers.NumberParseException as e:
+            error_msg = f"Invalid phone number format: {e}"
+            raise ValueError(error_msg) from e
 
 
 class EmailResponse(BaseModel):
@@ -229,52 +268,29 @@ async def send_verification(
     """
     verification_service = VerificationService(db)
 
-    # Try to find email first
-    result = await db.execute(
-        select(EmailAddress).where(
-            EmailAddress.id == contact_id,
-            EmailAddress.user_id == current_user.id,
-        )
+    # Find and validate contact ownership using helper function
+    contact = await get_contact_by_id(contact_id, current_user.id, db)
+
+    # Determine contact type and value
+    if isinstance(contact, EmailAddress):
+        contact_type = VerificationType.EMAIL
+        contact_value = contact.email
+        message = "Verification code sent to your email address."
+    else:  # PhoneNumber
+        contact_type = VerificationType.SMS
+        contact_value = contact.phone
+        message = "Verification code sent to your phone number."
+
+    await verification_service.create_and_send_code(
+        contact_id=contact_id,
+        user_id=current_user.id,
+        contact_type=contact_type,
+        contact_value=contact_value,
     )
-    email = result.scalar_one_or_none()
 
-    if email:
-        await verification_service.create_and_send_code(
-            contact_id=contact_id,
-            user_id=current_user.id,
-            contact_type=VerificationType.EMAIL,
-            contact_value=email.email,
-        )
-        return SendVerificationResponse(
-            success=True,
-            message="Verification code sent to your email address.",
-        )
-
-    # Try to find phone
-    result = await db.execute(
-        select(PhoneNumber).where(
-            PhoneNumber.id == contact_id,
-            PhoneNumber.user_id == current_user.id,
-        )
-    )
-    phone = result.scalar_one_or_none()
-
-    if phone:
-        await verification_service.create_and_send_code(
-            contact_id=contact_id,
-            user_id=current_user.id,
-            contact_type=VerificationType.SMS,
-            contact_value=phone.phone,  # type: ignore[attr-defined]
-        )
-        return SendVerificationResponse(
-            success=True,
-            message="Verification code sent to your phone number.",
-        )
-
-    # Contact not found
-    raise HTTPException(
-        status_code=status.HTTP_404_NOT_FOUND,
-        detail="Contact not found.",
+    return SendVerificationResponse(
+        success=True,
+        message=message,
     )
 
 
@@ -366,39 +382,12 @@ async def delete_contact(
     Raises:
         HTTPException: 404 if contact not found or doesn't belong to user
     """
-    # Try to find and delete email
-    result = await db.execute(
-        select(EmailAddress).where(
-            EmailAddress.id == contact_id,
-            EmailAddress.user_id == current_user.id,
-        )
-    )
-    email = result.scalar_one_or_none()
+    # Find and validate contact ownership using helper function
+    contact = await get_contact_by_id(contact_id, current_user.id, db)
 
-    if email:
-        await db.delete(email)
-        await db.commit()
-        return
-
-    # Try to find and delete phone
-    result = await db.execute(
-        select(PhoneNumber).where(
-            PhoneNumber.id == contact_id,
-            PhoneNumber.user_id == current_user.id,
-        )
-    )
-    phone = result.scalar_one_or_none()
-
-    if phone:
-        await db.delete(phone)
-        await db.commit()
-        return
-
-    # Contact not found
-    raise HTTPException(
-        status_code=status.HTTP_404_NOT_FOUND,
-        detail="Contact not found.",
-    )
+    # Delete the contact
+    await db.delete(contact)
+    await db.commit()
 
 
 @router.patch("/{contact_id}/primary", response_model=EmailResponse | PhoneResponse)
@@ -410,6 +399,7 @@ async def set_primary_contact(
     """
     Set a contact as the primary contact.
 
+    Only verified contacts can be set as primary.
     Only one email and one phone can be primary at a time.
 
     Args:
@@ -421,64 +411,46 @@ async def set_primary_contact(
         Updated contact
 
     Raises:
-        HTTPException: 404 if contact not found or doesn't belong to user
+        HTTPException: 404 if contact not found or doesn't belong to user,
+                      400 if contact is not verified
     """
-    # Try to find email
-    result = await db.execute(
-        select(EmailAddress).where(
-            EmailAddress.id == contact_id,
-            EmailAddress.user_id == current_user.id,
-        )
-    )
-    email = result.scalar_one_or_none()
+    # Find and validate contact ownership using helper function
+    contact = await get_contact_by_id(contact_id, current_user.id, db)
 
-    if email:
-        # Unset any other primary email
-        result = await db.execute(
-            select(EmailAddress).where(
-                EmailAddress.user_id == current_user.id,
-                EmailAddress.is_primary == True,  # noqa: E712
+    # Validate contact is verified
+    if not contact.verified:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Only verified contacts can be set as primary.",
+        )
+
+    # Unset any other primary contact of the same type
+    if isinstance(contact, EmailAddress):
+        if (
+            current_primary_email := (
+                await db.execute(
+                    select(EmailAddress).where(
+                        EmailAddress.user_id == current_user.id,
+                        EmailAddress.is_primary == True,  # noqa: E712
+                    )
+                )
+            ).scalar_one_or_none()
+        ) and current_primary_email.id != contact_id:
+            current_primary_email.is_primary = False
+    elif (
+        current_primary_phone := (
+            await db.execute(
+                select(PhoneNumber).where(
+                    PhoneNumber.user_id == current_user.id,
+                    PhoneNumber.is_primary == True,  # noqa: E712
+                )
             )
-        )
-        current_primary = result.scalar_one_or_none()
-        if current_primary and current_primary.id != contact_id:
-            current_primary.is_primary = False
+        ).scalar_one_or_none()
+    ) and current_primary_phone.id != contact_id:
+        current_primary_phone.is_primary = False
 
-        # Set this email as primary
-        email.is_primary = True
-        await db.commit()
-        await db.refresh(email)
-        return email
-
-    # Try to find phone
-    result = await db.execute(
-        select(PhoneNumber).where(
-            PhoneNumber.id == contact_id,
-            PhoneNumber.user_id == current_user.id,
-        )
-    )
-    phone = result.scalar_one_or_none()
-
-    if phone:
-        # Unset any other primary phone
-        result = await db.execute(
-            select(PhoneNumber).where(
-                PhoneNumber.user_id == current_user.id,
-                PhoneNumber.is_primary == True,  # noqa: E712
-            )
-        )
-        current_primary = result.scalar_one_or_none()
-        if current_primary and current_primary.id != contact_id:
-            current_primary.is_primary = False
-
-        # Set this phone as primary
-        phone.is_primary = True
-        await db.commit()
-        await db.refresh(phone)
-        return phone
-
-    # Contact not found
-    raise HTTPException(
-        status_code=status.HTTP_404_NOT_FOUND,
-        detail="Contact not found.",
-    )
+    # Set this contact as primary
+    contact.is_primary = True
+    await db.commit()
+    await db.refresh(contact)
+    return contact

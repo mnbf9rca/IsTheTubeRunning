@@ -1,5 +1,7 @@
 """Email service for sending verification and notification emails."""
 
+import asyncio
+import functools
 import smtplib
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
@@ -16,6 +18,10 @@ require_config("SMTP_HOST", "SMTP_PORT", "SMTP_USER", "SMTP_PASSWORD", "SMTP_FRO
 logger = structlog.get_logger(__name__)
 
 # Initialize Jinja2 environment for email templates
+# Security: Using autoescape with select_autoescape for HTML/XML provides XSS protection
+# by automatically escaping all variables in templates. This is equivalent to Flask's
+# render_template() security model. Template variables (code, contact_type) are always
+# escaped, preventing injection attacks.
 template_dir = Path(__file__).parent.parent / "templates" / "email"
 jinja_env = Environment(
     loader=FileSystemLoader(str(template_dir)),
@@ -38,6 +44,27 @@ class EmailService:
         """
         Send a verification email with the provided code.
 
+        Uses run_in_executor to prevent blocking the event loop during SMTP operations.
+
+        Args:
+            email: Recipient email address
+            code: 6-digit verification code
+
+        Raises:
+            smtplib.SMTPException: If email sending fails
+        """
+        loop = asyncio.get_running_loop()
+        await loop.run_in_executor(
+            None,
+            functools.partial(self._send_email_sync, email, code),
+        )
+
+    def _send_email_sync(self, email: str, code: str) -> None:
+        """
+        Synchronously send a verification email (runs in thread pool).
+
+        This method contains all blocking I/O operations (template rendering, SMTP).
+
         Args:
             email: Recipient email address
             code: 6-digit verification code
@@ -46,8 +73,9 @@ class EmailService:
             smtplib.SMTPException: If email sending fails
         """
         try:
-            # Render the HTML template
+            # Render the HTML template (blocking file I/O)
             template = jinja_env.get_template("verification.html")
+            # Security: template.render() with autoescape=True prevents XSS by escaping variables
             html_content = template.render(code=code, contact_type="email address")
 
             # Create the email message
@@ -79,7 +107,7 @@ This is an automated message from IsTheTubeRunning.
             message.attach(part1)
             message.attach(part2)
 
-            # Send the email via SMTP
+            # Send the email via SMTP (blocking network I/O)
             with smtplib.SMTP(self.smtp_host, self.smtp_port) as server:
                 server.starttls()
                 server.login(self.smtp_user, self.smtp_password)

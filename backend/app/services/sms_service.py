@@ -1,17 +1,50 @@
 """SMS service stub for logging verification codes."""
 
-import os
+import asyncio
+import functools
 from datetime import UTC, datetime
 from pathlib import Path
 
 import structlog
 
+from app.core.config import settings
+
 logger = structlog.get_logger(__name__)
 
-# SMS log file location
-# Use temp directory in tests to avoid permission issues
-SMS_LOG_DIR = Path("/tmp") if os.getenv("DEBUG") == "true" else Path()
-SMS_LOG_FILE = SMS_LOG_DIR / "sms_log.txt"
+
+def _get_sms_log_file() -> Path | None:
+    """
+    Get SMS log file path from settings with validation.
+
+    Returns:
+        Path to SMS log file if directory is configured and writable, None otherwise
+    """
+    if not settings.SMS_LOG_DIR:
+        logger.warning(
+            "sms_file_logging_disabled",
+            reason="SMS_LOG_DIR not configured",
+        )
+        return None
+
+    try:
+        log_dir = Path(settings.SMS_LOG_DIR)
+        log_dir.mkdir(parents=True, exist_ok=True)
+
+        # Test writeability
+        test_file = log_dir / ".write_test"
+        test_file.touch()
+        test_file.unlink()
+
+        return log_dir / "sms_log.txt"
+    except (OSError, PermissionError) as e:
+        logger.warning(
+            "sms_file_logging_disabled",
+            reason=f"SMS_LOG_DIR not writable: {e}",
+        )
+        return None
+
+
+SMS_LOG_FILE = _get_sms_log_file()
 
 
 class SmsService:
@@ -32,6 +65,7 @@ class SmsService:
         Send a verification SMS with the provided code.
 
         Currently logs to console and file instead of sending actual SMS.
+        Uses run_in_executor to prevent blocking the event loop during file I/O.
 
         Args:
             phone: Recipient phone number
@@ -40,7 +74,7 @@ class SmsService:
         timestamp = datetime.now(UTC).isoformat()
         message = f"Your IsTheTubeRunning verification code is: {code}. This code expires in 15 minutes."
 
-        # Log to structured logger (console)
+        # Log to structured logger (console) - non-blocking
         logger.info(
             "verification_sms_sent",
             recipient=phone,
@@ -49,12 +83,17 @@ class SmsService:
             timestamp=timestamp,
         )
 
-        # Log to file
-        self._write_to_file(phone, code, message, timestamp)
+        # Log to file asynchronously (runs in thread pool)
+        if SMS_LOG_FILE:
+            loop = asyncio.get_running_loop()
+            await loop.run_in_executor(
+                None,
+                functools.partial(self._write_to_file_sync, phone, code, message, timestamp),
+            )
 
-    def _write_to_file(self, phone: str, code: str, message: str, timestamp: str) -> None:
+    def _write_to_file_sync(self, phone: str, code: str, message: str, timestamp: str) -> None:
         """
-        Write SMS log entry to file.
+        Synchronously write SMS log entry to file (runs in thread pool).
 
         Args:
             phone: Recipient phone number
@@ -62,6 +101,9 @@ class SmsService:
             message: Full SMS message
             timestamp: ISO format timestamp
         """
+        if not SMS_LOG_FILE:
+            return
+
         try:
             log_entry = f"[{timestamp}] TO: {phone} | CODE: {code} | MESSAGE: {message}\n"
             with SMS_LOG_FILE.open("a") as f:

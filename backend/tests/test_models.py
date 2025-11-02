@@ -154,15 +154,21 @@ class TestVerificationCode:
     async def test_verification_code_expiry(self, db_session: AsyncSession) -> None:
         """Test verification code expiry logic."""
         user = User(external_id=make_unique_external_id("auth0|verification"), auth_provider="auth0")
+        email = EmailAddress(user=user, email=make_unique_email(), verified=False)
+
+        db_session.add(user)
+        db_session.add(email)
+        await db_session.flush()  # Flush to assign IDs
+
         expired_code = VerificationCode(
             user=user,
+            contact_id=email.id,
             code="123456",
             type=VerificationType.EMAIL,
             expires_at=datetime.now(UTC) - timedelta(minutes=1),
             used=False,
         )
 
-        db_session.add(user)
         db_session.add(expired_code)
         await db_session.commit()
 
@@ -173,15 +179,21 @@ class TestVerificationCode:
     async def test_verification_code_valid(self, db_session: AsyncSession) -> None:
         """Test valid verification code."""
         user = User(external_id=make_unique_external_id("auth0|valid_code"), auth_provider="auth0")
+        phone = PhoneNumber(user=user, phone=make_unique_phone(), verified=False)
+
+        db_session.add(user)
+        db_session.add(phone)
+        await db_session.flush()  # Flush to assign IDs
+
         valid_code = VerificationCode(
             user=user,
+            contact_id=phone.id,
             code="654321",
             type=VerificationType.SMS,
             expires_at=datetime.now(UTC) + timedelta(minutes=15),
             used=False,
         )
 
-        db_session.add(user)
         db_session.add(valid_code)
         await db_session.commit()
 
@@ -192,15 +204,21 @@ class TestVerificationCode:
     async def test_verification_code_used(self, db_session: AsyncSession) -> None:
         """Test used verification code."""
         user = User(external_id=make_unique_external_id("auth0|used_code"), auth_provider="auth0")
+        email = EmailAddress(user=user, email=make_unique_email(), verified=False)
+
+        db_session.add(user)
+        db_session.add(email)
+        await db_session.flush()  # Flush to assign IDs
+
         used_code = VerificationCode(
             user=user,
+            contact_id=email.id,
             code="999999",
             type=VerificationType.EMAIL,
             expires_at=datetime.now(UTC) + timedelta(minutes=15),
             used=True,
         )
 
-        db_session.add(user)
         db_session.add(used_code)
         await db_session.commit()
 

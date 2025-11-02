@@ -10,7 +10,8 @@ from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.rate_limit import RateLimitAction, RateLimitLog
-from app.models.user import EmailAddress, PhoneNumber, VerificationCode, VerificationType
+from app.models.user import VerificationCode, VerificationType
+from app.services.contact_service import get_contact_by_id
 from app.services.email_service import EmailService
 from app.services.sms_service import SmsService
 
@@ -201,6 +202,7 @@ class VerificationService:
         # Create verification code in database
         verification_code = VerificationCode(
             user_id=user_id,
+            contact_id=contact_id,
             code=code,
             type=contact_type,
             expires_at=datetime.now(UTC) + timedelta(minutes=VERIFICATION_CODE_EXPIRY_MINUTES),
@@ -250,11 +252,12 @@ class VerificationService:
         Raises:
             HTTPException: If code is invalid, expired, or already used
         """
-        # Find the most recent unused verification code for this user
+        # Find the most recent unused verification code for this user and contact
         result = await self.db.execute(
             select(VerificationCode)
             .where(
                 VerificationCode.user_id == user_id,
+                VerificationCode.contact_id == contact_id,
                 VerificationCode.code == code,
                 VerificationCode.used == False,  # noqa: E712
             )
@@ -285,24 +288,12 @@ class VerificationService:
                 detail="Verification code has expired. Please request a new one.",
             )
 
-        # Mark code as used
+        # Validate contact exists and belongs to user (hoisted from conditional)
+        contact = await get_contact_by_id(contact_id, user_id, self.db)
+
+        # Mark code as used and contact as verified
         verification_code.used = True
-
-        # Mark contact as verified
-        if verification_code.type == VerificationType.EMAIL:
-            result = await self.db.execute(select(EmailAddress).where(EmailAddress.id == contact_id))
-            contact = result.scalar_one_or_none()
-        else:
-            result = await self.db.execute(select(PhoneNumber).where(PhoneNumber.id == contact_id))
-            contact = result.scalar_one_or_none()
-
-        if not contact:
-            raise HTTPException(
-                status_code=404,
-                detail="Contact not found.",
-            )
-
-        contact.verified = True  # type: ignore[attr-defined]
+        contact.verified = True
         await self.db.commit()
 
         # Reset rate limit after successful verification
