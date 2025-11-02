@@ -1,6 +1,7 @@
 """Tests for database models."""
 
 from datetime import UTC, datetime, time, timedelta
+from typing import Any
 
 import pytest
 from app.models import (
@@ -26,6 +27,8 @@ from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from tests.conftest import make_unique_email, make_unique_external_id, make_unique_phone
+
 
 class TestUserModel:
     """Tests for User model and related models."""
@@ -33,17 +36,18 @@ class TestUserModel:
     @pytest.mark.asyncio
     async def test_create_user(self, db_session: AsyncSession) -> None:
         """Test creating a user."""
-        user = User(external_id="auth0|12345", auth_provider="auth0")
+        external_id = make_unique_external_id()
+        user = User(external_id=external_id, auth_provider="auth0")
         db_session.add(user)
         await db_session.commit()
 
         result = await db_session.execute(
-            select(User).where(User.external_id == "auth0|12345").where(User.auth_provider == "auth0")
+            select(User).where(User.external_id == external_id).where(User.auth_provider == "auth0")
         )
         saved_user = result.scalar_one()
 
         assert saved_user.id is not None
-        assert saved_user.external_id == "auth0|12345"
+        assert saved_user.external_id == external_id
         assert saved_user.auth_provider == "auth0"
         assert saved_user.created_at is not None
         assert saved_user.updated_at is not None
@@ -53,7 +57,8 @@ class TestUserModel:
     @pytest.mark.asyncio
     async def test_user_soft_delete(self, db_session: AsyncSession) -> None:
         """Test soft delete functionality."""
-        user = User(external_id="auth0|softdelete", auth_provider="auth0")
+        external_id = make_unique_external_id("auth0|softdelete")
+        user = User(external_id=external_id, auth_provider="auth0")
         db_session.add(user)
         await db_session.commit()
 
@@ -70,8 +75,10 @@ class TestUserModel:
     @pytest.mark.asyncio
     async def test_email_address_relationship(self, db_session: AsyncSession) -> None:
         """Test user-email relationship."""
-        user = User(external_id="auth0|email_test", auth_provider="auth0")
-        email = EmailAddress(user=user, email="test@example.com", verified=True, is_primary=True)
+        external_id = make_unique_external_id("auth0|email_test")
+        email_addr = make_unique_email()
+        user = User(external_id=external_id, auth_provider="auth0")
+        email = EmailAddress(user=user, email=email_addr, verified=True, is_primary=True)
 
         db_session.add(user)
         db_session.add(email)
@@ -82,15 +89,17 @@ class TestUserModel:
         await db_session.refresh(saved_user, ["email_addresses"])
 
         assert len(saved_user.email_addresses) == 1
-        assert saved_user.email_addresses[0].email == "test@example.com"
+        assert saved_user.email_addresses[0].email == email_addr
         assert saved_user.email_addresses[0].verified
         assert saved_user.email_addresses[0].is_primary
 
     @pytest.mark.asyncio
     async def test_phone_number_relationship(self, db_session: AsyncSession) -> None:
         """Test user-phone relationship."""
-        user = User(external_id="auth0|phone_test", auth_provider="auth0")
-        phone = PhoneNumber(user=user, phone="+447700900000", verified=False, is_primary=True)
+        external_id = make_unique_external_id("auth0|phone_test")
+        phone_num = make_unique_phone()
+        user = User(external_id=external_id, auth_provider="auth0")
+        phone = PhoneNumber(user=user, phone=phone_num, verified=False, is_primary=True)
 
         db_session.add(user)
         db_session.add(phone)
@@ -101,23 +110,26 @@ class TestUserModel:
         await db_session.refresh(saved_user, ["phone_numbers"])
 
         assert len(saved_user.phone_numbers) == 1
-        assert saved_user.phone_numbers[0].phone == "+447700900000"
+        assert saved_user.phone_numbers[0].phone == phone_num
         assert not saved_user.phone_numbers[0].verified
 
     @pytest.mark.asyncio
     @pytest.mark.parametrize(
-        ("model_class", "field_name", "field_value"),
+        ("model_class", "field_name"),
         [
-            pytest.param(EmailAddress, "email", "duplicate@example.com", id="email"),
-            pytest.param(PhoneNumber, "phone", "+447700900000", id="phone"),
+            pytest.param(EmailAddress, "email", id="email"),
+            pytest.param(PhoneNumber, "phone", id="phone"),
         ],
     )
     async def test_duplicate_user_contact_raises_error(
-        self, db_session: AsyncSession, model_class: type, field_name: str, field_value: str
+        self, db_session: AsyncSession, model_class: type, field_name: str
     ) -> None:
         """Test that duplicate emails/phones raise integrity error."""
-        user1 = User(external_id="auth0|user1", auth_provider="auth0")
-        user2 = User(external_id="auth0|user2", auth_provider="auth0")
+        # Generate unique value for this test based on field type
+        field_value = make_unique_email() if field_name == "email" else make_unique_phone()
+
+        user1 = User(external_id=make_unique_external_id("auth0|user1"), auth_provider="auth0")
+        user2 = User(external_id=make_unique_external_id("auth0|user2"), auth_provider="auth0")
 
         contact1_kwargs = {"user": user1, field_name: field_value, "verified": True, "is_primary": True}
         contact1 = model_class(**contact1_kwargs)
@@ -141,7 +153,7 @@ class TestVerificationCode:
     @pytest.mark.asyncio
     async def test_verification_code_expiry(self, db_session: AsyncSession) -> None:
         """Test verification code expiry logic."""
-        user = User(external_id="auth0|verification", auth_provider="auth0")
+        user = User(external_id=make_unique_external_id("auth0|verification"), auth_provider="auth0")
         expired_code = VerificationCode(
             user=user,
             code="123456",
@@ -160,7 +172,7 @@ class TestVerificationCode:
     @pytest.mark.asyncio
     async def test_verification_code_valid(self, db_session: AsyncSession) -> None:
         """Test valid verification code."""
-        user = User(external_id="auth0|valid_code", auth_provider="auth0")
+        user = User(external_id=make_unique_external_id("auth0|valid_code"), auth_provider="auth0")
         valid_code = VerificationCode(
             user=user,
             code="654321",
@@ -179,7 +191,7 @@ class TestVerificationCode:
     @pytest.mark.asyncio
     async def test_verification_code_used(self, db_session: AsyncSession) -> None:
         """Test used verification code."""
-        user = User(external_id="auth0|used_code", auth_provider="auth0")
+        user = User(external_id=make_unique_external_id("auth0|used_code"), auth_provider="auth0")
         used_code = VerificationCode(
             user=user,
             code="999999",
@@ -287,7 +299,7 @@ class TestTfLModels:
         ],
     )
     async def test_duplicate_tfl_id_raises_error(
-        self, db_session: AsyncSession, model_class: type, tfl_id: str, extra_kwargs: dict
+        self, db_session: AsyncSession, model_class: type, tfl_id: str, extra_kwargs: dict[str, Any]
     ) -> None:
         """Test that duplicate tfl_id raises integrity error for stations and lines."""
         entity1 = model_class(
@@ -353,7 +365,7 @@ class TestRouteModels:
     @pytest.mark.asyncio
     async def test_create_route_with_segments(self, db_session: AsyncSession) -> None:
         """Test creating a route with segments."""
-        user = User(external_id="auth0|route_test", auth_provider="auth0")
+        user = User(external_id=make_unique_external_id("auth0|route_test"), auth_provider="auth0")
         line = Line(
             tfl_id="victoria",
             name="Victoria Line",
@@ -400,7 +412,7 @@ class TestRouteModels:
     @pytest.mark.asyncio
     async def test_route_schedule(self, db_session: AsyncSession) -> None:
         """Test route schedule."""
-        user = User(external_id="auth0|schedule_test", auth_provider="auth0")
+        user = User(external_id=make_unique_external_id("auth0|schedule_test"), auth_provider="auth0")
         route = Route(user=user, name="Test Route", active=True)
         schedule = RouteSchedule(
             route=route,
@@ -422,7 +434,7 @@ class TestRouteModels:
     @pytest.mark.asyncio
     async def test_duplicate_route_segment_sequence_raises_error(self, db_session: AsyncSession) -> None:
         """Test that duplicate route segment sequence numbers raise integrity error."""
-        user = User(external_id="auth0|segment_test", auth_provider="auth0")
+        user = User(external_id=make_unique_external_id("auth0|segment_test"), auth_provider="auth0")
         line = Line(
             tfl_id="victoria",
             name="Victoria Line",
@@ -465,8 +477,8 @@ class TestNotificationModels:
     @pytest.mark.asyncio
     async def test_notification_preference(self, db_session: AsyncSession) -> None:
         """Test notification preference."""
-        user = User(external_id="auth0|notif_test", auth_provider="auth0")
-        email = EmailAddress(user=user, email="notif@example.com", verified=True, is_primary=True)
+        user = User(external_id=make_unique_external_id("auth0|notif_test"), auth_provider="auth0")
+        email = EmailAddress(user=user, email=make_unique_email(), verified=True, is_primary=True)
         route = Route(user=user, name="Test Route", active=True)
 
         db_session.add_all([user, email, route])
@@ -489,7 +501,7 @@ class TestNotificationModels:
     @pytest.mark.asyncio
     async def test_notification_log(self, db_session: AsyncSession) -> None:
         """Test notification log."""
-        user = User(external_id="auth0|log_test", auth_provider="auth0")
+        user = User(external_id=make_unique_external_id("auth0|log_test"), auth_provider="auth0")
         route = Route(user=user, name="Test Route", active=True)
         log = NotificationLog(
             user=user,
@@ -512,9 +524,9 @@ class TestNotificationModels:
     @pytest.mark.asyncio
     async def test_notification_preference_with_both_targets_raises_error(self, db_session: AsyncSession) -> None:
         """Test that NotificationPreference with both target_email_id and target_phone_id raises error."""
-        user = User(external_id="auth0|both_targets", auth_provider="auth0")
-        email = EmailAddress(user=user, email="test@example.com", verified=True, is_primary=True)
-        phone = PhoneNumber(user=user, phone="+447700900000", verified=True, is_primary=True)
+        user = User(external_id=make_unique_external_id("auth0|both_targets"), auth_provider="auth0")
+        email = EmailAddress(user=user, email=make_unique_email(), verified=True, is_primary=True)
+        phone = PhoneNumber(user=user, phone=make_unique_phone(), verified=True, is_primary=True)
         route = Route(user=user, name="Test Route", active=True)
 
         db_session.add_all([user, email, phone, route])
@@ -539,7 +551,7 @@ class TestAdminModel:
     @pytest.mark.asyncio
     async def test_create_admin(self, db_session: AsyncSession) -> None:
         """Test creating an admin user."""
-        user = User(external_id="auth0|admin_test", auth_provider="auth0")
+        user = User(external_id=make_unique_external_id("auth0|admin_test"), auth_provider="auth0")
         db_session.add(user)
         await db_session.flush()  # Flush to get user.id before creating admin
 
@@ -561,7 +573,7 @@ class TestAdminModel:
     @pytest.mark.asyncio
     async def test_duplicate_admin_user_raises_error(self, db_session: AsyncSession) -> None:
         """Test that duplicate admin users raise integrity error."""
-        user = User(external_id="auth0|dup_admin", auth_provider="auth0")
+        user = User(external_id=make_unique_external_id("auth0|dup_admin"), auth_provider="auth0")
         db_session.add(user)
         await db_session.flush()
 

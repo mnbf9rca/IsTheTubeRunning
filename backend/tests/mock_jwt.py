@@ -3,6 +3,7 @@
 import base64
 from datetime import UTC, datetime, timedelta
 from typing import Any
+from urllib.parse import urlunparse
 
 from app.core.config import settings
 from cryptography.hazmat.backends import default_backend
@@ -74,7 +75,7 @@ class MockJWTGenerator:
     @classmethod
     def generate(
         cls,
-        auth0_id: str = "auth0|test_user_123",
+        auth0_id: str,
         expires_in: timedelta = timedelta(days=1),
     ) -> str:
         """
@@ -90,13 +91,21 @@ class MockJWTGenerator:
         cls._ensure_keys()
 
         now = datetime.now(UTC)
+
+        # Build issuer URL using urllib for proper escaping
+        domain = settings.AUTH0_DOMAIN if settings.AUTH0_DOMAIN else "test.auth0.com"
+        issuer = urlunparse(("https", domain, "/", "", "", ""))
+
         payload = {
             "sub": auth0_id,
             "iat": int(now.timestamp()),
             "exp": int((now + expires_in).timestamp()),
             "aud": settings.AUTH0_API_AUDIENCE or "test-audience",
-            "iss": f"https://{settings.AUTH0_DOMAIN}/" if settings.AUTH0_DOMAIN else "https://test.auth0.com/",
+            "iss": issuer,
         }
+
+        # _ensure_keys() guarantees _private_key is not None
+        assert cls._private_key is not None, "Private key must be initialized"
         return jwt.encode(payload, cls._private_key, algorithm="RS256", headers={"kid": cls.KID})
 
     @classmethod

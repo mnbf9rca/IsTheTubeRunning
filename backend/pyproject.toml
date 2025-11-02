@@ -155,5 +155,6 @@ module = [
     "celery.*",
     "pydantic_tfl_api.*",
     "dotenv_vault.*",
+    "pytest_postgresql.*",
 ]
 ignore_missing_imports = true
