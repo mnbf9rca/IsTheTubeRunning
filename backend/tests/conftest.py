@@ -100,7 +100,7 @@ async def db_session(postgresql: Any) -> AsyncGenerator[AsyncSession]:  # noqa: 
     )
 
     if result.returncode != 0:
-        msg = f"Migration failed: {result.stderr}"
+        msg = f"Migration failed: {result.stderr}\nstdout: {result.stdout}"
         raise RuntimeError(msg)
 
     # Create async engine and session
