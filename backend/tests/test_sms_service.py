@@ -147,9 +147,7 @@ class TestSmsService:
 
         # Mock the Path class to return our mock instance
         def mock_path(path_str: str) -> Path | MagicMock:
-            if path_str == str(bad_dir):
-                return mock_path_instance
-            return Path(path_str)
+            return mock_path_instance if path_str == str(bad_dir) else Path(path_str)
 
         monkeypatch.setattr(sms_service, "Path", mock_path)
 
