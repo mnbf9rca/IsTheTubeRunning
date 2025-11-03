@@ -628,7 +628,7 @@ class TestContactsAPI:
             headers=auth_headers_for_user,
         )
 
-        assert response.status_code == status.HTTP_422_UNPROCESSABLE_ENTITY
+        assert response.status_code == status.HTTP_422_UNPROCESSABLE_CONTENT
 
     @pytest.mark.asyncio
     async def test_add_phone_invalid_format(
@@ -643,7 +643,7 @@ class TestContactsAPI:
             headers=auth_headers_for_user,
         )
 
-        assert response.status_code == status.HTTP_422_UNPROCESSABLE_ENTITY
+        assert response.status_code == status.HTTP_422_UNPROCESSABLE_CONTENT
 
     @pytest.mark.asyncio
     async def test_add_email_duplicate_casing(

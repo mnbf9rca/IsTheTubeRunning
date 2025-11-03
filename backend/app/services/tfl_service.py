@@ -1,11 +1,11 @@
 """TfL API service for fetching and caching transport data."""
 
 import asyncio
-import re
 import uuid
 from collections import deque
 from datetime import UTC, datetime
 from typing import Any
+from urllib.parse import urlparse
 
 import structlog
 from aiocache import Cache
@@ -59,14 +59,14 @@ class TfLService:
     def _parse_redis_host(self) -> str:
         """Extract Redis host from REDIS_URL."""
         # Format: redis://host:port/db or redis://host:port
-        match = re.search(r"redis://([^:]+)", settings.REDIS_URL)
-        return match.group(1) if match else "localhost"
+        parsed = urlparse(settings.REDIS_URL)
+        return parsed.hostname or "localhost"
 
     def _parse_redis_port(self) -> int:
         """Extract Redis port from REDIS_URL."""
         # Format: redis://host:port/db or redis://host:port
-        match = re.search(r"redis://[^:]+:(\d+)", settings.REDIS_URL)
-        return int(match.group(1)) if match else 6379
+        parsed = urlparse(settings.REDIS_URL)
+        return parsed.port or 6379
 
     def _extract_cache_ttl(self, response: ResponseModel[Any]) -> int:
         """
@@ -148,11 +148,11 @@ class TfLService:
             # response.content is a LineArray (RootModel), access via .root
             line_data_list = response.content.root
 
-            for line_data in line_data_list:
-                # TfL API doesn't provide color in GetByModeByPathModes response
-                # Use a default color (can be updated later via different endpoint if needed)
-                color = "#000000"  # Default black
+            # TfL API doesn't provide color in GetByModeByPathModes response
+            # Use a default color (can be updated later via different endpoint if needed)
+            color = "#000000"  # Default black
 
+            for line_data in line_data_list:
                 line = Line(
                     tfl_id=line_data.id,
                     name=line_data.name,
@@ -324,25 +324,24 @@ class TfLService:
             ttl = self._extract_cache_ttl(response) or DEFAULT_DISRUPTIONS_CACHE_TTL
 
             # Process disruptions
-            disruptions = []
+            disruptions: list[DisruptionResponse] = []
             # response.content is a LineArray (RootModel), access via .root
             line_data_list = response.content.root
 
             for line_data in line_data_list:
                 if hasattr(line_data, "lineStatuses") and line_data.lineStatuses is not None:
-                    for line_status in line_data.lineStatuses:
-                        # Only include non-"Good Service" statuses
-                        if line_status.statusSeverity != TFL_GOOD_SERVICE_SEVERITY:
-                            disruptions.append(
-                                DisruptionResponse(
-                                    line_id=line_data.id,
-                                    line_name=line_data.name,
-                                    status_severity=line_status.statusSeverity,
-                                    status_severity_description=line_status.statusSeverityDescription,
-                                    reason=line_status.reason if hasattr(line_status, "reason") else None,
-                                    created_at=datetime.now(UTC),
-                                )
-                            )
+                    disruptions.extend(
+                        DisruptionResponse(
+                            line_id=line_data.id,
+                            line_name=line_data.name,
+                            status_severity=line_status.statusSeverity,
+                            status_severity_description=line_status.statusSeverityDescription,
+                            reason=line_status.reason if hasattr(line_status, "reason") else None,
+                            created_at=datetime.now(UTC),
+                        )
+                        for line_status in line_data.lineStatuses
+                        if line_status.statusSeverity != TFL_GOOD_SERVICE_SEVERITY
+                    )
 
             # Cache the results
             await self.cache.set(cache_key, disruptions, ttl=ttl)

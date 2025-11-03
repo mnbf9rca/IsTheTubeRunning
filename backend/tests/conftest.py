@@ -23,6 +23,7 @@ from fastapi.testclient import TestClient
 from httpx import ASGITransport, AsyncClient
 from pytest_postgresql import factories
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
+from sqlalchemy.pool import NullPool
 
 from tests.helpers.jwt_helpers import MockJWTGenerator
 
@@ -156,8 +157,8 @@ async def db_session(postgresql: PostgreSQLExecutor) -> AsyncGenerator[AsyncSess
         msg = f"Migration failed: {result.stderr}\nstdout: {result.stdout}"
         raise RuntimeError(msg)
 
-    # Create async engine and session
-    engine = create_async_engine(db_url, echo=False)
+    # Create async engine and session with NullPool to avoid event loop issues
+    engine = create_async_engine(db_url, echo=False, poolclass=NullPool)
     async_session = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
 
     async with async_session() as session:

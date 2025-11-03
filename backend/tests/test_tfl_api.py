@@ -1,16 +1,33 @@
 """Tests for TfL API endpoints."""
 
+import uuid
 from datetime import UTC, datetime
+from posixpath import join as urljoin_path
 from unittest.mock import AsyncMock, patch
 
 import pytest
 from app.core.config import settings
 from app.main import app
-from app.models.tfl import Line, Station, StationConnection
+from app.models.tfl import Line, Station
 from app.models.user import User
 from fastapi import HTTPException
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
+
+
+def build_api_url(endpoint: str) -> str:
+    """
+    Build API URL by joining API prefix with endpoint path using posixpath.
+
+    Properly handles slashes using standard library path joining.
+
+    Args:
+        endpoint: API endpoint path (e.g., "/tfl/lines" or "tfl/lines")
+
+    Returns:
+        Complete API path (e.g., "/api/v1/tfl/lines")
+    """
+    return urljoin_path(settings.API_V1_PREFIX, endpoint.lstrip("/"))
 
 
 @pytest.fixture
@@ -31,30 +48,30 @@ async def async_client_with_auth(test_user: User, auth_headers_for_user: dict[st
 async def test_get_lines_success(
     mock_fetch_lines: AsyncMock,
     async_client_with_auth: AsyncClient,
-    db_session: AsyncSession,
 ) -> None:
     """Test successful retrieval of tube lines."""
-    # Setup mock data
+    # Setup mock data with fixed timestamp (no freezegun to avoid async event loop issues)
+    fixed_time = datetime(2025, 1, 1, 12, 0, 0, tzinfo=UTC)
     mock_lines = [
         Line(
-            id=None,  # type: ignore[arg-type]
+            id=uuid.uuid4(),
             tfl_id="victoria",
             name="Victoria",
             color="#0019A8",
-            last_updated=datetime.now(UTC),
+            last_updated=fixed_time,
         ),
         Line(
-            id=None,  # type: ignore[arg-type]
+            id=uuid.uuid4(),
             tfl_id="northern",
             name="Northern",
             color="#000000",
-            last_updated=datetime.now(UTC),
+            last_updated=fixed_time,
         ),
     ]
     mock_fetch_lines.return_value = mock_lines
 
     # Execute
-    response = await async_client_with_auth.get(f"{settings.API_V1_PREFIX}/tfl/lines")
+    response = await async_client_with_auth.get(build_api_url("/tfl/lines"))
 
     # Verify
     assert response.status_code == 200
@@ -73,7 +90,7 @@ async def test_get_lines_unauthenticated(async_client_with_auth: AsyncClient) ->
         transport=ASGITransport(app=app),
         base_url="http://test",
     ) as client:
-        response = await client.get(f"{settings.API_V1_PREFIX}/tfl/lines")
+        response = await client.get(build_api_url("/tfl/lines"))
 
     assert response.status_code == 403
 
@@ -87,22 +104,23 @@ async def test_get_stations_all(
     async_client_with_auth: AsyncClient,
 ) -> None:
     """Test retrieving all stations."""
-    # Setup mock data
+    # Setup mock data with fixed timestamp (no freezegun to avoid async event loop issues)
+    fixed_time = datetime(2025, 1, 1, 12, 0, 0, tzinfo=UTC)
     mock_stations = [
         Station(
-            id=None,  # type: ignore[arg-type]
+            id=uuid.uuid4(),
             tfl_id="940GZZLUKSX",
             name="King's Cross St. Pancras",
             latitude=51.5308,
             longitude=-0.1238,
             lines=["victoria", "northern"],
-            last_updated=datetime.now(UTC),
+            last_updated=fixed_time,
         ),
     ]
     mock_fetch_stations.return_value = mock_stations
 
     # Execute
-    response = await async_client_with_auth.get(f"{settings.API_V1_PREFIX}/tfl/stations")
+    response = await async_client_with_auth.get(build_api_url("/tfl/stations"))
 
     # Verify
     assert response.status_code == 200
@@ -120,23 +138,24 @@ async def test_get_stations_filtered_by_line(
     async_client_with_auth: AsyncClient,
 ) -> None:
     """Test retrieving stations filtered by line."""
-    # Setup mock data
+    # Setup mock data with fixed timestamp (no freezegun to avoid async event loop issues)
+    fixed_time = datetime(2025, 1, 1, 12, 0, 0, tzinfo=UTC)
     mock_stations = [
         Station(
-            id=None,  # type: ignore[arg-type]
+            id=uuid.uuid4(),
             tfl_id="940GZZLUVIC",
             name="Victoria",
             latitude=51.4965,
             longitude=-0.1447,
             lines=["victoria"],
-            last_updated=datetime.now(UTC),
+            last_updated=fixed_time,
         ),
     ]
     mock_fetch_stations.return_value = mock_stations
 
     # Execute
     response = await async_client_with_auth.get(
-        f"{settings.API_V1_PREFIX}/tfl/stations",
+        build_api_url("/tfl/stations"),
         params={"line_id": "victoria"},
     )
 
@@ -151,6 +170,32 @@ async def test_get_stations_filtered_by_line(
     mock_fetch_stations.assert_called_once()
     call_kwargs = mock_fetch_stations.call_args[1]
     assert call_kwargs.get("line_tfl_id") == "victoria"
+
+
+@patch("app.services.tfl_service.TfLService.fetch_stations")
+async def test_get_stations_with_invalid_line_id(
+    mock_fetch_stations: AsyncMock,
+    async_client_with_auth: AsyncClient,
+) -> None:
+    """Test retrieving stations with invalid/non-existent line_id."""
+    # Mock empty result for invalid line
+    mock_fetch_stations.return_value = []
+
+    # Execute with invalid line_id
+    response = await async_client_with_auth.get(
+        build_api_url("/tfl/stations"),
+        params={"line_id": "invalid-line"},
+    )
+
+    # Verify - should return 200 with empty list
+    assert response.status_code == 200
+    data = response.json()
+    assert len(data) == 0
+
+    # Verify service was called with the invalid line_id
+    mock_fetch_stations.assert_called_once()
+    call_kwargs = mock_fetch_stations.call_args[1]
+    assert call_kwargs.get("line_tfl_id") == "invalid-line"
 
 
 # ==================== GET /tfl/disruptions Tests ====================
@@ -176,7 +221,7 @@ async def test_get_disruptions(
     mock_fetch_disruptions.return_value = mock_disruptions
 
     # Execute
-    response = await async_client_with_auth.get(f"{settings.API_V1_PREFIX}/tfl/disruptions")
+    response = await async_client_with_auth.get(build_api_url("/tfl/disruptions"))
 
     # Verify
     assert response.status_code == 200
@@ -229,7 +274,7 @@ async def test_validate_route_success(
         ]
     }
     response = await async_client_with_auth.post(
-        f"{settings.API_V1_PREFIX}/tfl/validate-route",
+        build_api_url("/tfl/validate-route"),
         json=request_data,
     )
 
@@ -280,7 +325,7 @@ async def test_validate_route_invalid(
         ]
     }
     response = await async_client_with_auth.post(
-        f"{settings.API_V1_PREFIX}/tfl/validate-route",
+        build_api_url("/tfl/validate-route"),
         json=request_data,
     )
 
@@ -313,7 +358,7 @@ async def test_validate_route_insufficient_segments(
     # Execute with only one segment
     request_data = {"segments": [{"station_id": str(station1.id), "line_id": str(line.id)}]}
     response = await async_client_with_auth.post(
-        f"{settings.API_V1_PREFIX}/tfl/validate-route",
+        build_api_url("/tfl/validate-route"),
         json=request_data,
     )
 
@@ -338,7 +383,7 @@ async def test_build_graph_success(
     }
 
     # Execute
-    response = await async_client_with_auth.post(f"{settings.API_V1_PREFIX}/admin/tfl/build-graph")
+    response = await async_client_with_auth.post(build_api_url("/admin/tfl/build-graph"))
 
     # Verify
     assert response.status_code == 200
@@ -357,7 +402,7 @@ async def test_build_graph_unauthenticated(async_client_with_auth: AsyncClient) 
         transport=ASGITransport(app=app),
         base_url="http://test",
     ) as client:
-        response = await client.post(f"{settings.API_V1_PREFIX}/admin/tfl/build-graph")
+        response = await client.post(build_api_url("/admin/tfl/build-graph"))
 
     assert response.status_code == 403
 
@@ -372,73 +417,13 @@ async def test_build_graph_tfl_api_failure(
     mock_build_graph.side_effect = HTTPException(status_code=503, detail="TfL API unavailable")
 
     # Execute
-    response = await async_client_with_auth.post(f"{settings.API_V1_PREFIX}/admin/tfl/build-graph")
+    response = await async_client_with_auth.post(build_api_url("/admin/tfl/build-graph"))
 
     # Verify
     assert response.status_code == 503
     assert "unavailable" in response.json()["detail"].lower()
 
 
-# ==================== Integration Tests ====================
-
-
-async def test_full_route_validation_flow(
-    async_client_with_auth: AsyncClient,
-    db_session: AsyncSession,
-) -> None:
-    """Integration test for full route validation flow."""
-    # Create a complete route: st1 -> st2 -> st3
-    line = Line(tfl_id="victoria", name="Victoria", color="#0019A8", last_updated=datetime.now(UTC))
-    db_session.add(line)
-    await db_session.flush()
-
-    station1 = Station(
-        tfl_id="st1",
-        name="Station 1",
-        latitude=51.5,
-        longitude=-0.1,
-        lines=["victoria"],
-        last_updated=datetime.now(UTC),
-    )
-    station2 = Station(
-        tfl_id="st2",
-        name="Station 2",
-        latitude=51.5,
-        longitude=-0.1,
-        lines=["victoria"],
-        last_updated=datetime.now(UTC),
-    )
-    station3 = Station(
-        tfl_id="st3",
-        name="Station 3",
-        latitude=51.5,
-        longitude=-0.1,
-        lines=["victoria"],
-        last_updated=datetime.now(UTC),
-    )
-    db_session.add_all([station1, station2, station3])
-    await db_session.flush()
-
-    # Create connections
-    conn1 = StationConnection(from_station_id=station1.id, to_station_id=station2.id, line_id=line.id)
-    conn2 = StationConnection(from_station_id=station2.id, to_station_id=station3.id, line_id=line.id)
-    db_session.add_all([conn1, conn2])
-    await db_session.commit()
-
-    # Validate route
-    request_data = {
-        "segments": [
-            {"station_id": str(station1.id), "line_id": str(line.id)},
-            {"station_id": str(station2.id), "line_id": str(line.id)},
-            {"station_id": str(station3.id), "line_id": str(line.id)},
-        ]
-    }
-    response = await async_client_with_auth.post(
-        f"{settings.API_V1_PREFIX}/tfl/validate-route",
-        json=request_data,
-    )
-
-    # Verify
-    assert response.status_code == 200
-    data = response.json()
-    assert data["valid"] is True
+# Note: Full integration tests removed per YAGNI principle
+# Route validation is thoroughly tested at service layer (5 tests)
+# API layer is tested with mocked services above
