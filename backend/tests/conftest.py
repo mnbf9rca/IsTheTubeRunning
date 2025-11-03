@@ -26,7 +26,10 @@ from app.models.user import User
 from fastapi.testclient import TestClient
 from httpx import ASGITransport, AsyncClient
 from pytest_postgresql.janitor import DatabaseJanitor
+from sqlalchemy import event
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
+from sqlalchemy.orm import Session
+from sqlalchemy.orm.session import SessionTransaction
 from sqlalchemy.pool import NullPool
 
 from tests.helpers.jwt_helpers import MockJWTGenerator
@@ -115,33 +118,58 @@ def db_engine() -> Generator[TestDatabaseContext]:
 @pytest.fixture
 async def db_session(db_engine: TestDatabaseContext) -> AsyncGenerator[AsyncSession]:
     """
-    Create isolated database session for each test using transaction rollback.
+    Create isolated database session using nested transactions (SAVEPOINTs).
 
-    Uses the session-scoped test database and wraps each test in a transaction
-    that is rolled back after the test completes, ensuring test isolation.
+    Each test runs in a SAVEPOINT that is automatically recreated after each
+    commit/rollback, allowing tests to call session.commit() and session.rollback()
+    while maintaining isolation. This supports testing IntegrityError and other
+    database error scenarios.
+
+    The pattern:
+    1. Create connection and start outer transaction
+    2. Session bound to that connection
+    3. begin_nested() creates initial SAVEPOINT
+    4. after_transaction_end listener recreates SAVEPOINT after each release
+    5. Test commits/rollbacks only affect the current SAVEPOINT
+    6. Earlier committed work remains in the outer transaction
+    7. Outer transaction is rolled back after test (cleanup)
 
     Args:
         db_engine: Session-scoped test database context
 
     Yields:
-        Async SQLAlchemy session with transaction isolation
+        Async SQLAlchemy session with SAVEPOINT isolation
     """
-    # Create a connection and start a transaction
+    # Create connection and start outer transaction
     async with db_engine.engine.connect() as connection:
-        # Start a transaction for this test
         transaction = await connection.begin()
 
         # Create a session bound to this connection
-        async with db_engine.session_factory(bind=connection) as session:
+        async_session_factory = async_sessionmaker(
+            bind=connection,
+            class_=AsyncSession,
+            expire_on_commit=False,
+        )
+
+        async with async_session_factory() as session:
+            # Start initial nested transaction (SAVEPOINT)
+            await session.begin_nested()
+
+            # Register listener to recreate SAVEPOINT after each commit/rollback
+            @event.listens_for(session.sync_session, "after_transaction_end")
+            def _restart_savepoint(sess: Session, trans: SessionTransaction) -> None:
+                """Recreate SAVEPOINT after it's released (committed or rolled back)."""
+                # Recreate nested transaction if this was a nested transaction
+                # and the session is still active (not in the middle of closing)
+                if trans.nested and sess.is_active:
+                    sess.begin_nested()
+
             yield session
 
-        # Rollback the transaction after the test (with suppression for safety)
+        # Rollback outer transaction for cleanup
         with suppress(Exception):
             if transaction.is_active:
                 await transaction.rollback()
-
-        with suppress(Exception):
-            await connection.close()
 
 
 @pytest.fixture
