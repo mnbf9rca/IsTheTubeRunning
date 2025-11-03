@@ -7,10 +7,11 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from app.models.tfl import Line, Station, StationConnection
-from app.schemas.tfl import RouteSegmentRequest
+from app.schemas.tfl import DisruptionResponse, RouteSegmentRequest
 from app.services.tfl_service import TfLService
 from fastapi import HTTPException
 from freezegun import freeze_time
+from pydantic_tfl_api.core import ApiError
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -172,6 +173,45 @@ async def test_fetch_lines_cache_hit(
 
 
 @patch("asyncio.get_running_loop")
+async def test_fetch_lines_cache_miss(
+    mock_get_loop: MagicMock,
+    tfl_service: TfLService,
+    db_session: AsyncSession,
+) -> None:
+    """Test fetching lines from API when cache is enabled but empty."""
+    with freeze_time("2025-01-01 12:00:00"):
+        # Setup mock response
+        mock_lines = [
+            MockLineData(id="victoria", name="Victoria", colour="0019A8"),
+        ]
+        mock_response = MockResponse(
+            data=mock_lines,
+            shared_expires=datetime(2025, 1, 2, 12, 0, 0, tzinfo=UTC),
+        )
+
+        # Mock the event loop and executor
+        mock_loop = AsyncMock()
+        mock_loop.run_in_executor = AsyncMock(return_value=mock_response)
+        mock_get_loop.return_value = mock_loop
+
+        # Cache returns None (miss)
+        tfl_service.cache.get = AsyncMock(return_value=None)
+
+        # Execute with use_cache=True but cache is empty
+        lines = await tfl_service.fetch_lines(use_cache=True)
+
+        # Verify
+        assert len(lines) == 1
+        assert lines[0].tfl_id == "victoria"
+
+        # Verify cache was checked
+        tfl_service.cache.get.assert_called_once()
+
+        # Verify cache was populated
+        tfl_service.cache.set.assert_called_once()
+
+
+@patch("asyncio.get_running_loop")
 async def test_fetch_lines_api_failure(
     mock_get_loop: MagicMock,
     tfl_service: TfLService,
@@ -252,6 +292,133 @@ async def test_fetch_stations_cache_hit(
         assert stations[0].tfl_id == "940GZZLUKSX"
 
 
+@patch("asyncio.get_running_loop")
+async def test_fetch_stations_cache_miss(
+    mock_get_loop: MagicMock,
+    tfl_service: TfLService,
+    db_session: AsyncSession,
+) -> None:
+    """Test fetching stations from API when cache is enabled but empty."""
+    with freeze_time("2025-01-01 12:00:00"):
+        # Setup mock response
+        mock_stops = [
+            MockStopPoint(id="940GZZLUKSX", commonName="King's Cross St. Pancras", lat=51.5308, lon=-0.1238),
+        ]
+        mock_response = MockResponse(
+            data=mock_stops,
+            shared_expires=datetime(2025, 1, 2, 12, 0, 0, tzinfo=UTC),
+        )
+
+        # Mock the event loop and executor
+        mock_loop = AsyncMock()
+        mock_loop.run_in_executor = AsyncMock(return_value=mock_response)
+        mock_get_loop.return_value = mock_loop
+
+        # Cache returns None (miss)
+        tfl_service.cache.get = AsyncMock(return_value=None)
+
+        # Execute with use_cache=True but cache is empty
+        stations = await tfl_service.fetch_stations(line_tfl_id="victoria", use_cache=True)
+
+        # Verify
+        assert len(stations) == 1
+        assert stations[0].tfl_id == "940GZZLUKSX"
+
+        # Verify cache was checked
+        tfl_service.cache.get.assert_called_once()
+
+        # Verify cache was populated
+        tfl_service.cache.set.assert_called_once()
+
+
+async def test_fetch_stations_all(
+    tfl_service: TfLService,
+    db_session: AsyncSession,
+) -> None:
+    """Test fetching all stations when line_tfl_id is None."""
+    # Add stations to database
+    stations = [
+        Station(
+            tfl_id="940GZZLUKSX",
+            name="King's Cross",
+            latitude=51.5308,
+            longitude=-0.1238,
+            lines=["victoria", "northern"],
+            last_updated=datetime.now(UTC),
+        ),
+        Station(
+            tfl_id="940GZZLUOXC",
+            name="Oxford Circus",
+            latitude=51.5152,
+            longitude=-0.1416,
+            lines=["victoria", "central"],
+            last_updated=datetime.now(UTC),
+        ),
+    ]
+    for station in stations:
+        db_session.add(station)
+    await db_session.commit()
+
+    # Execute - fetch all stations (no line filter)
+    result = await tfl_service.fetch_stations(line_tfl_id=None, use_cache=False)
+
+    # Verify all stations returned
+    assert len(result) == 2
+    tfl_ids = {s.tfl_id for s in result}
+    assert "940GZZLUKSX" in tfl_ids
+    assert "940GZZLUOXC" in tfl_ids
+
+
+@patch("asyncio.get_running_loop")
+async def test_fetch_stations_existing_station_with_line(
+    mock_get_loop: MagicMock,
+    tfl_service: TfLService,
+    db_session: AsyncSession,
+) -> None:
+    """Test fetching stations when station already has the line in its lines array."""
+    with freeze_time("2025-01-01 12:00:00"):
+        # Create existing station with victoria already in lines
+        existing_station = Station(
+            tfl_id="940GZZLUKSX",
+            name="King's Cross St. Pancras",
+            latitude=51.5308,
+            longitude=-0.1238,
+            lines=["victoria", "northern"],  # victoria already present
+            last_updated=datetime(2024, 12, 1, 0, 0, 0, tzinfo=UTC),  # Old timestamp
+        )
+        db_session.add(existing_station)
+        await db_session.commit()
+        await db_session.refresh(existing_station)
+
+        # Setup mock response returning the same station
+        mock_stops = [
+            MockStopPoint(id="940GZZLUKSX", commonName="King's Cross St. Pancras", lat=51.5308, lon=-0.1238),
+        ]
+        mock_response = MockResponse(
+            data=mock_stops,
+            shared_expires=datetime(2025, 1, 2, 12, 0, 0, tzinfo=UTC),
+        )
+
+        # Mock the event loop and executor
+        mock_loop = AsyncMock()
+        mock_loop.run_in_executor = AsyncMock(return_value=mock_response)
+        mock_get_loop.return_value = mock_loop
+
+        # Execute - fetch stations for victoria line
+        stations = await tfl_service.fetch_stations(line_tfl_id="victoria", use_cache=False)
+
+        # Verify
+        assert len(stations) == 1
+        station = stations[0]
+        assert station.tfl_id == "940GZZLUKSX"
+        # Verify victoria is still in lines (not duplicated)
+        assert "victoria" in station.lines
+        assert station.lines.count("victoria") == 1  # Only once
+        assert "northern" in station.lines  # Other line preserved
+        # Verify timestamp was updated
+        assert station.last_updated == datetime(2025, 1, 1, 12, 0, 0, tzinfo=UTC)
+
+
 # ==================== fetch_disruptions Tests ====================
 
 
@@ -327,6 +494,117 @@ async def test_fetch_disruptions_good_service_filtered(
         # Verify only the severe delay is included
         assert len(disruptions) == 1
         assert disruptions[0].line_id == "northern"
+        assert disruptions[0].status_severity == 5
+
+
+async def test_fetch_disruptions_cache_hit(tfl_service: TfLService) -> None:
+    """Test fetching disruptions from cache when available."""
+    # Setup cached disruptions
+    cached_disruptions = [
+        DisruptionResponse(
+            line_id="northern",
+            line_name="Northern",
+            status_severity=5,
+            status_severity_description="Severe Delays",
+            reason="Signal failure",
+            created_at=datetime.now(UTC),
+        ),
+    ]
+    tfl_service.cache.get = AsyncMock(return_value=cached_disruptions)
+
+    # Execute
+    disruptions = await tfl_service.fetch_disruptions(use_cache=True)
+
+    # Verify cache was used
+    assert disruptions == cached_disruptions
+    tfl_service.cache.get.assert_called_once_with("disruptions:current")
+
+
+@patch("asyncio.get_running_loop")
+async def test_fetch_disruptions_cache_miss(
+    mock_get_loop: MagicMock,
+    tfl_service: TfLService,
+) -> None:
+    """Test fetching disruptions from API when cache is enabled but empty."""
+    with freeze_time("2025-01-01 12:00:00"):
+        # Setup mock response
+        mock_statuses = [
+            MockLineStatus(statusSeverity=5, statusSeverityDescription="Severe Delays", reason="Signal failure"),
+        ]
+        mock_status_data = [
+            MockLineStatusData(id="victoria", name="Victoria", statuses=mock_statuses),
+        ]
+        mock_response = MockResponse(
+            data=mock_status_data,
+            shared_expires=datetime(2025, 1, 1, 12, 2, 0, tzinfo=UTC),
+        )
+
+        # Mock the event loop and executor
+        mock_loop = AsyncMock()
+        mock_loop.run_in_executor = AsyncMock(return_value=mock_response)
+        mock_get_loop.return_value = mock_loop
+
+        # Cache returns None (miss)
+        tfl_service.cache.get = AsyncMock(return_value=None)
+
+        # Execute with use_cache=True but cache is empty
+        disruptions = await tfl_service.fetch_disruptions(use_cache=True)
+
+        # Verify
+        assert len(disruptions) == 1
+        assert disruptions[0].line_id == "victoria"
+
+        # Verify cache was checked
+        tfl_service.cache.get.assert_called_once()
+
+        # Verify cache was populated
+        tfl_service.cache.set.assert_called_once()
+
+
+@patch("asyncio.get_running_loop")
+async def test_fetch_disruptions_line_without_statuses(
+    mock_get_loop: MagicMock,
+    tfl_service: TfLService,
+) -> None:
+    """Test fetching disruptions when some lines don't have lineStatuses attribute."""
+    with freeze_time("2025-01-01 12:00:00"):
+        # Setup mock response with mix of lines with/without lineStatuses
+        mock_statuses_northern = [
+            MockLineStatus(statusSeverity=5, statusSeverityDescription="Severe Delays", reason="Signal failure"),
+        ]
+
+        # Create line data - some with statuses, some without
+        victoria_line = MockLineStatusData(id="victoria", name="Victoria", statuses=mock_statuses_northern)
+
+        # Create a simple line object without lineStatuses attribute
+        class LineWithoutStatuses:
+            def __init__(self, id: str, name: str) -> None:
+                self.id = id
+                self.name = name
+                # Intentionally no lineStatuses attribute
+
+        central_line = LineWithoutStatuses(id="central", name="Central")
+
+        mock_status_data = [
+            victoria_line,  # Has lineStatuses
+            central_line,  # No lineStatuses attribute
+        ]
+        mock_response = MockResponse(
+            data=mock_status_data,
+            shared_expires=datetime(2025, 1, 1, 12, 2, 0, tzinfo=UTC),
+        )
+
+        # Mock the event loop and executor
+        mock_loop = AsyncMock()
+        mock_loop.run_in_executor = AsyncMock(return_value=mock_response)
+        mock_get_loop.return_value = mock_loop
+
+        # Execute
+        disruptions = await tfl_service.fetch_disruptions(use_cache=False)
+
+        # Verify - only victoria (with lineStatuses) should be in disruptions
+        assert len(disruptions) == 1
+        assert disruptions[0].line_id == "victoria"
         assert disruptions[0].status_severity == 5
 
 
@@ -460,6 +738,77 @@ async def test_validate_route_success(
     is_valid, message, invalid_segment = await tfl_service.validate_route(segments)
 
     # Verify
+    assert is_valid is True
+    assert "valid" in message.lower()
+    assert invalid_segment is None
+
+
+async def test_validate_route_multiple_paths(
+    tfl_service: TfLService,
+    db_session: AsyncSession,
+) -> None:
+    """Test route validation with multiple paths to same station (tests BFS visited check)."""
+    # Create test data with diamond pattern: A -> B -> D and A -> C -> D
+    line = Line(tfl_id="victoria", name="Victoria", color="#0019A8", last_updated=datetime.now(UTC))
+    db_session.add(line)
+    await db_session.flush()
+
+    station_a = Station(
+        tfl_id="st_a",
+        name="Station A",
+        latitude=51.5,
+        longitude=-0.1,
+        lines=["victoria"],
+        last_updated=datetime.now(UTC),
+    )
+    station_b = Station(
+        tfl_id="st_b",
+        name="Station B",
+        latitude=51.5,
+        longitude=-0.1,
+        lines=["victoria"],
+        last_updated=datetime.now(UTC),
+    )
+    station_c = Station(
+        tfl_id="st_c",
+        name="Station C",
+        latitude=51.5,
+        longitude=-0.1,
+        lines=["victoria"],
+        last_updated=datetime.now(UTC),
+    )
+    station_d = Station(
+        tfl_id="st_d",
+        name="Station D",
+        latitude=51.5,
+        longitude=-0.1,
+        lines=["victoria"],
+        last_updated=datetime.now(UTC),
+    )
+    db_session.add_all([station_a, station_b, station_c, station_d])
+    await db_session.flush()
+
+    # Create diamond pattern connections
+    # A -> B, A -> C, B -> D, C -> D
+    conn_ab = StationConnection(from_station_id=station_a.id, to_station_id=station_b.id, line_id=line.id)
+    conn_ac = StationConnection(from_station_id=station_a.id, to_station_id=station_c.id, line_id=line.id)
+    conn_bd = StationConnection(from_station_id=station_b.id, to_station_id=station_d.id, line_id=line.id)
+    conn_cd = StationConnection(from_station_id=station_c.id, to_station_id=station_d.id, line_id=line.id)
+    db_session.add_all([conn_ab, conn_ac, conn_bd, conn_cd])
+    await db_session.commit()
+
+    # Create route: A -> D (direct validation)
+    # During BFS from A to D, we'll explore both paths (A->B->D and A->C->D)
+    # When processing C's connections after B's, D will already be visited
+    segments = [
+        RouteSegmentRequest(station_id=station_a.id, line_id=line.id),
+        RouteSegmentRequest(station_id=station_d.id, line_id=line.id),
+    ]
+
+    # Execute
+    is_valid, message, invalid_segment = await tfl_service.validate_route(segments)
+
+    # Verify route is valid
     assert is_valid is True
     assert "valid" in message.lower()
     assert invalid_segment is None
@@ -632,6 +981,38 @@ async def test_validate_route_with_deleted_stations(
 # ==================== Helper Method Tests ====================
 
 
+def test_handle_api_error_with_api_error(tfl_service: TfLService) -> None:
+    """Test that _handle_api_error raises HTTPException when given an ApiError."""
+    # Create mock ApiError with all required fields
+    api_error = ApiError(
+        timestamp_utc=datetime.now(UTC),
+        http_status_code=500,
+        http_status="500",
+        exception_type="ServerError",
+        message="TfL API is experiencing issues",
+        relative_uri="/Line/Mode/tube",
+    )
+
+    # Execute and verify exception is raised
+    with pytest.raises(HTTPException) as exc_info:
+        tfl_service._handle_api_error(api_error)
+
+    assert exc_info.value.status_code == 503
+    assert "TfL API error" in exc_info.value.detail
+    assert "experiencing issues" in exc_info.value.detail
+
+
+def test_handle_api_error_with_valid_response(tfl_service: TfLService) -> None:
+    """Test that _handle_api_error does nothing when given a valid response."""
+    # Create mock valid response
+    mock_response = MagicMock()
+    mock_response.shared_expires = datetime(2025, 1, 1, 13, 0, 0, tzinfo=UTC)
+    mock_response.content_expires = None
+
+    # Should not raise any exception
+    tfl_service._handle_api_error(mock_response)
+
+
 def test_extract_cache_ttl_with_shared_expires(tfl_service: TfLService) -> None:
     """Test extracting TTL from shared_expires field."""
     with freeze_time("2025-01-01 12:00:00"):
@@ -669,6 +1050,20 @@ def test_extract_cache_ttl_no_expires(tfl_service: TfLService) -> None:
     assert ttl == 0
 
 
+def test_extract_cache_ttl_expired(tfl_service: TfLService) -> None:
+    """Test TTL extraction when cache has already expired (negative TTL)."""
+    with freeze_time("2025-01-01 12:00:00"):
+        mock_response = MagicMock()
+        # shared_expires is 1 hour in the PAST
+        mock_response.shared_expires = datetime(2025, 1, 1, 11, 0, 0, tzinfo=UTC)
+        mock_response.content_expires = None
+
+        ttl = tfl_service._extract_cache_ttl(mock_response)
+
+        # Should return 0 when TTL is negative (expired)
+        assert ttl == 0
+
+
 def test_parse_redis_host(tfl_service: TfLService) -> None:
     """Test parsing Redis host from URL."""
     host = tfl_service._parse_redis_host()
@@ -681,8 +1076,3 @@ def test_parse_redis_port(tfl_service: TfLService) -> None:
     port = tfl_service._parse_redis_port()
     assert isinstance(port, int)
     assert port > 0
-
-
-# Note: API error handling tests removed due to async test isolation complexity
-# Error paths (lines 133-135, 178, 221-223) remain untested per YAGNI for hobby project
-# These are defensive error handling paths that are difficult to test in async context

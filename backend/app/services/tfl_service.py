@@ -68,6 +68,24 @@ class TfLService:
         parsed = urlparse(settings.REDIS_URL)
         return parsed.port or 6379
 
+    def _handle_api_error(self, response: ResponseModel[Any] | ApiError) -> None:
+        """
+        Check if TfL API response is an error and raise HTTPException.
+
+        Args:
+            response: TfL API response object or ApiError
+
+        Raises:
+            HTTPException: If response is an ApiError
+        """
+        if isinstance(response, ApiError):
+            error_msg = f"TfL API error: {response.message}"
+            logger.error("tfl_api_error", message=response.message, status=response.http_status_code)
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail=error_msg,
+            )
+
     def _extract_cache_ttl(self, response: ResponseModel[Any]) -> int:
         """
         Extract cache TTL from TfL API response.
@@ -129,16 +147,11 @@ class TfLService:
             )
 
             # Check for API error
-            if isinstance(response, ApiError):
-                error_msg = f"TfL API error: {response.message}"
-                logger.error("tfl_api_error", message=response.message, status=response.http_status_code)
-                raise HTTPException(
-                    status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                    detail=error_msg,
-                )
+            self._handle_api_error(response)
 
             # Extract cache TTL from response
-            ttl = self._extract_cache_ttl(response) or DEFAULT_LINES_CACHE_TTL
+            # Type narrowing: _handle_api_error raises if response is ApiError, so it's safe here
+            ttl = self._extract_cache_ttl(response) or DEFAULT_LINES_CACHE_TTL  # type: ignore[arg-type]
 
             # Clear existing lines from database
             await self.db.execute(delete(Line))
@@ -146,7 +159,7 @@ class TfLService:
             # Process and store lines
             lines = []
             # response.content is a LineArray (RootModel), access via .root
-            line_data_list = response.content.root
+            line_data_list = response.content.root  # type: ignore[union-attr]
 
             # TfL API doesn't provide color in GetByModeByPathModes response
             # Use a default color (can be updated later via different endpoint if needed)
@@ -217,17 +230,12 @@ class TfLService:
                 )
 
                 # Check for API error
-                if isinstance(response, ApiError):
-                    error_msg = f"TfL API error: {response.message}"
-                    logger.error("tfl_api_error", message=response.message)
-                    raise HTTPException(
-                        status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                        detail=error_msg,
-                    )
+                self._handle_api_error(response)
 
-                ttl = self._extract_cache_ttl(response) or DEFAULT_STATIONS_CACHE_TTL
+                # Type narrowing: _handle_api_error raises if response is ApiError, so it's safe here
+                ttl = self._extract_cache_ttl(response) or DEFAULT_STATIONS_CACHE_TTL  # type: ignore[arg-type]
                 # response.content is a PlaceArray (RootModel), access via .root
-                stop_points = response.content.root
+                stop_points = response.content.root  # type: ignore[union-attr]
 
                 stations = []
                 for stop_point in stop_points:
@@ -312,21 +320,16 @@ class TfLService:
             )
 
             # Check for API error
-            if isinstance(response, ApiError):
-                error_msg = f"TfL API error: {response.message}"
-                logger.error("tfl_api_error", message=response.message)
-                raise HTTPException(
-                    status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                    detail=error_msg,
-                )
+            self._handle_api_error(response)
 
             # Extract cache TTL from response
-            ttl = self._extract_cache_ttl(response) or DEFAULT_DISRUPTIONS_CACHE_TTL
+            # Type narrowing: _handle_api_error raises if response is ApiError, so it's safe here
+            ttl = self._extract_cache_ttl(response) or DEFAULT_DISRUPTIONS_CACHE_TTL  # type: ignore[arg-type]
 
             # Process disruptions
             disruptions: list[DisruptionResponse] = []
             # response.content is a LineArray (RootModel), access via .root
-            line_data_list = response.content.root
+            line_data_list = response.content.root  # type: ignore[union-attr]
 
             for line_data in line_data_list:
                 if hasattr(line_data, "lineStatuses") and line_data.lineStatuses is not None:

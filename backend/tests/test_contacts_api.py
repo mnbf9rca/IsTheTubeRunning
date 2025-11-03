@@ -52,27 +52,14 @@ class TestContactsAPI:
         assert data["is_primary"] is True  # First email is primary
 
     @pytest.mark.asyncio
-    async def test_add_email_duplicate(
-        self, async_client: AsyncClient, db_session: AsyncSession, auth_headers: dict[str, str]
-    ) -> None:
+    async def test_add_email_duplicate(self, fresh_async_client: AsyncClient, auth_headers: dict[str, str]) -> None:
         """Test adding duplicate email returns 409."""
         email = make_unique_email()
 
-        # Add email first time
-        response1 = await async_client.post(
-            "/api/v1/contacts/email",
-            json={"email": email},
-            headers=auth_headers,
-        )
+        response1 = await fresh_async_client.post("/api/v1/contacts/email", json={"email": email}, headers=auth_headers)
         assert response1.status_code == status.HTTP_201_CREATED
 
-        # Try to add same email again
-        response2 = await async_client.post(
-            "/api/v1/contacts/email",
-            json={"email": email},
-            headers=auth_headers,
-        )
-
+        response2 = await fresh_async_client.post("/api/v1/contacts/email", json={"email": email}, headers=auth_headers)
         assert response2.status_code == status.HTTP_409_CONFLICT
         assert "already registered" in response2.json()["detail"].lower()
 
@@ -127,27 +114,14 @@ class TestContactsAPI:
         assert data["is_primary"] is True  # First phone is primary
 
     @pytest.mark.asyncio
-    async def test_add_phone_duplicate(
-        self, async_client: AsyncClient, db_session: AsyncSession, auth_headers: dict[str, str]
-    ) -> None:
+    async def test_add_phone_duplicate(self, fresh_async_client: AsyncClient, auth_headers: dict[str, str]) -> None:
         """Test adding duplicate phone returns 409."""
         phone = make_unique_phone()
 
-        # Add phone first time
-        response1 = await async_client.post(
-            "/api/v1/contacts/phone",
-            json={"phone": phone},
-            headers=auth_headers,
-        )
+        response1 = await fresh_async_client.post("/api/v1/contacts/phone", json={"phone": phone}, headers=auth_headers)
         assert response1.status_code == status.HTTP_201_CREATED
 
-        # Try to add same phone again
-        response2 = await async_client.post(
-            "/api/v1/contacts/phone",
-            json={"phone": phone},
-            headers=auth_headers,
-        )
-
+        response2 = await fresh_async_client.post("/api/v1/contacts/phone", json={"phone": phone}, headers=auth_headers)
         assert response2.status_code == status.HTTP_409_CONFLICT
         assert "already registered" in response2.json()["detail"].lower()
 
@@ -574,6 +548,74 @@ class TestContactsAPI:
         assert phone2.is_primary is True
 
     @pytest.mark.asyncio
+    async def test_set_primary_email_when_no_current_primary(
+        self,
+        async_client: AsyncClient,
+        db_session: AsyncSession,
+        auth_headers_for_user: dict[str, str],
+        test_user: User,
+    ) -> None:
+        """Test setting an email as primary when no email is currently primary."""
+        # Add email with is_primary=False
+        email = EmailAddress(
+            user_id=test_user.id,
+            email=make_unique_email(),
+            verified=True,
+            is_primary=False,
+        )
+        db_session.add(email)
+        await db_session.commit()
+        await db_session.refresh(email)
+
+        # Set email as primary (no current primary exists)
+        response = await async_client.patch(
+            f"/api/v1/contacts/{email.id}/primary",
+            headers=auth_headers_for_user,
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        data = response.json()
+        assert data["is_primary"] is True
+
+        # Verify email is now primary
+        await db_session.refresh(email)
+        assert email.is_primary is True
+
+    @pytest.mark.asyncio
+    async def test_set_primary_phone_when_no_current_primary(
+        self,
+        async_client: AsyncClient,
+        db_session: AsyncSession,
+        auth_headers_for_user: dict[str, str],
+        test_user: User,
+    ) -> None:
+        """Test setting a phone as primary when no phone is currently primary."""
+        # Add phone with is_primary=False
+        phone = PhoneNumber(
+            user_id=test_user.id,
+            phone=make_unique_phone(),
+            verified=True,
+            is_primary=False,
+        )
+        db_session.add(phone)
+        await db_session.commit()
+        await db_session.refresh(phone)
+
+        # Set phone as primary (no current primary exists)
+        response = await async_client.patch(
+            f"/api/v1/contacts/{phone.id}/primary",
+            headers=auth_headers_for_user,
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        data = response.json()
+        assert data["is_primary"] is True
+
+        # Verify phone is now primary
+        await db_session.refresh(phone)
+        assert phone.is_primary is True
+
+    @pytest.mark.asyncio
     async def test_set_primary_not_found(self, async_client: AsyncClient, auth_headers: dict[str, str]) -> None:
         """Test setting primary for non-existent contact."""
         fake_id = uuid.uuid4()
@@ -646,54 +688,63 @@ class TestContactsAPI:
         assert response.status_code == status.HTTP_422_UNPROCESSABLE_CONTENT
 
     @pytest.mark.asyncio
+    async def test_add_phone_invalid_format_with_error_detail(
+        self, async_client: AsyncClient, auth_headers_for_user: dict[str, str]
+    ) -> None:
+        """Test adding phone with invalid format returns detailed error message."""
+        # Test various invalid phone formats to ensure NumberParseException is raised
+        invalid_phones = [
+            "abc",  # Letters
+            "+++123",  # Too many plus signs
+            "",  # Empty string
+        ]
+
+        for invalid_phone in invalid_phones:
+            response = await async_client.post(
+                "/api/v1/contacts/phone",
+                json={"phone": invalid_phone},
+                headers=auth_headers_for_user,
+            )
+
+            assert response.status_code == status.HTTP_422_UNPROCESSABLE_CONTENT
+            # Verify error detail exists (validates lines 70-71)
+            error_data = response.json()
+            assert "detail" in error_data
+
+    @pytest.mark.asyncio
     async def test_add_email_duplicate_casing(
-        self, async_client: AsyncClient, db_session: AsyncSession, auth_headers_for_user: dict[str, str]
+        self, fresh_async_client: AsyncClient, auth_headers_for_user: dict[str, str]
     ) -> None:
         """Test adding duplicate email with different casing returns 409."""
         email_lower = make_unique_email().lower()
-        email_mixed = email_lower[0].upper() + email_lower[1:]  # Capitalize first letter
+        email_mixed = email_lower[0].upper() + email_lower[1:]
 
-        # Add email first time (lowercase)
-        response1 = await async_client.post(
-            "/api/v1/contacts/email",
-            json={"email": email_lower},
-            headers=auth_headers_for_user,
+        response1 = await fresh_async_client.post(
+            "/api/v1/contacts/email", json={"email": email_lower}, headers=auth_headers_for_user
         )
         assert response1.status_code == status.HTTP_201_CREATED
 
-        # Try to add same email with different casing
-        response2 = await async_client.post(
-            "/api/v1/contacts/email",
-            json={"email": email_mixed},
-            headers=auth_headers_for_user,
+        response2 = await fresh_async_client.post(
+            "/api/v1/contacts/email", json={"email": email_mixed}, headers=auth_headers_for_user
         )
-
         assert response2.status_code == status.HTTP_409_CONFLICT
         assert "already registered" in response2.json()["detail"].lower()
 
     @pytest.mark.asyncio
     async def test_add_phone_duplicate_formatting(
-        self, async_client: AsyncClient, db_session: AsyncSession, auth_headers_for_user: dict[str, str]
+        self, fresh_async_client: AsyncClient, auth_headers_for_user: dict[str, str]
     ) -> None:
         """Test adding phone with different formatting is recognized as duplicate."""
-        # Both should normalize to the same E.164 format (+12025551234)
-        # Using valid US number (202 area code, Washington DC)
         phone_formatted = "+1 202-555-1234"
         phone_plain = "+12025551234"
 
-        # Add phone first time (formatted)
-        response1 = await async_client.post(
-            "/api/v1/contacts/phone",
-            json={"phone": phone_formatted},
-            headers=auth_headers_for_user,
+        response1 = await fresh_async_client.post(
+            "/api/v1/contacts/phone", json={"phone": phone_formatted}, headers=auth_headers_for_user
         )
         assert response1.status_code == status.HTTP_201_CREATED
 
-        # Try to add same phone (plain format)
-        response2 = await async_client.post(
-            "/api/v1/contacts/phone",
-            json={"phone": phone_plain},
-            headers=auth_headers_for_user,
+        response2 = await fresh_async_client.post(
+            "/api/v1/contacts/phone", json={"phone": phone_plain}, headers=auth_headers_for_user
         )
         assert response2.status_code == status.HTTP_409_CONFLICT
         assert "already registered" in response2.json()["detail"].lower()
