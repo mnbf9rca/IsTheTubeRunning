@@ -580,6 +580,74 @@ class TestContactsAPI:
         assert phone2.is_primary is True
 
     @pytest.mark.asyncio
+    async def test_set_primary_email_when_no_current_primary(
+        self,
+        async_client: AsyncClient,
+        db_session: AsyncSession,
+        auth_headers_for_user: dict[str, str],
+        test_user: User,
+    ) -> None:
+        """Test setting an email as primary when no email is currently primary."""
+        # Add email with is_primary=False
+        email = EmailAddress(
+            user_id=test_user.id,
+            email=make_unique_email(),
+            verified=True,
+            is_primary=False,
+        )
+        db_session.add(email)
+        await db_session.commit()
+        await db_session.refresh(email)
+
+        # Set email as primary (no current primary exists)
+        response = await async_client.patch(
+            f"/api/v1/contacts/{email.id}/primary",
+            headers=auth_headers_for_user,
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        data = response.json()
+        assert data["is_primary"] is True
+
+        # Verify email is now primary
+        await db_session.refresh(email)
+        assert email.is_primary is True
+
+    @pytest.mark.asyncio
+    async def test_set_primary_phone_when_no_current_primary(
+        self,
+        async_client: AsyncClient,
+        db_session: AsyncSession,
+        auth_headers_for_user: dict[str, str],
+        test_user: User,
+    ) -> None:
+        """Test setting a phone as primary when no phone is currently primary."""
+        # Add phone with is_primary=False
+        phone = PhoneNumber(
+            user_id=test_user.id,
+            phone=make_unique_phone(),
+            verified=True,
+            is_primary=False,
+        )
+        db_session.add(phone)
+        await db_session.commit()
+        await db_session.refresh(phone)
+
+        # Set phone as primary (no current primary exists)
+        response = await async_client.patch(
+            f"/api/v1/contacts/{phone.id}/primary",
+            headers=auth_headers_for_user,
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        data = response.json()
+        assert data["is_primary"] is True
+
+        # Verify phone is now primary
+        await db_session.refresh(phone)
+        assert phone.is_primary is True
+
+    @pytest.mark.asyncio
     async def test_set_primary_not_found(self, async_client: AsyncClient, auth_headers: dict[str, str]) -> None:
         """Test setting primary for non-existent contact."""
         fake_id = uuid.uuid4()
@@ -650,6 +718,30 @@ class TestContactsAPI:
         )
 
         assert response.status_code == status.HTTP_422_UNPROCESSABLE_CONTENT
+
+    @pytest.mark.asyncio
+    async def test_add_phone_invalid_format_with_error_detail(
+        self, async_client: AsyncClient, auth_headers_for_user: dict[str, str]
+    ) -> None:
+        """Test adding phone with invalid format returns detailed error message."""
+        # Test various invalid phone formats to ensure NumberParseException is raised
+        invalid_phones = [
+            "abc",  # Letters
+            "+++123",  # Too many plus signs
+            "",  # Empty string
+        ]
+
+        for invalid_phone in invalid_phones:
+            response = await async_client.post(
+                "/api/v1/contacts/phone",
+                json={"phone": invalid_phone},
+                headers=auth_headers_for_user,
+            )
+
+            assert response.status_code == status.HTTP_422_UNPROCESSABLE_CONTENT
+            # Verify error detail exists (validates lines 70-71)
+            error_data = response.json()
+            assert "detail" in error_data
 
     @pytest.mark.skip(
         reason="IntegrityError tests incompatible with current SAVEPOINT fixture - TODO: fix async SAVEPOINT listener"
