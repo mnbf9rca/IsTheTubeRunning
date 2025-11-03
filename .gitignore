@@ -404,3 +404,4 @@ vite.config.ts.timestamp-*
 settings.local.json
 
 .playwright-mcp/
+coverage.*

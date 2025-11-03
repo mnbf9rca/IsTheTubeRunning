@@ -58,7 +58,7 @@ postgresql_noproc = factories.postgresql_noproc(  # pyright: ignore[reportUnknow
 )
 
 # Create a test database for each test
-postgresql = factories.postgresql("postgresql_noproc", dbname="test_db")
+postgresql = factories.postgresql("postgresql_noproc")
 
 
 def pytest_sessionstart(session: pytest.Session) -> None:

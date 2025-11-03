@@ -2,6 +2,8 @@
 
 This document captures key architectural decisions made during the development of the TfL Disruption Alert System.
 
+Note: when running commands in /backend ALWAYS use `uv run` never naked `python`. Do not use pip.
+
 ---
 
 ## Key Architectural Decisions Made
