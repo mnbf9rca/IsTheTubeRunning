@@ -369,6 +369,56 @@ async def test_fetch_stations_all(
     assert "940GZZLUOXC" in tfl_ids
 
 
+@patch("asyncio.get_running_loop")
+async def test_fetch_stations_existing_station_with_line(
+    mock_get_loop: MagicMock,
+    tfl_service: TfLService,
+    db_session: AsyncSession,
+) -> None:
+    """Test fetching stations when station already has the line in its lines array."""
+    with freeze_time("2025-01-01 12:00:00"):
+        # Create existing station with victoria already in lines
+        existing_station = Station(
+            tfl_id="940GZZLUKSX",
+            name="King's Cross St. Pancras",
+            latitude=51.5308,
+            longitude=-0.1238,
+            lines=["victoria", "northern"],  # victoria already present
+            last_updated=datetime(2024, 12, 1, 0, 0, 0, tzinfo=UTC),  # Old timestamp
+        )
+        db_session.add(existing_station)
+        await db_session.commit()
+        await db_session.refresh(existing_station)
+
+        # Setup mock response returning the same station
+        mock_stops = [
+            MockStopPoint(id="940GZZLUKSX", commonName="King's Cross St. Pancras", lat=51.5308, lon=-0.1238),
+        ]
+        mock_response = MockResponse(
+            data=mock_stops,
+            shared_expires=datetime(2025, 1, 2, 12, 0, 0, tzinfo=UTC),
+        )
+
+        # Mock the event loop and executor
+        mock_loop = AsyncMock()
+        mock_loop.run_in_executor = AsyncMock(return_value=mock_response)
+        mock_get_loop.return_value = mock_loop
+
+        # Execute - fetch stations for victoria line
+        stations = await tfl_service.fetch_stations(line_tfl_id="victoria", use_cache=False)
+
+        # Verify
+        assert len(stations) == 1
+        station = stations[0]
+        assert station.tfl_id == "940GZZLUKSX"
+        # Verify victoria is still in lines (not duplicated)
+        assert "victoria" in station.lines
+        assert station.lines.count("victoria") == 1  # Only once
+        assert "northern" in station.lines  # Other line preserved
+        # Verify timestamp was updated
+        assert station.last_updated == datetime(2025, 1, 1, 12, 0, 0, tzinfo=UTC)
+
+
 # ==================== fetch_disruptions Tests ====================
 
 
@@ -511,6 +561,53 @@ async def test_fetch_disruptions_cache_miss(
         tfl_service.cache.set.assert_called_once()
 
 
+@patch("asyncio.get_running_loop")
+async def test_fetch_disruptions_line_without_statuses(
+    mock_get_loop: MagicMock,
+    tfl_service: TfLService,
+) -> None:
+    """Test fetching disruptions when some lines don't have lineStatuses attribute."""
+    with freeze_time("2025-01-01 12:00:00"):
+        # Setup mock response with mix of lines with/without lineStatuses
+        mock_statuses_northern = [
+            MockLineStatus(statusSeverity=5, statusSeverityDescription="Severe Delays", reason="Signal failure"),
+        ]
+
+        # Create line data - some with statuses, some without
+        victoria_line = MockLineStatusData(id="victoria", name="Victoria", statuses=mock_statuses_northern)
+
+        # Create a simple line object without lineStatuses attribute
+        class LineWithoutStatuses:
+            def __init__(self, id: str, name: str) -> None:
+                self.id = id
+                self.name = name
+                # Intentionally no lineStatuses attribute
+
+        central_line = LineWithoutStatuses(id="central", name="Central")
+
+        mock_status_data = [
+            victoria_line,  # Has lineStatuses
+            central_line,  # No lineStatuses attribute
+        ]
+        mock_response = MockResponse(
+            data=mock_status_data,
+            shared_expires=datetime(2025, 1, 1, 12, 2, 0, tzinfo=UTC),
+        )
+
+        # Mock the event loop and executor
+        mock_loop = AsyncMock()
+        mock_loop.run_in_executor = AsyncMock(return_value=mock_response)
+        mock_get_loop.return_value = mock_loop
+
+        # Execute
+        disruptions = await tfl_service.fetch_disruptions(use_cache=False)
+
+        # Verify - only victoria (with lineStatuses) should be in disruptions
+        assert len(disruptions) == 1
+        assert disruptions[0].line_id == "victoria"
+        assert disruptions[0].status_severity == 5
+
+
 # ==================== build_station_graph Tests ====================
 
 
@@ -641,6 +738,77 @@ async def test_validate_route_success(
     is_valid, message, invalid_segment = await tfl_service.validate_route(segments)
 
     # Verify
+    assert is_valid is True
+    assert "valid" in message.lower()
+    assert invalid_segment is None
+
+
+async def test_validate_route_multiple_paths(
+    tfl_service: TfLService,
+    db_session: AsyncSession,
+) -> None:
+    """Test route validation with multiple paths to same station (tests BFS visited check)."""
+    # Create test data with diamond pattern: A -> B -> D and A -> C -> D
+    line = Line(tfl_id="victoria", name="Victoria", color="#0019A8", last_updated=datetime.now(UTC))
+    db_session.add(line)
+    await db_session.flush()
+
+    station_a = Station(
+        tfl_id="st_a",
+        name="Station A",
+        latitude=51.5,
+        longitude=-0.1,
+        lines=["victoria"],
+        last_updated=datetime.now(UTC),
+    )
+    station_b = Station(
+        tfl_id="st_b",
+        name="Station B",
+        latitude=51.5,
+        longitude=-0.1,
+        lines=["victoria"],
+        last_updated=datetime.now(UTC),
+    )
+    station_c = Station(
+        tfl_id="st_c",
+        name="Station C",
+        latitude=51.5,
+        longitude=-0.1,
+        lines=["victoria"],
+        last_updated=datetime.now(UTC),
+    )
+    station_d = Station(
+        tfl_id="st_d",
+        name="Station D",
+        latitude=51.5,
+        longitude=-0.1,
+        lines=["victoria"],
+        last_updated=datetime.now(UTC),
+    )
+    db_session.add_all([station_a, station_b, station_c, station_d])
+    await db_session.flush()
+
+    # Create diamond pattern connections
+    # A -> B, A -> C, B -> D, C -> D
+    conn_ab = StationConnection(from_station_id=station_a.id, to_station_id=station_b.id, line_id=line.id)
+    conn_ac = StationConnection(from_station_id=station_a.id, to_station_id=station_c.id, line_id=line.id)
+    conn_bd = StationConnection(from_station_id=station_b.id, to_station_id=station_d.id, line_id=line.id)
+    conn_cd = StationConnection(from_station_id=station_c.id, to_station_id=station_d.id, line_id=line.id)
+    db_session.add_all([conn_ab, conn_ac, conn_bd, conn_cd])
+    await db_session.commit()
+
+    # Create route: A -> D (direct validation)
+    # During BFS from A to D, we'll explore both paths (A->B->D and A->C->D)
+    # When processing C's connections after B's, D will already be visited
+    segments = [
+        RouteSegmentRequest(station_id=station_a.id, line_id=line.id),
+        RouteSegmentRequest(station_id=station_d.id, line_id=line.id),
+    ]
+
+    # Execute
+    is_valid, message, invalid_segment = await tfl_service.validate_route(segments)
+
+    # Verify route is valid
     assert is_valid is True
     assert "valid" in message.lower()
     assert invalid_segment is None
