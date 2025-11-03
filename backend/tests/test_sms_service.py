@@ -1,5 +1,7 @@
 """Tests for SMS service."""
 
+from collections.abc import Generator
+
 import pytest
 from app.services.sms_service import SMS_LOG_FILE, SmsService
 
@@ -8,7 +10,7 @@ class TestSmsService:
     """Test cases for SMS service."""
 
     @pytest.fixture(autouse=True)
-    def cleanup_sms_log(self) -> None:
+    def cleanup_sms_log(self) -> Generator[None]:
         """Clean up SMS log file before and after each test."""
         if SMS_LOG_FILE and SMS_LOG_FILE.exists():
             SMS_LOG_FILE.unlink()
@@ -25,6 +27,7 @@ class TestSmsService:
 
         await service.send_verification_sms(phone, code)
 
+        assert SMS_LOG_FILE is not None
         assert SMS_LOG_FILE.exists()
 
     @pytest.mark.asyncio
@@ -36,6 +39,7 @@ class TestSmsService:
 
         await service.send_verification_sms(phone, code)
 
+        assert SMS_LOG_FILE is not None
         content = SMS_LOG_FILE.read_text()
 
         assert phone in content
@@ -51,6 +55,7 @@ class TestSmsService:
         await service.send_verification_sms("+14155552671", "111111")
         await service.send_verification_sms("+14155552672", "222222")
 
+        assert SMS_LOG_FILE is not None
         content = SMS_LOG_FILE.read_text()
 
         assert "+14155552671" in content
@@ -67,6 +72,7 @@ class TestSmsService:
 
         await service.send_verification_sms(phone, code)
 
+        assert SMS_LOG_FILE is not None
         content = SMS_LOG_FILE.read_text()
 
         assert phone in content
