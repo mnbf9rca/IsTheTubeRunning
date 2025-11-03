@@ -68,6 +68,24 @@ class TfLService:
         parsed = urlparse(settings.REDIS_URL)
         return parsed.port or 6379
 
+    def _handle_api_error(self, response: ResponseModel[Any] | ApiError) -> None:
+        """
+        Check if TfL API response is an error and raise HTTPException.
+
+        Args:
+            response: TfL API response object or ApiError
+
+        Raises:
+            HTTPException: If response is an ApiError
+        """
+        if isinstance(response, ApiError):
+            error_msg = f"TfL API error: {response.message}"
+            logger.error("tfl_api_error", message=response.message, status=response.http_status_code)
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail=error_msg,
+            )
+
     def _extract_cache_ttl(self, response: ResponseModel[Any]) -> int:
         """
         Extract cache TTL from TfL API response.
@@ -129,13 +147,8 @@ class TfLService:
             )
 
             # Check for API error
-            if isinstance(response, ApiError):
-                error_msg = f"TfL API error: {response.message}"
-                logger.error("tfl_api_error", message=response.message, status=response.http_status_code)
-                raise HTTPException(
-                    status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                    detail=error_msg,
-                )
+            self._handle_api_error(response)
+            assert not isinstance(response, ApiError)  # Type narrowing for mypy
 
             # Extract cache TTL from response
             ttl = self._extract_cache_ttl(response) or DEFAULT_LINES_CACHE_TTL
@@ -217,13 +230,8 @@ class TfLService:
                 )
 
                 # Check for API error
-                if isinstance(response, ApiError):
-                    error_msg = f"TfL API error: {response.message}"
-                    logger.error("tfl_api_error", message=response.message)
-                    raise HTTPException(
-                        status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                        detail=error_msg,
-                    )
+                self._handle_api_error(response)
+                assert not isinstance(response, ApiError)  # Type narrowing for mypy
 
                 ttl = self._extract_cache_ttl(response) or DEFAULT_STATIONS_CACHE_TTL
                 # response.content is a PlaceArray (RootModel), access via .root
@@ -312,13 +320,8 @@ class TfLService:
             )
 
             # Check for API error
-            if isinstance(response, ApiError):
-                error_msg = f"TfL API error: {response.message}"
-                logger.error("tfl_api_error", message=response.message)
-                raise HTTPException(
-                    status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                    detail=error_msg,
-                )
+            self._handle_api_error(response)
+            assert not isinstance(response, ApiError)  # Type narrowing for mypy
 
             # Extract cache TTL from response
             ttl = self._extract_cache_ttl(response) or DEFAULT_DISRUPTIONS_CACHE_TTL

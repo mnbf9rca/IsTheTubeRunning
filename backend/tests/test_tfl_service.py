@@ -11,6 +11,7 @@ from app.schemas.tfl import RouteSegmentRequest
 from app.services.tfl_service import TfLService
 from fastapi import HTTPException
 from freezegun import freeze_time
+from pydantic_tfl_api.core import ApiError
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -632,6 +633,38 @@ async def test_validate_route_with_deleted_stations(
 # ==================== Helper Method Tests ====================
 
 
+def test_handle_api_error_with_api_error(tfl_service: TfLService) -> None:
+    """Test that _handle_api_error raises HTTPException when given an ApiError."""
+    # Create mock ApiError with all required fields
+    api_error = ApiError(
+        timestamp_utc=datetime.now(UTC),
+        http_status_code=500,
+        http_status="500",
+        exception_type="ServerError",
+        message="TfL API is experiencing issues",
+        relative_uri="/Line/Mode/tube",
+    )
+
+    # Execute and verify exception is raised
+    with pytest.raises(HTTPException) as exc_info:
+        tfl_service._handle_api_error(api_error)
+
+    assert exc_info.value.status_code == 503
+    assert "TfL API error" in exc_info.value.detail
+    assert "experiencing issues" in exc_info.value.detail
+
+
+def test_handle_api_error_with_valid_response(tfl_service: TfLService) -> None:
+    """Test that _handle_api_error does nothing when given a valid response."""
+    # Create mock valid response
+    mock_response = MagicMock()
+    mock_response.shared_expires = datetime(2025, 1, 1, 13, 0, 0, tzinfo=UTC)
+    mock_response.content_expires = None
+
+    # Should not raise any exception
+    tfl_service._handle_api_error(mock_response)
+
+
 def test_extract_cache_ttl_with_shared_expires(tfl_service: TfLService) -> None:
     """Test extracting TTL from shared_expires field."""
     with freeze_time("2025-01-01 12:00:00"):
@@ -681,8 +714,3 @@ def test_parse_redis_port(tfl_service: TfLService) -> None:
     port = tfl_service._parse_redis_port()
     assert isinstance(port, int)
     assert port > 0
-
-
-# Note: API error handling tests removed due to async test isolation complexity
-# Error paths (lines 133-135, 178, 221-223) remain untested per YAGNI for hobby project
-# These are defensive error handling paths that are difficult to test in async context
