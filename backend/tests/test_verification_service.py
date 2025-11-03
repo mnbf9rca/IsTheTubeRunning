@@ -443,3 +443,53 @@ class TestVerificationService:
         )
         logs = result.scalars().all()
         assert len(logs) == 0
+
+    @pytest.mark.asyncio
+    @patch("app.services.verification_service.EmailService.send_verification_email")
+    async def test_create_and_send_code_email_send_failure(
+        self, mock_send_email: AsyncMock, db_session: AsyncSession, test_user: User
+    ) -> None:
+        """Test that email send failure is handled gracefully."""
+        # Mock email service to raise an exception
+        mock_send_email.side_effect = Exception("SMTP connection failed")
+
+        service = VerificationService(db_session)
+        contact_id = uuid4()
+        email = "test@example.com"
+
+        # Attempt to send code should raise HTTPException
+        with pytest.raises(HTTPException) as exc_info:
+            await service.create_and_send_code(
+                contact_id=contact_id,
+                user_id=test_user.id,
+                contact_type=VerificationType.EMAIL,
+                contact_value=email,
+            )
+
+        assert exc_info.value.status_code == 500
+        assert "Failed to send verification code" in exc_info.value.detail
+
+    @pytest.mark.asyncio
+    @patch("app.services.verification_service.SmsService.send_verification_sms")
+    async def test_create_and_send_code_sms_send_failure(
+        self, mock_send_sms: AsyncMock, db_session: AsyncSession, test_user: User
+    ) -> None:
+        """Test that SMS send failure is handled gracefully."""
+        # Mock SMS service to raise an exception
+        mock_send_sms.side_effect = Exception("SMS gateway unreachable")
+
+        service = VerificationService(db_session)
+        contact_id = uuid4()
+        phone = "+14155552671"
+
+        # Attempt to send code should raise HTTPException
+        with pytest.raises(HTTPException) as exc_info:
+            await service.create_and_send_code(
+                contact_id=contact_id,
+                user_id=test_user.id,
+                contact_type=VerificationType.SMS,
+                contact_value=phone,
+            )
+
+        assert exc_info.value.status_code == 500
+        assert "Failed to send verification code" in exc_info.value.detail

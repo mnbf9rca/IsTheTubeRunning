@@ -1,8 +1,12 @@
 """Tests for SMS service."""
 
 from collections.abc import Generator
+from pathlib import Path
+from unittest.mock import MagicMock
 
 import pytest
+from app.core.config import settings
+from app.services import sms_service
 from app.services.sms_service import SMS_LOG_FILE, SmsService
 
 
@@ -77,3 +81,78 @@ class TestSmsService:
 
         assert phone in content
         assert code in content
+
+    @pytest.mark.asyncio
+    async def test_send_verification_sms_when_log_file_is_none(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Test that SMS service handles case when SMS_LOG_FILE is None."""
+        # Temporarily set SMS_LOG_FILE to None
+        monkeypatch.setattr(sms_service, "SMS_LOG_FILE", None)
+
+        service = SmsService()
+        phone = "+14155552671"
+        code = "123456"
+
+        # Should not raise exception even when file logging is disabled
+        await service.send_verification_sms(phone, code)
+
+    def test_write_to_file_sync_when_sms_log_file_is_none(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Test that _write_to_file_sync handles None SMS_LOG_FILE."""
+        # Set SMS_LOG_FILE to None
+        monkeypatch.setattr(sms_service, "SMS_LOG_FILE", None)
+
+        service = SmsService()
+
+        # Should not raise exception (early return)
+        service._write_to_file_sync("+14155552671", "123456", "test message", "2025-01-01T00:00:00Z")
+
+    def test_write_to_file_sync_handles_os_error(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Test that _write_to_file_sync handles OSError gracefully."""
+        # Create a readonly directory to trigger OSError
+        readonly_dir = tmp_path / "readonly"
+        readonly_dir.mkdir()
+        log_file = readonly_dir / "sms_log.txt"
+
+        # Make directory readonly (removes write permission)
+        readonly_dir.chmod(0o444)
+
+        try:
+            monkeypatch.setattr(sms_service, "SMS_LOG_FILE", log_file)
+
+            service = SmsService()
+
+            # Should log error but not raise exception
+            service._write_to_file_sync("+14155552671", "123456", "test message", "2025-01-01T00:00:00Z")
+        finally:
+            # Restore write permission for cleanup
+            readonly_dir.chmod(0o755)
+
+    def test_get_sms_log_file_when_dir_not_configured(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Test _get_sms_log_file returns None when SMS_LOG_DIR is not configured."""
+        # Set SMS_LOG_DIR to empty string
+        monkeypatch.setattr(settings, "SMS_LOG_DIR", "")
+
+        result = sms_service._get_sms_log_file()
+
+        assert result is None
+
+    def test_get_sms_log_file_when_dir_not_writable(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Test _get_sms_log_file returns None when SMS_LOG_DIR is not writable."""
+        # Create a directory path that will fail on mkdir
+        bad_dir = tmp_path / "readonly"
+        monkeypatch.setattr(settings, "SMS_LOG_DIR", str(bad_dir))
+
+        # Mock Path to raise PermissionError on mkdir
+        mock_path_instance = MagicMock()
+        mock_path_instance.mkdir.side_effect = PermissionError("Permission denied")
+
+        # Mock the Path class to return our mock instance
+        def mock_path(path_str: str) -> Path | MagicMock:
+            if path_str == str(bad_dir):
+                return mock_path_instance
+            return Path(path_str)
+
+        monkeypatch.setattr(sms_service, "Path", mock_path)
+
+        result = sms_service._get_sms_log_file()
+
+        assert result is None
