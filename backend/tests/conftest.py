@@ -20,6 +20,7 @@ import pytest
 from alembic import command
 from alembic.config import Config
 from app.core.auth import clear_jwks_cache, set_mock_jwks
+from app.core.database import get_db
 from app.core.utils import convert_async_db_url_to_sync
 from app.main import app
 from app.models.user import User
@@ -170,6 +171,92 @@ async def db_session(db_engine: TestDatabaseContext) -> AsyncGenerator[AsyncSess
         with suppress(Exception):
             if transaction.is_active:
                 await transaction.rollback()
+
+
+@pytest.fixture
+async def fresh_db_session() -> AsyncGenerator[AsyncSession]:
+    """
+    Fresh database with migrations for each test (IntegrityError recovery tests).
+
+    Creates a new test database per test, runs Alembic migrations, provides a session,
+    and cleans up. This allows IntegrityError recovery tests to work correctly because
+    commits are REAL database commits to a real database, not just transaction commits.
+
+    Use this fixture only for tests that require IntegrityError recovery (duplicate
+    constraint violations). Standard tests should use db_session for better performance.
+
+    Trade-off: ~2s per test vs ~0.1s with db_session, but enables testing critical
+    error recovery code paths.
+
+    Yields:
+        Async SQLAlchemy session with full migrated schema
+    """
+    # Generate unique database name
+    test_db_name = f"test_{uuid.uuid4().hex[:8]}"
+
+    with DatabaseJanitor(
+        user=DB_USER,
+        host=DB_HOST,
+        port=DB_PORT,
+        dbname=test_db_name,
+        version="18",
+        password=DB_PASSWORD,
+    ):
+        # Build async connection URL (reuse existing pattern)
+        user_part = f"{quote_plus(DB_USER)}:{quote_plus(DB_PASSWORD)}"
+        host_part = f"{quote_plus(DB_HOST)}:{DB_PORT}"
+        netloc = f"{user_part}@{host_part}"
+        async_db_url = urlunparse(("postgresql+asyncpg", netloc, f"/{quote_plus(test_db_name)}", "", "", ""))
+
+        # Run Alembic migrations (same as db_engine fixture)
+        alembic_cfg = Config()
+        alembic_dir = Path(__file__).resolve().parent.parent / "alembic"
+        alembic_cfg.set_main_option("script_location", str(alembic_dir))
+        alembic_cfg.set_main_option("sqlalchemy.url", convert_async_db_url_to_sync(async_db_url))
+
+        if not os.environ.get("ALEMBIC_VERBOSE"):
+            alembic_cfg.set_main_option("configure_logger", "false")
+
+        try:
+            command.upgrade(alembic_cfg, "head")
+        except Exception as e:
+            msg = f"Alembic migration failed: {e}"
+            raise RuntimeError(msg) from e
+
+        # Create async engine and session
+        engine = create_async_engine(async_db_url, echo=False, poolclass=NullPool)
+        async_session_factory = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
+
+        async with async_session_factory() as session:
+            yield session
+
+        await engine.dispose()
+
+
+@pytest.fixture
+async def fresh_async_client(fresh_db_session: AsyncSession) -> AsyncGenerator[AsyncClient]:
+    """
+    Async HTTP client using fresh database session.
+
+    Pairs with fresh_db_session fixture for IntegrityError recovery tests.
+
+    Args:
+        fresh_db_session: Fresh database session fixture
+
+    Yields:
+        Async HTTP client configured for testing
+    """
+
+    async def override_get_db() -> AsyncGenerator[AsyncSession]:
+        yield fresh_db_session
+
+    app.dependency_overrides[get_db] = override_get_db
+
+    try:
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            yield client
+    finally:
+        app.dependency_overrides.clear()
 
 
 @pytest.fixture

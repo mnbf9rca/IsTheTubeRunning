@@ -38,25 +38,20 @@ class TestAuthService:
         assert user.created_at is not None
         assert user.updated_at is not None
 
-    @pytest.mark.skip(
-        reason="IntegrityError tests incompatible with current SAVEPOINT fixture - TODO: fix async SAVEPOINT listener"
-    )
     @pytest.mark.asyncio
-    async def test_create_user_handles_race_condition(self, db_session: AsyncSession) -> None:
+    async def test_create_user_handles_race_condition(self, fresh_db_session: AsyncSession) -> None:
         """Test create_user handles IntegrityError race condition gracefully."""
-
-        auth_service = AuthService(db_session)
+        auth_service = AuthService(fresh_db_session)
         external_id = make_unique_external_id("auth0|race_condition_user")
 
-        # First, create a user to set up the race condition scenario
+        # First, create a user
         existing_user = await auth_service.create_user(external_id=external_id, auth_provider="auth0")
         assert existing_user.id is not None
 
-        # Now simulate a race condition by trying to create the same user again
-        # This should trigger IntegrityError, rollback, and return the existing user
+        # Simulate race condition by trying to create same user again
         result_user = await auth_service.create_user(external_id=external_id, auth_provider="auth0")
 
-        # Should return the existing user, not raise an exception
+        # Should return existing user, not raise exception
         assert result_user.id == existing_user.id
         assert result_user.external_id == external_id
         assert result_user.auth_provider == "auth0"
