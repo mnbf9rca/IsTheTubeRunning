@@ -1,12 +1,14 @@
 """Tests for TfL API endpoints."""
 
 import uuid
+from collections.abc import AsyncGenerator
 from datetime import UTC, datetime
 from posixpath import join as urljoin_path
 from unittest.mock import AsyncMock, patch
 
 import pytest
 from app.core.config import settings
+from app.core.database import get_db
 from app.main import app
 from app.models.tfl import Line, Station
 from app.models.user import User
@@ -31,14 +33,29 @@ def build_api_url(endpoint: str) -> str:
 
 
 @pytest.fixture
-async def async_client_with_auth(test_user: User, auth_headers_for_user: dict[str, str]) -> AsyncClient:
+async def async_client_with_auth(
+    test_user: User,
+    auth_headers_for_user: dict[str, str],
+    db_session: AsyncSession,
+) -> AsyncGenerator[AsyncClient]:
     """Create async client with authentication headers."""
-    async with AsyncClient(
-        transport=ASGITransport(app=app),
-        base_url="http://test",
-        headers=auth_headers_for_user,
-    ) as client:
-        yield client
+
+    # Override database dependency to use test database
+    async def override_get_db() -> AsyncGenerator[AsyncSession]:
+        yield db_session
+
+    app.dependency_overrides[get_db] = override_get_db
+
+    try:
+        async with AsyncClient(
+            transport=ASGITransport(app=app),
+            base_url="http://test",
+            headers=auth_headers_for_user,
+        ) as client:
+            yield client
+    finally:
+        # Clean up override
+        app.dependency_overrides.clear()
 
 
 # ==================== GET /tfl/lines Tests ====================
