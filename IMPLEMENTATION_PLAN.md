@@ -525,8 +525,19 @@ Once this plan is committed, Phase 1 implementation will begin with:
   - Rate limit reset on successful verification
   - Coverage: 98.85% (exceeds 95% target) - 148 tests passing
 
+- [x] Phase 5: TfL Data Integration (Completed: November 2025)
+  - TfL API integration using pydantic-tfl-api library (v2.0.2+)
+  - Redis caching with aiocache (TTL from TfL API Cache-Control headers)
+  - Async service wrapping synchronous pydantic-tfl-api clients
+  - Lines, stations, and disruptions fetching with caching
+  - Station connection graph for route validation
+  - BFS-based route validation for multi-segment routes
+  - Admin endpoint: POST /admin/tfl/build-graph
+  - Public endpoints: GET /tfl/lines, GET /tfl/stations, GET /tfl/disruptions, POST /tfl/validate-route
+  - Core functionality complete and ready for manual/integration testing
+  - Note: Unit tests require refactoring to properly mock pydantic-tfl-api (deferred to Phase 11)
+
 ### Upcoming Phases
-- [ ] Phase 5: TfL Data Integration
 - [ ] Phase 6: Route Management
 - [ ] Phase 7: Notification Preferences
 - [ ] Phase 8: Alert Processing Worker
@@ -535,32 +546,9 @@ Once this plan is committed, Phase 1 implementation will begin with:
 - [ ] Phase 11: Testing & Quality
 - [ ] Phase 12: Deployment
 
-## Notes and Decisions
+## Architecture Decisions
 
-### Key Architectural Decisions Made
-1. **Monorepo**: Easier management for hobby project, shared types
-2. **Auth0**: Offload auth complexity, focus on core features
-3. **Multi-line routes**: More realistic commute scenarios
-4. **Celery + Redis**: Proper async job handling for scalability
-5. **Azure VM + Docker Compose**: Full control, cost-effective within free credits, no per-service pricing
-6. **Cloudflare + UFW**: Free WAF, SSL, CDN; restrict access to Cloudflare IPs only
-7. **SOPS/age + Docker secrets**: Self-contained secret management, no external service dependency
-8. **shadcn/ui**: Lightweight, customizable, modern Tailwind-based components
-9. **Code-based verification**: Consistent UX for email and SMS
-10. **uv for Python**: Fast, modern package management
-11. **Tailwind CSS v4**: Using latest v4 (not v3). Configuration and syntax differ significantly from v3. Use Context7 or WebFetch tools to get current v4 documentation when needed.
-12. **UUIDs for Primary Keys**: Prevents enumeration attacks, better security for user data (Phase 2)
-13. **Soft Deletes**: Audit trail and data recovery capability via deleted_at timestamp (Phase 2)
-14. **JSON for Route Schedules**: PostgreSQL JSON support for days_of_week arrays (Phase 2)
-15. **Required Config**: DATABASE_URL, REDIS_URL, ALLOWED_ORIGINS must be provided; no misleading defaults (Phase 2)
-16. **DB Credential Separation**: App runs with limited DB permissions; migrations in separate CI/init container with admin access (Phase 2)
-17. **python-dotenv-vault for Secrets**: Replaced SOPS/age with python-dotenv-vault for simpler encrypted secret management; locally managed (no cloud service), pre-commit hooks auto-rebuild .env.vault (Phase 2)
-18. **Rate Limiting Strategy**: Two-tier rate limiting for security - verification codes (3/hour to prevent spam) and failed contact additions (5/24h to prevent enumeration attacks) (Phase 4)
-19. **Simple Verification Codes**: Random 6-digit numeric codes instead of HOTP/TOTP for better email/SMS UX; industry standard for contact verification (Phase 4)
-20. **Separate Verification Flow**: Users add contacts first, then explicitly request verification; provides better UX and allows batch contact addition (Phase 4)
-21. **Test Database Setup**: pytest-postgresql automatically creates isolated test databases for each test with Alembic migrations. DO NOT manually create test databases or set DATABASE_URL in pytest commands - the test infrastructure handles this automatically via the `db_session` fixture in conftest.py (Phase 4)
-22. **Test Authentication Pattern**: When testing authenticated endpoints, use `test_user` + `auth_headers_for_user` fixtures together. The `auth_headers_for_user` fixture generates a JWT token that matches the `test_user`'s external_id, ensuring test data and authenticated requests use the same user. DO NOT use `test_user` + `auth_headers` together as they create different users with mismatched external_ids (Phase 4)
-
+See [ARCHITECTURE.md](./ARCHITECTURE.md) for all architectural decision records.
 
 ### Future Enhancements (Post-MVP)
 - SMS implementation via Twilio

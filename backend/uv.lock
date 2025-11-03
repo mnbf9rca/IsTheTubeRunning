@@ -3,6 +3,20 @@ revision = 3
 requires-python = ">=3.14"
 
 [[package]]
+name = "aiocache"
+version = "0.12.3"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/7a/64/b945b8025a9d1e6e2138845f4022165d3b337f55f50984fbc6a4c0a1e355/aiocache-0.12.3.tar.gz", hash = "sha256:f528b27bf4d436b497a1d0d1a8f59a542c153ab1e37c3621713cb376d44c4713", size = 132196, upload-time = "2024-09-25T13:20:23.823Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/37/d7/15d67e05b235d1ed8c3ce61688fe4d84130e72af1657acadfaac3479f4cf/aiocache-0.12.3-py2.py3-none-any.whl", hash = "sha256:889086fc24710f431937b87ad3720a289f7fc31c4fd8b68e9f918b9bacd8270d", size = 28199, upload-time = "2024-09-25T13:20:22.688Z" },
+]
+
+[package.optional-dependencies]
+redis = [
+    { name = "redis" },
+]
+
+[[package]]
 name = "alembic"
 version = "1.17.1"
 source = { registry = "https://pypi.org/simple" }
@@ -96,6 +110,18 @@ wheels = [
 [package.optional-dependencies]
 redis = [
     { name = "kombu", extra = ["redis"] },
+]
+
+[[package]]
+name = "celery-types"
+version = "0.23.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "typing-extensions" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/e9/d1/0823e71c281e4ad0044e278cf1577d1a68e05f2809424bf94e1614925c5d/celery_types-0.23.0.tar.gz", hash = "sha256:402ed0555aea3cd5e1e6248f4632e4f18eec8edb2435173f9e6dc08449fa101e", size = 31479, upload-time = "2025-03-03T23:56:51.547Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/6f/8b/92bb54dd74d145221c3854aa245c84f4dc04cc9366147496182cec8e88e3/celery_types-0.23.0-py3-none-any.whl", hash = "sha256:0cc495b8d7729891b7e070d0ec8d4906d2373209656a6e8b8276fe1ed306af9a", size = 50189, upload-time = "2025-03-03T23:56:50.458Z" },
 ]
 
 [[package]]
@@ -544,6 +570,7 @@ name = "isthetuberunning-backend"
 version = "0.1.0"
 source = { virtual = "." }
 dependencies = [
+    { name = "aiocache", extra = ["redis"] },
     { name = "alembic" },
     { name = "asyncpg" },
     { name = "celery", extra = ["redis"] },
@@ -566,6 +593,7 @@ dependencies = [
 
 [package.dev-dependencies]
 dev = [
+    { name = "celery-types" },
     { name = "cryptography" },
     { name = "freezegun" },
     { name = "mypy" },
@@ -583,6 +611,7 @@ dev = [
 
 [package.metadata]
 requires-dist = [
+    { name = "aiocache", extras = ["redis"], specifier = ">=0.12.0" },
     { name = "alembic", specifier = ">=1.14.0" },
     { name = "asyncpg", specifier = ">=0.30.0" },
     { name = "celery", extras = ["redis"], specifier = ">=5.4.0" },
@@ -593,7 +622,7 @@ requires-dist = [
     { name = "phonenumbers", specifier = ">=8.13.0" },
     { name = "pydantic", specifier = ">=2.10.0" },
     { name = "pydantic-settings", specifier = ">=2.6.0" },
-    { name = "pydantic-tfl-api", specifier = ">=2.0.2" },
+    { name = "pydantic-tfl-api", specifier = ">=2.0.3" },
     { name = "python-dotenv-vault", specifier = ">=0.7.0" },
     { name = "python-jose", extras = ["cryptography"], specifier = ">=3.3.0" },
     { name = "python-multipart", specifier = ">=0.0.17" },
@@ -605,6 +634,7 @@ requires-dist = [
 
 [package.metadata.requires-dev]
 dev = [
+    { name = "celery-types", specifier = ">=0.23.0" },
     { name = "cryptography", specifier = ">=46.0.3" },
     { name = "freezegun", specifier = ">=1.5.5" },
     { name = "mypy", specifier = ">=1.18.2" },
@@ -973,15 +1003,15 @@ wheels = [
 
 [[package]]
 name = "pydantic-tfl-api"
-version = "2.0.2"
+version = "2.0.3"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "pydantic" },
     { name = "requests" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/b5/43/920d67667cbb672c3bdeb2bad88ad2d112ce02a8eb5e74983c2cc5335239/pydantic_tfl_api-2.0.2.tar.gz", hash = "sha256:257cedd5fbc79feda2fdcdfe73b54c95508f6911bd5ae6787f8a3507b48188f1", size = 963744, upload-time = "2025-09-30T21:59:37.733Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/a4/74/1252957533cad81645266fe18d91ace74fa8697db24803e9f85ebf2adb62/pydantic_tfl_api-2.0.3.tar.gz", hash = "sha256:2da4320cb8176b88e91a6965181bcf3455501c3b31883b464463d13bd2d1f3e4", size = 778222, upload-time = "2025-11-02T23:17:11.041Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/19/42/82d56441f53458e0586adc7cf39f3605db5ecd89a316595fec62c4516c0a/pydantic_tfl_api-2.0.2-py3-none-any.whl", hash = "sha256:17c3056e54ccd3fb7a52e06e2d1d95a145d56bdc490ef5430875d837aae74936", size = 98294, upload-time = "2025-09-30T21:59:36.299Z" },
+    { url = "https://files.pythonhosted.org/packages/d6/9c/635bc69530742d27411e0e1b2b50837725b0e9ec015de46808660f61641a/pydantic_tfl_api-2.0.3-py3-none-any.whl", hash = "sha256:274a6d2cd3105192e4c1cebbc38cce0a04f640738cbb3df545885638c3de8a9b", size = 98856, upload-time = "2025-11-02T23:17:09.681Z" },
 ]
 
 [[package]]
