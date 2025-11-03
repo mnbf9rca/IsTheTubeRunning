@@ -19,8 +19,10 @@ logger = logging.getLogger("alembic.env")
 config = context.config
 
 # Override sqlalchemy.url with our settings (convert asyncpg to psycopg2 for sync migrations)
-database_url = convert_async_db_url_to_sync(settings.DATABASE_URL)
-config.set_main_option("sqlalchemy.url", database_url)
+# Only override if not already set (allows tests to provide their own URL)
+if config.get_main_option("sqlalchemy.url") is None:
+    database_url = convert_async_db_url_to_sync(settings.DATABASE_URL)
+    config.set_main_option("sqlalchemy.url", database_url)
 
 # Interpret the config file for Python logging.
 # This line sets up loggers basically.

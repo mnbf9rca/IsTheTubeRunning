@@ -8,38 +8,42 @@ import tempfile
 os.environ["DEBUG"] = "true"
 os.environ["SMS_LOG_DIR"] = tempfile.gettempdir()  # For SMS service tests
 
-import subprocess
 import uuid
 from collections.abc import AsyncGenerator, Generator
-from typing import Any, Protocol
+from contextlib import suppress
+from dataclasses import dataclass
+from pathlib import Path
+from typing import Any
 from urllib.parse import quote_plus, urlunparse
 
 import pytest
+from alembic import command
+from alembic.config import Config
 from app.core.auth import clear_jwks_cache, set_mock_jwks
 from app.core.utils import convert_async_db_url_to_sync
 from app.main import app
 from app.models.user import User
 from fastapi.testclient import TestClient
 from httpx import ASGITransport, AsyncClient
-from pytest_postgresql import factories
+from pytest_postgresql.janitor import DatabaseJanitor
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.pool import NullPool
 
 from tests.helpers.jwt_helpers import MockJWTGenerator
 
 
-class PostgreSQLInfo(Protocol):
-    """Protocol for PostgreSQL connection info from pytest-postgresql."""
+@dataclass
+class TestDatabaseContext:
+    """
+    Structured container for test database resources.
 
-    host: str
-    port: int
-    dbname: str
+    Contains the async engine, session factory, and database name
+    for use across test fixtures.
+    """
 
-
-class PostgreSQLExecutor(Protocol):
-    """Protocol for PostgreSQL executor from pytest-postgresql fixture."""
-
-    info: PostgreSQLInfo
+    engine: Any  # AsyncEngine
+    session_factory: async_sessionmaker[AsyncSession]
+    db_name: str
 
 
 # Database connection configuration for tests
@@ -49,48 +53,95 @@ DB_USER = "postgres"
 DB_PASSWORD = "postgres"
 
 
-# Configure pytest-postgresql to use our existing Docker PostgreSQL
-postgresql_noproc = factories.postgresql_noproc(  # pyright: ignore[reportUnknownMemberType]
-    host=DB_HOST,
-    port=DB_PORT,
-    user=DB_USER,
-    password=DB_PASSWORD,
-)
-
-# Create a test database for each test
-postgresql = factories.postgresql("postgresql_noproc")
-
-
-def pytest_sessionstart(session: pytest.Session) -> None:
+@pytest.fixture(scope="session")
+def db_engine() -> Generator[TestDatabaseContext]:
     """
-    Drop leftover test template database before test collection.
+    Create test database using DatabaseJanitor with transaction-based isolation.
 
-    This hook runs before pytest collection, ensuring the template database
-    from interrupted test runs is cleaned up before pytest-postgresql tries
-    to create a new one.
+    Runs Alembic migrations once per session using direct command execution.
+    DatabaseJanitor manages database lifecycle and cleanup automatically.
+
+    Yields:
+        TestDatabaseContext: Structured object containing engine, session factory, and db name
     """
-    import psycopg  # noqa: PLC0415
+    # Generate unique database name to avoid conflicts
+    test_db_name = f"test_{uuid.uuid4().hex[:8]}"
 
-    try:
-        conn = psycopg.connect(
-            f"host={DB_HOST} port={DB_PORT} user={DB_USER} password={DB_PASSWORD} dbname=postgres",
-            autocommit=True,
-        )
-        with conn.cursor() as cur:
-            # Unmark as template database (required to drop it)
-            cur.execute("UPDATE pg_database SET datistemplate = false WHERE datname = 'tests_tmpl'")
-            # Terminate any existing connections to the template database
-            cur.execute("""
-                SELECT pg_terminate_backend(pid)
-                FROM pg_stat_activity
-                WHERE datname = 'tests_tmpl' AND pid <> pg_backend_pid()
-            """)
-            # Drop the template database
-            cur.execute("DROP DATABASE IF EXISTS tests_tmpl")
-        conn.close()
-    except Exception:
-        # Silently ignore errors - database might not exist or connection failed
-        pass
+    # DatabaseJanitor handles DB creation and cleanup automatically
+    with DatabaseJanitor(
+        user=DB_USER,
+        host=DB_HOST,
+        port=DB_PORT,
+        dbname=test_db_name,
+        version="18",  # PostgreSQL version
+        password=DB_PASSWORD,
+    ):
+        # Build async connection URL
+        user_part = f"{quote_plus(DB_USER)}:{quote_plus(DB_PASSWORD)}"
+        host_part = f"{quote_plus(DB_HOST)}:{DB_PORT}"
+        netloc = f"{user_part}@{host_part}"
+        async_db_url = urlunparse(("postgresql+asyncpg", netloc, f"/{quote_plus(test_db_name)}", "", "", ""))
+
+        # Create async engine with NullPool (ADR 27: prevents event loop issues)
+        engine = create_async_engine(async_db_url, echo=False, poolclass=NullPool)
+        session_factory = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
+
+        # Run Alembic migrations directly (not via subprocess)
+        alembic_cfg = Config()
+        # Use absolute path to alembic directory
+        alembic_dir = Path(__file__).resolve().parent.parent / "alembic"
+        alembic_cfg.set_main_option("script_location", str(alembic_dir))
+
+        # Set database URL for Alembic (use sync URL for migrations)
+        sync_db_url = convert_async_db_url_to_sync(async_db_url)
+        alembic_cfg.set_main_option("sqlalchemy.url", sync_db_url)
+
+        # Suppress Alembic output during tests unless debugging
+        if not os.environ.get("ALEMBIC_VERBOSE"):
+            alembic_cfg.set_main_option("configure_logger", "false")
+
+        # Run all migrations to create tables
+        try:
+            command.upgrade(alembic_cfg, "head")
+        except Exception as e:
+            msg = f"Alembic migration failed: {e}"
+            raise RuntimeError(msg) from e
+
+        yield TestDatabaseContext(engine=engine, session_factory=session_factory, db_name=test_db_name)
+
+        # Cleanup handled by DatabaseJanitor context manager
+
+
+@pytest.fixture
+async def db_session(db_engine: TestDatabaseContext) -> AsyncGenerator[AsyncSession]:
+    """
+    Create isolated database session for each test using transaction rollback.
+
+    Uses the session-scoped test database and wraps each test in a transaction
+    that is rolled back after the test completes, ensuring test isolation.
+
+    Args:
+        db_engine: Session-scoped test database context
+
+    Yields:
+        Async SQLAlchemy session with transaction isolation
+    """
+    # Create a connection and start a transaction
+    async with db_engine.engine.connect() as connection:
+        # Start a transaction for this test
+        transaction = await connection.begin()
+
+        # Create a session bound to this connection
+        async with db_engine.session_factory(bind=connection) as session:
+            yield session
+
+        # Rollback the transaction after the test (with suppression for safety)
+        with suppress(Exception):
+            if transaction.is_active:
+                await transaction.rollback()
+
+        with suppress(Exception):
+            await connection.close()
 
 
 @pytest.fixture
@@ -118,55 +169,6 @@ async def async_client() -> AsyncGenerator[AsyncClient]:
         base_url="http://test",
     ) as ac:
         yield ac
-
-
-@pytest.fixture
-async def db_session(postgresql: PostgreSQLExecutor) -> AsyncGenerator[AsyncSession]:
-    """
-    Isolated PostgreSQL database session for each test.
-
-    Creates a fresh test database, runs Alembic migrations to setup schema,
-    provides an async SQLAlchemy session, and cleans up after the test.
-
-    Args:
-        postgresql: pytest-postgresql fixture providing database connection
-
-    Yields:
-        Async SQLAlchemy session with full migrated schema
-    """
-    # Build async connection URL using urllib for proper escaping
-    # postgresql.info contains: host, port, user, password, dbname
-    user_part = f"{quote_plus(DB_USER)}:{quote_plus(DB_PASSWORD)}"
-    host_part = f"{quote_plus(postgresql.info.host)}:{postgresql.info.port}"
-    netloc = f"{user_part}@{host_part}"
-    db_url = urlunparse(("postgresql+asyncpg", netloc, f"/{quote_plus(postgresql.info.dbname)}", "", "", ""))
-
-    # Run Alembic migrations (convert asyncpg to psycopg2 for sync migrations)
-    env = os.environ.copy()
-    env["DATABASE_URL"] = convert_async_db_url_to_sync(db_url)
-
-    result = subprocess.run(  # noqa: ASYNC221
-        ["uv", "run", "alembic", "upgrade", "head"],
-        env=env,
-        capture_output=True,
-        text=True,
-        check=False,
-    )
-
-    if result.returncode != 0:
-        msg = f"Migration failed: {result.stderr}\nstdout: {result.stdout}"
-        raise RuntimeError(msg)
-
-    # Create async engine and session with NullPool to avoid event loop issues
-    engine = create_async_engine(db_url, echo=False, poolclass=NullPool)
-    async_session = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
-
-    async with async_session() as session:
-        yield session
-
-    # Cleanup
-    await engine.dispose()
-    # Database is automatically dropped by pytest-postgresql
 
 
 # Auth fixtures
