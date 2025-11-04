@@ -14,6 +14,7 @@ from contextlib import suppress
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
+from unittest.mock import AsyncMock
 from urllib.parse import quote_plus, urlunparse
 
 import pytest
@@ -24,6 +25,7 @@ from app.core.database import get_db
 from app.core.utils import convert_async_db_url_to_sync
 from app.main import app
 from app.models.user import User
+from app.services.alert_service import AlertService
 from fastapi.testclient import TestClient
 from httpx import ASGITransport, AsyncClient
 from pytest_postgresql.janitor import DatabaseJanitor
@@ -438,3 +440,21 @@ def authenticated_client(auth_headers: dict[str, str]) -> TestClient:
     client = TestClient(app)
     client.headers.update(auth_headers)
     return client
+
+
+@pytest.fixture
+def mock_redis() -> AsyncMock:
+    """Create a mock Redis client for testing."""
+    mock = AsyncMock()
+    mock.get = AsyncMock(return_value=None)
+    mock.set = AsyncMock(return_value=True)
+    mock.setex = AsyncMock(return_value=True)
+    mock.close = AsyncMock()
+    mock.aclose = AsyncMock()
+    return mock
+
+
+@pytest.fixture
+def alert_service(db_session: AsyncSession, mock_redis: AsyncMock) -> AlertService:
+    """Create AlertService instance with mocked Redis."""
+    return AlertService(db=db_session, redis_client=mock_redis)

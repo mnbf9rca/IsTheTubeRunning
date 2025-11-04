@@ -16,7 +16,7 @@ from app.models.route import Route, RouteSchedule, RouteSegment
 from app.models.tfl import Line, Station
 from app.models.user import EmailAddress, PhoneNumber, User
 from app.schemas.tfl import DisruptionResponse
-from app.services.alert_service import AlertService
+from app.services.alert_service import AlertService, get_redis_client
 from freezegun import freeze_time
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -1146,3 +1146,16 @@ def test_create_disruption_hash_order_independent(alert_service: AlertService) -
     hash2 = alert_service._create_disruption_hash(disruptions2)
 
     assert hash1 == hash2
+
+
+# ==================== Additional Coverage Tests ====================
+
+
+@pytest.mark.asyncio
+async def test_get_redis_client() -> None:
+    """Test get_redis_client creates a Redis client."""
+    client = await get_redis_client()
+
+    assert client is not None
+    assert isinstance(client, redis.Redis)
+    await client.close()
