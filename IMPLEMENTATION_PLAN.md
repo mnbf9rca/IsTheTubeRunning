@@ -549,8 +549,19 @@ Once this plan is committed, Phase 1 implementation will begin with:
   - Type-safe with mypy --strict compliance
   - Linting compliant (minor exception string warnings accepted)
 
+- [x] Phase 7: Notification Preferences (Completed: November 2025)
+  - Full CRUD API for notification preferences (GET, POST, PATCH, DELETE)
+  - Service layer with comprehensive validation (contact ownership, verification, duplicates, limits)
+  - Configurable preference limit per route (MAX_NOTIFICATION_PREFERENCES_PER_ROUTE = 5)
+  - Duplicate prevention (same route + contact + method)
+  - Method-target type validation (email method requires email target, SMS requires phone)
+  - Pydantic model validators for request validation
+  - Relationship updates: Route ↔ NotificationPreference (cascade delete)
+  - 38 comprehensive tests covering all CRUD operations and edge cases
+  - Coverage: API 100%, Service 96.79%, Overall 96.76% (exceeds 95% target)
+  - Type-safe (mypy --strict) and linting compliant (ruff)
+
 ### Upcoming Phases
-- [ ] Phase 7: Notification Preferences
 - [ ] Phase 8: Alert Processing Worker
 - [ ] Phase 9: Admin Dashboard Backend
 - [ ] Phase 10: Frontend Development

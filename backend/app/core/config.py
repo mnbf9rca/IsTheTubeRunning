@@ -69,6 +69,9 @@ class Settings(BaseSettings):
     CELERY_BROKER_URL: str
     CELERY_RESULT_BACKEND: str
 
+    # Notification Settings (for Phase 7)
+    MAX_NOTIFICATION_PREFERENCES_PER_ROUTE: int = 5
+
     # Alembic Settings
     ALEMBIC_INI_PATH: str = "alembic.ini"
 

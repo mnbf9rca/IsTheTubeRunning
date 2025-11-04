@@ -22,6 +22,7 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.models.base import BaseModel
 
 if TYPE_CHECKING:
+    from app.models.notification import NotificationPreference
     from app.models.user import User
 
 
@@ -64,6 +65,10 @@ class Route(BaseModel):
         order_by="RouteSegment.sequence",
     )
     schedules: Mapped[list["RouteSchedule"]] = relationship(
+        back_populates="route",
+        cascade="all, delete-orphan",
+    )
+    notification_preferences: Mapped[list["NotificationPreference"]] = relationship(
         back_populates="route",
         cascade="all, delete-orphan",
     )
