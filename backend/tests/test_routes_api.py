@@ -489,7 +489,7 @@ class TestRoutesAPI:
             headers=auth_headers_for_user,
         )
 
-        assert response.status_code == status.HTTP_422_UNPROCESSABLE_ENTITY
+        assert response.status_code == status.HTTP_422_UNPROCESSABLE_CONTENT
 
     @pytest.mark.asyncio
     @patch("app.services.route_service.RouteService._validate_route_segments")
@@ -669,7 +669,7 @@ class TestRoutesAPI:
             headers=auth_headers_for_user,
         )
 
-        assert response.status_code == status.HTTP_422_UNPROCESSABLE_ENTITY
+        assert response.status_code == status.HTTP_422_UNPROCESSABLE_CONTENT
 
     @pytest.mark.asyncio
     async def test_create_schedule_invalid_time_range(
@@ -695,7 +695,7 @@ class TestRoutesAPI:
             headers=auth_headers_for_user,
         )
 
-        assert response.status_code == status.HTTP_422_UNPROCESSABLE_ENTITY
+        assert response.status_code == status.HTTP_422_UNPROCESSABLE_CONTENT
 
     @pytest.mark.asyncio
     async def test_update_schedule(
@@ -922,3 +922,509 @@ class TestRoutesAPI:
             headers=auth_headers_for_user,
         )
         assert response.status_code == status.HTTP_404_NOT_FOUND
+
+    # ==================== Additional Exception Path Tests ====================
+
+    @pytest.mark.asyncio
+    async def test_create_schedule_duplicate_days(
+        self,
+        async_client: AsyncClient,
+        auth_headers_for_user: dict[str, str],
+        test_user: User,
+        db_session: AsyncSession,
+    ) -> None:
+        """Test that duplicate day codes are rejected in CreateScheduleRequest."""
+        route = Route(user_id=test_user.id, name="Test Route", active=True)
+        db_session.add(route)
+        await db_session.commit()
+        await db_session.refresh(route)
+
+        response = await async_client.post(
+            f"/api/v1/routes/{route.id}/schedules",
+            json={
+                "days_of_week": ["MON", "TUE", "MON"],  # Duplicate MON
+                "start_time": "08:00:00",
+                "end_time": "18:00:00",
+            },
+            headers=auth_headers_for_user,
+        )
+
+        assert response.status_code == status.HTTP_422_UNPROCESSABLE_CONTENT
+        assert "duplicate" in response.json()["detail"][0]["msg"].lower()
+
+    @pytest.mark.asyncio
+    async def test_update_schedule_invalid_days(
+        self,
+        async_client: AsyncClient,
+        auth_headers_for_user: dict[str, str],
+        test_user: User,
+        db_session: AsyncSession,
+    ) -> None:
+        """Test that invalid day codes are rejected in UpdateScheduleRequest."""
+        route = Route(user_id=test_user.id, name="Test Route", active=True)
+        db_session.add(route)
+        await db_session.flush()
+
+        schedule = RouteSchedule(
+            route_id=route.id,
+            days_of_week=["MON"],
+            start_time=time(8, 0),
+            end_time=time(18, 0),
+        )
+        db_session.add(schedule)
+        await db_session.commit()
+        await db_session.refresh(schedule)
+
+        response = await async_client.patch(
+            f"/api/v1/routes/{route.id}/schedules/{schedule.id}",
+            json={"days_of_week": ["MONDAY", "TUESDAY"]},  # Invalid format
+            headers=auth_headers_for_user,
+        )
+
+        assert response.status_code == status.HTTP_422_UNPROCESSABLE_CONTENT
+        assert "invalid" in response.json()["detail"][0]["msg"].lower()
+
+    @pytest.mark.asyncio
+    async def test_update_schedule_duplicate_days(
+        self,
+        async_client: AsyncClient,
+        auth_headers_for_user: dict[str, str],
+        test_user: User,
+        db_session: AsyncSession,
+    ) -> None:
+        """Test that duplicate day codes are rejected in UpdateScheduleRequest."""
+        route = Route(user_id=test_user.id, name="Test Route", active=True)
+        db_session.add(route)
+        await db_session.flush()
+
+        schedule = RouteSchedule(
+            route_id=route.id,
+            days_of_week=["MON"],
+            start_time=time(8, 0),
+            end_time=time(18, 0),
+        )
+        db_session.add(schedule)
+        await db_session.commit()
+        await db_session.refresh(schedule)
+
+        response = await async_client.patch(
+            f"/api/v1/routes/{route.id}/schedules/{schedule.id}",
+            json={"days_of_week": ["TUE", "WED", "TUE"]},  # Duplicate TUE
+            headers=auth_headers_for_user,
+        )
+
+        assert response.status_code == status.HTTP_422_UNPROCESSABLE_CONTENT
+        assert "duplicate" in response.json()["detail"][0]["msg"].lower()
+
+    @pytest.mark.asyncio
+    async def test_update_route_description(
+        self,
+        async_client: AsyncClient,
+        auth_headers_for_user: dict[str, str],
+        test_user: User,
+        db_session: AsyncSession,
+    ) -> None:
+        """Test updating only the description field of a route."""
+        route = Route(
+            user_id=test_user.id,
+            name="Original Name",
+            description="Original description",
+            active=True,
+        )
+        db_session.add(route)
+        await db_session.commit()
+        await db_session.refresh(route)
+
+        response = await async_client.patch(
+            f"/api/v1/routes/{route.id}",
+            json={"description": "Updated description only"},
+            headers=auth_headers_for_user,
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        data = response.json()
+        assert data["name"] == "Original Name"  # Unchanged
+        assert data["description"] == "Updated description only"
+        assert data["active"] is True  # Unchanged
+
+    @pytest.mark.asyncio
+    @patch("app.services.route_service.RouteService._validate_route_segments")
+    async def test_update_segment_line_id(
+        self,
+        mock_validate: AsyncMock,
+        async_client: AsyncClient,
+        auth_headers_for_user: dict[str, str],
+        test_user: User,
+        test_station1: Station,
+        test_line: Line,
+        db_session: AsyncSession,
+    ) -> None:
+        """Test updating only the line_id field of a segment."""
+        # Mock validation to pass
+        mock_validate.return_value = None
+
+        # Create a second line for testing
+        line2 = Line(
+            tfl_id="victoria",
+            name="Victoria",
+            color="#0098D4",
+            last_updated=datetime.now(UTC),
+        )
+        db_session.add(line2)
+        await db_session.commit()
+        await db_session.refresh(line2)
+
+        route = Route(user_id=test_user.id, name="Test Route", active=True)
+        db_session.add(route)
+        await db_session.flush()
+
+        segment = RouteSegment(
+            route_id=route.id,
+            sequence=0,
+            station_id=test_station1.id,
+            line_id=test_line.id,
+        )
+        db_session.add(segment)
+        await db_session.commit()
+
+        response = await async_client.patch(
+            f"/api/v1/routes/{route.id}/segments/0",
+            json={"line_id": str(line2.id)},  # Update only line_id
+            headers=auth_headers_for_user,
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        data = response.json()
+        assert data["line_id"] == str(line2.id)
+        assert data["station_id"] == str(test_station1.id)  # Unchanged
+
+    @pytest.mark.asyncio
+    async def test_update_schedule_start_time(
+        self,
+        async_client: AsyncClient,
+        auth_headers_for_user: dict[str, str],
+        test_user: User,
+        db_session: AsyncSession,
+    ) -> None:
+        """Test updating only the start_time field of a schedule."""
+        route = Route(user_id=test_user.id, name="Test Route", active=True)
+        db_session.add(route)
+        await db_session.flush()
+
+        schedule = RouteSchedule(
+            route_id=route.id,
+            days_of_week=["MON"],
+            start_time=time(8, 0),
+            end_time=time(18, 0),
+        )
+        db_session.add(schedule)
+        await db_session.commit()
+        await db_session.refresh(schedule)
+
+        response = await async_client.patch(
+            f"/api/v1/routes/{route.id}/schedules/{schedule.id}",
+            json={"start_time": "09:00:00"},  # Update only start_time
+            headers=auth_headers_for_user,
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        data = response.json()
+        assert data["start_time"] == "09:00:00"
+        assert data["end_time"] == "18:00:00"  # Unchanged
+        assert data["days_of_week"] == ["MON"]  # Unchanged
+
+    @pytest.mark.asyncio
+    @patch("app.services.route_service.RouteService._validate_segments")
+    async def test_upsert_segments_validation_with_index(
+        self,
+        mock_validate: AsyncMock,
+        async_client: AsyncClient,
+        auth_headers_for_user: dict[str, str],
+        test_user: User,
+        test_station1: Station,
+        test_station2: Station,
+        test_line: Line,
+        db_session: AsyncSession,
+    ) -> None:
+        """Test validation failure with invalid_index in error message."""
+        # Mock validation to fail with an index
+        mock_validate.side_effect = HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Route validation failed: Station not on line (segment index: 1)",
+        )
+
+        route = Route(user_id=test_user.id, name="Test Route", active=True)
+        db_session.add(route)
+        await db_session.commit()
+        await db_session.refresh(route)
+
+        response = await async_client.put(
+            f"/api/v1/routes/{route.id}/segments",
+            json={
+                "segments": [
+                    {
+                        "sequence": 0,
+                        "station_id": str(test_station1.id),
+                        "line_id": str(test_line.id),
+                    },
+                    {
+                        "sequence": 1,
+                        "station_id": str(test_station2.id),
+                        "line_id": str(test_line.id),
+                    },
+                ]
+            },
+            headers=auth_headers_for_user,
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        detail = response.json()["detail"]
+        assert "validation failed" in detail.lower()
+        assert "segment index: 1" in detail.lower()
+
+    @pytest.mark.asyncio
+    @patch("app.services.route_service.RouteService._validate_route_segments")
+    async def test_update_segment_validation_failure(
+        self,
+        mock_validate: AsyncMock,
+        async_client: AsyncClient,
+        auth_headers_for_user: dict[str, str],
+        test_user: User,
+        test_station1: Station,
+        test_station2: Station,
+        test_line: Line,
+        db_session: AsyncSession,
+    ) -> None:
+        """Test that segment update validation failures are handled correctly."""
+        # Mock validation to fail
+        mock_validate.side_effect = HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Route validation failed: Invalid route configuration",
+        )
+
+        route = Route(user_id=test_user.id, name="Test Route", active=True)
+        db_session.add(route)
+        await db_session.flush()
+
+        segment = RouteSegment(
+            route_id=route.id,
+            sequence=0,
+            station_id=test_station1.id,
+            line_id=test_line.id,
+        )
+        db_session.add(segment)
+        await db_session.commit()
+
+        response = await async_client.patch(
+            f"/api/v1/routes/{route.id}/segments/0",
+            json={"station_id": str(test_station2.id)},
+            headers=auth_headers_for_user,
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "validation failed" in response.json()["detail"].lower()
+
+    @pytest.mark.asyncio
+    async def test_update_schedule_without_days(
+        self,
+        async_client: AsyncClient,
+        auth_headers_for_user: dict[str, str],
+        test_user: User,
+        db_session: AsyncSession,
+    ) -> None:
+        """Test updating schedule without providing days_of_week (None case)."""
+        route = Route(user_id=test_user.id, name="Test Route", active=True)
+        db_session.add(route)
+        await db_session.flush()
+
+        schedule = RouteSchedule(
+            route_id=route.id,
+            days_of_week=["MON", "TUE"],
+            start_time=time(8, 0),
+            end_time=time(18, 0),
+        )
+        db_session.add(schedule)
+        await db_session.commit()
+        await db_session.refresh(schedule)
+
+        # Update only end_time, leaving days_of_week as None
+        response = await async_client.patch(
+            f"/api/v1/routes/{route.id}/schedules/{schedule.id}",
+            json={"end_time": "17:00:00"},
+            headers=auth_headers_for_user,
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        data = response.json()
+        assert data["end_time"] == "17:00:00"
+        assert data["days_of_week"] == ["MON", "TUE"]  # Unchanged
+
+    @pytest.mark.asyncio
+    @patch("app.services.tfl_service.TfLService.validate_route")
+    async def test_validate_segments_with_invalid_index(
+        self,
+        mock_validate_route: AsyncMock,
+        async_client: AsyncClient,
+        auth_headers_for_user: dict[str, str],
+        test_user: User,
+        test_station1: Station,
+        test_station2: Station,
+        test_line: Line,
+        db_session: AsyncSession,
+    ) -> None:
+        """Test _validate_segments method with invalid_index from TfL service."""
+        # Mock TfL service to return validation failure with index
+        mock_validate_route.return_value = (False, "Station not on line", 1)
+
+        route = Route(user_id=test_user.id, name="Test Route", active=True)
+        db_session.add(route)
+        await db_session.commit()
+        await db_session.refresh(route)
+
+        response = await async_client.put(
+            f"/api/v1/routes/{route.id}/segments",
+            json={
+                "segments": [
+                    {
+                        "sequence": 0,
+                        "station_id": str(test_station1.id),
+                        "line_id": str(test_line.id),
+                    },
+                    {
+                        "sequence": 1,
+                        "station_id": str(test_station2.id),
+                        "line_id": str(test_line.id),
+                    },
+                ]
+            },
+            headers=auth_headers_for_user,
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        detail = response.json()["detail"]
+        assert "route validation failed" in detail.lower()
+        assert "station not on line" in detail.lower()
+        assert "segment index: 1" in detail.lower()
+
+    @pytest.mark.asyncio
+    @patch("app.services.tfl_service.TfLService.validate_route")
+    async def test_validate_segments_without_invalid_index(
+        self,
+        mock_validate_route: AsyncMock,
+        async_client: AsyncClient,
+        auth_headers_for_user: dict[str, str],
+        test_user: User,
+        test_station1: Station,
+        test_station2: Station,
+        test_line: Line,
+        db_session: AsyncSession,
+    ) -> None:
+        """Test _validate_segments method without invalid_index from TfL service."""
+        # Mock TfL service to return validation failure without index
+        mock_validate_route.return_value = (False, "Invalid route configuration", None)
+
+        route = Route(user_id=test_user.id, name="Test Route", active=True)
+        db_session.add(route)
+        await db_session.commit()
+        await db_session.refresh(route)
+
+        response = await async_client.put(
+            f"/api/v1/routes/{route.id}/segments",
+            json={
+                "segments": [
+                    {
+                        "sequence": 0,
+                        "station_id": str(test_station1.id),
+                        "line_id": str(test_line.id),
+                    },
+                    {
+                        "sequence": 1,
+                        "station_id": str(test_station2.id),
+                        "line_id": str(test_line.id),
+                    },
+                ]
+            },
+            headers=auth_headers_for_user,
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        detail = response.json()["detail"]
+        assert "route validation failed" in detail.lower()
+        assert "invalid route configuration" in detail.lower()
+        # Should NOT contain segment index
+        assert "segment index" not in detail.lower()
+
+    @pytest.mark.asyncio
+    @patch("app.services.tfl_service.TfLService.validate_route")
+    async def test_validate_route_segments_method(
+        self,
+        mock_validate_route: AsyncMock,
+        async_client: AsyncClient,
+        auth_headers_for_user: dict[str, str],
+        test_user: User,
+        test_station1: Station,
+        test_station2: Station,
+        test_line: Line,
+        db_session: AsyncSession,
+    ) -> None:
+        """Test _validate_route_segments method is called during segment update."""
+        # Mock TfL service to return success
+        mock_validate_route.return_value = (True, "", None)
+
+        route = Route(user_id=test_user.id, name="Test Route", active=True)
+        db_session.add(route)
+        await db_session.flush()
+
+        segment = RouteSegment(
+            route_id=route.id,
+            sequence=0,
+            station_id=test_station1.id,
+            line_id=test_line.id,
+        )
+        db_session.add(segment)
+        await db_session.commit()
+
+        response = await async_client.patch(
+            f"/api/v1/routes/{route.id}/segments/0",
+            json={"station_id": str(test_station2.id)},
+            headers=auth_headers_for_user,
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        # Verify TfL validate_route was called (which means _validate_route_segments worked)
+        mock_validate_route.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_update_schedule_with_explicit_none_days(
+        self,
+        async_client: AsyncClient,
+        auth_headers_for_user: dict[str, str],
+        test_user: User,
+        db_session: AsyncSession,
+    ) -> None:
+        """Test updating schedule with explicit days_of_week: None to trigger validator line 153."""
+        route = Route(user_id=test_user.id, name="Test Route", active=True)
+        db_session.add(route)
+        await db_session.flush()
+
+        schedule = RouteSchedule(
+            route_id=route.id,
+            days_of_week=["MON", "TUE"],
+            start_time=time(8, 0),
+            end_time=time(18, 0),
+        )
+        db_session.add(schedule)
+        await db_session.commit()
+        await db_session.refresh(schedule)
+
+        # Explicitly pass days_of_week as None to trigger line 153 in validate_days
+        response = await async_client.patch(
+            f"/api/v1/routes/{route.id}/schedules/{schedule.id}",
+            json={"days_of_week": None, "start_time": "09:00:00"},
+            headers=auth_headers_for_user,
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        data = response.json()
+        assert data["start_time"] == "09:00:00"
+        assert data["days_of_week"] == ["MON", "TUE"]  # Unchanged
