@@ -1208,3 +1208,80 @@ class TestNotificationPreferencesAPI:
             status.HTTP_401_UNAUTHORIZED,
             status.HTTP_403_FORBIDDEN,
         ]
+
+    @pytest.mark.asyncio
+    async def test_update_preference_route_mismatch(
+        self,
+        async_client: AsyncClient,
+        auth_headers_for_user: dict[str, str],
+        test_user: User,
+        verified_email: EmailAddress,
+        db_session: AsyncSession,
+    ) -> None:
+        """Test updating with mismatched route_id in URL."""
+        # Create two routes
+        route1 = Route(user_id=test_user.id, name="Route 1", active=True)
+        route2 = Route(user_id=test_user.id, name="Route 2", active=True)
+        db_session.add_all([route1, route2])
+        await db_session.commit()
+        await db_session.refresh(route1)
+        await db_session.refresh(route2)
+
+        # Create preference for route1
+        pref = NotificationPreference(
+            route_id=route1.id,
+            method=NotificationMethod.EMAIL,
+            target_email_id=verified_email.id,
+        )
+        db_session.add(pref)
+        await db_session.commit()
+        await db_session.refresh(pref)
+
+        # Try to update with route2's ID in URL
+        response = await async_client.patch(
+            f"/api/v1/routes/{route2.id}/notifications/{pref.id}",
+            json={
+                "method": "email",
+            },
+            headers=auth_headers_for_user,
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "does not match" in response.json()["detail"].lower()
+
+    @pytest.mark.asyncio
+    async def test_delete_preference_route_mismatch(
+        self,
+        async_client: AsyncClient,
+        auth_headers_for_user: dict[str, str],
+        test_user: User,
+        verified_email: EmailAddress,
+        db_session: AsyncSession,
+    ) -> None:
+        """Test deleting with mismatched route_id in URL."""
+        # Create two routes
+        route1 = Route(user_id=test_user.id, name="Route 1", active=True)
+        route2 = Route(user_id=test_user.id, name="Route 2", active=True)
+        db_session.add_all([route1, route2])
+        await db_session.commit()
+        await db_session.refresh(route1)
+        await db_session.refresh(route2)
+
+        # Create preference for route1
+        pref = NotificationPreference(
+            route_id=route1.id,
+            method=NotificationMethod.EMAIL,
+            target_email_id=verified_email.id,
+        )
+        db_session.add(pref)
+        await db_session.commit()
+        await db_session.refresh(pref)
+
+        # Try to delete with route2's ID in URL
+        response = await async_client.delete(
+            f"/api/v1/routes/{route2.id}/notifications/{pref.id}",
+            headers=auth_headers_for_user,
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "does not match" in response.json()["detail"].lower()

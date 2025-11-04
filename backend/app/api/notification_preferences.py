@@ -3,7 +3,7 @@
 from datetime import datetime
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, status
+from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, ConfigDict, model_validator
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -152,7 +152,7 @@ async def update_notification_preference(
     Update a notification preference.
 
     Args:
-        route_id: Route UUID (for URL consistency, not used in validation)
+        route_id: Route UUID (validated against preference's route)
         preference_id: Preference UUID
         request: Update request
         current_user: Authenticated user
@@ -162,10 +162,19 @@ async def update_notification_preference(
         Updated notification preference
 
     Raises:
-        HTTPException: 400 (validation errors), 404 (preference/contact not found),
+        HTTPException: 400 (validation errors, route mismatch), 404 (preference/contact not found),
                       409 (duplicate)
     """
     service = NotificationPreferenceService(db)
+
+    # Validate route_id matches the preference's route
+    preference = await service.get_preference_by_id(preference_id, current_user.id)
+    if preference.route_id != route_id:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Route ID in URL does not match preference's route.",
+        )
+
     return await service.update_preference(
         preference_id=preference_id,
         user_id=current_user.id,
@@ -189,13 +198,22 @@ async def delete_notification_preference(
     Delete a notification preference.
 
     Args:
-        route_id: Route UUID (for URL consistency, not used in validation)
+        route_id: Route UUID (validated against preference's route)
         preference_id: Preference UUID
         current_user: Authenticated user
         db: Database session
 
     Raises:
-        HTTPException: 404 if preference not found or doesn't belong to user
+        HTTPException: 400 (route mismatch), 404 (preference not found or doesn't belong to user)
     """
     service = NotificationPreferenceService(db)
+
+    # Validate route_id matches the preference's route
+    preference = await service.get_preference_by_id(preference_id, current_user.id)
+    if preference.route_id != route_id:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Route ID in URL does not match preference's route.",
+        )
+
     await service.delete_preference(preference_id, current_user.id)
