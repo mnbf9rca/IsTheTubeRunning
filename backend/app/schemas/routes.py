@@ -2,7 +2,7 @@
 
 from datetime import time
 from uuid import UUID
-from zoneinfo import ZoneInfo
+from zoneinfo import ZoneInfo, available_timezones
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
@@ -57,6 +57,10 @@ def _validate_timezone(tz: str | None) -> str | None:
     """
     Validate timezone is a valid IANA timezone name - reusable helper.
 
+    Uses available_timezones() for deterministic cross-platform validation.
+    This ensures consistent behavior on macOS (case-insensitive filesystem)
+    and Linux (case-sensitive filesystem).
+
     Args:
         tz: IANA timezone name (e.g., 'Europe/London', 'America/New_York')
 
@@ -64,15 +68,23 @@ def _validate_timezone(tz: str | None) -> str | None:
         Validated timezone name
 
     Raises:
-        ValueError: If timezone is invalid
+        ValueError: If timezone is invalid or not in canonical form
     """
     if tz is None:
         return None
+
+    # Check against canonical IANA timezone list (deterministic across platforms)
+    if tz not in available_timezones():
+        msg = f"Invalid IANA timezone: {tz}"
+        raise ValueError(msg)
+
+    # Double-check with ZoneInfo (belt and suspenders)
     try:
         ZoneInfo(tz)
     except Exception:
         msg = f"Invalid IANA timezone: {tz}"
         raise ValueError(msg) from None
+
     return tz
 
 
@@ -95,6 +107,8 @@ class CreateRouteRequest(BaseModel):
     def validate_timezone(cls, tz: str) -> str:
         """Validate timezone using shared helper."""
         result = _validate_timezone(tz)
+        # This should never be None since tz is str (not str | None),
+        # but check explicitly per code review guidance
         if result is None:
             msg = f"Invalid timezone: {tz}"
             raise ValueError(msg)
