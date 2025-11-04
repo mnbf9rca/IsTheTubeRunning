@@ -530,6 +530,89 @@ class TestRoutesAPI:
         assert len(data) == 1
         assert data[0]["timezone"] == "UTC"
 
+    @pytest.mark.asyncio
+    async def test_update_route_timezone_to_none_preserves_existing(
+        self,
+        async_client: AsyncClient,
+        auth_headers_for_user: dict[str, str],
+        test_user: User,
+        db_session: AsyncSession,
+    ) -> None:
+        """Test that updating route with timezone=None preserves existing timezone."""
+        route = Route(
+            user_id=test_user.id,
+            name="Test Route",
+            active=True,
+            timezone="Asia/Tokyo",
+        )
+        db_session.add(route)
+        await db_session.commit()
+        await db_session.refresh(route)
+
+        # Update with timezone=None (omitted) should preserve existing value
+        response = await async_client.patch(
+            f"/api/v1/routes/{route.id}",
+            json={"name": "Updated Name"},  # No timezone field
+            headers=auth_headers_for_user,
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        data = response.json()
+        assert data["name"] == "Updated Name"
+        assert data["timezone"] == "Asia/Tokyo"  # Unchanged
+
+    @pytest.mark.asyncio
+    async def test_update_route_timezone_explicit_none_preserves_existing(
+        self,
+        async_client: AsyncClient,
+        auth_headers_for_user: dict[str, str],
+        test_user: User,
+        db_session: AsyncSession,
+    ) -> None:
+        """Test that updating route with explicit timezone: null preserves existing timezone."""
+        route = Route(
+            user_id=test_user.id,
+            name="Test Route",
+            active=True,
+            timezone="Europe/Paris",
+        )
+        db_session.add(route)
+        await db_session.commit()
+        await db_session.refresh(route)
+
+        # Update with explicit None should preserve existing value (per UpdateRouteRequest logic)
+        response = await async_client.patch(
+            f"/api/v1/routes/{route.id}",
+            json={"name": "Updated Name", "timezone": None},
+            headers=auth_headers_for_user,
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        data = response.json()
+        assert data["name"] == "Updated Name"
+        assert data["timezone"] == "Europe/Paris"  # Unchanged
+
+    @pytest.mark.asyncio
+    async def test_create_route_with_various_timezone_casings(
+        self,
+        async_client: AsyncClient,
+        auth_headers_for_user: dict[str, str],
+    ) -> None:
+        """Test that ZoneInfo accepts various casings of timezone names."""
+        # ZoneInfo accepts various casings (implementation-dependent)
+        response = await async_client.post(
+            "/api/v1/routes",
+            json={
+                "name": "Test Route",
+                "timezone": "europe/london",  # Lowercase
+            },
+            headers=auth_headers_for_user,
+        )
+
+        assert response.status_code == status.HTTP_201_CREATED
+        data = response.json()
+        assert data["timezone"] == "europe/london"
+
     # ==================== Segment Tests ====================
 
     @pytest.mark.asyncio

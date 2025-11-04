@@ -120,3 +120,17 @@ class TestValidateTimezone:
         """Test validation passes when timezone is None."""
         result = _validate_timezone(None)
         assert result is None
+
+    def test_timezone_case_insensitivity(self) -> None:
+        """Test that ZoneInfo accepts various casings of timezone names."""
+        # ZoneInfo accepts various casings (implementation-dependent behavior)
+        result_lower = _validate_timezone("europe/london")
+        assert result_lower == "europe/london"
+
+        result_upper = _validate_timezone("EUROPE/LONDON")
+        assert result_upper == "EUROPE/LONDON"
+
+    def test_timezone_mixed_case(self) -> None:
+        """Test that mixed case timezone names are accepted."""
+        result = _validate_timezone("AmErIcA/NeW_YoRk")
+        assert result == "AmErIcA/NeW_YoRk"

@@ -8,6 +8,7 @@ Create Date: 2025-11-04 09:17:38.900697
 
 from collections.abc import Sequence
 
+import sqlalchemy as sa
 from alembic import op
 
 # revision identifiers, used by Alembic.
@@ -20,23 +21,19 @@ depends_on: str | Sequence[str] | None = None
 def upgrade() -> None:
     """Upgrade schema."""
     # Add timezone column to routes table
-    op.execute(
-        """
-        ALTER TABLE routes
-        ADD COLUMN timezone VARCHAR(64) NOT NULL DEFAULT 'Europe/London'
-        """
-    )
-
-    # Add column comment for documentation
-    op.execute(
-        """
-        COMMENT ON COLUMN routes.timezone IS
-        'IANA timezone for schedule interpretation (e.g., Europe/London). Schedule times are naive and interpreted in this timezone.'
-        """
+    op.add_column(
+        "routes",
+        sa.Column(
+            "timezone",
+            sa.String(length=64),
+            nullable=False,
+            server_default="Europe/London",
+            comment="IANA timezone for schedule interpretation (e.g., Europe/London). Schedule times are naive and interpreted in this timezone.",
+        ),
     )
 
 
 def downgrade() -> None:
     """Downgrade schema."""
     # Remove timezone column
-    op.execute("ALTER TABLE routes DROP COLUMN timezone")
+    op.drop_column("routes", "timezone")

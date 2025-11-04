@@ -95,9 +95,9 @@ class CreateRouteRequest(BaseModel):
     def validate_timezone(cls, tz: str) -> str:
         """Validate timezone using shared helper."""
         result = _validate_timezone(tz)
-        # _validate_timezone can return None, but we know tz is not None here
-        # so we assert to help type checker
-        assert result is not None
+        if result is None:
+            msg = f"Invalid timezone: {tz}"
+            raise ValueError(msg)
         return result
 
 
