@@ -1160,7 +1160,7 @@ async def test_get_redis_client() -> None:
 
     assert client is not None
     assert isinstance(client, redis.Redis)
-    await client.close()
+    await client.aclose()
 
 
 @pytest.mark.asyncio
