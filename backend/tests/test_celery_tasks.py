@@ -15,7 +15,7 @@ def test_check_disruptions_task_registered() -> None:
 
 
 @pytest.mark.asyncio
-@patch("app.services.alert_service.AlertService")
+@patch("app.celery.tasks.AlertService")
 @patch("app.celery.tasks.get_redis_client")
 @patch("app.celery.tasks.worker_session_factory")
 async def test_check_disruptions_async_success(
@@ -62,7 +62,7 @@ async def test_check_disruptions_async_success(
 
 
 @pytest.mark.asyncio
-@patch("app.services.alert_service.AlertService")
+@patch("app.celery.tasks.AlertService")
 @patch("app.celery.tasks.get_redis_client")
 @patch("app.celery.tasks.worker_session_factory")
 async def test_check_disruptions_async_returns_stats(
@@ -105,7 +105,7 @@ async def test_check_disruptions_async_returns_stats(
 
 @pytest.mark.asyncio
 @patch("app.celery.tasks.get_redis_client")
-@patch("app.services.alert_service.AlertService")
+@patch("app.celery.tasks.AlertService")
 @patch("app.celery.tasks.worker_session_factory")
 async def test_check_disruptions_async_closes_resources(
     mock_session_factory: MagicMock,
@@ -144,7 +144,7 @@ async def test_check_disruptions_async_closes_resources(
 
 @pytest.mark.asyncio
 @patch("app.celery.tasks.get_redis_client")
-@patch("app.services.alert_service.AlertService")
+@patch("app.celery.tasks.AlertService")
 @patch("app.celery.tasks.worker_session_factory")
 async def test_check_disruptions_async_closes_resources_on_error(
     mock_session_factory: MagicMock,
@@ -178,7 +178,7 @@ async def test_check_disruptions_async_closes_resources_on_error(
 
 @pytest.mark.asyncio
 @patch("app.celery.tasks.get_redis_client")
-@patch("app.services.alert_service.AlertService")
+@patch("app.celery.tasks.AlertService")
 @patch("app.celery.tasks.worker_session_factory")
 async def test_check_disruptions_async_no_routes_checked(
     mock_session_factory: MagicMock,
@@ -219,7 +219,7 @@ async def test_check_disruptions_async_no_routes_checked(
 
 @pytest.mark.asyncio
 @patch("app.celery.tasks.get_redis_client")
-@patch("app.services.alert_service.AlertService")
+@patch("app.celery.tasks.AlertService")
 @patch("app.celery.tasks.worker_session_factory")
 async def test_check_disruptions_async_with_errors(
     mock_session_factory: MagicMock,
@@ -260,7 +260,7 @@ async def test_check_disruptions_async_with_errors(
 
 @pytest.mark.asyncio
 @patch("app.celery.tasks.get_redis_client")
-@patch("app.services.alert_service.AlertService")
+@patch("app.celery.tasks.AlertService")
 @patch("app.celery.tasks.worker_session_factory")
 async def test_check_disruptions_async_calls_alert_service_correctly(
     mock_session_factory: MagicMock,
@@ -301,7 +301,7 @@ async def test_check_disruptions_async_calls_alert_service_correctly(
 
 @pytest.mark.asyncio
 @patch("app.celery.tasks.get_redis_client")
-@patch("app.services.alert_service.AlertService")
+@patch("app.celery.tasks.AlertService")
 @patch("app.celery.tasks.worker_session_factory")
 async def test_check_disruptions_async_redis_connection_error(
     mock_session_factory: MagicMock,
@@ -331,7 +331,7 @@ async def test_check_disruptions_async_redis_connection_error(
 
 @pytest.mark.asyncio
 @patch("app.celery.tasks.get_redis_client")
-@patch("app.services.alert_service.AlertService")
+@patch("app.celery.tasks.AlertService")
 @patch("app.celery.tasks.worker_session_factory")
 async def test_check_disruptions_async_session_factory_error(
     mock_session_factory: MagicMock,

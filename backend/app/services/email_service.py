@@ -40,6 +40,39 @@ class EmailService:
         self.smtp_password: str = settings.SMTP_PASSWORD  # type: ignore[assignment]
         self.from_email: str = settings.SMTP_FROM_EMAIL  # type: ignore[assignment]
 
+    async def send_email(
+        self,
+        to: str,
+        subject: str,
+        html_content: str,
+        text_content: str,
+    ) -> None:
+        """
+        Send a generic email with HTML and plain text content.
+
+        Uses run_in_executor to prevent blocking the event loop during SMTP operations.
+
+        Args:
+            to: Recipient email address
+            subject: Email subject line
+            html_content: HTML content of the email
+            text_content: Plain text fallback content
+
+        Raises:
+            smtplib.SMTPException: If email sending fails
+        """
+        loop = asyncio.get_running_loop()
+        await loop.run_in_executor(
+            None,
+            functools.partial(
+                self._send_email_sync,
+                to,
+                subject,
+                html_content,
+                text_content,
+            ),
+        )
+
     async def send_verification_email(self, email: str, code: str) -> None:
         """
         Send a verification email with the provided code.
@@ -53,39 +86,12 @@ class EmailService:
         Raises:
             smtplib.SMTPException: If email sending fails
         """
-        loop = asyncio.get_running_loop()
-        await loop.run_in_executor(
-            None,
-            functools.partial(self._send_email_sync, email, code),
-        )
+        # Render the HTML template
+        template = jinja_env.get_template("verification.html")
+        html_content = template.render(code=code, contact_type="email address")
 
-    def _send_email_sync(self, email: str, code: str) -> None:
-        """
-        Synchronously send a verification email (runs in thread pool).
-
-        This method contains all blocking I/O operations (template rendering, SMTP).
-
-        Args:
-            email: Recipient email address
-            code: 6-digit verification code
-
-        Raises:
-            smtplib.SMTPException: If email sending fails
-        """
-        try:
-            # Render the HTML template (blocking file I/O)
-            template = jinja_env.get_template("verification.html")
-            # Security: template.render() with autoescape=True prevents XSS by escaping variables
-            html_content = template.render(code=code, contact_type="email address")
-
-            # Create the email message
-            message = MIMEMultipart("alternative")
-            message["Subject"] = "Verify Your Email - IsTheTubeRunning"
-            message["From"] = self.from_email
-            message["To"] = email
-
-            # Add plain text fallback
-            text_content = f"""
+        # Create plain text fallback
+        text_content = f"""
 Hello,
 
 Thank you for signing up! Please use the verification code below to verify your email address:
@@ -99,9 +105,43 @@ For security reasons, do not share this code with anyone.
 
 This is an automated message from IsTheTubeRunning.
 © 2025 IsTheTubeRunning. All rights reserved.
-            """.strip()
+        """.strip()
 
-            # Attach parts
+        subject = "Verify Your Email - IsTheTubeRunning"
+
+        # Use generic send_email method
+        await self.send_email(email, subject, html_content, text_content)
+        logger.info("verification_email_sent", recipient=email, code_length=len(code))
+
+    def _send_email_sync(
+        self,
+        to: str,
+        subject: str,
+        html_content: str,
+        text_content: str,
+    ) -> None:
+        """
+        Synchronously send an email (runs in thread pool).
+
+        This method contains all blocking I/O operations (SMTP).
+
+        Args:
+            to: Recipient email address
+            subject: Email subject line
+            html_content: HTML content of the email
+            text_content: Plain text fallback content
+
+        Raises:
+            smtplib.SMTPException: If email sending fails
+        """
+        try:
+            # Create the email message
+            message = MIMEMultipart("alternative")
+            message["Subject"] = subject
+            message["From"] = self.from_email
+            message["To"] = to
+
+            # Attach parts (plain text first, then HTML)
             part1 = MIMEText(text_content, "plain")
             part2 = MIMEText(html_content, "html")
             message.attach(part1)
@@ -113,16 +153,8 @@ This is an automated message from IsTheTubeRunning.
                 server.login(self.smtp_user, self.smtp_password)
                 server.send_message(message)
 
-            logger.info(
-                "verification_email_sent",
-                recipient=email,
-                code_length=len(code),
-            )
+            logger.info("email_sent", recipient=to, subject=subject)
 
         except smtplib.SMTPException as e:
-            logger.error(
-                "verification_email_failed",
-                recipient=email,
-                error=str(e),
-            )
+            logger.error("email_send_failed", recipient=to, subject=subject, error=str(e))
             raise

@@ -103,7 +103,7 @@ class TestSmsService:
         service = SmsService()
 
         # Should not raise exception (early return)
-        service._write_to_file_sync("+14155552671", "123456", "test message", "2025-01-01T00:00:00Z")
+        service._write_to_file_sync("+14155552671", "test message", "2025-01-01T00:00:00Z")
 
     def test_write_to_file_sync_handles_os_error(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         """Test that _write_to_file_sync handles OSError gracefully."""
@@ -121,7 +121,7 @@ class TestSmsService:
             service = SmsService()
 
             # Should log error but not raise exception
-            service._write_to_file_sync("+14155552671", "123456", "test message", "2025-01-01T00:00:00Z")
+            service._write_to_file_sync("+14155552671", "test message", "2025-01-01T00:00:00Z")
         finally:
             # Restore write permission for cleanup
             readonly_dir.chmod(0o755)

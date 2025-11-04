@@ -1,7 +1,7 @@
 """Tests for notification service."""
 
 import smtplib
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, patch
 
 import pytest
 from app.schemas.tfl import DisruptionResponse
@@ -12,13 +12,9 @@ class TestNotificationService:
     """Test cases for notification service."""
 
     @pytest.mark.asyncio
-    @patch("app.services.notification_service.smtplib.SMTP")
-    async def test_send_disruption_email_success(self, mock_smtp_class: MagicMock) -> None:
+    @patch("app.services.email_service.EmailService.send_email", new_callable=AsyncMock)
+    async def test_send_disruption_email_success(self, mock_send_email: AsyncMock) -> None:
         """Test successful disruption email sending."""
-        # Setup mock SMTP server
-        mock_server = MagicMock()
-        mock_smtp_class.return_value.__enter__.return_value = mock_server
-
         service = NotificationService()
         email = "test@example.com"
         route_name = "Morning Commute"
@@ -34,18 +30,16 @@ class TestNotificationService:
 
         await service.send_disruption_email(email, route_name, disruptions)
 
-        # Verify SMTP methods were called
-        mock_server.starttls.assert_called_once()
-        mock_server.login.assert_called_once()
-        mock_server.send_message.assert_called_once()
+        # Verify EmailService.send_email was called
+        mock_send_email.assert_called_once()
+        call_args = mock_send_email.call_args
+        assert call_args[0][0] == email
+        assert "Disruption Alert" in call_args[0][1]
 
     @pytest.mark.asyncio
-    @patch("app.services.notification_service.smtplib.SMTP")
-    async def test_send_disruption_email_correct_headers(self, mock_smtp_class: MagicMock) -> None:
+    @patch("app.services.email_service.EmailService.send_email", new_callable=AsyncMock)
+    async def test_send_disruption_email_correct_headers(self, mock_send_email: AsyncMock) -> None:
         """Test that disruption email has correct headers."""
-        mock_server = MagicMock()
-        mock_smtp_class.return_value.__enter__.return_value = mock_server
-
         service = NotificationService()
         email = "test@example.com"
         route_name = "Morning Commute"
@@ -61,21 +55,16 @@ class TestNotificationService:
 
         await service.send_disruption_email(email, route_name, disruptions, user_name="John")
 
-        # Get the message that was sent
-        call_args = mock_server.send_message.call_args
-        message = call_args[0][0]
-
-        assert message["To"] == email
-        assert message["Subject"] == f"⚠️ Disruption Alert: {route_name}"
-        assert message["From"] == service.email_service.from_email
+        # Verify EmailService.send_email was called with correct parameters
+        mock_send_email.assert_called_once()
+        call_args = mock_send_email.call_args
+        assert call_args[0][0] == email
+        assert call_args[0][1] == f"⚠️ Disruption Alert: {route_name}"
 
     @pytest.mark.asyncio
-    @patch("app.services.notification_service.smtplib.SMTP")
-    async def test_send_disruption_email_with_multiple_disruptions(self, mock_smtp_class: MagicMock) -> None:
+    @patch("app.services.email_service.EmailService.send_email", new_callable=AsyncMock)
+    async def test_send_disruption_email_with_multiple_disruptions(self, mock_send_email: AsyncMock) -> None:
         """Test email with multiple disruptions."""
-        mock_server = MagicMock()
-        mock_smtp_class.return_value.__enter__.return_value = mock_server
-
         service = NotificationService()
         email = "test@example.com"
         route_name = "Morning Commute"
@@ -99,15 +88,13 @@ class TestNotificationService:
         await service.send_disruption_email(email, route_name, disruptions)
 
         # Verify email was sent
-        mock_server.send_message.assert_called_once()
+        mock_send_email.assert_called_once()
 
     @pytest.mark.asyncio
-    @patch("app.services.notification_service.smtplib.SMTP")
-    async def test_send_disruption_email_smtp_error_raises(self, mock_smtp_class: MagicMock) -> None:
+    @patch("app.services.email_service.EmailService.send_email", new_callable=AsyncMock)
+    async def test_send_disruption_email_smtp_error_raises(self, mock_send_email: AsyncMock) -> None:
         """Test that SMTP errors are raised."""
-        mock_server = MagicMock()
-        mock_server.send_message.side_effect = smtplib.SMTPException("Connection failed")
-        mock_smtp_class.return_value.__enter__.return_value = mock_server
+        mock_send_email.side_effect = smtplib.SMTPException("Connection failed")
 
         service = NotificationService()
         email = "test@example.com"
@@ -125,9 +112,9 @@ class TestNotificationService:
             await service.send_disruption_email(email, route_name, disruptions)
 
     @pytest.mark.asyncio
-    @patch("app.services.notification_service.SMS_LOG_FILE", None)
-    async def test_send_disruption_sms_success(self) -> None:
-        """Test successful SMS sending (stub mode - no file logging)."""
+    @patch("app.services.sms_service.SmsService.send_sms", new_callable=AsyncMock)
+    async def test_send_disruption_sms_success(self, mock_send_sms: AsyncMock) -> None:
+        """Test successful SMS sending."""
         service = NotificationService()
         phone = "+442071234567"
         route_name = "Morning Commute"
@@ -141,12 +128,17 @@ class TestNotificationService:
             )
         ]
 
-        # Should not raise
         await service.send_disruption_sms(phone, route_name, disruptions)
 
+        # Verify SmsService.send_sms was called
+        mock_send_sms.assert_called_once()
+        call_args = mock_send_sms.call_args
+        assert call_args[0][0] == phone
+        assert "TfL Alert" in call_args[0][1]
+
     @pytest.mark.asyncio
-    @patch("app.services.notification_service.SMS_LOG_FILE", None)
-    async def test_send_disruption_sms_multiple_disruptions(self) -> None:
+    @patch("app.services.sms_service.SmsService.send_sms", new_callable=AsyncMock)
+    async def test_send_disruption_sms_multiple_disruptions(self, mock_send_sms: AsyncMock) -> None:
         """Test SMS with multiple disruptions (should be concise)."""
         service = NotificationService()
         phone = "+442071234567"
@@ -172,8 +164,10 @@ class TestNotificationService:
             ),
         ]
 
-        # Should not raise and should handle multiple disruptions
         await service.send_disruption_sms(phone, route_name, disruptions)
+
+        # Verify SmsService.send_sms was called
+        mock_send_sms.assert_called_once()
 
     @pytest.mark.asyncio
     async def test_render_email_template_success(self) -> None:

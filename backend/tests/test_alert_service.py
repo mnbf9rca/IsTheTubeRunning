@@ -147,16 +147,10 @@ async def test_route_with_schedule(
             selectinload(Route.segments),
             selectinload(Route.schedules),
             selectinload(Route.notification_preferences),
-            selectinload(Route.user),
+            selectinload(Route.user).selectinload(User.email_addresses),
         )
     )
-    route = result.scalar_one()
-
-    # Workaround: alert_service.py line 482 accesses route.user.email, but User doesn't have email field
-    # This is a bug in the production code - User has email_addresses relationship, not email attribute
-    route.user.email = "test@example.com"  # type: ignore
-
-    return route
+    return result.scalar_one()
 
 
 @pytest.fixture
@@ -399,7 +393,7 @@ async def test_get_active_schedule_outside_window(
 
 
 @pytest.mark.asyncio
-@freeze_time("2025-01-17 08:30:00", tz_offset=0)  # Saturday 8:30 AM UTC
+@freeze_time("2025-01-18 08:30:00", tz_offset=0)  # Saturday 8:30 AM UTC
 async def test_get_active_schedule_wrong_day(
     alert_service: AlertService,
     test_route_with_schedule: Route,

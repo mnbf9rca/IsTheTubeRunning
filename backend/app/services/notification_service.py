@@ -1,11 +1,5 @@
 """Notification service for sending disruption alerts via email and SMS."""
 
-import asyncio
-import functools
-import smtplib
-from datetime import UTC, datetime
-from email.mime.multipart import MIMEMultipart
-from email.mime.text import MIMEText
 from pathlib import Path
 from typing import Any
 
@@ -14,7 +8,7 @@ from jinja2 import Environment, FileSystemLoader, select_autoescape
 
 from app.schemas.tfl import DisruptionResponse
 from app.services.email_service import EmailService
-from app.services.sms_service import SMS_LOG_FILE, SmsService
+from app.services.sms_service import SmsService
 
 logger = structlog.get_logger(__name__)
 
@@ -47,7 +41,7 @@ class NotificationService:
         """
         Send a disruption alert email.
 
-        Uses run_in_executor to prevent blocking the event loop during SMTP operations.
+        Uses EmailService for actual email delivery.
 
         Args:
             email: Recipient email address
@@ -73,67 +67,6 @@ class NotificationService:
                 },
             )
 
-            # Send email asynchronously
-            loop = asyncio.get_running_loop()
-            await loop.run_in_executor(
-                None,
-                functools.partial(
-                    self._send_email_sync,
-                    email,
-                    subject,
-                    html_content,
-                    route_name,
-                    disruptions,
-                ),
-            )
-
-            logger.info(
-                "disruption_email_sent",
-                recipient=email,
-                route_name=route_name,
-                disruption_count=len(disruptions),
-            )
-
-        except Exception as e:
-            logger.error(
-                "disruption_email_failed",
-                recipient=email,
-                route_name=route_name,
-                error=str(e),
-                exc_info=e,
-            )
-            raise
-
-    def _send_email_sync(
-        self,
-        email: str,
-        subject: str,
-        html_content: str,
-        route_name: str,
-        disruptions: list[DisruptionResponse],
-    ) -> None:
-        """
-        Synchronously send a disruption alert email (runs in thread pool).
-
-        This method contains all blocking I/O operations (SMTP).
-
-        Args:
-            email: Recipient email address
-            subject: Email subject line
-            html_content: Rendered HTML content
-            route_name: Name of the route (for plain text fallback)
-            disruptions: List of disruptions (for plain text fallback)
-
-        Raises:
-            Exception: If email sending fails
-        """
-        try:
-            # Create the email message
-            message = MIMEMultipart("alternative")
-            message["Subject"] = subject
-            message["From"] = self.email_service.from_email
-            message["To"] = email
-
             # Create plain text fallback
             text_content = f"""
 Disruption Alert: {route_name}
@@ -153,29 +86,23 @@ This is an automated alert from IsTheTubeRunning.
 © 2025 IsTheTubeRunning. All rights reserved.
             """.strip()
 
-            # Attach parts
-            part1 = MIMEText(text_content, "plain")
-            part2 = MIMEText(html_content, "html")
-            message.attach(part1)
-            message.attach(part2)
+            # Send email via EmailService
+            await self.email_service.send_email(email, subject, html_content, text_content)
 
-            # Send the email via SMTP (blocking network I/O)
-            with smtplib.SMTP(
-                self.email_service.smtp_host,
-                self.email_service.smtp_port,
-            ) as server:
-                server.starttls()
-                server.login(
-                    self.email_service.smtp_user,
-                    self.email_service.smtp_password,
-                )
-                server.send_message(message)
+            logger.info(
+                "disruption_email_sent",
+                recipient=email,
+                route_name=route_name,
+                disruption_count=len(disruptions),
+            )
 
         except Exception as e:
             logger.error(
-                "smtp_send_failed",
+                "disruption_email_failed",
                 recipient=email,
+                route_name=route_name,
                 error=str(e),
+                exc_info=e,
             )
             raise
 
@@ -222,8 +149,8 @@ This is an automated alert from IsTheTubeRunning.
                 disruption_text = disruption_parts[0]
                 message = f"{base_msg}{disruption_text}. {url}"
 
-            # Send SMS via SmsService (which logs to file/console for now)
-            await self._send_sms_async(phone, message)
+            # Send SMS via SmsService
+            await self.sms_service.send_sms(phone, message)
 
             logger.info(
                 "disruption_sms_sent",
@@ -242,61 +169,6 @@ This is an automated alert from IsTheTubeRunning.
                 exc_info=e,
             )
             raise
-
-    async def _send_sms_async(self, phone: str, message: str) -> None:
-        """
-        Send SMS message asynchronously via SmsService.
-
-        Args:
-            phone: Recipient phone number
-            message: SMS message content
-        """
-        timestamp = datetime.now(UTC).isoformat()
-
-        # Log to structured logger
-        logger.info(
-            "sms_message_sending",
-            recipient=phone,
-            message=message,
-            timestamp=timestamp,
-        )
-
-        # Use SmsService's file logging functionality
-        # Since SmsService doesn't have a generic send method, we'll use run_in_executor
-        # to write directly to file similar to send_verification_sms
-        loop = asyncio.get_running_loop()
-        await loop.run_in_executor(
-            None,
-            functools.partial(
-                self._write_sms_log_sync,
-                phone,
-                message,
-                timestamp,
-            ),
-        )
-
-    def _write_sms_log_sync(self, phone: str, message: str, timestamp: str) -> None:
-        """
-        Synchronously write SMS log entry to file (runs in thread pool).
-
-        Args:
-            phone: Recipient phone number
-            message: SMS message content
-            timestamp: ISO format timestamp
-        """
-        if not SMS_LOG_FILE:
-            return
-
-        try:
-            log_entry = f"[{timestamp}] TO: {phone} | MESSAGE: {message}\n"
-            with SMS_LOG_FILE.open("a") as f:
-                f.write(log_entry)
-        except OSError as e:
-            logger.error(
-                "sms_file_logging_failed",
-                error=str(e),
-                recipient=phone,
-            )
 
     def _render_email_template(self, template_name: str, context: dict[str, Any]) -> str:
         """

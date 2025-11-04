@@ -21,7 +21,7 @@ from app.models.notification import (
 )
 from app.models.route import Route, RouteSchedule
 from app.models.tfl import Line
-from app.models.user import EmailAddress, PhoneNumber
+from app.models.user import EmailAddress, PhoneNumber, User
 from app.schemas.tfl import DisruptionResponse
 from app.services.notification_service import NotificationService
 from app.services.tfl_service import TfLService
@@ -180,7 +180,7 @@ class AlertService:
                     selectinload(Route.segments),
                     selectinload(Route.schedules),
                     selectinload(Route.notification_preferences),
-                    selectinload(Route.user),
+                    selectinload(Route.user).selectinload(User.email_addresses),
                 )
             )
             return list(result.scalars().all())
@@ -474,9 +474,16 @@ class AlertService:
 
                     try:
                         if pref.method == NotificationMethod.EMAIL:
-                            # Get user name for email greeting
-                            # TODO: Fetch primary email address for personalization
+                            # Get user name for email greeting from primary email
                             user_name = None
+                            if route.user and route.user.email_addresses:
+                                # Find primary email or use first email
+                                primary_email = next(
+                                    (e for e in route.user.email_addresses if e.is_primary),
+                                    route.user.email_addresses[0] if route.user.email_addresses else None,
+                                )
+                                if primary_email:
+                                    user_name = primary_email.email
 
                             await notification_service.send_disruption_email(
                                 email=contact_info,
