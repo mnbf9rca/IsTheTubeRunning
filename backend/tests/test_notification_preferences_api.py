@@ -315,7 +315,7 @@ class TestNotificationPreferencesAPI:
             headers=auth_headers_for_user,
         )
 
-        assert response.status_code == status.HTTP_422_UNPROCESSABLE_ENTITY
+        assert response.status_code == status.HTTP_422_UNPROCESSABLE_CONTENT
 
     @pytest.mark.asyncio
     async def test_create_preference_both_targets(
@@ -337,7 +337,7 @@ class TestNotificationPreferencesAPI:
             headers=auth_headers_for_user,
         )
 
-        assert response.status_code == status.HTTP_422_UNPROCESSABLE_ENTITY
+        assert response.status_code == status.HTTP_422_UNPROCESSABLE_CONTENT
 
     @pytest.mark.asyncio
     async def test_create_preference_email_method_requires_email_target(
@@ -736,7 +736,7 @@ class TestNotificationPreferencesAPI:
             headers=auth_headers_for_user,
         )
 
-        assert response.status_code == status.HTTP_422_UNPROCESSABLE_ENTITY
+        assert response.status_code == status.HTTP_422_UNPROCESSABLE_CONTENT
 
     @pytest.mark.asyncio
     async def test_update_preference_switch_from_email_to_sms(
