@@ -37,6 +37,8 @@ class Settings(BaseSettings):
     # Database Settings
     DATABASE_URL: str
     DATABASE_ECHO: bool = False
+    DATABASE_POOL_SIZE: int = 5  # Connection pool size for worker engine
+    DATABASE_MAX_OVERFLOW: int = 10  # Max overflow connections for worker engine
 
     # Redis Settings
     REDIS_URL: str

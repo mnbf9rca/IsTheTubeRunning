@@ -60,6 +60,35 @@ class SmsService:
         """Initialize the SMS service."""
         pass
 
+    async def send_sms(self, phone: str, message: str) -> None:
+        """
+        Send a generic SMS message.
+
+        Currently logs to console and file instead of sending actual SMS.
+        Uses run_in_executor to prevent blocking the event loop during file I/O.
+
+        Args:
+            phone: Recipient phone number
+            message: SMS message content
+        """
+        timestamp = datetime.now(UTC).isoformat()
+
+        # Log to structured logger (console) - non-blocking
+        logger.info(
+            "sms_sent",
+            recipient=phone,
+            message=message,
+            timestamp=timestamp,
+        )
+
+        # Log to file asynchronously (runs in thread pool)
+        if SMS_LOG_FILE:
+            loop = asyncio.get_running_loop()
+            await loop.run_in_executor(
+                None,
+                functools.partial(self._write_to_file_sync, phone, message, timestamp),
+            )
+
     async def send_verification_sms(self, phone: str, code: str) -> None:
         """
         Send a verification SMS with the provided code.
@@ -71,33 +100,18 @@ class SmsService:
             phone: Recipient phone number
             code: 6-digit verification code
         """
-        timestamp = datetime.now(UTC).isoformat()
         message = f"Your IsTheTubeRunning verification code is: {code}. This code expires in 15 minutes."
 
-        # Log to structured logger (console) - non-blocking
-        logger.info(
-            "verification_sms_sent",
-            recipient=phone,
-            code=code,
-            message=message,
-            timestamp=timestamp,
-        )
+        # Use generic send_sms method
+        await self.send_sms(phone, message)
+        logger.info("verification_sms_sent", recipient=phone, code=code)
 
-        # Log to file asynchronously (runs in thread pool)
-        if SMS_LOG_FILE:
-            loop = asyncio.get_running_loop()
-            await loop.run_in_executor(
-                None,
-                functools.partial(self._write_to_file_sync, phone, code, message, timestamp),
-            )
-
-    def _write_to_file_sync(self, phone: str, code: str, message: str, timestamp: str) -> None:
+    def _write_to_file_sync(self, phone: str, message: str, timestamp: str) -> None:
         """
         Synchronously write SMS log entry to file (runs in thread pool).
 
         Args:
             phone: Recipient phone number
-            code: Verification code
             message: Full SMS message
             timestamp: ISO format timestamp
         """
@@ -105,7 +119,7 @@ class SmsService:
             return
 
         try:
-            log_entry = f"[{timestamp}] TO: {phone} | CODE: {code} | MESSAGE: {message}\n"
+            log_entry = f"[{timestamp}] TO: {phone} | MESSAGE: {message}\n"
             with SMS_LOG_FILE.open("a") as f:
                 f.write(log_entry)
         except OSError as e:
