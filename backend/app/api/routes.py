@@ -57,6 +57,7 @@ async def list_routes(
             name=route.name,
             description=route.description,
             active=route.active,
+            timezone=route.timezone,
             segment_count=len(route.segments),
             schedule_count=len(route.schedules),
         )

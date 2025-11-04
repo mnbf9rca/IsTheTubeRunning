@@ -148,8 +148,8 @@ class TestRoutesAPI:
     ) -> None:
         """Test listing all routes for a user."""
         # Create test routes
-        route1 = Route(user_id=test_user.id, name="Route 1", active=True)
-        route2 = Route(user_id=test_user.id, name="Route 2", active=False)
+        route1 = Route(user_id=test_user.id, name="Route 1", active=True, timezone="Europe/London")
+        route2 = Route(user_id=test_user.id, name="Route 2", active=False, timezone="Europe/London")
         db_session.add_all([route1, route2])
         await db_session.commit()
 
@@ -356,6 +356,241 @@ class TestRoutesAPI:
         # Verify route was deleted
         result = await db_session.execute(select(Route).where(Route.id == route_id))
         assert result.scalar_one_or_none() is None
+
+    # ==================== Timezone Tests ====================
+
+    @pytest.mark.asyncio
+    async def test_create_route_with_custom_timezone(
+        self,
+        async_client: AsyncClient,
+        auth_headers_for_user: dict[str, str],
+    ) -> None:
+        """Test creating a route with a custom timezone."""
+        response = await async_client.post(
+            "/api/v1/routes",
+            json={
+                "name": "NYC Route",
+                "timezone": "America/New_York",
+            },
+            headers=auth_headers_for_user,
+        )
+
+        assert response.status_code == status.HTTP_201_CREATED
+        data = response.json()
+        assert data["timezone"] == "America/New_York"
+
+    @pytest.mark.asyncio
+    async def test_create_route_default_timezone(
+        self,
+        async_client: AsyncClient,
+        auth_headers_for_user: dict[str, str],
+    ) -> None:
+        """Test creating a route without timezone defaults to Europe/London."""
+        response = await async_client.post(
+            "/api/v1/routes",
+            json={"name": "Test Route"},
+            headers=auth_headers_for_user,
+        )
+
+        assert response.status_code == status.HTTP_201_CREATED
+        data = response.json()
+        assert data["timezone"] == "Europe/London"
+
+    @pytest.mark.asyncio
+    async def test_create_route_invalid_timezone(
+        self,
+        async_client: AsyncClient,
+        auth_headers_for_user: dict[str, str],
+    ) -> None:
+        """Test creating a route with invalid timezone fails validation."""
+        response = await async_client.post(
+            "/api/v1/routes",
+            json={
+                "name": "Test Route",
+                "timezone": "Invalid/Timezone",
+            },
+            headers=auth_headers_for_user,
+        )
+
+        assert response.status_code == status.HTTP_422_UNPROCESSABLE_CONTENT
+        data = response.json()
+        assert "Invalid IANA timezone" in str(data)
+
+    @pytest.mark.asyncio
+    async def test_update_route_timezone(
+        self,
+        async_client: AsyncClient,
+        auth_headers_for_user: dict[str, str],
+        test_user: User,
+        db_session: AsyncSession,
+    ) -> None:
+        """Test updating a route's timezone."""
+        route = Route(
+            user_id=test_user.id,
+            name="Test Route",
+            active=True,
+            timezone="Europe/London",
+        )
+        db_session.add(route)
+        await db_session.commit()
+        await db_session.refresh(route)
+
+        response = await async_client.patch(
+            f"/api/v1/routes/{route.id}",
+            json={"timezone": "Asia/Tokyo"},
+            headers=auth_headers_for_user,
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        data = response.json()
+        assert data["timezone"] == "Asia/Tokyo"
+
+    @pytest.mark.asyncio
+    async def test_update_route_invalid_timezone(
+        self,
+        async_client: AsyncClient,
+        auth_headers_for_user: dict[str, str],
+        test_user: User,
+        db_session: AsyncSession,
+    ) -> None:
+        """Test updating a route with invalid timezone fails validation."""
+        route = Route(
+            user_id=test_user.id,
+            name="Test Route",
+            active=True,
+            timezone="Europe/London",
+        )
+        db_session.add(route)
+        await db_session.commit()
+        await db_session.refresh(route)
+
+        response = await async_client.patch(
+            f"/api/v1/routes/{route.id}",
+            json={"timezone": "Europe/Londan"},  # Typo
+            headers=auth_headers_for_user,
+        )
+
+        assert response.status_code == status.HTTP_422_UNPROCESSABLE_CONTENT
+        data = response.json()
+        assert "Invalid IANA timezone" in str(data)
+
+    @pytest.mark.asyncio
+    async def test_get_route_includes_timezone(
+        self,
+        async_client: AsyncClient,
+        auth_headers_for_user: dict[str, str],
+        test_user: User,
+        db_session: AsyncSession,
+    ) -> None:
+        """Test that getting a route returns timezone field."""
+        route = Route(
+            user_id=test_user.id,
+            name="Test Route",
+            active=True,
+            timezone="Europe/Paris",
+        )
+        db_session.add(route)
+        await db_session.commit()
+        await db_session.refresh(route)
+
+        response = await async_client.get(
+            f"/api/v1/routes/{route.id}",
+            headers=auth_headers_for_user,
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        data = response.json()
+        assert data["timezone"] == "Europe/Paris"
+
+    @pytest.mark.asyncio
+    async def test_list_routes_includes_timezone(
+        self,
+        async_client: AsyncClient,
+        auth_headers_for_user: dict[str, str],
+        test_user: User,
+        db_session: AsyncSession,
+    ) -> None:
+        """Test that listing routes includes timezone field."""
+        route = Route(
+            user_id=test_user.id,
+            name="Test Route",
+            active=True,
+            timezone="UTC",
+        )
+        db_session.add(route)
+        await db_session.commit()
+
+        response = await async_client.get(
+            "/api/v1/routes",
+            headers=auth_headers_for_user,
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        data = response.json()
+        assert len(data) == 1
+        assert data[0]["timezone"] == "UTC"
+
+    @pytest.mark.asyncio
+    async def test_update_route_timezone_to_none_preserves_existing(
+        self,
+        async_client: AsyncClient,
+        auth_headers_for_user: dict[str, str],
+        test_user: User,
+        db_session: AsyncSession,
+    ) -> None:
+        """Test that updating route with timezone=None preserves existing timezone."""
+        route = Route(
+            user_id=test_user.id,
+            name="Test Route",
+            active=True,
+            timezone="Asia/Tokyo",
+        )
+        db_session.add(route)
+        await db_session.commit()
+        await db_session.refresh(route)
+
+        # Update with timezone=None (omitted) should preserve existing value
+        response = await async_client.patch(
+            f"/api/v1/routes/{route.id}",
+            json={"name": "Updated Name"},  # No timezone field
+            headers=auth_headers_for_user,
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        data = response.json()
+        assert data["name"] == "Updated Name"
+        assert data["timezone"] == "Asia/Tokyo"  # Unchanged
+
+    @pytest.mark.asyncio
+    async def test_update_route_timezone_explicit_none_preserves_existing(
+        self,
+        async_client: AsyncClient,
+        auth_headers_for_user: dict[str, str],
+        test_user: User,
+        db_session: AsyncSession,
+    ) -> None:
+        """Test that updating route with explicit timezone: null preserves existing timezone."""
+        route = Route(
+            user_id=test_user.id,
+            name="Test Route",
+            active=True,
+            timezone="Europe/Paris",
+        )
+        db_session.add(route)
+        await db_session.commit()
+        await db_session.refresh(route)
+
+        # Update with explicit None should preserve existing value (per UpdateRouteRequest logic)
+        response = await async_client.patch(
+            f"/api/v1/routes/{route.id}",
+            json={"name": "Updated Name", "timezone": None},
+            headers=auth_headers_for_user,
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        data = response.json()
+        assert data["name"] == "Updated Name"
+        assert data["timezone"] == "Europe/Paris"  # Unchanged
 
     # ==================== Segment Tests ====================
 

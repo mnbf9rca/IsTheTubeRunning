@@ -1,9 +1,15 @@
 """Unit tests for route schema validators."""
 
 from datetime import time
+from unittest.mock import patch
 
 import pytest
-from app.schemas.routes import _validate_day_codes, _validate_time_range
+from app.schemas.routes import (
+    CreateRouteRequest,
+    _validate_day_codes,
+    _validate_time_range,
+    _validate_timezone,
+)
 
 
 class TestValidateDayCodes:
@@ -76,3 +82,66 @@ class TestValidateTimeRange:
         start = time(9, 0, 0, 0)
         end = time(9, 0, 0, 1)
         _validate_time_range(start, end)  # Should not raise
+
+
+class TestValidateTimezone:
+    """Tests for _validate_timezone helper function."""
+
+    @pytest.mark.parametrize(
+        "timezone",
+        [
+            "Europe/London",
+            "America/New_York",
+            "Asia/Tokyo",
+            "Australia/Sydney",
+            "UTC",
+        ],
+    )
+    def test_valid_canonical_timezone(self, timezone: str) -> None:
+        """Test that canonical IANA timezone names are accepted."""
+        result = _validate_timezone(timezone)
+        assert result == timezone
+
+    @pytest.mark.parametrize(
+        "invalid_timezone",
+        [
+            "Invalid/Timezone",
+            "europe/london",  # Wrong case - rejected deterministically
+            "EUROPE/LONDON",  # Wrong case - rejected deterministically
+            "Europe/Londan",  # Typo
+            "",
+        ],
+    )
+    def test_invalid_timezone_rejected(self, invalid_timezone: str) -> None:
+        """Test that invalid timezone names are rejected deterministically."""
+        with pytest.raises(ValueError, match="Invalid IANA timezone"):
+            _validate_timezone(invalid_timezone)
+
+    def test_timezone_none(self) -> None:
+        """Test validation passes when timezone is None."""
+        result = _validate_timezone(None)
+        assert result is None
+
+    def test_zoneinfo_exception_handling(self) -> None:
+        """Test that ZoneInfo exception is caught and re-raised as ValueError."""
+        # Mock ZoneInfo to raise an exception even for valid timezone
+        with patch("app.schemas.routes.ZoneInfo") as mock_zoneinfo:
+            mock_zoneinfo.side_effect = RuntimeError("Simulated ZoneInfo error")
+
+            # Should catch the exception and raise ValueError
+            with pytest.raises(ValueError, match="Invalid IANA timezone: Europe/London"):
+                _validate_timezone("Europe/London")
+
+
+class TestCreateRouteRequest:
+    """Tests for CreateRouteRequest schema."""
+
+    def test_validate_timezone_none_handling(self) -> None:
+        """Test that validator handles unexpected None from _validate_timezone."""
+        # Mock _validate_timezone to return None (should never happen in practice)
+        with patch("app.schemas.routes._validate_timezone") as mock_validate:
+            mock_validate.return_value = None
+
+            # Should raise ValueError when None is returned
+            with pytest.raises(ValueError, match="Invalid timezone"):
+                CreateRouteRequest(name="Test Route", timezone="Europe/London")

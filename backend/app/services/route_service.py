@@ -120,6 +120,7 @@ class RouteService:
             name=request.name,
             description=request.description,
             active=request.active,
+            timezone=request.timezone,
         )
 
         self.db.add(route)
@@ -157,6 +158,8 @@ class RouteService:
             route.description = request.description
         if request.active is not None:
             route.active = request.active
+        if request.timezone is not None:
+            route.timezone = request.timezone
 
         await self.db.commit()
         await self.db.refresh(route)
