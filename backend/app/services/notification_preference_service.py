@@ -309,6 +309,8 @@ class NotificationPreferenceService:
         if (final_email_id is None and final_phone_id is None) or (
             final_email_id is not None and final_phone_id is not None
         ):
+            # This defensive line would only execute if the database constraint was somehow
+            # bypassed, which shouldn't happen...
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="Exactly one of target_email_id or target_phone_id must be set.",
