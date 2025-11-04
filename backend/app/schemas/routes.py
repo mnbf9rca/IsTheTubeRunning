@@ -1,0 +1,237 @@
+"""Pydantic schemas for route management."""
+
+from datetime import time
+from uuid import UUID
+
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+
+# ==================== Helper Functions ====================
+
+
+def _validate_day_codes(days: list[str]) -> list[str]:
+    """
+    Validate day codes - reusable helper.
+
+    Args:
+        days: List of day codes to validate
+
+    Returns:
+        Validated day codes
+
+    Raises:
+        ValueError: If any day code is invalid or duplicates exist
+    """
+    valid_days = {"MON", "TUE", "WED", "THU", "FRI", "SAT", "SUN"}
+    if invalid_days := set(days) - valid_days:  # Use named expression
+        msg = f"Invalid day codes: {invalid_days}. Valid codes: {valid_days}"
+        raise ValueError(msg)
+
+    if len(days) != len(set(days)):
+        msg = "Duplicate day codes are not allowed"
+        raise ValueError(msg)
+
+    return days
+
+
+def _validate_time_range(start_time: time | None, end_time: time | None) -> None:
+    """
+    Validate that end_time is after start_time - reusable helper.
+
+    Only validates if both times are provided (not None).
+    This allows partial updates where only one time is being changed.
+
+    Args:
+        start_time: Start time (optional)
+        end_time: End time (optional)
+
+    Raises:
+        ValueError: If both times are provided and end_time <= start_time
+    """
+    if start_time is not None and end_time is not None and end_time <= start_time:
+        msg = "end_time must be after start_time"
+        raise ValueError(msg)
+
+
+# ==================== Request Schemas ====================
+
+
+class CreateRouteRequest(BaseModel):
+    """Request to create a new route."""
+
+    name: str = Field(..., min_length=1, max_length=255, description="Route name")
+    description: str | None = Field(None, description="Optional route description")
+    active: bool = Field(True, description="Whether the route is active")
+
+
+class UpdateRouteRequest(BaseModel):
+    """Request to update a route's metadata."""
+
+    name: str | None = Field(None, min_length=1, max_length=255)
+    description: str | None = None
+    active: bool | None = None
+
+
+class SegmentRequest(BaseModel):
+    """Single segment in a route (station + line + sequence)."""
+
+    sequence: int = Field(..., ge=0, description="Order of this segment in the route (0-based)")
+    station_id: UUID = Field(..., description="Station UUID from database")
+    line_id: UUID = Field(..., description="Line UUID from database")
+
+
+class UpsertSegmentsRequest(BaseModel):
+    """Request to replace all segments in a route."""
+
+    segments: list[SegmentRequest] = Field(
+        ...,
+        min_length=2,
+        description="Ordered list of segments. Must have at least 2 (start and end).",
+    )
+
+    @field_validator("segments")
+    @classmethod
+    def validate_sequences(cls, segments: list[SegmentRequest]) -> list[SegmentRequest]:
+        """
+        Validate that sequences are consecutive starting from 0.
+
+        Args:
+            segments: List of segments to validate
+
+        Returns:
+            Validated segments
+
+        Raises:
+            ValueError: If sequences are not consecutive or don't start at 0
+        """
+        sequences = sorted(seg.sequence for seg in segments)
+        expected = list(range(len(segments)))
+
+        if sequences != expected:
+            msg = f"Sequences must be consecutive starting from 0. Got {sequences}, expected {expected}"
+            raise ValueError(msg)
+
+        return segments
+
+
+class UpdateSegmentRequest(BaseModel):
+    """Request to update a single segment."""
+
+    station_id: UUID | None = None
+    line_id: UUID | None = None
+
+
+class CreateScheduleRequest(BaseModel):
+    """Request to create a schedule for a route."""
+
+    days_of_week: list[str] = Field(
+        ...,
+        min_length=1,
+        description="Days when route is active (e.g., ['MON', 'TUE', 'WED'])",
+    )
+    start_time: time = Field(..., description="Start time for monitoring (local London time)")
+    end_time: time = Field(..., description="End time for monitoring (local London time)")
+
+    @field_validator("days_of_week")
+    @classmethod
+    def validate_days(cls, days: list[str]) -> list[str]:
+        """Validate day codes using shared helper."""
+        return _validate_day_codes(days)
+
+    @model_validator(mode="after")
+    def validate_time_range(self) -> "CreateScheduleRequest":
+        """
+        Validate that end_time is after start_time using shared helper.
+
+        Returns:
+            Validated model instance
+
+        Raises:
+            ValueError: If end_time is not after start_time
+        """
+        _validate_time_range(self.start_time, self.end_time)
+        return self
+
+
+class UpdateScheduleRequest(BaseModel):
+    """Request to update a schedule."""
+
+    days_of_week: list[str] | None = None
+    start_time: time | None = None
+    end_time: time | None = None
+
+    @field_validator("days_of_week")
+    @classmethod
+    def validate_days(cls, days: list[str] | None) -> list[str] | None:
+        """Validate day codes if provided using shared helper."""
+        if days is None:
+            return None
+        return _validate_day_codes(days)
+
+    @model_validator(mode="after")
+    def validate_time_range(self) -> "UpdateScheduleRequest":
+        """
+        Validate that end_time is after start_time if both are provided using shared helper.
+
+        This only validates when both times are present in the same request.
+        Partial updates (only one time) are validated at the service layer
+        against the existing schedule data.
+
+        Returns:
+            Validated model instance
+
+        Raises:
+            ValueError: If both times are provided and end_time <= start_time
+        """
+        _validate_time_range(self.start_time, self.end_time)
+        return self
+
+
+# ==================== Response Schemas ====================
+
+
+class SegmentResponse(BaseModel):
+    """Response schema for a route segment."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: UUID
+    sequence: int
+    station_id: UUID
+    line_id: UUID
+
+
+class ScheduleResponse(BaseModel):
+    """Response schema for a route schedule."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: UUID
+    days_of_week: list[str]
+    start_time: time
+    end_time: time
+
+
+class RouteResponse(BaseModel):
+    """Full response schema for a route with segments and schedules."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: UUID
+    name: str
+    description: str | None
+    active: bool
+    segments: list[SegmentResponse]
+    schedules: list[ScheduleResponse]
+
+
+class RouteListItemResponse(BaseModel):
+    """Simplified response schema for route listings."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: UUID
+    name: str
+    description: str | None
+    active: bool
+    segment_count: int = Field(..., description="Number of segments in the route")
+    schedule_count: int = Field(..., description="Number of schedules for the route")

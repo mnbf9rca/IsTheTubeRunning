@@ -15,6 +15,7 @@ from pydantic_tfl_api import LineClient, StopPointClient
 from pydantic_tfl_api.core import ApiError, ResponseModel
 from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import aliased
 
 from app.core.config import settings
 from app.models.tfl import Line, Station, StationConnection
@@ -447,6 +448,92 @@ class TfLService:
             raise HTTPException(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
                 detail="Failed to build station graph.",
+            ) from e
+
+    async def get_network_graph(self) -> dict[str, list[dict[str, Any]]]:
+        """
+        Get the station network graph as an adjacency list for GUI route building.
+
+        Returns a mapping of station TfL IDs to their connected stations with line information.
+        This helps the GUI constrain user choices to valid next stations.
+
+        Returns:
+            Dictionary mapping station_tfl_id to list of connected stations:
+            {
+                "station_tfl_id": [
+                    {
+                        "station_id": UUID,
+                        "station_tfl_id": str,
+                        "station_name": str,
+                        "line_id": UUID,
+                        "line_tfl_id": str,
+                        "line_name": str,
+                    },
+                    ...
+                ]
+            }
+
+        Raises:
+            HTTPException: 503 if graph hasn't been built yet
+        """
+        logger.info("fetching_network_graph")
+
+        try:
+            # Check if graph exists
+            result = await self.db.execute(select(StationConnection).limit(1))
+            if not result.scalar_one_or_none():
+                raise HTTPException(
+                    status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                    detail="Station graph has not been built yet. Please contact administrator.",
+                )
+
+            # Get all connections with from_station, to_station, and line data using aliased joins
+            from_station_alias = aliased(Station)
+            to_station_alias = aliased(Station)
+
+            result = await self.db.execute(
+                select(StationConnection, from_station_alias, to_station_alias, Line)
+                .join(from_station_alias, from_station_alias.id == StationConnection.from_station_id)
+                .join(to_station_alias, to_station_alias.id == StationConnection.to_station_id)
+                .join(Line, Line.id == StationConnection.line_id)
+            )
+            connections = result.all()
+
+            # Build adjacency list
+            graph: dict[str, list[dict[str, Any]]] = {}
+
+            for connection_row in connections:
+                # Access aliased stations using index positions (StationConnection, FromStation, ToStation, Line)
+                from_station = connection_row[1]
+                to_station = connection_row[2]
+                line = connection_row[3]
+
+                # Initialize list if needed
+                if from_station.tfl_id not in graph:
+                    graph[from_station.tfl_id] = []
+
+                # Add connection
+                graph[from_station.tfl_id].append(
+                    {
+                        "station_id": str(to_station.id),
+                        "station_tfl_id": to_station.tfl_id,
+                        "station_name": to_station.name,
+                        "line_id": str(line.id),
+                        "line_tfl_id": line.tfl_id,
+                        "line_name": line.name,
+                    }
+                )
+
+            logger.info("network_graph_fetched", stations_count=len(graph))
+            return graph
+
+        except HTTPException:
+            raise
+        except Exception as e:
+            logger.error("get_network_graph_failed", error=str(e), exc_info=e)
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Failed to fetch network graph.",
             ) from e
 
     async def validate_route(self, segments: list[RouteSegmentRequest]) -> tuple[bool, str, int | None]:

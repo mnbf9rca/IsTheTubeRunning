@@ -14,7 +14,7 @@ from sqlalchemy import text
 from sqlalchemy.engine import Connection
 
 from app import __version__
-from app.api import admin, auth, contacts, tfl
+from app.api import admin, auth, contacts, routes, tfl
 from app.core.config import settings
 from app.core.database import engine
 
@@ -127,6 +127,7 @@ app.add_middleware(
 # Include routers
 app.include_router(auth.router, prefix=settings.API_V1_PREFIX)
 app.include_router(contacts.router, prefix=settings.API_V1_PREFIX)
+app.include_router(routes.router, prefix=settings.API_V1_PREFIX)
 app.include_router(tfl.router, prefix=settings.API_V1_PREFIX)
 app.include_router(admin.router, prefix=settings.API_V1_PREFIX)
 

@@ -441,6 +441,77 @@ async def test_build_graph_tfl_api_failure(
     assert "unavailable" in response.json()["detail"].lower()
 
 
+@patch("app.services.tfl_service.TfLService.get_network_graph")
+async def test_get_network_graph_success(
+    mock_get_graph: AsyncMock,
+    async_client_with_auth: AsyncClient,
+) -> None:
+    """Test getting the network graph."""
+    # Mock successful graph retrieval
+    mock_get_graph.return_value = {
+        "940GZZLUOXC": [
+            {
+                "station_id": "abc123",
+                "station_tfl_id": "940GZZLUBND",
+                "station_name": "Bond Street",
+                "line_id": "def456",
+                "line_tfl_id": "central",
+                "line_name": "Central",
+            }
+        ]
+    }
+
+    # Execute
+    response = await async_client_with_auth.get(build_api_url("/tfl/network-graph"))
+
+    # Verify
+    assert response.status_code == 200
+    data = response.json()
+    assert "940GZZLUOXC" in data
+    assert len(data["940GZZLUOXC"]) == 1
+    assert data["940GZZLUOXC"][0]["station_name"] == "Bond Street"
+
+
+@patch("app.services.tfl_service.TfLService.get_network_graph")
+async def test_get_network_graph_not_built(
+    mock_get_graph: AsyncMock,
+    async_client_with_auth: AsyncClient,
+) -> None:
+    """Test get_network_graph when graph not built yet."""
+    # Mock graph not built (503 error)
+    mock_get_graph.side_effect = HTTPException(
+        status_code=503,
+        detail="Station graph has not been built yet. Please contact administrator.",
+    )
+
+    # Execute
+    response = await async_client_with_auth.get(build_api_url("/tfl/network-graph"))
+
+    # Verify
+    assert response.status_code == 503
+    assert "graph has not been built" in response.json()["detail"].lower()
+
+
+@patch("app.services.tfl_service.TfLService.get_network_graph")
+async def test_get_network_graph_unexpected_error(
+    mock_get_graph: AsyncMock,
+    async_client_with_auth: AsyncClient,
+) -> None:
+    """Test get_network_graph when unexpected exception occurs."""
+    # Mock unexpected exception (should be caught and return 500)
+    mock_get_graph.side_effect = HTTPException(
+        status_code=500,
+        detail="Failed to fetch network graph.",
+    )
+
+    # Execute
+    response = await async_client_with_auth.get(build_api_url("/tfl/network-graph"))
+
+    # Verify
+    assert response.status_code == 500
+    assert "failed" in response.json()["detail"].lower()
+
+
 # Note: Full integration tests removed per YAGNI principle
 # Route validation is thoroughly tested at service layer (5 tests)
 # API layer is tested with mocked services above
