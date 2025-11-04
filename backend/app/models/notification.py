@@ -71,7 +71,7 @@ class NotificationPreference(BaseModel):
     )
 
     # Relationships
-    route: Mapped["Route"] = relationship()
+    route: Mapped["Route"] = relationship(back_populates="notification_preferences")
 
     # Ensure one and only one target is set
     __table_args__ = (
