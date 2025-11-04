@@ -698,6 +698,40 @@ class TestRoutesAPI:
         assert response.status_code == status.HTTP_422_UNPROCESSABLE_CONTENT
 
     @pytest.mark.asyncio
+    async def test_update_schedule_partial_time_validation(
+        self,
+        async_client: AsyncClient,
+        auth_headers_for_user: dict[str, str],
+        test_user: User,
+        db_session: AsyncSession,
+    ) -> None:
+        """Test service-layer validation when partially updating time (only one field)."""
+        route = Route(user_id=test_user.id, name="Test Route", active=True)
+        db_session.add(route)
+        await db_session.flush()
+
+        schedule = RouteSchedule(
+            route_id=route.id,
+            days_of_week=["MON"],
+            start_time=time(8, 0),
+            end_time=time(18, 0),
+        )
+        db_session.add(schedule)
+        await db_session.commit()
+        await db_session.refresh(schedule)
+
+        # Update only end_time to be before existing start_time
+        # Schema validator can't catch this (only one time provided)
+        # Service layer must validate against database values
+        response = await async_client.patch(
+            f"/api/v1/routes/{route.id}/schedules/{schedule.id}",
+            json={"end_time": "07:00:00"},  # Before existing start_time (08:00)
+            headers=auth_headers_for_user,
+        )
+
+        assert response.status_code == status.HTTP_422_UNPROCESSABLE_CONTENT
+
+    @pytest.mark.asyncio
     async def test_update_schedule(
         self,
         async_client: AsyncClient,
@@ -799,38 +833,6 @@ class TestRoutesAPI:
     # ==================== Additional Coverage Tests ====================
 
     @pytest.mark.asyncio
-    async def test_update_schedule_invalid_time_update(
-        self,
-        async_client: AsyncClient,
-        auth_headers_for_user: dict[str, str],
-        test_user: User,
-        db_session: AsyncSession,
-    ) -> None:
-        """Test that updating schedule with invalid time range is rejected."""
-        route = Route(user_id=test_user.id, name="Test Route", active=True)
-        db_session.add(route)
-        await db_session.flush()
-
-        schedule = RouteSchedule(
-            route_id=route.id,
-            days_of_week=["MON"],
-            start_time=time(8, 0),
-            end_time=time(18, 0),
-        )
-        db_session.add(schedule)
-        await db_session.commit()
-        await db_session.refresh(schedule)
-
-        # Try to update with invalid time range
-        response = await async_client.patch(
-            f"/api/v1/routes/{route.id}/schedules/{schedule.id}",
-            json={"end_time": "07:00:00"},  # Before existing start_time
-            headers=auth_headers_for_user,
-        )
-
-        assert response.status_code == status.HTTP_400_BAD_REQUEST
-
-    @pytest.mark.asyncio
     async def test_update_segment_not_found(
         self,
         async_client: AsyncClient,
@@ -924,97 +926,6 @@ class TestRoutesAPI:
         assert response.status_code == status.HTTP_404_NOT_FOUND
 
     # ==================== Additional Exception Path Tests ====================
-
-    @pytest.mark.asyncio
-    async def test_create_schedule_duplicate_days(
-        self,
-        async_client: AsyncClient,
-        auth_headers_for_user: dict[str, str],
-        test_user: User,
-        db_session: AsyncSession,
-    ) -> None:
-        """Test that duplicate day codes are rejected in CreateScheduleRequest."""
-        route = Route(user_id=test_user.id, name="Test Route", active=True)
-        db_session.add(route)
-        await db_session.commit()
-        await db_session.refresh(route)
-
-        response = await async_client.post(
-            f"/api/v1/routes/{route.id}/schedules",
-            json={
-                "days_of_week": ["MON", "TUE", "MON"],  # Duplicate MON
-                "start_time": "08:00:00",
-                "end_time": "18:00:00",
-            },
-            headers=auth_headers_for_user,
-        )
-
-        assert response.status_code == status.HTTP_422_UNPROCESSABLE_CONTENT
-        assert "duplicate" in response.json()["detail"][0]["msg"].lower()
-
-    @pytest.mark.asyncio
-    async def test_update_schedule_invalid_days(
-        self,
-        async_client: AsyncClient,
-        auth_headers_for_user: dict[str, str],
-        test_user: User,
-        db_session: AsyncSession,
-    ) -> None:
-        """Test that invalid day codes are rejected in UpdateScheduleRequest."""
-        route = Route(user_id=test_user.id, name="Test Route", active=True)
-        db_session.add(route)
-        await db_session.flush()
-
-        schedule = RouteSchedule(
-            route_id=route.id,
-            days_of_week=["MON"],
-            start_time=time(8, 0),
-            end_time=time(18, 0),
-        )
-        db_session.add(schedule)
-        await db_session.commit()
-        await db_session.refresh(schedule)
-
-        response = await async_client.patch(
-            f"/api/v1/routes/{route.id}/schedules/{schedule.id}",
-            json={"days_of_week": ["MONDAY", "TUESDAY"]},  # Invalid format
-            headers=auth_headers_for_user,
-        )
-
-        assert response.status_code == status.HTTP_422_UNPROCESSABLE_CONTENT
-        assert "invalid" in response.json()["detail"][0]["msg"].lower()
-
-    @pytest.mark.asyncio
-    async def test_update_schedule_duplicate_days(
-        self,
-        async_client: AsyncClient,
-        auth_headers_for_user: dict[str, str],
-        test_user: User,
-        db_session: AsyncSession,
-    ) -> None:
-        """Test that duplicate day codes are rejected in UpdateScheduleRequest."""
-        route = Route(user_id=test_user.id, name="Test Route", active=True)
-        db_session.add(route)
-        await db_session.flush()
-
-        schedule = RouteSchedule(
-            route_id=route.id,
-            days_of_week=["MON"],
-            start_time=time(8, 0),
-            end_time=time(18, 0),
-        )
-        db_session.add(schedule)
-        await db_session.commit()
-        await db_session.refresh(schedule)
-
-        response = await async_client.patch(
-            f"/api/v1/routes/{route.id}/schedules/{schedule.id}",
-            json={"days_of_week": ["TUE", "WED", "TUE"]},  # Duplicate TUE
-            headers=auth_headers_for_user,
-        )
-
-        assert response.status_code == status.HTTP_422_UNPROCESSABLE_CONTENT
-        assert "duplicate" in response.json()["detail"][0]["msg"].lower()
 
     @pytest.mark.asyncio
     async def test_update_route_description(

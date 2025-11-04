@@ -33,7 +33,7 @@ router = APIRouter(prefix="/routes", tags=["routes"])
 async def list_routes(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
-) -> list[dict[str, str | int | None | bool]]:
+) -> list[RouteListItemResponse]:
     """
     List all routes for the authenticated user.
 
@@ -50,16 +50,16 @@ async def list_routes(
     service = RouteService(db)
     routes = await service.list_routes(current_user.id)
 
-    # Build response with counts
+    # Build response with counts using Pydantic models
     return [
-        {
-            "id": str(route.id),
-            "name": route.name,
-            "description": route.description,
-            "active": route.active,
-            "segment_count": len(route.segments),
-            "schedule_count": len(route.schedules),
-        }
+        RouteListItemResponse(
+            id=route.id,
+            name=route.name,
+            description=route.description,
+            active=route.active,
+            segment_count=len(route.segments),
+            schedule_count=len(route.schedules),
+        )
         for route in routes
     ]
 

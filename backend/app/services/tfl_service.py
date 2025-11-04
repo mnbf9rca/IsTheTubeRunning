@@ -15,6 +15,7 @@ from pydantic_tfl_api import LineClient, StopPointClient
 from pydantic_tfl_api.core import ApiError, ResponseModel
 from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import aliased
 
 from app.core.config import settings
 from app.models.tfl import Line, Station, StationConnection
@@ -486,33 +487,26 @@ class TfLService:
                     detail="Station graph has not been built yet. Please contact administrator.",
                 )
 
-            # Get all connections with station and line data
+            # Get all connections with from_station, to_station, and line data using aliased joins
+            from_station_alias = aliased(Station)
+            to_station_alias = aliased(Station)
+
             result = await self.db.execute(
-                select(StationConnection, Station, Line)
-                .join(Station, Station.id == StationConnection.to_station_id)
+                select(StationConnection, from_station_alias, to_station_alias, Line)
+                .join(from_station_alias, from_station_alias.id == StationConnection.from_station_id)
+                .join(to_station_alias, to_station_alias.id == StationConnection.to_station_id)
                 .join(Line, Line.id == StationConnection.line_id)
             )
             connections = result.all()
-
-            # Get from_station data for mapping
-            from_station_ids = {conn.StationConnection.from_station_id for conn in connections}
-            station_result = await self.db.execute(select(Station).where(Station.id.in_(from_station_ids)))
-            from_stations: dict[uuid.UUID, Station] = {
-                station.id: station for station in station_result.scalars().all()
-            }
 
             # Build adjacency list
             graph: dict[str, list[dict[str, Any]]] = {}
 
             for connection_row in connections:
-                conn = connection_row.StationConnection
-                to_station = connection_row.Station
-                line = connection_row.Line
-
-                # Get from_station
-                from_station = from_stations.get(conn.from_station_id)
-                if not from_station:
-                    continue
+                # Access aliased stations using index positions (StationConnection, FromStation, ToStation, Line)
+                from_station = connection_row[1]
+                to_station = connection_row[2]
+                line = connection_row[3]
 
                 # Initialize list if needed
                 if from_station.tfl_id not in graph:

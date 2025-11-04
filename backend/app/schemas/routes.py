@@ -1,10 +1,56 @@
 """Pydantic schemas for route management."""
 
 from datetime import time
-from typing import Any
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+
+# ==================== Helper Functions ====================
+
+
+def _validate_day_codes(days: list[str]) -> list[str]:
+    """
+    Validate day codes - reusable helper.
+
+    Args:
+        days: List of day codes to validate
+
+    Returns:
+        Validated day codes
+
+    Raises:
+        ValueError: If any day code is invalid or duplicates exist
+    """
+    valid_days = {"MON", "TUE", "WED", "THU", "FRI", "SAT", "SUN"}
+    if invalid_days := set(days) - valid_days:  # Use named expression
+        msg = f"Invalid day codes: {invalid_days}. Valid codes: {valid_days}"
+        raise ValueError(msg)
+
+    if len(days) != len(set(days)):
+        msg = "Duplicate day codes are not allowed"
+        raise ValueError(msg)
+
+    return days
+
+
+def _validate_time_range(start_time: time | None, end_time: time | None) -> None:
+    """
+    Validate that end_time is after start_time - reusable helper.
+
+    Only validates if both times are provided (not None).
+    This allows partial updates where only one time is being changed.
+
+    Args:
+        start_time: Start time (optional)
+        end_time: End time (optional)
+
+    Raises:
+        ValueError: If both times are provided and end_time <= start_time
+    """
+    if start_time is not None and end_time is not None and end_time <= start_time:
+        msg = "end_time must be after start_time"
+        raise ValueError(msg)
+
 
 # ==================== Request Schemas ====================
 
@@ -88,54 +134,22 @@ class CreateScheduleRequest(BaseModel):
     @field_validator("days_of_week")
     @classmethod
     def validate_days(cls, days: list[str]) -> list[str]:
-        """
-        Validate day codes.
+        """Validate day codes using shared helper."""
+        return _validate_day_codes(days)
 
-        Args:
-            days: List of day codes
+    @model_validator(mode="after")
+    def validate_time_range(self) -> "CreateScheduleRequest":
+        """
+        Validate that end_time is after start_time using shared helper.
 
         Returns:
-            Validated day codes
-
-        Raises:
-            ValueError: If any day code is invalid
-        """
-        valid_days = {"MON", "TUE", "WED", "THU", "FRI", "SAT", "SUN"}
-        invalid_days = set(days) - valid_days
-
-        if invalid_days:
-            msg = f"Invalid day codes: {invalid_days}. Valid codes: {valid_days}"
-            raise ValueError(msg)
-
-        # Check for duplicates
-        if len(days) != len(set(days)):
-            msg = "Duplicate day codes are not allowed"
-            raise ValueError(msg)
-
-        return days
-
-    @field_validator("end_time")
-    @classmethod
-    def validate_time_range(cls, end_time: time, info: Any) -> time:  # noqa: ANN401
-        """
-        Validate that end_time is after start_time.
-
-        Args:
-            end_time: End time
-            info: Validation info containing other fields
-
-        Returns:
-            Validated end time
+            Validated model instance
 
         Raises:
             ValueError: If end_time is not after start_time
         """
-        start_time = info.data.get("start_time")
-        if start_time and end_time <= start_time:
-            msg = "end_time must be after start_time"
-            raise ValueError(msg)
-
-        return end_time
+        _validate_time_range(self.start_time, self.end_time)
+        return self
 
 
 class UpdateScheduleRequest(BaseModel):
@@ -148,22 +162,28 @@ class UpdateScheduleRequest(BaseModel):
     @field_validator("days_of_week")
     @classmethod
     def validate_days(cls, days: list[str] | None) -> list[str] | None:
-        """Validate day codes if provided."""
+        """Validate day codes if provided using shared helper."""
         if days is None:
             return None
+        return _validate_day_codes(days)
 
-        valid_days = {"MON", "TUE", "WED", "THU", "FRI", "SAT", "SUN"}
-        invalid_days = set(days) - valid_days
+    @model_validator(mode="after")
+    def validate_time_range(self) -> "UpdateScheduleRequest":
+        """
+        Validate that end_time is after start_time if both are provided using shared helper.
 
-        if invalid_days:
-            msg = f"Invalid day codes: {invalid_days}. Valid codes: {valid_days}"
-            raise ValueError(msg)
+        This only validates when both times are present in the same request.
+        Partial updates (only one time) are validated at the service layer
+        against the existing schedule data.
 
-        if len(days) != len(set(days)):
-            msg = "Duplicate day codes are not allowed"
-            raise ValueError(msg)
+        Returns:
+            Validated model instance
 
-        return days
+        Raises:
+            ValueError: If both times are provided and end_time <= start_time
+        """
+        _validate_time_range(self.start_time, self.end_time)
+        return self
 
 
 # ==================== Response Schemas ====================

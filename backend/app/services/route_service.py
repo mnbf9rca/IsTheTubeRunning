@@ -70,9 +70,8 @@ class RouteService:
             )
 
         result = await self.db.execute(query)
-        route = result.scalar_one_or_none()
 
-        if not route:
+        if not (route := result.scalar_one_or_none()):
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail="Route not found.",
@@ -209,28 +208,33 @@ class RouteService:
         # Validate the route using TfL service
         await self._validate_segments(segments)
 
-        # Delete existing segments
-        await self.db.execute(sql_delete(RouteSegment).where(RouteSegment.route_id == route_id))
+        # Wrap delete + create in a transaction to ensure atomicity
+        try:
+            # Delete existing segments
+            await self.db.execute(sql_delete(RouteSegment).where(RouteSegment.route_id == route_id))
 
-        # Create new segments
-        new_segments = [
-            RouteSegment(
-                route_id=route_id,
-                sequence=seg.sequence,
-                station_id=seg.station_id,
-                line_id=seg.line_id,
-            )
-            for seg in segments
-        ]
+            # Create new segments
+            new_segments = [
+                RouteSegment(
+                    route_id=route_id,
+                    sequence=seg.sequence,
+                    station_id=seg.station_id,
+                    line_id=seg.line_id,
+                )
+                for seg in segments
+            ]
 
-        self.db.add_all(new_segments)
-        await self.db.commit()
+            self.db.add_all(new_segments)
+            await self.db.commit()
 
-        # Reload to get IDs
-        for segment in new_segments:
-            await self.db.refresh(segment)
+            # Reload to get IDs
+            for segment in new_segments:
+                await self.db.refresh(segment)
 
-        return new_segments
+            return new_segments
+        except Exception:
+            await self.db.rollback()
+            raise
 
     async def update_segment(
         self,
@@ -317,17 +321,18 @@ class RouteService:
         await self.db.delete(segment)
         await self.db.flush()  # Ensure deletion is persisted before resequencing
 
-        # Resequence remaining segments
-        # We need to do this in a way that avoids unique constraint violations
-        # First, set all sequences to negative to clear the constraint space
-        segments_to_update = [s for s in route.segments if s.sequence > sequence and s != segment]
+        # Resequence ALL remaining segments to ensure no gaps
+        # Get all segments excluding the deleted one
+        segments_to_update = [s for s in route.segments if s != segment]
+
+        # First, set all sequences to negative to avoid unique constraint violations
         for i, seg in enumerate(segments_to_update):
             seg.sequence = -(i + 1)
         await self.db.flush()
 
-        # Now set them to the correct positive sequences
+        # Now resequence from 0 to ensure consecutive ordering
         for i, seg in enumerate(segments_to_update):
-            seg.sequence = sequence + i
+            seg.sequence = i
 
         await self.db.commit()
 
@@ -415,10 +420,14 @@ class RouteService:
         if request.end_time is not None:
             schedule.end_time = request.end_time
 
-        # Validate time range if both are being set
-        if schedule.end_time <= schedule.start_time:
+        # Validate time range with None checks for defensive coding
+        if (
+            schedule.end_time is not None
+            and schedule.start_time is not None
+            and schedule.end_time <= schedule.start_time
+        ):
             raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
+                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
                 detail="end_time must be after start_time",
             )
 
