@@ -17,6 +17,9 @@ SMS_MAX_LENGTH = 160
 
 # Initialize Jinja2 environment for email templates
 TEMPLATE_DIR = Path(__file__).parent.parent / "templates"
+# nosemgrep: python.flask.security.xss.audit.direct-use-of-jinja2
+# Justification: autoescape is explicitly enabled with select_autoescape for HTML/XML,
+# providing XSS protection. This is a standalone service, not using Flask's render_template.
 jinja_env = Environment(
     loader=FileSystemLoader(str(TEMPLATE_DIR)),
     autoescape=select_autoescape(["html", "xml"]),
@@ -186,6 +189,9 @@ This is an automated alert from IsTheTubeRunning.
         """
         try:
             template = jinja_env.get_template(template_name)
+            # nosemgrep: python.flask.security.xss.audit.direct-use-of-jinja2
+            # Justification: Template rendering uses jinja_env with autoescape enabled (line 23-26).
+            # All HTML/XML content is automatically escaped, preventing XSS vulnerabilities.
             return template.render(context)
         except Exception as e:
             logger.error(

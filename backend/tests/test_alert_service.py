@@ -1516,7 +1516,6 @@ async def test_store_alert_state_exception_handling(
             disruptions=sample_disruptions,
         )
         # If we get here, exception was handled
-        assert True
     except RuntimeError:
         # Should not raise
         pytest.fail("Exception was not handled")

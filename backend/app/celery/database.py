@@ -27,8 +27,8 @@ else:
         echo=settings.DATABASE_ECHO,
         future=True,
         poolclass=QueuePool,
-        pool_size=5,  # Maintain 5 connections per worker
-        max_overflow=10,  # Allow up to 10 additional connections during peak load
+        pool_size=settings.DATABASE_POOL_SIZE,
+        max_overflow=settings.DATABASE_MAX_OVERFLOW,
         pool_pre_ping=True,  # Verify connection health before using
     )
 

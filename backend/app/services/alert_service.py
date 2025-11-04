@@ -781,15 +781,14 @@ class AlertService:
         sorted_disruptions = sorted(disruptions, key=lambda d: d.line_id)
 
         # Build hash input from relevant fields
-        hash_input = []
-        for disruption in sorted_disruptions:
-            hash_input.append(
-                {
-                    "line_id": disruption.line_id,
-                    "status": disruption.status_severity_description,
-                    "reason": disruption.reason or "",
-                }
-            )
+        hash_input = [
+            {
+                "line_id": disruption.line_id,
+                "status": disruption.status_severity_description,
+                "reason": disruption.reason or "",
+            }
+            for disruption in sorted_disruptions
+        ]
 
         # Create JSON string and hash it
         hash_string = json.dumps(hash_input, sort_keys=True)

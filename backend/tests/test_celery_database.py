@@ -11,7 +11,7 @@ async def test_get_worker_session_yields_session() -> None:
     session_obj = None
     async for session in get_worker_session():
         session_obj = session
-        assert session is not None
+        assert session_obj is not None
         # Test that session gets closed in finally block (lines 61-65)
         break
 
