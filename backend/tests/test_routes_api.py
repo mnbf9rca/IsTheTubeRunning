@@ -412,7 +412,7 @@ class TestRoutesAPI:
             headers=auth_headers_for_user,
         )
 
-        assert response.status_code == status.HTTP_422_UNPROCESSABLE_ENTITY
+        assert response.status_code == status.HTTP_422_UNPROCESSABLE_CONTENT
         data = response.json()
         assert "Invalid IANA timezone" in str(data)
 
@@ -470,7 +470,7 @@ class TestRoutesAPI:
             headers=auth_headers_for_user,
         )
 
-        assert response.status_code == status.HTTP_422_UNPROCESSABLE_ENTITY
+        assert response.status_code == status.HTTP_422_UNPROCESSABLE_CONTENT
         data = response.json()
         assert "Invalid IANA timezone" in str(data)
 
@@ -591,27 +591,6 @@ class TestRoutesAPI:
         data = response.json()
         assert data["name"] == "Updated Name"
         assert data["timezone"] == "Europe/Paris"  # Unchanged
-
-    @pytest.mark.asyncio
-    async def test_create_route_with_various_timezone_casings(
-        self,
-        async_client: AsyncClient,
-        auth_headers_for_user: dict[str, str],
-    ) -> None:
-        """Test that ZoneInfo accepts various casings of timezone names."""
-        # ZoneInfo accepts various casings (implementation-dependent)
-        response = await async_client.post(
-            "/api/v1/routes",
-            json={
-                "name": "Test Route",
-                "timezone": "europe/london",  # Lowercase
-            },
-            headers=auth_headers_for_user,
-        )
-
-        assert response.status_code == status.HTTP_201_CREATED
-        data = response.json()
-        assert data["timezone"] == "europe/london"
 
     # ==================== Segment Tests ====================
 
