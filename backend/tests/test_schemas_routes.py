@@ -3,7 +3,7 @@
 from datetime import time
 
 import pytest
-from app.schemas.routes import _validate_day_codes, _validate_time_range
+from app.schemas.routes import _validate_day_codes, _validate_time_range, _validate_timezone
 
 
 class TestValidateDayCodes:
@@ -76,3 +76,47 @@ class TestValidateTimeRange:
         start = time(9, 0, 0, 0)
         end = time(9, 0, 0, 1)
         _validate_time_range(start, end)  # Should not raise
+
+
+class TestValidateTimezone:
+    """Tests for _validate_timezone helper function."""
+
+    def test_valid_timezone_london(self) -> None:
+        """Test validation passes with Europe/London timezone."""
+        result = _validate_timezone("Europe/London")
+        assert result == "Europe/London"
+
+    def test_valid_timezone_new_york(self) -> None:
+        """Test validation passes with America/New_York timezone."""
+        result = _validate_timezone("America/New_York")
+        assert result == "America/New_York"
+
+    def test_valid_timezone_tokyo(self) -> None:
+        """Test validation passes with Asia/Tokyo timezone."""
+        result = _validate_timezone("Asia/Tokyo")
+        assert result == "Asia/Tokyo"
+
+    def test_valid_timezone_utc(self) -> None:
+        """Test validation passes with UTC timezone."""
+        result = _validate_timezone("UTC")
+        assert result == "UTC"
+
+    def test_invalid_timezone(self) -> None:
+        """Test validation fails with invalid timezone."""
+        with pytest.raises(ValueError, match="Invalid IANA timezone: Invalid/Timezone"):
+            _validate_timezone("Invalid/Timezone")
+
+    def test_invalid_timezone_typo(self) -> None:
+        """Test validation fails with typo in timezone name."""
+        with pytest.raises(ValueError, match="Invalid IANA timezone: Europe/Londan"):
+            _validate_timezone("Europe/Londan")
+
+    def test_invalid_timezone_empty_string(self) -> None:
+        """Test validation fails with empty string."""
+        with pytest.raises(ValueError, match="Invalid IANA timezone: "):
+            _validate_timezone("")
+
+    def test_timezone_none(self) -> None:
+        """Test validation passes when timezone is None."""
+        result = _validate_timezone(None)
+        assert result is None

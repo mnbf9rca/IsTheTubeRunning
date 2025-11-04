@@ -14,6 +14,7 @@ from sqlalchemy import (
     Text,
     Time,
     UniqueConstraint,
+    text,
 )
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
@@ -47,6 +48,12 @@ class Route(BaseModel):
     description: Mapped[str | None] = mapped_column(
         Text,
         nullable=True,
+    )
+    timezone: Mapped[str] = mapped_column(
+        String(64),
+        nullable=False,
+        server_default=text("'Europe/London'"),
+        comment="IANA timezone for schedule interpretation",
     )
 
     # Relationships

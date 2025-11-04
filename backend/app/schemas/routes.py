@@ -2,6 +2,7 @@
 
 from datetime import time
 from uuid import UUID
+from zoneinfo import ZoneInfo
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
@@ -52,6 +53,29 @@ def _validate_time_range(start_time: time | None, end_time: time | None) -> None
         raise ValueError(msg)
 
 
+def _validate_timezone(tz: str | None) -> str | None:
+    """
+    Validate timezone is a valid IANA timezone name - reusable helper.
+
+    Args:
+        tz: IANA timezone name (e.g., 'Europe/London', 'America/New_York')
+
+    Returns:
+        Validated timezone name
+
+    Raises:
+        ValueError: If timezone is invalid
+    """
+    if tz is None:
+        return None
+    try:
+        ZoneInfo(tz)
+    except Exception:
+        msg = f"Invalid IANA timezone: {tz}"
+        raise ValueError(msg) from None
+    return tz
+
+
 # ==================== Request Schemas ====================
 
 
@@ -61,6 +85,20 @@ class CreateRouteRequest(BaseModel):
     name: str = Field(..., min_length=1, max_length=255, description="Route name")
     description: str | None = Field(None, description="Optional route description")
     active: bool = Field(True, description="Whether the route is active")
+    timezone: str = Field(
+        default="Europe/London",
+        description="IANA timezone for schedule times (e.g., 'Europe/London', 'America/New_York')",
+    )
+
+    @field_validator("timezone")
+    @classmethod
+    def validate_timezone(cls, tz: str) -> str:
+        """Validate timezone using shared helper."""
+        result = _validate_timezone(tz)
+        # _validate_timezone can return None, but we know tz is not None here
+        # so we assert to help type checker
+        assert result is not None
+        return result
 
 
 class UpdateRouteRequest(BaseModel):
@@ -69,6 +107,13 @@ class UpdateRouteRequest(BaseModel):
     name: str | None = Field(None, min_length=1, max_length=255)
     description: str | None = None
     active: bool | None = None
+    timezone: str | None = None
+
+    @field_validator("timezone")
+    @classmethod
+    def validate_timezone(cls, tz: str | None) -> str | None:
+        """Validate timezone if provided using shared helper."""
+        return _validate_timezone(tz)
 
 
 class SegmentRequest(BaseModel):
@@ -128,8 +173,14 @@ class CreateScheduleRequest(BaseModel):
         min_length=1,
         description="Days when route is active (e.g., ['MON', 'TUE', 'WED'])",
     )
-    start_time: time = Field(..., description="Start time for monitoring (local London time)")
-    end_time: time = Field(..., description="End time for monitoring (local London time)")
+    start_time: time = Field(
+        ...,
+        description="Start time for monitoring in route's local timezone (naive time)",
+    )
+    end_time: time = Field(
+        ...,
+        description="End time for monitoring in route's local timezone (naive time)",
+    )
 
     @field_validator("days_of_week")
     @classmethod
@@ -220,6 +271,7 @@ class RouteResponse(BaseModel):
     name: str
     description: str | None
     active: bool
+    timezone: str
     segments: list[SegmentResponse]
     schedules: list[ScheduleResponse]
 
@@ -233,5 +285,6 @@ class RouteListItemResponse(BaseModel):
     name: str
     description: str | None
     active: bool
+    timezone: str
     segment_count: int = Field(..., description="Number of segments in the route")
     schedule_count: int = Field(..., description="Number of schedules for the route")
