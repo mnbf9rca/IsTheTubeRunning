@@ -537,8 +537,19 @@ Once this plan is committed, Phase 1 implementation will begin with:
   - Core functionality complete and ready for manual/integration testing
   - Note: Unit tests require refactoring to properly mock pydantic-tfl-api (deferred to Phase 11)
 
+- [x] Phase 6: Route Management (Completed: November 2025)
+  - Full CRUD API for routes with segments and schedules
+  - Route validation enforced on all segment operations via TfL service integration
+  - Network graph endpoint (GET /tfl/network-graph) provides adjacency list for GUI route building
+  - Segments fully editable with intelligent resequencing on deletion
+  - Schedule validation ensures time consistency (end_time > start_time) and valid day codes
+  - 12 API endpoints: routes CRUD, segments management, schedules management
+  - GET /routes returns all routes (active and inactive) - client-side filtering
+  - Comprehensive test coverage: 28 route-specific tests, overall 94.48% coverage
+  - Type-safe with mypy --strict compliance
+  - Linting compliant (minor exception string warnings accepted)
+
 ### Upcoming Phases
-- [ ] Phase 6: Route Management
 - [ ] Phase 7: Notification Preferences
 - [ ] Phase 8: Alert Processing Worker
 - [ ] Phase 9: Admin Dashboard Backend

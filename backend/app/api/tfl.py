@@ -1,5 +1,7 @@
 """TfL API endpoints for transport data."""
 
+from typing import Any
+
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -134,3 +136,47 @@ async def validate_route(
         message=message,
         invalid_segment_index=invalid_segment_index,
     )
+
+
+@router.get("/network-graph", response_model=dict[str, list[dict[str, Any]]])
+async def get_network_graph(
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, list[dict[str, Any]]]:
+    """
+    Get the station network graph as an adjacency list.
+
+    This returns a mapping of station TfL IDs to their connected stations,
+    which helps the frontend constrain user choices to valid next stations
+    when building routes.
+
+    **Note**: Station connection graph must be built first using the admin
+    endpoint POST /admin/tfl/build-graph.
+
+    Returns:
+        Dictionary mapping station_tfl_id to list of connected stations with line info:
+        ```json
+        {
+            "940GZZLUOXC": [
+                {
+                    "station_id": "uuid",
+                    "station_tfl_id": "940GZZLUBND",
+                    "station_name": "Bond Street",
+                    "line_id": "uuid",
+                    "line_tfl_id": "central",
+                    "line_name": "Central"
+                },
+                ...
+            ]
+        }
+        ```
+
+    Args:
+        current_user: Authenticated user
+        db: Database session
+
+    Raises:
+        HTTPException: 503 if graph hasn't been built yet, 500 if fetch fails
+    """
+    tfl_service = TfLService(db)
+    return await tfl_service.get_network_graph()
