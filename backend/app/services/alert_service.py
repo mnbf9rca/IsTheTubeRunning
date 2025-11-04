@@ -17,6 +17,7 @@ from app.core.config import settings
 from app.models.notification import (
     NotificationLog,
     NotificationMethod,
+    NotificationPreference,
     NotificationStatus,
 )
 from app.models.route import Route, RouteSchedule
@@ -84,7 +85,8 @@ class AlertService:
                     stats["routes_checked"] += 1
 
                     # Check if route is in an active schedule window
-                    active_schedule = await self._get_active_schedule(route)
+                    # schedules are eagerly loaded in _get_active_routes
+                    active_schedule = await self._get_active_schedule(route, route.schedules)
                     if not active_schedule:
                         logger.debug(
                             "route_not_in_schedule",
@@ -101,7 +103,11 @@ class AlertService:
                     )
 
                     # Get disruptions for this route
-                    disruptions = await self._get_route_disruptions(route)
+                    disruptions, error_occurred = await self._get_route_disruptions(route)
+
+                    # Track error if one occurred
+                    if error_occurred:
+                        stats["errors"] += 1
 
                     # Skip if no disruptions
                     if not disruptions:
@@ -189,7 +195,11 @@ class AlertService:
             logger.error("fetch_active_routes_failed", error=str(e), exc_info=e)
             return []
 
-    async def _get_active_schedule(self, route: Route) -> RouteSchedule | None:
+    async def _get_active_schedule(
+        self,
+        route: Route,
+        schedules: list[RouteSchedule] | None = None,
+    ) -> RouteSchedule | None:
         """
         Check if the route is currently in any active schedule window.
 
@@ -197,6 +207,8 @@ class AlertService:
 
         Args:
             route: Route to check schedules for
+            schedules: Optional list of schedules. If None, uses route.schedules
+                       (but requires schedules to be eagerly loaded)
 
         Returns:
             The first matching active schedule, or None if not in any schedule
@@ -218,8 +230,11 @@ class AlertService:
                 current_day=current_day,
             )
 
+            # Use provided schedules or fall back to route.schedules
+            schedules_to_check = schedules if schedules is not None else route.schedules
+
             # Check each schedule
-            for schedule in route.schedules:
+            for schedule in schedules_to_check:
                 # Check if current day is in schedule's days
                 if current_day not in schedule.days_of_week:
                     continue
@@ -246,7 +261,7 @@ class AlertService:
             )
             return None
 
-    async def _get_route_disruptions(self, route: Route) -> list[DisruptionResponse]:
+    async def _get_route_disruptions(self, route: Route) -> tuple[list[DisruptionResponse], bool]:
         """
         Get current disruptions affecting this route.
 
@@ -256,7 +271,9 @@ class AlertService:
             route: Route to get disruptions for
 
         Returns:
-            List of disruptions affecting the route's lines
+            Tuple of (disruptions, error_occurred)
+            - disruptions: List of disruptions affecting the route's lines
+            - error_occurred: True if an error occurred during processing
         """
         try:
             # Create TfL service instance
@@ -266,13 +283,10 @@ class AlertService:
             all_disruptions = await tfl_service.fetch_disruptions(use_cache=True)
 
             # Get unique line IDs from route segments
-            # Need to join with Line model to get tfl_id
-            line_ids = set()
-            for segment in route.segments:
-                result = await self.db.execute(select(Line.tfl_id).where(Line.id == segment.line_id))
-                line_tfl_id = result.scalar_one_or_none()
-                if line_tfl_id:
-                    line_ids.add(line_tfl_id)
+            # Batch query to avoid N+1 problem
+            line_db_ids = {segment.line_id for segment in route.segments}
+            result = await self.db.execute(select(Line.tfl_id).where(Line.id.in_(line_db_ids)))
+            line_ids = {row[0] for row in result.all()}
 
             # Filter disruptions to only those affecting route's lines
             route_disruptions = [d for d in all_disruptions if d.line_id in line_ids]
@@ -285,7 +299,7 @@ class AlertService:
                 route_lines=list(line_ids),
             )
 
-            return route_disruptions
+            return route_disruptions, False
 
         except Exception as e:
             logger.error(
@@ -294,7 +308,7 @@ class AlertService:
                 error=str(e),
                 exc_info=e,
             )
-            return []
+            return [], True
 
     async def _should_send_alert(
         self,
@@ -378,7 +392,184 @@ class AlertService:
             # On error, default to sending alert (better to over-notify than under-notify)
             return True
 
-    async def _send_alerts_for_route(  # noqa: PLR0912, PLR0915
+    async def _get_verified_contact(  # noqa: PLR0911
+        self,
+        pref: NotificationPreference,
+        route_id: UUID,
+    ) -> str | None:
+        """
+        Get verified contact information for a notification preference.
+
+        Args:
+            pref: Notification preference
+            route_id: Route ID for logging
+
+        Returns:
+            Contact string (email or phone) if verified, None otherwise
+        """
+        if pref.method == NotificationMethod.EMAIL:
+            if not pref.target_email_id:
+                logger.warning(
+                    "email_preference_missing_target",
+                    pref_id=str(pref.id),
+                    route_id=str(route_id),
+                )
+                return None
+
+            email_result = await self.db.execute(select(EmailAddress).where(EmailAddress.id == pref.target_email_id))
+            email_address = email_result.scalar_one_or_none()
+
+            if not email_address or not email_address.verified:
+                logger.warning(
+                    "email_not_verified",
+                    pref_id=str(pref.id),
+                    route_id=str(route_id),
+                    email_id=str(pref.target_email_id) if pref.target_email_id else None,
+                )
+                return None
+
+            return email_address.email
+
+        if pref.method == NotificationMethod.SMS:
+            if not pref.target_phone_id:
+                logger.warning(
+                    "sms_preference_missing_target",
+                    pref_id=str(pref.id),
+                    route_id=str(route_id),
+                )
+                return None
+
+            phone_result = await self.db.execute(select(PhoneNumber).where(PhoneNumber.id == pref.target_phone_id))
+            phone_number = phone_result.scalar_one_or_none()
+
+            if not phone_number or not phone_number.verified:
+                logger.warning(
+                    "phone_not_verified",
+                    pref_id=str(pref.id),
+                    route_id=str(route_id),
+                    phone_id=str(pref.target_phone_id) if pref.target_phone_id else None,
+                )
+                return None
+
+            return phone_number.phone
+
+        logger.warning(
+            "unknown_notification_method",
+            pref_id=str(pref.id),
+            method=pref.method,
+        )
+        return None
+
+    def _get_user_display_name(self, route: Route) -> str | None:
+        """
+        Get user display name from their primary email address.
+
+        Args:
+            route: Route with user relationship loaded
+
+        Returns:
+            User's email or None
+        """
+        if not route.user or not route.user.email_addresses:
+            return None
+
+        # Find primary email or use first email
+        primary_email = next(
+            (e for e in route.user.email_addresses if e.is_primary),
+            route.user.email_addresses[0] if route.user.email_addresses else None,
+        )
+
+        return primary_email.email if primary_email else None
+
+    def _create_notification_log(
+        self,
+        user_id: UUID,
+        route_id: UUID,
+        method: NotificationMethod,
+        status: NotificationStatus,
+        error_message: str | None = None,
+    ) -> None:
+        """
+        Create a notification log entry and add to database session.
+
+        Args:
+            user_id: User ID
+            route_id: Route ID
+            method: Notification method
+            status: Notification status
+            error_message: Optional error message
+        """
+        notification_log = NotificationLog(
+            user_id=user_id,
+            route_id=route_id,
+            sent_at=datetime.now(UTC),
+            method=method,
+            status=status,
+            error_message=error_message,
+        )
+        self.db.add(notification_log)
+
+    async def _send_single_notification(
+        self,
+        pref: NotificationPreference,
+        contact_info: str,
+        route: Route,
+        disruptions: list[DisruptionResponse],
+    ) -> tuple[bool, str | None]:
+        """
+        Send a single notification via the appropriate method.
+
+        Args:
+            pref: Notification preference
+            contact_info: Contact string (email or phone)
+            route: Route being alerted
+            disruptions: List of disruptions
+
+        Returns:
+            Tuple of (success, error_message)
+            - success: True if sent successfully, False otherwise
+            - error_message: Error message if failed, None if successful
+        """
+        try:
+            notification_service = NotificationService()
+
+            if pref.method == NotificationMethod.EMAIL:
+                user_name = self._get_user_display_name(route)
+                await notification_service.send_disruption_email(
+                    email=contact_info,
+                    route_name=route.name,
+                    disruptions=disruptions,
+                    user_name=user_name,
+                )
+            elif pref.method == NotificationMethod.SMS:
+                await notification_service.send_disruption_sms(
+                    phone=contact_info,
+                    route_name=route.name,
+                    disruptions=disruptions,
+                )
+
+            logger.info(
+                "alert_sent_successfully",
+                method=pref.method.value,
+                target=contact_info,
+                route_id=str(route.id),
+                route_name=route.name,
+                disruption_count=len(disruptions),
+            )
+            return True, None
+
+        except Exception as send_error:
+            logger.error(
+                "notification_send_failed",
+                pref_id=str(pref.id),
+                route_id=str(route.id),
+                method=pref.method.value,
+                error=str(send_error),
+                exc_info=send_error,
+            )
+            return False, str(send_error)
+
+    async def _send_alerts_for_route(
         self,
         route: Route,
         schedule: RouteSchedule,
@@ -410,139 +601,36 @@ class AlertService:
             # Process each notification preference
             for pref in route.notification_preferences:
                 try:
-                    # Get contact information based on method
-                    if pref.method == NotificationMethod.EMAIL:
-                        if not pref.target_email_id:
-                            logger.warning(
-                                "email_preference_missing_target",
-                                pref_id=str(pref.id),
-                                route_id=str(route.id),
-                            )
-                            continue
-
-                        email_result = await self.db.execute(
-                            select(EmailAddress).where(EmailAddress.id == pref.target_email_id)
-                        )
-                        email_address = email_result.scalar_one_or_none()
-
-                        if not email_address or not email_address.verified:
-                            logger.warning(
-                                "email_not_verified",
-                                pref_id=str(pref.id),
-                                route_id=str(route.id),
-                                email_id=str(pref.target_email_id) if pref.target_email_id else None,
-                            )
-                            continue
-
-                        contact_info = email_address.email
-
-                    elif pref.method == NotificationMethod.SMS:
-                        if not pref.target_phone_id:
-                            logger.warning(
-                                "sms_preference_missing_target",
-                                pref_id=str(pref.id),
-                                route_id=str(route.id),
-                            )
-                            continue
-
-                        phone_result = await self.db.execute(
-                            select(PhoneNumber).where(PhoneNumber.id == pref.target_phone_id)
-                        )
-                        phone_number = phone_result.scalar_one_or_none()
-
-                        if not phone_number or not phone_number.verified:
-                            logger.warning(
-                                "phone_not_verified",
-                                pref_id=str(pref.id),
-                                route_id=str(route.id),
-                                phone_id=str(pref.target_phone_id) if pref.target_phone_id else None,
-                            )
-                            continue
-
-                        contact_info = phone_number.phone
-
-                    else:
-                        logger.warning(
-                            "unknown_notification_method",
-                            pref_id=str(pref.id),
-                            method=pref.method,
-                        )
+                    # Get verified contact information
+                    contact_info = await self._get_verified_contact(pref, route.id)
+                    if not contact_info:
                         continue
 
-                    # Send notification via NotificationService
-                    notification_service = NotificationService()
+                    # Send notification
+                    success, error_message = await self._send_single_notification(
+                        pref=pref,
+                        contact_info=contact_info,
+                        route=route,
+                        disruptions=disruptions,
+                    )
 
-                    try:
-                        if pref.method == NotificationMethod.EMAIL:
-                            # Get user name for email greeting from primary email
-                            user_name = None
-                            if route.user and route.user.email_addresses:
-                                # Find primary email or use first email
-                                primary_email = next(
-                                    (e for e in route.user.email_addresses if e.is_primary),
-                                    route.user.email_addresses[0] if route.user.email_addresses else None,
-                                )
-                                if primary_email:
-                                    user_name = primary_email.email
-
-                            await notification_service.send_disruption_email(
-                                email=contact_info,
-                                route_name=route.name,
-                                disruptions=disruptions,
-                                user_name=user_name,
-                            )
-                        elif pref.method == NotificationMethod.SMS:
-                            await notification_service.send_disruption_sms(
-                                phone=contact_info,
-                                route_name=route.name,
-                                disruptions=disruptions,
-                            )
-
-                        # Create notification log entry (SENT status)
-                        notification_log = NotificationLog(
+                    # Create notification log
+                    if success:
+                        self._create_notification_log(
                             user_id=route.user_id,
                             route_id=route.id,
-                            sent_at=datetime.now(UTC),
                             method=pref.method,
                             status=NotificationStatus.SENT,
-                            error_message=None,
                         )
-                        self.db.add(notification_log)
-
                         alerts_sent += 1
-
-                        logger.info(
-                            "alert_sent_successfully",
-                            method=pref.method.value,
-                            target=contact_info,
-                            route_id=str(route.id),
-                            route_name=route.name,
-                            disruption_count=len(disruptions),
-                        )
-
-                    except Exception as send_error:
-                        logger.error(
-                            "notification_send_failed",
-                            pref_id=str(pref.id),
-                            route_id=str(route.id),
-                            method=pref.method.value,
-                            error=str(send_error),
-                            exc_info=send_error,
-                        )
-
-                        # Create notification log entry (FAILED status)
-                        notification_log = NotificationLog(
+                    else:
+                        self._create_notification_log(
                             user_id=route.user_id,
                             route_id=route.id,
-                            sent_at=datetime.now(UTC),
                             method=pref.method,
                             status=NotificationStatus.FAILED,
-                            error_message=str(send_error),
+                            error_message=error_message,
                         )
-                        self.db.add(notification_log)
-
-                        # Don't increment alerts_sent on failure
-                        continue
 
                 except Exception as e:
                     # Catch any other unexpected errors in preference processing

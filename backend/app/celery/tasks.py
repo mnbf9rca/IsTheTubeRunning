@@ -12,7 +12,6 @@ import structlog
 from app.celery.app import celery_app
 from app.celery.database import worker_session_factory
 from app.services.alert_service import AlertService, get_redis_client
-from celery import Task
 
 logger = structlog.get_logger(__name__)
 
@@ -22,7 +21,7 @@ logger = structlog.get_logger(__name__)
     max_retries=3,
     name="app.celery.tasks.check_disruptions_and_alert",
 )
-def check_disruptions_and_alert(self: Task[Any]) -> dict[str, Any]:  # type: ignore[type-arg]
+def check_disruptions_and_alert(self: Any) -> dict[str, Any]:  # noqa: ANN401
     """
     Check for TfL disruptions and send alerts to users with matching preferences.
 

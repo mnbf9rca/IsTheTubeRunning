@@ -405,7 +405,7 @@ async def test_get_active_schedule_wrong_day(
 
 
 @pytest.mark.asyncio
-@freeze_time("2025-01-15 09:00:00", tz_offset=-5)  # Wednesday 9:00 AM EST = 2:00 PM UTC
+@freeze_time("2025-01-15 14:00:00")  # Wednesday 14:00 UTC = 9:00 AM EST (within 8-10 AM schedule)
 async def test_get_active_schedule_different_timezone(
     alert_service: AlertService,
     db_session: AsyncSession,
@@ -445,7 +445,7 @@ async def test_get_active_schedule_different_timezone(
     await db_session.refresh(route)
 
     # Current time: 9:00 AM EST = 2:00 PM UTC (within schedule)
-    active_schedule = await alert_service._get_active_schedule(route)
+    active_schedule = await alert_service._get_active_schedule(route, [schedule])
 
     assert active_schedule is not None
 
@@ -482,6 +482,9 @@ async def test_get_active_schedule_multiple_schedules(
     test_route_with_schedule: Route,
 ) -> None:
     """Test that first matching schedule is returned when multiple match."""
+    # Get the existing schedule from the fixture
+    existing_schedule = test_route_with_schedule.schedules[0]
+
     # Add another schedule that also matches
     another_schedule = RouteSchedule(
         route_id=test_route_with_schedule.id,
@@ -491,9 +494,10 @@ async def test_get_active_schedule_multiple_schedules(
     )
     db_session.add(another_schedule)
     await db_session.commit()
-    await db_session.refresh(test_route_with_schedule)
+    await db_session.refresh(another_schedule)
 
-    schedule = await alert_service._get_active_schedule(test_route_with_schedule)
+    # Pass both schedules explicitly to avoid lazy loading
+    schedule = await alert_service._get_active_schedule(test_route_with_schedule, [existing_schedule, another_schedule])
 
     # Should return one of the matching schedules
     assert schedule is not None
@@ -528,8 +532,10 @@ async def test_get_route_disruptions_returns_relevant(
     mock_tfl_instance.fetch_disruptions = AsyncMock(return_value=all_disruptions)
     mock_tfl_class.return_value = mock_tfl_instance
 
-    disruptions = await alert_service._get_route_disruptions(test_route_with_schedule)
+    disruptions, error_occurred = await alert_service._get_route_disruptions(test_route_with_schedule)
 
+    # Should return no error
+    assert not error_occurred
     # Should only return victoria line disruptions (route only has victoria)
     assert len(disruptions) == 1
     assert disruptions[0].line_id == "victoria"
@@ -548,8 +554,9 @@ async def test_get_route_disruptions_empty(
     mock_tfl_instance.fetch_disruptions = AsyncMock(return_value=[])
     mock_tfl_class.return_value = mock_tfl_instance
 
-    disruptions = await alert_service._get_route_disruptions(test_route_with_schedule)
+    disruptions, error_occurred = await alert_service._get_route_disruptions(test_route_with_schedule)
 
+    assert not error_occurred
     assert len(disruptions) == 0
 
 
@@ -578,8 +585,10 @@ async def test_get_route_disruptions_filters_correctly(
     )
     mock_tfl_class.return_value = mock_tfl_instance
 
-    disruptions = await alert_service._get_route_disruptions(test_route_with_schedule)
+    disruptions, error_occurred = await alert_service._get_route_disruptions(test_route_with_schedule)
 
+    # Should return no error
+    assert not error_occurred
     # Should return empty since central line is not in route
     assert len(disruptions) == 0
 
@@ -932,6 +941,7 @@ async def test_send_alerts_notification_failure(
 
 
 @pytest.mark.asyncio
+@freeze_time("2025-01-13 09:00:00", tz_offset=0)  # 9:00 AM UTC on Monday (within 8-10 AM schedule)
 @patch("app.services.alert_service.NotificationService")
 async def test_send_alerts_stores_state_in_redis(
     mock_notif_class: MagicMock,
