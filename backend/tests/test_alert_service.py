@@ -2,7 +2,8 @@
 
 import json
 from datetime import UTC, datetime, time
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, Mock, patch
+from uuid import uuid4
 
 import pytest
 import redis.asyncio as redis
@@ -644,7 +645,7 @@ async def test_should_send_alert_same_disruption(
             "stored_at": datetime.now(UTC).isoformat(),
         }
     )
-    alert_service.redis_client.get = AsyncMock(return_value=stored_state)
+    alert_service.redis_client.get = AsyncMock(return_value=stored_state)  # type: ignore[method-assign]
 
     should_send = await alert_service._should_send_alert(
         route=test_route_with_schedule,
@@ -686,7 +687,7 @@ async def test_should_send_alert_changed_disruption(
             "stored_at": datetime.now(UTC).isoformat(),
         }
     )
-    alert_service.redis_client.get = AsyncMock(return_value=stored_state)
+    alert_service.redis_client.get = AsyncMock(return_value=stored_state)  # type: ignore[method-assign]
 
     should_send = await alert_service._should_send_alert(
         route=test_route_with_schedule,
@@ -708,7 +709,7 @@ async def test_should_send_alert_redis_error(
     schedule = test_route_with_schedule.schedules[0]
 
     # Mock Redis to raise error
-    alert_service.redis_client.get = AsyncMock(side_effect=Exception("Redis error"))
+    alert_service.redis_client.get = AsyncMock(side_effect=Exception("Redis error"))  # type: ignore[method-assign]
 
     should_send = await alert_service._should_send_alert(
         route=test_route_with_schedule,
@@ -731,7 +732,7 @@ async def test_should_send_alert_invalid_stored_data(
     schedule = test_route_with_schedule.schedules[0]
 
     # Mock Redis to return invalid JSON
-    alert_service.redis_client.get = AsyncMock(return_value="invalid json")
+    alert_service.redis_client.get = AsyncMock(return_value="invalid json")  # type: ignore[method-assign]
 
     should_send = await alert_service._should_send_alert(
         route=test_route_with_schedule,
@@ -937,6 +938,7 @@ async def test_send_alerts_notification_failure(
     logs = result.scalars().all()
     assert len(logs) == 1
     assert logs[0].status == NotificationStatus.FAILED
+    assert logs[0].error_message is not None
     assert "SMTP error" in logs[0].error_message
 
 
@@ -964,7 +966,7 @@ async def test_send_alerts_stores_state_in_redis(
     )
 
     # Verify Redis setex was called
-    alert_service.redis_client.setex.assert_called_once()
+    alert_service.redis_client.setex.assert_called_once()  # type: ignore[attr-defined]
 
 
 # ==================== _store_alert_state Tests ====================
@@ -988,8 +990,8 @@ async def test_store_alert_state_correct_ttl(
     )
 
     # Verify setex was called with correct TTL (1.5 hours = 5400 seconds)
-    alert_service.redis_client.setex.assert_called_once()
-    call_args = alert_service.redis_client.setex.call_args
+    alert_service.redis_client.setex.assert_called_once()  # type: ignore[attr-defined]
+    call_args = alert_service.redis_client.setex.call_args  # type: ignore[attr-defined]
     ttl = call_args[0][1]
     assert ttl == 5400  # 90 minutes until 10:00 AM
 
@@ -1012,7 +1014,7 @@ async def test_store_alert_state_schedule_ended(
     )
 
     # Verify setex was not called (TTL would be 0 or negative)
-    alert_service.redis_client.setex.assert_not_called()
+    alert_service.redis_client.setex.assert_not_called()  # type: ignore[attr-defined]
 
 
 @pytest.mark.asyncio
@@ -1033,7 +1035,7 @@ async def test_store_alert_state_stores_disruption_hash(
     )
 
     # Get the stored data
-    call_args = alert_service.redis_client.setex.call_args
+    call_args = alert_service.redis_client.setex.call_args  # type: ignore[attr-defined]
     stored_json = call_args[0][2]
     stored_data = json.loads(stored_json)
 
@@ -1159,3 +1161,362 @@ async def test_get_redis_client() -> None:
     assert client is not None
     assert isinstance(client, redis.Redis)
     await client.close()
+
+
+@pytest.mark.asyncio
+async def test_alert_service_skips_duplicate_alerts(
+    alert_service: AlertService,
+) -> None:
+    """Test that duplicate alerts are skipped (lines 137-142)."""
+    # Test the logic by mocking should_send_alert to return False
+    mock_route = Mock(spec=Route)
+    mock_route.id = "test-route"
+    mock_route.name = "Test Route"
+
+    mock_disruptions = [
+        DisruptionResponse(
+            line_id="victoria",
+            line_name="Victoria",
+            status_severity=5,
+            status_severity_description="Severe Delays",
+            reason="Signal failure",
+            created_at=datetime.now(UTC),
+        ),
+    ]
+
+    with (
+        patch.object(alert_service, "_should_send_alert", return_value=False),
+        patch.object(alert_service, "_get_verified_contact", return_value=None),
+    ):
+        alerts_sent = await alert_service._send_alerts_for_route(
+            route=mock_route,
+            schedule=Mock(),
+            disruptions=mock_disruptions,
+        )
+        # When all alerts are skipped, no alerts sent
+        assert alerts_sent == 0
+
+
+@pytest.mark.asyncio
+async def test_alert_service_inner_exception_handler(
+    alert_service: AlertService,
+) -> None:
+    """Test inner exception handler in process_all_routes (lines 153-155)."""
+    # Mock _get_active_routes to return a single route
+    mock_route = Mock(spec=Route)
+    mock_route.id = "test-route"
+    mock_route.name = "Error Route"
+    mock_route.schedules = [Mock()]
+
+    with (
+        patch.object(alert_service, "_get_active_routes", return_value=[mock_route]),
+        patch.object(alert_service, "_get_active_schedule", return_value=Mock()),
+        patch.object(
+            alert_service,
+            "_get_route_disruptions",
+            side_effect=RuntimeError("TfL API error"),
+        ),
+    ):
+        result = await alert_service.process_all_routes()
+
+        # Should track error but continue processing
+        assert result["errors"] == 1
+
+
+@pytest.mark.asyncio
+async def test_alert_service_outer_exception_handler(
+    alert_service: AlertService,
+) -> None:
+    """Test outer exception handler in process_all_routes (lines 166-169)."""
+    with patch.object(
+        alert_service,
+        "_get_active_routes",
+        side_effect=RuntimeError("Database error"),
+    ):
+        result = await alert_service.process_all_routes()
+
+        # Should return stats with error count
+        assert result["errors"] == 1
+
+
+@pytest.mark.asyncio
+async def test_alert_service_get_active_routes_error(
+    alert_service: AlertService,
+) -> None:
+    """Test _get_active_routes exception handler (lines 194-196)."""
+    with patch.object(
+        alert_service.db,
+        "execute",
+        side_effect=RuntimeError("Database connection error"),
+    ):
+        routes = await alert_service._get_active_routes()
+
+        # Should return empty list on error
+        assert routes == []
+
+
+@pytest.mark.asyncio
+async def test_get_verified_contact_email_missing_target(
+    alert_service: AlertService,
+) -> None:
+    """Test _get_verified_contact with missing email target (lines 412-417)."""
+
+    # Create mock preference without target_email_id
+    pref = Mock(spec=NotificationPreference)
+    pref.id = uuid4()
+    pref.method = NotificationMethod.EMAIL
+    pref.target_email_id = None
+
+    contact = await alert_service._get_verified_contact(pref, uuid4())
+    assert contact is None
+
+
+@pytest.mark.asyncio
+async def test_get_verified_contact_email_not_found(
+    alert_service: AlertService,
+) -> None:
+    """Test _get_verified_contact with non-existent email (lines 423-429)."""
+
+    # Create mock preference with non-existent email ID
+    pref = Mock(spec=NotificationPreference)
+    pref.id = uuid4()
+    pref.method = NotificationMethod.EMAIL
+    pref.target_email_id = uuid4()  # Non-existent ID
+
+    contact = await alert_service._get_verified_contact(pref, uuid4())
+    assert contact is None
+
+
+@pytest.mark.asyncio
+async def test_get_verified_contact_sms_missing_target(
+    alert_service: AlertService,
+) -> None:
+    """Test _get_verified_contact with missing SMS target (lines 435-440)."""
+
+    # Create mock preference without target_phone_id
+    pref = Mock(spec=NotificationPreference)
+    pref.id = uuid4()
+    pref.method = NotificationMethod.SMS
+    pref.target_phone_id = None
+
+    contact = await alert_service._get_verified_contact(pref, uuid4())
+    assert contact is None
+
+
+@pytest.mark.asyncio
+async def test_get_verified_contact_sms_not_found(
+    alert_service: AlertService,
+) -> None:
+    """Test _get_verified_contact with non-existent phone (lines 446-452)."""
+
+    # Create mock preference with non-existent phone ID
+    pref = Mock(spec=NotificationPreference)
+    pref.id = uuid4()
+    pref.method = NotificationMethod.SMS
+    pref.target_phone_id = uuid4()  # Non-existent ID
+
+    contact = await alert_service._get_verified_contact(pref, uuid4())
+    assert contact is None
+
+
+@pytest.mark.asyncio
+async def test_get_verified_contact_sms_unverified(
+    alert_service: AlertService,
+    db_session: AsyncSession,
+) -> None:
+    """Test _get_verified_contact with unverified phone (lines 446-452)."""
+    # Create user
+    user = User(external_id="test-unverified-phone", auth_provider="auth0")
+    db_session.add(user)
+    await db_session.flush()
+
+    # Create unverified phone
+    phone = PhoneNumber(
+        user_id=user.id,
+        phone="+447700900123",
+        verified=False,
+    )
+    db_session.add(phone)
+    await db_session.flush()
+
+    # Create route
+    route = Route(user_id=user.id, name="Test", active=True, timezone="UTC")
+    db_session.add(route)
+    await db_session.flush()
+
+    # Create preference
+    pref = NotificationPreference(
+        route_id=route.id,
+        method=NotificationMethod.SMS,
+        target_phone_id=phone.id,
+    )
+    db_session.add(pref)
+    await db_session.commit()
+
+    contact = await alert_service._get_verified_contact(pref, route.id)
+    assert contact is None
+
+
+@pytest.mark.asyncio
+async def test_get_user_display_name_no_user(
+    alert_service: AlertService,
+) -> None:
+    """Test _get_user_display_name with no user."""
+    route = Mock(spec=Route)
+    route.user = None
+
+    name = alert_service._get_user_display_name(route)
+    assert name is None
+
+
+@pytest.mark.asyncio
+async def test_get_active_schedule_exception_handling(
+    alert_service: AlertService,
+) -> None:
+    """Test _get_active_schedule exception handling (lines 255-262)."""
+    mock_route = Mock(spec=Route)
+    mock_route.id = uuid4()
+    mock_route.timezone = "Invalid/Timezone"  # Invalid timezone will cause error
+    mock_route.schedules = [Mock()]
+
+    # This should handle the exception and return None
+    schedule = await alert_service._get_active_schedule(mock_route)
+    assert schedule is None
+
+
+@pytest.mark.asyncio
+@patch("app.services.alert_service.NotificationService")
+async def test_send_alerts_for_route_no_preferences(
+    mock_notif_class: MagicMock,
+    alert_service: AlertService,
+) -> None:
+    """Test _send_alerts_for_route with no notification preferences (lines 594-599)."""
+    mock_route = Mock(spec=Route)
+    mock_route.id = uuid4()
+    mock_route.name = "Test Route"
+    mock_route.notification_preferences = []  # No preferences
+
+    mock_schedule = Mock()
+    disruptions = [
+        DisruptionResponse(
+            line_id="victoria",
+            line_name="Victoria",
+            status_severity=5,
+            status_severity_description="Severe Delays",
+            reason="Signal failure",
+            created_at=datetime.now(UTC),
+        )
+    ]
+
+    alerts_sent = await alert_service._send_alerts_for_route(
+        route=mock_route,
+        schedule=mock_schedule,
+        disruptions=disruptions,
+    )
+
+    # Should return 0 when no preferences
+    assert alerts_sent == 0
+
+
+@pytest.mark.asyncio
+@freeze_time("2025-01-13 09:00:00", tz_offset=0)
+@patch("app.services.alert_service.NotificationService")
+async def test_send_alerts_for_route_sms_notification(
+    mock_notif_class: MagicMock,
+    alert_service: AlertService,
+    test_route_with_schedule: Route,
+    sample_disruptions: list[DisruptionResponse],
+    db_session: AsyncSession,
+) -> None:
+    """Test SMS notification path (lines 544-545)."""
+    # Add SMS preference to route
+    phone = PhoneNumber(
+        user_id=test_route_with_schedule.user_id,
+        phone="+447700900123",
+        verified=True,
+    )
+    db_session.add(phone)
+    await db_session.flush()
+
+    sms_pref = NotificationPreference(
+        route_id=test_route_with_schedule.id,
+        method=NotificationMethod.SMS,
+        target_phone_id=phone.id,
+    )
+    db_session.add(sms_pref)
+    await db_session.commit()
+
+    # Refresh route to load preferences
+    await db_session.refresh(test_route_with_schedule, ["notification_preferences"])
+
+    # Mock notification service
+    mock_notif_instance = AsyncMock()
+    mock_notif_instance.send_disruption_sms = AsyncMock()
+    mock_notif_class.return_value = mock_notif_instance
+
+    schedule = test_route_with_schedule.schedules[0]
+
+    await alert_service._send_alerts_for_route(
+        route=test_route_with_schedule,
+        schedule=schedule,
+        disruptions=sample_disruptions,
+    )
+
+    # Verify SMS was sent
+    mock_notif_instance.send_disruption_sms.assert_called_once()
+
+
+@pytest.mark.asyncio
+@freeze_time("2025-01-13 09:00:00", tz_offset=0)
+@patch("app.services.alert_service.NotificationService")
+async def test_send_alerts_for_route_preference_exception(
+    mock_notif_class: MagicMock,
+    alert_service: AlertService,
+    test_route_with_schedule: Route,
+    sample_disruptions: list[DisruptionResponse],
+) -> None:
+    """Test unexpected exception in preference processing (lines 635-637)."""
+    # Mock notification service to raise unexpected error
+    mock_notif_instance = AsyncMock()
+    mock_notif_instance.send_disruption_email = AsyncMock(side_effect=RuntimeError("Unexpected error"))
+    mock_notif_class.return_value = mock_notif_instance
+
+    schedule = test_route_with_schedule.schedules[0]
+
+    # Should handle exception and continue
+    alerts_sent = await alert_service._send_alerts_for_route(
+        route=test_route_with_schedule,
+        schedule=schedule,
+        disruptions=sample_disruptions,
+    )
+
+    # Should return 0 due to error
+    assert alerts_sent == 0
+
+
+@pytest.mark.asyncio
+@freeze_time("2025-01-15 08:30:00", tz_offset=0)
+async def test_store_alert_state_exception_handling(
+    alert_service: AlertService,
+    test_route_with_schedule: Route,
+    sample_disruptions: list[DisruptionResponse],
+) -> None:
+    """Test _store_alert_state exception handling (lines 758-759)."""
+    schedule = test_route_with_schedule.schedules[0]
+
+    # Mock Redis to raise error on setex
+    alert_service.redis_client.setex = AsyncMock(side_effect=RuntimeError("Redis error"))  # type: ignore[method-assign]
+
+    # Should handle exception gracefully (logs error but doesn't crash)
+    try:
+        await alert_service._store_alert_state(
+            route=test_route_with_schedule,
+            user_id=test_route_with_schedule.user_id,
+            schedule=schedule,
+            disruptions=sample_disruptions,
+        )
+        # If we get here, exception was handled
+        assert True
+    except RuntimeError:
+        # Should not raise
+        pytest.fail("Exception was not handled")

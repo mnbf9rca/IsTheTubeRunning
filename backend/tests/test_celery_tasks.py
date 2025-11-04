@@ -256,3 +256,127 @@ async def test_check_disruptions_async_with_errors(
     assert result["routes_checked"] == 10
     assert result["alerts_sent"] == 5
     assert result["errors"] == 2
+
+
+@pytest.mark.asyncio
+@patch("app.celery.tasks.get_redis_client")
+@patch("app.celery.tasks.worker_session_factory")
+async def test_check_disruptions_async_closes_session_when_redis_fails(
+    mock_session_factory: MagicMock,
+    mock_redis_func: MagicMock,
+) -> None:
+    """Test that session is closed even when Redis client creation fails."""
+    # Mock database session
+    mock_session = AsyncMock()
+    mock_session.close = AsyncMock()
+    mock_session_factory.return_value = mock_session
+
+    # Mock Redis to raise error
+    mock_redis_func.side_effect = RuntimeError("Redis connection failed")
+
+    # Execute async function and catch exception
+    with pytest.raises(RuntimeError, match="Redis connection failed"):
+        await _check_disruptions_async()
+
+    # Verify session was still closed (line 98)
+    mock_session.close.assert_called_once()
+
+
+@pytest.mark.asyncio
+@patch("app.celery.tasks.AlertService")
+@patch("app.celery.tasks.get_redis_client")
+@patch("app.celery.tasks.worker_session_factory")
+async def test_check_disruptions_async_closes_redis_when_service_fails(
+    mock_session_factory: MagicMock,
+    mock_redis_func: MagicMock,
+    mock_alert_class: MagicMock,
+) -> None:
+    """Test that Redis is closed even when AlertService instantiation fails."""
+    # Mock database session
+    mock_session = AsyncMock()
+    mock_session.close = AsyncMock()
+    mock_session_factory.return_value = mock_session
+
+    # Mock Redis client
+    mock_redis = AsyncMock()
+    mock_redis.close = AsyncMock()
+    mock_redis_func.return_value = mock_redis
+
+    # Mock AlertService to raise error on instantiation
+    mock_alert_class.side_effect = RuntimeError("Service init failed")
+
+    # Execute async function and catch exception
+    with pytest.raises(RuntimeError, match="Service init failed"):
+        await _check_disruptions_async()
+
+    # Verify both resources were closed (lines 95-98)
+    mock_redis.close.assert_called_once()
+    mock_session.close.assert_called_once()
+
+
+@patch("app.celery.tasks.asyncio.run")
+def test_check_disruptions_task_success_path(mock_asyncio_run: MagicMock) -> None:
+    """Test the synchronous task wrapper success path."""
+    mock_result = {
+        "status": "success",
+        "routes_checked": 5,
+        "alerts_sent": 2,
+        "errors": 0,
+    }
+    mock_asyncio_run.return_value = mock_result
+
+    result = check_disruptions_and_alert()
+
+    assert result == mock_result
+    mock_asyncio_run.assert_called_once()
+
+
+@patch("app.celery.tasks.asyncio.run")
+def test_check_disruptions_task_retry_on_error(mock_asyncio_run: MagicMock) -> None:
+    """Test that task retries on exception (lines 55-63)."""
+    # Mock asyncio.run to raise an exception
+    mock_asyncio_run.side_effect = RuntimeError("Database connection lost")
+
+    # Create a mock Celery task instance with retry method
+    task_instance = check_disruptions_and_alert
+
+    # Execute the task and expect retry exception
+    with pytest.raises(Exception):  # noqa: B017, PT011  # Celery raises Retry exception
+        task_instance()
+
+
+@patch("app.celery.tasks.asyncio.run")
+def test_check_disruptions_task_logs_on_success(mock_asyncio_run: MagicMock) -> None:
+    """Test that task logs completion (lines 49-52)."""
+    mock_result = {
+        "status": "success",
+        "routes_checked": 3,
+        "alerts_sent": 1,
+        "errors": 0,
+    }
+    mock_asyncio_run.return_value = mock_result
+
+    with patch("app.celery.tasks.logger") as mock_logger:
+        result = check_disruptions_and_alert()
+
+        assert result == mock_result
+        mock_logger.info.assert_called_once()
+        call_args = mock_logger.info.call_args
+        assert call_args[0][0] == "check_disruptions_task_completed"
+
+
+@patch("app.celery.tasks.asyncio.run")
+def test_check_disruptions_task_logs_on_error(mock_asyncio_run: MagicMock) -> None:
+    """Test that task logs errors before retry (lines 56-61)."""
+    mock_asyncio_run.side_effect = RuntimeError("Test error")
+
+    task_instance = check_disruptions_and_alert
+
+    with patch("app.celery.tasks.logger") as mock_logger:
+        with pytest.raises(Exception):  # noqa: B017, PT011  # Celery raises Retry exception
+            task_instance()
+
+        # Verify error was logged
+        mock_logger.error.assert_called_once()
+        call_args = mock_logger.error.call_args
+        assert call_args[0][0] == "check_disruptions_task_failed"

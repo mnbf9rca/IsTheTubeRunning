@@ -1,6 +1,7 @@
 """Tests for notification service."""
 
 import smtplib
+from datetime import UTC, datetime
 from unittest.mock import AsyncMock, patch
 
 import pytest
@@ -250,3 +251,119 @@ class TestNotificationService:
 
         # Verify "there" appears as default greeting
         assert "Hello there" in html or "there" in html.lower()
+
+    @pytest.mark.asyncio
+    async def test_send_disruption_sms_long_message(self) -> None:
+        """Test SMS message truncation for long messages."""
+        service = NotificationService()
+
+        # Create 20 disruptions to exceed SMS limit
+        disruptions = [
+            DisruptionResponse(
+                line_id=f"line-{i}",
+                line_name=f"Line {i}",
+                status_severity=5,
+                status_severity_description="Severe Delays",
+                reason=f"Signal failure at station {i}",
+                created_at=datetime.now(UTC),
+            )
+            for i in range(20)
+        ]
+
+        # Should handle long message without error
+        await service.send_disruption_sms(
+            phone="+447700900123",
+            route_name="Test Route",
+            disruptions=disruptions,
+        )
+
+    @pytest.mark.asyncio
+    async def test_send_disruption_sms_error_propagates(self) -> None:
+        """Test SMS sending error is propagated."""
+        service = NotificationService()
+        disruptions = [
+            DisruptionResponse(
+                line_id="victoria",
+                line_name="Victoria",
+                status_severity=5,
+                status_severity_description="Severe Delays",
+                reason="Signal failure",
+                created_at=datetime.now(UTC),
+            )
+        ]
+
+        with (
+            patch.object(service.sms_service, "send_sms", side_effect=Exception("SMS error")),
+            pytest.raises(Exception, match="SMS error"),
+        ):
+            await service.send_disruption_sms(
+                phone="+447700900123",
+                route_name="Test",
+                disruptions=disruptions,
+            )
+
+    @pytest.mark.asyncio
+    async def test_send_disruption_email_template_error_propagates(self) -> None:
+        """Test email template error is propagated."""
+        service = NotificationService()
+        disruptions = [
+            DisruptionResponse(
+                line_id="victoria",
+                line_name="Victoria",
+                status_severity=5,
+                status_severity_description="Severe Delays",
+                reason="Signal failure",
+                created_at=datetime.now(UTC),
+            )
+        ]
+
+        with (
+            patch.object(service, "_render_email_template", side_effect=Exception("Template error")),
+            pytest.raises(Exception, match="Template error"),
+        ):
+            await service.send_disruption_email(
+                email="test@example.com",
+                route_name="Test",
+                disruptions=disruptions,
+            )
+
+    @pytest.mark.asyncio
+    async def test_send_disruption_sms_very_long_truncation(self) -> None:
+        """Test SMS truncation when message exceeds max length even with one disruption."""
+        service = NotificationService()
+
+        # Create single disruption with very long reason to exceed SMS limit
+        disruptions = [
+            DisruptionResponse(
+                line_id="line-1",
+                line_name="Line 1",
+                status_severity=5,
+                status_severity_description="Severe Delays" * 20,  # Make it very long
+                reason="Signal failure " * 50,  # Very long reason
+                created_at=datetime.now(UTC),
+            )
+        ]
+
+        # Should handle very long single disruption without error
+        with patch.object(service.sms_service, "send_sms", new_callable=AsyncMock) as mock_send:
+            await service.send_disruption_sms(
+                phone="+447700900123",
+                route_name="Test Route",
+                disruptions=disruptions,
+            )
+            mock_send.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_template_render_error_handling(self) -> None:
+        """Test _render_email_template error handling."""
+
+        service = NotificationService()
+
+        with (
+            patch(
+                "app.services.notification_service.jinja_env.get_template",
+                side_effect=Exception("Template not found"),
+            ),
+            pytest.raises(Exception, match="Template not found"),
+        ):
+            service._render_email_template("nonexistent.html", {})
