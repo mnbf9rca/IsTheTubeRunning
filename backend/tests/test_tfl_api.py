@@ -4,6 +4,7 @@ import uuid
 from collections.abc import AsyncGenerator
 from datetime import UTC, datetime
 from posixpath import join as urljoin_path
+from typing import Any
 from unittest.mock import AsyncMock, patch
 
 import pytest
@@ -51,6 +52,32 @@ async def async_client_with_auth(
             transport=ASGITransport(app=app),
             base_url="http://test",
             headers=auth_headers_for_user,
+        ) as client:
+            yield client
+    finally:
+        # Clean up override
+        app.dependency_overrides.clear()
+
+
+@pytest.fixture
+async def async_client_with_admin(
+    admin_user: tuple[User, Any],
+    admin_headers: dict[str, str],
+    db_session: AsyncSession,
+) -> AsyncGenerator[AsyncClient]:
+    """Create async client with admin authentication headers."""
+
+    # Override database dependency to use test database
+    async def override_get_db() -> AsyncGenerator[AsyncSession]:
+        yield db_session
+
+    app.dependency_overrides[get_db] = override_get_db
+
+    try:
+        async with AsyncClient(
+            transport=ASGITransport(app=app),
+            base_url="http://test",
+            headers=admin_headers,
         ) as client:
             yield client
     finally:
@@ -389,9 +416,9 @@ async def test_validate_route_insufficient_segments(
 @patch("app.services.tfl_service.TfLService.build_station_graph")
 async def test_build_graph_success(
     mock_build_graph: AsyncMock,
-    async_client_with_auth: AsyncClient,
+    async_client_with_admin: AsyncClient,
 ) -> None:
-    """Test successful station graph building."""
+    """Test successful station graph building with admin user."""
     # Mock build response
     mock_build_graph.return_value = {
         "lines_count": 11,
@@ -400,7 +427,7 @@ async def test_build_graph_success(
     }
 
     # Execute
-    response = await async_client_with_auth.post(build_api_url("/admin/tfl/build-graph"))
+    response = await async_client_with_admin.post(build_api_url("/admin/tfl/build-graph"))
 
     # Verify
     assert response.status_code == 200
@@ -412,7 +439,7 @@ async def test_build_graph_success(
     assert "success" in data["message"].lower()
 
 
-async def test_build_graph_unauthenticated(async_client_with_auth: AsyncClient) -> None:
+async def test_build_graph_unauthenticated(async_client_with_admin: AsyncClient) -> None:
     """Test that unauthenticated requests to admin endpoint are rejected."""
     # Create client without auth headers
     async with AsyncClient(
@@ -421,20 +448,28 @@ async def test_build_graph_unauthenticated(async_client_with_auth: AsyncClient) 
     ) as client:
         response = await client.post(build_api_url("/admin/tfl/build-graph"))
 
-    assert response.status_code == 403
+    assert response.status_code == 403  # FastAPI HTTPBearer returns 403 for missing credentials
+
+
+async def test_build_graph_non_admin(async_client_with_auth: AsyncClient) -> None:
+    """Test that non-admin authenticated users are rejected."""
+    response = await async_client_with_auth.post(build_api_url("/admin/tfl/build-graph"))
+
+    assert response.status_code == 403  # Forbidden (not admin)
+    assert "admin" in response.json()["detail"].lower()
 
 
 @patch("app.services.tfl_service.TfLService.build_station_graph")
 async def test_build_graph_tfl_api_failure(
     mock_build_graph: AsyncMock,
-    async_client_with_auth: AsyncClient,
+    async_client_with_admin: AsyncClient,
 ) -> None:
     """Test graph building when TfL API fails."""
     # Mock build to raise exception
     mock_build_graph.side_effect = HTTPException(status_code=503, detail="TfL API unavailable")
 
     # Execute
-    response = await async_client_with_auth.post(build_api_url("/admin/tfl/build-graph"))
+    response = await async_client_with_admin.post(build_api_url("/admin/tfl/build-graph"))
 
     # Verify
     assert response.status_code == 503

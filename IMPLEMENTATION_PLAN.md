@@ -561,8 +561,25 @@ Once this plan is committed, Phase 1 implementation will begin with:
   - Coverage: API 100%, Service 96.79%, Overall 96.76% (exceeds 95% target)
   - Type-safe (mypy --strict) and linting compliant (ruff)
 
+- [x] Phase 8: Alert Processing Worker (Completed: November 2025)
+  - **PR1 (#19):** Core worker logic with Celery infrastructure, alert service, and comprehensive tests
+    - Celery setup with Redis broker (db 1) and result backend (db 2)
+    - 30-second periodic task with 5-min hard/4-min soft timeouts
+    - AlertService with timezone-aware schedule checking and content-based deduplication
+    - NotificationService for email/SMS with basic HTML templates
+    - Worker database sessions (separate engine/session factory)
+    - Docker Compose services (celery-worker, celery-beat)
+    - 96.71% test coverage (exceeds 95% target)
+  - **PR2 (#20):** Admin endpoints for alert management with role-based authorization
+    - Admin authorization middleware (`require_admin()` dependency)
+    - POST /admin/alerts/trigger-check - Manual disruption check
+    - GET /admin/alerts/worker-status - Celery worker health monitoring
+    - GET /admin/alerts/recent-logs - Paginated notification logs (limit, offset, status filter)
+    - Updated POST /admin/tfl/build-graph to require admin privileges
+    - Comprehensive tests (authorization, endpoints, edge cases)
+    - Documentation updates (ARCHITECTURE.md ADRs 32-35, README.md)
+
 ### Upcoming Phases
-- [ ] Phase 8: Alert Processing Worker
 - [ ] Phase 9: Admin Dashboard Backend
 - [ ] Phase 10: Frontend Development
 - [ ] Phase 11: Testing & Quality
