@@ -20,111 +20,119 @@ from app.services.tfl_service import TfLService
 from fastapi import HTTPException
 from freezegun import freeze_time
 from pydantic_tfl_api.core import ApiError
+from pydantic_tfl_api.models import (
+    Line as TflLine,
+)
+from pydantic_tfl_api.models import (
+    Place as TflPlace,
+)
+from pydantic_tfl_api.models import (
+    RouteSection as TflRouteSection,
+)
+from pydantic_tfl_api.models import (
+    StatusSeverity as TflStatusSeverity,
+)
+from pydantic_tfl_api.models import (
+    StopPoint as TflStopPoint,
+)
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-
-# Mock TfL API response objects
-class MockStopPoint:
-    """Mock TfL stop point data."""
-
-    def __init__(self, id: str, commonName: str, lat: float, lon: float) -> None:  # noqa: N803
-        self.id = id
-        self.commonName = commonName
-        self.lat = lat
-        self.lon = lon
+# Mock Factory Functions using pydantic_tfl_api models
 
 
-class MockLineData:
-    """Mock TfL line data."""
-
-    def __init__(self, id: str, name: str, colour: str) -> None:
-        self.id = id
-        self.name = name
-        self.colour = colour
-
-
-class MockLineStatus:
-    """Mock TfL line status."""
-
-    def __init__(self, statusSeverity: int, statusSeverityDescription: str, reason: str | None = None) -> None:  # noqa: N803
-        self.statusSeverity = statusSeverity
-        self.statusSeverityDescription = statusSeverityDescription
-        if reason is not None:
-            self.reason = reason
+def create_mock_line(
+    id: str = "victoria",
+    name: str = "Victoria",
+    **kwargs: Any,  # noqa: ANN401
+) -> TflLine:
+    """Factory for TfL Line mocks using actual pydantic model."""
+    return TflLine(id=id, name=name, **kwargs)
 
 
-class MockLineStatusData:
-    """Mock TfL line status response."""
-
-    def __init__(self, id: str, name: str, statuses: list[MockLineStatus]) -> None:
-        self.id = id
-        self.name = name
-        self.lineStatuses = statuses
-
-
-class MockAffectedRoute:
-    """Mock TfL affected route in disruption data."""
-
-    def __init__(self, id: str, name: str) -> None:
-        self.id = id
-        self.name = name
+def create_mock_place(
+    id: str = "940GZZLUVIC",
+    common_name: str = "Victoria",
+    lat: float = 51.5,
+    lon: float = -0.1,
+    **kwargs: Any,  # noqa: ANN401
+) -> TflPlace:
+    """Factory for TfL Place mocks (stations) using actual pydantic model."""
+    return TflPlace(id=id, commonName=common_name, lat=lat, lon=lon, **kwargs)
 
 
-class MockDisruption:
-    """Mock TfL disruption data."""
-
-    def __init__(
-        self,
-        category: str,
-        categoryDescription: str,  # noqa: N803
-        categoryDescriptionDetail: int,  # noqa: N803
-        description: str,
-        affectedRoutes: list[MockAffectedRoute],  # noqa: N803
-        created: datetime | None = None,
-    ) -> None:
-        self.category = category
-        self.categoryDescription = categoryDescription
-        self.categoryDescriptionDetail = categoryDescriptionDetail  # Severity level integer
-        self.description = description
-        self.affectedRoutes = affectedRoutes
-        self.created = created or datetime.now(UTC)
+def create_mock_route_section(
+    id: str = "victoria",
+    name: str = "Victoria",
+    **kwargs: Any,  # noqa: ANN401
+) -> TflRouteSection:
+    """Factory for TfL RouteSection mocks using actual pydantic model."""
+    return TflRouteSection(id=id, name=name, **kwargs)
 
 
-class MockAffectedStop:
-    """Mock TfL affected stop in station disruption data."""
-
-    def __init__(self, id: str, name: str) -> None:
-        self.id = id
-        self.name = name
-
-
-class MockStationDisruption:
-    """Mock TfL station disruption data."""
-
-    def __init__(
-        self,
-        id: str,
-        category: str,
-        categoryDescription: str,  # noqa: N803
-        description: str,
-        affectedStops: list[MockAffectedStop],  # noqa: N803
-        created: datetime | None = None,
-    ) -> None:
-        self.id = id
-        self.category = category
-        self.categoryDescription = categoryDescription
-        self.description = description
-        self.affectedStops = affectedStops
-        self.created = created or datetime.now(UTC)
+def create_mock_stop_point(
+    id: str = "940GZZLUVIC",
+    common_name: str = "Victoria",
+    **kwargs: Any,  # noqa: ANN401
+) -> TflStopPoint:
+    """Factory for TfL StopPoint mocks using actual pydantic model."""
+    return TflStopPoint(id=id, commonName=common_name, **kwargs)
 
 
-class MockSeverityCode:
-    """Mock TfL severity code data."""
+def create_mock_disruption(
+    category: str = "PlannedWork",
+    category_description: str = "Minor Delays",
+    description: str = "Station improvements",
+    category_description_detail: int = 6,
+    affected_routes: list[TflRouteSection] | None = None,
+    affected_stops: list[TflStopPoint] | None = None,
+    created: datetime | str | None = None,
+    **kwargs: Any,  # noqa: ANN401
+) -> Any:  # noqa: ANN401
+    """Factory for TfL Disruption mocks.
 
-    def __init__(self, severityLevel: int, description: str) -> None:  # noqa: N803
-        self.severityLevel = severityLevel
-        self.description = description
+    Note: Uses a custom mock class because pydantic_tfl_api.models.Disruption
+    doesn't have the categoryDescriptionDetail field that the TfL service expects.
+    """
+
+    class MockDisruption:
+        """Mock disruption with categoryDescriptionDetail field."""
+
+        def __init__(self) -> None:
+            self.category = category
+            self.categoryDescription = category_description
+            self.categoryDescriptionDetail = category_description_detail
+            self.description = description
+            self.affectedRoutes = affected_routes or []
+            self.affectedStops = affected_stops or []
+            if isinstance(created, datetime):
+                self.created = created
+            elif created is None:
+                self.created = datetime.now(UTC)
+            else:
+                # Assume it's a string, parse it
+                self.created = datetime.fromisoformat(created)
+            # Add any additional kwargs as attributes
+            for key, value in kwargs.items():
+                setattr(self, key, value)
+
+    return MockDisruption()
+
+
+def create_mock_severity_code(
+    severity_level: int = 10,
+    description: str = "Good Service",
+    **kwargs: Any,  # noqa: ANN401
+) -> TflStatusSeverity:
+    """Factory for TfL StatusSeverity mocks using actual pydantic model."""
+    return TflStatusSeverity(
+        severityLevel=severity_level,
+        description=description,
+        **kwargs,
+    )
+
+
+# Mock TfL API response objects (for types not in pydantic_tfl_api)
 
 
 class MockStopPoint2:
@@ -149,18 +157,7 @@ class MockRouteSequence:
         self.stopPointSequences = stopPointSequences
 
 
-class MockStopPointSequence:
-    """Mock TfL stop point sequence."""
-
-    def __init__(self, stop_points: list[MockStopPoint]) -> None:
-        self.stop_points = stop_points
-
-
-class MockRoute:
-    """Mock TfL route."""
-
-    def __init__(self, sequences: list[MockStopPointSequence]) -> None:
-        self.stop_point_sequences = sequences
+# Removed MockStopPointSequence and MockRoute as they're not used in any tests
 
 
 class MockContent:
@@ -184,6 +181,26 @@ class MockResponse:
         self.content_expires = content_expires
 
 
+class MockStationDisruption:
+    """Mock TfL station disruption data (not in pydantic_tfl_api)."""
+
+    def __init__(
+        self,
+        id: str,
+        category: str,
+        categoryDescription: str,  # noqa: N803
+        description: str,
+        affectedStops: list[TflStopPoint],  # noqa: N803
+        created: datetime | None = None,
+    ) -> None:
+        self.id = id
+        self.category = category
+        self.categoryDescription = categoryDescription
+        self.description = description
+        self.affectedStops = affectedStops
+        self.created = created or datetime.now(UTC)
+
+
 @pytest.fixture
 def mock_cache() -> AsyncMock:
     """Mock aiocache Cache."""
@@ -201,26 +218,37 @@ def tfl_service(db_session: AsyncSession, mock_cache: AsyncMock) -> TfLService:
     return service
 
 
-# ==================== fetch_lines Tests ====================
+# ==================== Cache Testing Helper Functions ====================
 
 
-@patch("asyncio.get_running_loop")
-async def test_fetch_lines_from_api(
-    mock_get_loop: MagicMock,
+async def assert_fetch_from_api(
     tfl_service: TfLService,
-    db_session: AsyncSession,
-) -> None:
-    """Test fetching lines from TfL API when cache is empty."""
-    with freeze_time("2025-01-01 12:00:00"):
+    method_callable: Any,  # noqa: ANN401
+    mock_data: list[Any],
+    expected_count: int,
+    cache_key: str,
+    expected_ttl: int,
+    shared_expires: datetime,
+) -> list[Any]:
+    """Helper: Assert method fetches from API successfully and caches result.
+
+    Args:
+        tfl_service: TfL service instance
+        method_callable: Callable that invokes the fetch method
+        mock_data: Mock data to return from API
+        expected_count: Expected number of items returned
+        cache_key: Expected cache key for storage
+        expected_ttl: Expected TTL in seconds
+        shared_expires: Expiry timestamp for cache
+
+    Returns:
+        Result from the fetch method
+    """
+    with patch("asyncio.get_running_loop") as mock_get_loop:
         # Setup mock response
-        mock_lines = [
-            MockLineData(id="victoria", name="Victoria", colour="0019A8"),
-            MockLineData(id="northern", name="Northern", colour="000000"),
-        ]
-        # TTL set to 24 hours in the future
         mock_response = MockResponse(
-            data=mock_lines,
-            shared_expires=datetime(2025, 1, 2, 12, 0, 0, tzinfo=UTC),
+            data=mock_data,
+            shared_expires=shared_expires,
         )
 
         # Mock the event loop and executor
@@ -229,21 +257,146 @@ async def test_fetch_lines_from_api(
         mock_get_loop.return_value = mock_loop
 
         # Execute
-        lines = await tfl_service.fetch_lines(use_cache=False)
+        result: list[Any] = await method_callable()
 
         # Verify
-        assert len(lines) == 2
+        assert len(result) == expected_count
+
+        # Verify cache was set with correct TTL
+        tfl_service.cache.set.assert_called_once()
+        assert tfl_service.cache.set.call_args[0][0] == cache_key
+        assert tfl_service.cache.set.call_args[1]["ttl"] == expected_ttl
+
+        return result
+
+
+async def assert_cache_hit(
+    tfl_service: TfLService,
+    method_callable: Any,  # noqa: ANN401
+    cache_key: str,
+    cached_data: list[Any],
+) -> None:
+    """Helper: Assert method uses cached data.
+
+    Args:
+        tfl_service: TfL service instance
+        method_callable: Callable that invokes the method to test
+        cache_key: Expected cache key to be checked
+        cached_data: Data to return from cache
+    """
+    with patch.object(tfl_service.cache, "get", new_callable=AsyncMock) as mock_cache_get:
+        mock_cache_get.return_value = cached_data
+
+        result: list[Any] = await method_callable()
+
+        mock_cache_get.assert_called_once_with(cache_key)
+        assert result == cached_data
+
+
+async def assert_cache_miss(
+    tfl_service: TfLService,
+    method_callable: Any,  # noqa: ANN401
+    mock_data: list[Any],
+    expected_count: int,
+    shared_expires: datetime,
+) -> list[Any]:
+    """Helper: Assert method handles cache miss and fetches from API.
+
+    Args:
+        tfl_service: TfL service instance
+        method_callable: Callable that invokes the method to test
+        mock_data: Mock data to return from API
+        expected_count: Expected number of items returned
+        shared_expires: Expiry timestamp for cache
+
+    Returns:
+        Result from the fetch method
+    """
+    with patch("asyncio.get_running_loop") as mock_get_loop:
+        # Setup mock response
+        mock_response = MockResponse(
+            data=mock_data,
+            shared_expires=shared_expires,
+        )
+
+        # Mock the event loop and executor
+        mock_loop = AsyncMock()
+        mock_loop.run_in_executor = AsyncMock(return_value=mock_response)
+        mock_get_loop.return_value = mock_loop
+
+        # Cache returns None (miss)
+        tfl_service.cache.get = AsyncMock(return_value=None)
+
+        # Execute
+        result: list[Any] = await method_callable()
+
+        # Verify
+        assert len(result) == expected_count
+
+        # Verify cache was checked
+        tfl_service.cache.get.assert_called_once()
+
+        # Verify cache was populated
+        tfl_service.cache.set.assert_called_once()
+
+        return result
+
+
+async def assert_api_failure(
+    method_callable: Any,  # noqa: ANN401
+    expected_error_message: str,
+) -> None:
+    """Helper: Assert method handles API failures correctly.
+
+    Args:
+        method_callable: Callable that invokes the method to test
+        expected_error_message: Expected error message substring
+    """
+    with patch("asyncio.get_running_loop") as mock_get_loop:
+        mock_loop = AsyncMock()
+        mock_loop.run_in_executor = AsyncMock(side_effect=Exception("API Error"))
+        mock_get_loop.return_value = mock_loop
+
+        with pytest.raises(HTTPException) as exc_info:
+            await method_callable()
+
+        assert exc_info.value.status_code == 503
+        assert expected_error_message in exc_info.value.detail
+
+
+# ==================== fetch_lines Tests ====================
+
+
+async def test_fetch_lines_from_api(
+    tfl_service: TfLService,
+    db_session: AsyncSession,
+) -> None:
+    """Test fetching lines from TfL API when cache is empty."""
+    with freeze_time("2025-01-01 12:00:00"):
+        # Setup mock data
+        mock_lines = [
+            create_mock_line(id="victoria", name="Victoria"),
+            create_mock_line(id="northern", name="Northern"),
+        ]
+
+        # Execute with helper
+        lines = await assert_fetch_from_api(
+            tfl_service=tfl_service,
+            method_callable=lambda: tfl_service.fetch_lines(use_cache=False),
+            mock_data=mock_lines,
+            expected_count=2,
+            cache_key="lines:all",
+            expected_ttl=86400,  # 24 hours
+            shared_expires=datetime(2025, 1, 2, 12, 0, 0, tzinfo=UTC),
+        )
+
+        # Verify specific attributes
         assert lines[0].tfl_id == "victoria"
         assert lines[0].name == "Victoria"
         assert lines[0].color == "#000000"  # Default color
         assert lines[1].tfl_id == "northern"
         assert lines[1].name == "Northern"
         assert lines[1].color == "#000000"  # Default color
-
-        # Verify cache was set with correct TTL (24 hours = 86400 seconds)
-        tfl_service.cache.set.assert_called_once()
-        assert tfl_service.cache.set.call_args[0][0] == "lines:all"
-        assert tfl_service.cache.set.call_args[1]["ttl"] == 86400
 
 
 async def test_fetch_lines_cache_hit(
@@ -256,105 +409,77 @@ async def test_fetch_lines_cache_hit(
         cached_lines = [
             Line(tfl_id="victoria", name="Victoria", color="#0019A8", last_updated=datetime.now(UTC)),
         ]
-        tfl_service.cache.get = AsyncMock(return_value=cached_lines)
 
-        # Execute
-        lines = await tfl_service.fetch_lines(use_cache=True)
+        # Execute with helper
+        await assert_cache_hit(
+            tfl_service=tfl_service,
+            method_callable=lambda: tfl_service.fetch_lines(use_cache=True),
+            cache_key="lines:all",
+            cached_data=cached_lines,
+        )
 
-        # Verify
-        assert len(lines) == 1
-        assert lines[0].tfl_id == "victoria"
 
-
-@patch("asyncio.get_running_loop")
 async def test_fetch_lines_cache_miss(
-    mock_get_loop: MagicMock,
     tfl_service: TfLService,
     db_session: AsyncSession,
 ) -> None:
     """Test fetching lines from API when cache is enabled but empty."""
     with freeze_time("2025-01-01 12:00:00"):
-        # Setup mock response
+        # Setup mock data
         mock_lines = [
-            MockLineData(id="victoria", name="Victoria", colour="0019A8"),
+            create_mock_line(id="victoria", name="Victoria"),
         ]
-        mock_response = MockResponse(
-            data=mock_lines,
+
+        # Execute with helper
+        lines = await assert_cache_miss(
+            tfl_service=tfl_service,
+            method_callable=lambda: tfl_service.fetch_lines(use_cache=True),
+            mock_data=mock_lines,
+            expected_count=1,
             shared_expires=datetime(2025, 1, 2, 12, 0, 0, tzinfo=UTC),
         )
 
-        # Mock the event loop and executor
-        mock_loop = AsyncMock()
-        mock_loop.run_in_executor = AsyncMock(return_value=mock_response)
-        mock_get_loop.return_value = mock_loop
-
-        # Cache returns None (miss)
-        tfl_service.cache.get = AsyncMock(return_value=None)
-
-        # Execute with use_cache=True but cache is empty
-        lines = await tfl_service.fetch_lines(use_cache=True)
-
-        # Verify
-        assert len(lines) == 1
+        # Verify specific attributes
         assert lines[0].tfl_id == "victoria"
 
-        # Verify cache was checked
-        tfl_service.cache.get.assert_called_once()
 
-        # Verify cache was populated
-        tfl_service.cache.set.assert_called_once()
-
-
-@patch("asyncio.get_running_loop")
 async def test_fetch_lines_api_failure(
-    mock_get_loop: MagicMock,
     tfl_service: TfLService,
 ) -> None:
     """Test handling TfL API failure when fetching lines."""
-    # Setup mock to raise exception
-    mock_loop = AsyncMock()
-    mock_loop.run_in_executor = AsyncMock(side_effect=Exception("API Error"))
-    mock_get_loop.return_value = mock_loop
-
-    # Execute and verify exception
-    with pytest.raises(HTTPException) as exc_info:
-        await tfl_service.fetch_lines(use_cache=False)
-
-    assert exc_info.value.status_code == 503
-    assert "Failed to fetch lines from TfL API" in exc_info.value.detail
+    await assert_api_failure(
+        method_callable=lambda: tfl_service.fetch_lines(use_cache=False),
+        expected_error_message="Failed to fetch lines from TfL API",
+    )
 
 
 # ==================== fetch_stations Tests ====================
 
 
-@patch("asyncio.get_running_loop")
 async def test_fetch_stations_by_line(
-    mock_get_loop: MagicMock,
     tfl_service: TfLService,
     db_session: AsyncSession,
 ) -> None:
     """Test fetching stations for a specific line."""
     with freeze_time("2025-01-01 12:00:00"):
-        # Setup mock response with stop points
+        # Setup mock data with stop points
         mock_stops = [
-            MockStopPoint(id="940GZZLUKSX", commonName="King's Cross St. Pancras", lat=51.5308, lon=-0.1238),
-            MockStopPoint(id="940GZZLUOXC", commonName="Oxford Circus", lat=51.5152, lon=-0.1419),
+            create_mock_place(id="940GZZLUKSX", common_name="King's Cross St. Pancras", lat=51.5308, lon=-0.1238),
+            create_mock_place(id="940GZZLUOXC", common_name="Oxford Circus", lat=51.5152, lon=-0.1419),
         ]
-        mock_response = MockResponse(
-            data=mock_stops,
+
+        # Execute with helper
+        stations = await assert_fetch_from_api(
+            tfl_service=tfl_service,
+            method_callable=lambda: tfl_service.fetch_stations(line_tfl_id="victoria", use_cache=False),
+            mock_data=mock_stops,
+            expected_count=2,
+            cache_key="stations:line:victoria",
+            expected_ttl=86400,  # 24 hours
             shared_expires=datetime(2025, 1, 2, 12, 0, 0, tzinfo=UTC),
         )
 
-        # Mock the event loop and executor
-        mock_loop = AsyncMock()
-        mock_loop.run_in_executor = AsyncMock(return_value=mock_response)
-        mock_get_loop.return_value = mock_loop
-
-        # Execute
-        stations = await tfl_service.fetch_stations(line_tfl_id="victoria", use_cache=False)
-
-        # Verify
-        assert len(stations) == 2
+        # Verify specific attributes
         assert stations[0].tfl_id == "940GZZLUKSX"
         assert stations[0].name == "King's Cross St. Pancras"
         assert "victoria" in stations[0].lines
@@ -376,53 +501,38 @@ async def test_fetch_stations_cache_hit(
                 last_updated=datetime.now(UTC),
             ),
         ]
-        tfl_service.cache.get = AsyncMock(return_value=cached_stations)
 
-        # Execute
-        stations = await tfl_service.fetch_stations(line_tfl_id="victoria", use_cache=True)
+        # Execute with helper
+        await assert_cache_hit(
+            tfl_service=tfl_service,
+            method_callable=lambda: tfl_service.fetch_stations(line_tfl_id="victoria", use_cache=True),
+            cache_key="stations:line:victoria",
+            cached_data=cached_stations,
+        )
 
-        # Verify
-        assert len(stations) == 1
-        assert stations[0].tfl_id == "940GZZLUKSX"
 
-
-@patch("asyncio.get_running_loop")
 async def test_fetch_stations_cache_miss(
-    mock_get_loop: MagicMock,
     tfl_service: TfLService,
     db_session: AsyncSession,
 ) -> None:
     """Test fetching stations from API when cache is enabled but empty."""
     with freeze_time("2025-01-01 12:00:00"):
-        # Setup mock response
+        # Setup mock data
         mock_stops = [
-            MockStopPoint(id="940GZZLUKSX", commonName="King's Cross St. Pancras", lat=51.5308, lon=-0.1238),
+            create_mock_place(id="940GZZLUKSX", common_name="King's Cross St. Pancras", lat=51.5308, lon=-0.1238),
         ]
-        mock_response = MockResponse(
-            data=mock_stops,
+
+        # Execute with helper
+        stations = await assert_cache_miss(
+            tfl_service=tfl_service,
+            method_callable=lambda: tfl_service.fetch_stations(line_tfl_id="victoria", use_cache=True),
+            mock_data=mock_stops,
+            expected_count=1,
             shared_expires=datetime(2025, 1, 2, 12, 0, 0, tzinfo=UTC),
         )
 
-        # Mock the event loop and executor
-        mock_loop = AsyncMock()
-        mock_loop.run_in_executor = AsyncMock(return_value=mock_response)
-        mock_get_loop.return_value = mock_loop
-
-        # Cache returns None (miss)
-        tfl_service.cache.get = AsyncMock(return_value=None)
-
-        # Execute with use_cache=True but cache is empty
-        stations = await tfl_service.fetch_stations(line_tfl_id="victoria", use_cache=True)
-
-        # Verify
-        assert len(stations) == 1
+        # Verify specific attributes
         assert stations[0].tfl_id == "940GZZLUKSX"
-
-        # Verify cache was checked
-        tfl_service.cache.get.assert_called_once()
-
-        # Verify cache was populated
-        tfl_service.cache.set.assert_called_once()
 
 
 async def test_fetch_stations_all(
@@ -486,7 +596,7 @@ async def test_fetch_stations_existing_station_with_line(
 
         # Setup mock response returning the same station
         mock_stops = [
-            MockStopPoint(id="940GZZLUKSX", commonName="King's Cross St. Pancras", lat=51.5308, lon=-0.1238),
+            create_mock_place(id="940GZZLUKSX", common_name="King's Cross St. Pancras", lat=51.5308, lon=-0.1238),
         ]
         mock_response = MockResponse(
             data=mock_stops,
@@ -525,20 +635,20 @@ async def test_fetch_disruptions(
     with freeze_time("2025-01-01 12:00:00"):
         # Setup mock response with disruptions
         mock_disruptions = [
-            MockDisruption(
+            create_mock_disruption(
                 category="RealTime",
-                categoryDescription="Severe Delays",
-                categoryDescriptionDetail=5,  # Severity level
+                category_description="Severe Delays",
+                category_description_detail=5,  # Severity level
                 description="Signal failure at King's Cross",
-                affectedRoutes=[MockAffectedRoute(id="victoria", name="Victoria")],
+                affected_routes=[create_mock_route_section(id="victoria", name="Victoria")],
                 created=datetime(2025, 1, 1, 11, 30, 0, tzinfo=UTC),
             ),
-            MockDisruption(
+            create_mock_disruption(
                 category="RealTime",
-                categoryDescription="Minor Delays",
-                categoryDescriptionDetail=6,  # Severity level
+                category_description="Minor Delays",
+                category_description_detail=6,  # Severity level
                 description="Minor delays due to customer incident",
-                affectedRoutes=[MockAffectedRoute(id="northern", name="Northern")],
+                affected_routes=[create_mock_route_section(id="northern", name="Northern")],
                 created=datetime(2025, 1, 1, 11, 45, 0, tzinfo=UTC),
             ),
         ]
@@ -575,14 +685,14 @@ async def test_fetch_disruptions_multiple_lines_per_disruption(
     with freeze_time("2025-01-01 12:00:00"):
         # Setup mock response with one disruption affecting multiple lines
         mock_disruptions = [
-            MockDisruption(
+            create_mock_disruption(
                 category="RealTime",
-                categoryDescription="Severe Delays",
-                categoryDescriptionDetail=5,  # Severity level
+                category_description="Severe Delays",
+                category_description_detail=5,  # Severity level
                 description="Signal failure affecting multiple lines",
-                affectedRoutes=[
-                    MockAffectedRoute(id="victoria", name="Victoria"),
-                    MockAffectedRoute(id="northern", name="Northern"),
+                affected_routes=[
+                    create_mock_route_section(id="victoria", name="Victoria"),
+                    create_mock_route_section(id="northern", name="Northern"),
                 ],
                 created=datetime(2025, 1, 1, 11, 30, 0, tzinfo=UTC),
             ),
@@ -639,12 +749,12 @@ async def test_fetch_disruptions_cache_miss(
     with freeze_time("2025-01-01 12:00:00"):
         # Setup mock response
         mock_disruptions = [
-            MockDisruption(
+            create_mock_disruption(
                 category="RealTime",
-                categoryDescription="Severe Delays",
-                categoryDescriptionDetail=5,  # Severity level
+                category_description="Severe Delays",
+                category_description_detail=5,  # Severity level
                 description="Signal failure",
-                affectedRoutes=[MockAffectedRoute(id="victoria", name="Victoria")],
+                affected_routes=[create_mock_route_section(id="victoria", name="Victoria")],
                 created=datetime(2025, 1, 1, 11, 30, 0, tzinfo=UTC),
             ),
         ]
@@ -684,12 +794,12 @@ async def test_fetch_disruptions_without_affected_routes(
     with freeze_time("2025-01-01 12:00:00"):
         # Setup mock response with mix of disruptions with/without affectedRoutes
         mock_disruptions = [
-            MockDisruption(
+            create_mock_disruption(
                 category="RealTime",
-                categoryDescription="Severe Delays",
-                categoryDescriptionDetail=5,  # Severity level
+                category_description="Severe Delays",
+                category_description_detail=5,  # Severity level
                 description="Signal failure",
-                affectedRoutes=[MockAffectedRoute(id="victoria", name="Victoria")],
+                affected_routes=[create_mock_route_section(id="victoria", name="Victoria")],
                 created=datetime(2025, 1, 1, 11, 30, 0, tzinfo=UTC),
             ),
         ]
@@ -733,8 +843,8 @@ async def test_fetch_disruptions_without_affected_routes(
 def test_extract_disruption_from_route(tfl_service: TfLService) -> None:
     """Test extraction of single disruption from route data."""
 
-    # Create mock objects using existing mock classes
-    route = MockAffectedRoute(id="victoria", name="Victoria")
+    # Create mock objects using factory functions
+    route = create_mock_route_section(id="victoria", name="Victoria")
 
     class MockDisruptionWithDetail:
         """Mock disruption with categoryDescriptionDetail field."""
@@ -803,44 +913,35 @@ def test_process_disruption_data_no_affected_routes(tfl_service: TfLService) -> 
 # ==================== fetch_severity_codes Tests ====================
 
 
-@patch("asyncio.get_running_loop")
 async def test_fetch_severity_codes(
-    mock_get_loop: MagicMock,
     tfl_service: TfLService,
 ) -> None:
     """Test fetching severity codes from TfL API."""
     with freeze_time("2025-01-01 12:00:00"):
-        # Setup mock response with severity codes
+        # Setup mock data with severity codes
         mock_severity_codes = [
-            MockSeverityCode(severityLevel=0, description="Special Service"),
-            MockSeverityCode(severityLevel=1, description="Closed"),
-            MockSeverityCode(severityLevel=5, description="Severe Delays"),
-            MockSeverityCode(severityLevel=10, description="Good Service"),
+            create_mock_severity_code(severity_level=0, description="Special Service"),
+            create_mock_severity_code(severity_level=1, description="Closed"),
+            create_mock_severity_code(severity_level=5, description="Severe Delays"),
+            create_mock_severity_code(severity_level=10, description="Good Service"),
         ]
-        mock_response = MockResponse(
-            data=mock_severity_codes,
-            shared_expires=datetime(2025, 1, 8, 12, 0, 0, tzinfo=UTC),  # 7 days TTL
+
+        # Execute with helper
+        codes = await assert_fetch_from_api(
+            tfl_service=tfl_service,
+            method_callable=lambda: tfl_service.fetch_severity_codes(use_cache=False),
+            mock_data=mock_severity_codes,
+            expected_count=4,
+            cache_key="severity_codes:all",
+            expected_ttl=604800,  # 7 days
+            shared_expires=datetime(2025, 1, 8, 12, 0, 0, tzinfo=UTC),
         )
 
-        # Mock the event loop and executor
-        mock_loop = AsyncMock()
-        mock_loop.run_in_executor = AsyncMock(return_value=mock_response)
-        mock_get_loop.return_value = mock_loop
-
-        # Execute
-        codes = await tfl_service.fetch_severity_codes(use_cache=False)
-
-        # Verify
-        assert len(codes) == 4
+        # Verify specific attributes
         assert codes[0].severity_level == 0
         assert codes[0].description == "Special Service"
         assert codes[3].severity_level == 10
         assert codes[3].description == "Good Service"
-
-        # Verify cache was set with correct TTL (7 days = 604800 seconds)
-        tfl_service.cache.set.assert_called_once()
-        assert tfl_service.cache.set.call_args[0][0] == "severity_codes:all"
-        assert tfl_service.cache.set.call_args[1]["ttl"] == 604800
 
 
 async def test_fetch_severity_codes_cache_hit(tfl_service: TfLService) -> None:
@@ -853,107 +954,74 @@ async def test_fetch_severity_codes_cache_hit(tfl_service: TfLService) -> None:
             last_updated=datetime.now(UTC),
         ),
     ]
-    tfl_service.cache.get = AsyncMock(return_value=cached_codes)
 
-    # Execute
-    codes = await tfl_service.fetch_severity_codes(use_cache=True)
+    # Execute with helper
+    await assert_cache_hit(
+        tfl_service=tfl_service,
+        method_callable=lambda: tfl_service.fetch_severity_codes(use_cache=True),
+        cache_key="severity_codes:all",
+        cached_data=cached_codes,
+    )
 
-    # Verify cache was used
-    assert codes == cached_codes
-    tfl_service.cache.get.assert_called_once_with("severity_codes:all")
 
-
-@patch("asyncio.get_running_loop")
 async def test_fetch_severity_codes_cache_miss(
-    mock_get_loop: MagicMock,
     tfl_service: TfLService,
 ) -> None:
     """Test fetching severity codes from API when cache is enabled but empty."""
     with freeze_time("2025-01-01 12:00:00"):
-        # Setup mock response
+        # Setup mock data
         mock_severity_codes = [
-            MockSeverityCode(severityLevel=10, description="Good Service"),
+            create_mock_severity_code(severity_level=10, description="Good Service"),
         ]
-        mock_response = MockResponse(
-            data=mock_severity_codes,
+
+        # Execute with helper
+        codes = await assert_cache_miss(
+            tfl_service=tfl_service,
+            method_callable=lambda: tfl_service.fetch_severity_codes(use_cache=True),
+            mock_data=mock_severity_codes,
+            expected_count=1,
             shared_expires=datetime(2025, 1, 8, 12, 0, 0, tzinfo=UTC),
         )
 
-        # Mock the event loop and executor
-        mock_loop = AsyncMock()
-        mock_loop.run_in_executor = AsyncMock(return_value=mock_response)
-        mock_get_loop.return_value = mock_loop
-
-        # Cache returns None (miss)
-        tfl_service.cache.get = AsyncMock(return_value=None)
-
-        # Execute with use_cache=True but cache is empty
-        codes = await tfl_service.fetch_severity_codes(use_cache=True)
-
-        # Verify
-        assert len(codes) == 1
+        # Verify specific attributes
         assert codes[0].severity_level == 10
 
-        # Verify cache was checked
-        tfl_service.cache.get.assert_called_once()
 
-        # Verify cache was populated
-        tfl_service.cache.set.assert_called_once()
-
-
-@patch("asyncio.get_running_loop")
 async def test_fetch_severity_codes_api_failure(
-    mock_get_loop: MagicMock,
     tfl_service: TfLService,
 ) -> None:
     """Test handling TfL API failure when fetching severity codes."""
-    # Setup mock to raise exception
-    mock_loop = AsyncMock()
-    mock_loop.run_in_executor = AsyncMock(side_effect=Exception("API Error"))
-    mock_get_loop.return_value = mock_loop
-
-    # Execute and verify exception
-    with pytest.raises(HTTPException) as exc_info:
-        await tfl_service.fetch_severity_codes(use_cache=False)
-
-    assert exc_info.value.status_code == 503
-    assert "Failed to fetch severity codes from TfL API" in exc_info.value.detail
+    await assert_api_failure(
+        method_callable=lambda: tfl_service.fetch_severity_codes(use_cache=False),
+        expected_error_message="Failed to fetch severity codes from TfL API",
+    )
 
 
 # ==================== fetch_disruption_categories Tests ====================
 
 
-@patch("asyncio.get_running_loop")
 async def test_fetch_disruption_categories(
-    mock_get_loop: MagicMock,
     tfl_service: TfLService,
 ) -> None:
     """Test fetching disruption categories from TfL API."""
     with freeze_time("2025-01-01 12:00:00"):
-        # Setup mock response with disruption categories (API returns strings)
+        # Setup mock data with disruption categories (API returns strings)
         mock_categories = ["RealTime", "PlannedWork", "Information", "Event"]
-        mock_response = MockResponse(
-            data=mock_categories,
-            shared_expires=datetime(2025, 1, 8, 12, 0, 0, tzinfo=UTC),  # 7 days TTL
+
+        # Execute with helper
+        categories = await assert_fetch_from_api(
+            tfl_service=tfl_service,
+            method_callable=lambda: tfl_service.fetch_disruption_categories(use_cache=False),
+            mock_data=mock_categories,
+            expected_count=4,
+            cache_key="disruption_categories:all",
+            expected_ttl=604800,  # 7 days
+            shared_expires=datetime(2025, 1, 8, 12, 0, 0, tzinfo=UTC),
         )
 
-        # Mock the event loop and executor
-        mock_loop = AsyncMock()
-        mock_loop.run_in_executor = AsyncMock(return_value=mock_response)
-        mock_get_loop.return_value = mock_loop
-
-        # Execute
-        categories = await tfl_service.fetch_disruption_categories(use_cache=False)
-
-        # Verify
-        assert len(categories) == 4
+        # Verify specific attributes
         assert categories[0].category_name == "RealTime"
         assert categories[1].category_name == "PlannedWork"
-
-        # Verify cache was set with correct TTL (7 days = 604800 seconds)
-        tfl_service.cache.set.assert_called_once()
-        assert tfl_service.cache.set.call_args[0][0] == "disruption_categories:all"
-        assert tfl_service.cache.set.call_args[1]["ttl"] == 604800
 
 
 async def test_fetch_disruption_categories_cache_hit(tfl_service: TfLService) -> None:
@@ -966,81 +1034,56 @@ async def test_fetch_disruption_categories_cache_hit(tfl_service: TfLService) ->
             last_updated=datetime.now(UTC),
         ),
     ]
-    tfl_service.cache.get = AsyncMock(return_value=cached_categories)
 
-    # Execute
-    categories = await tfl_service.fetch_disruption_categories(use_cache=True)
+    # Execute with helper
+    await assert_cache_hit(
+        tfl_service=tfl_service,
+        method_callable=lambda: tfl_service.fetch_disruption_categories(use_cache=True),
+        cache_key="disruption_categories:all",
+        cached_data=cached_categories,
+    )
 
-    # Verify cache was used
-    assert categories == cached_categories
-    tfl_service.cache.get.assert_called_once_with("disruption_categories:all")
 
-
-@patch("asyncio.get_running_loop")
 async def test_fetch_disruption_categories_cache_miss(
-    mock_get_loop: MagicMock,
     tfl_service: TfLService,
 ) -> None:
     """Test fetching disruption categories from API when cache is enabled but empty."""
     with freeze_time("2025-01-01 12:00:00"):
-        # Setup mock response
+        # Setup mock data
         mock_categories = ["RealTime", "PlannedWork"]
-        mock_response = MockResponse(
-            data=mock_categories,
+
+        # Execute with helper
+        categories = await assert_cache_miss(
+            tfl_service=tfl_service,
+            method_callable=lambda: tfl_service.fetch_disruption_categories(use_cache=True),
+            mock_data=mock_categories,
+            expected_count=2,
             shared_expires=datetime(2025, 1, 8, 12, 0, 0, tzinfo=UTC),
         )
 
-        # Mock the event loop and executor
-        mock_loop = AsyncMock()
-        mock_loop.run_in_executor = AsyncMock(return_value=mock_response)
-        mock_get_loop.return_value = mock_loop
-
-        # Cache returns None (miss)
-        tfl_service.cache.get = AsyncMock(return_value=None)
-
-        # Execute with use_cache=True but cache is empty
-        categories = await tfl_service.fetch_disruption_categories(use_cache=True)
-
-        # Verify
+        # Verify specific attributes
         assert len(categories) == 2
 
-        # Verify cache was checked
-        tfl_service.cache.get.assert_called_once()
 
-        # Verify cache was populated
-        tfl_service.cache.set.assert_called_once()
-
-
-@patch("asyncio.get_running_loop")
 async def test_fetch_disruption_categories_api_failure(
-    mock_get_loop: MagicMock,
     tfl_service: TfLService,
 ) -> None:
     """Test handling TfL API failure when fetching disruption categories."""
-    # Setup mock to raise exception
-    mock_loop = AsyncMock()
-    mock_loop.run_in_executor = AsyncMock(side_effect=Exception("API Error"))
-    mock_get_loop.return_value = mock_loop
-
-    # Execute and verify exception
-    with pytest.raises(HTTPException) as exc_info:
-        await tfl_service.fetch_disruption_categories(use_cache=False)
-
-    assert exc_info.value.status_code == 503
-    assert "Failed to fetch disruption categories from TfL API" in exc_info.value.detail
+    await assert_api_failure(
+        method_callable=lambda: tfl_service.fetch_disruption_categories(use_cache=False),
+        expected_error_message="Failed to fetch disruption categories from TfL API",
+    )
 
 
 # ==================== fetch_stop_types Tests ====================
 
 
-@patch("asyncio.get_running_loop")
 async def test_fetch_stop_types(
-    mock_get_loop: MagicMock,
     tfl_service: TfLService,
 ) -> None:
     """Test fetching stop types from TfL API with filtering."""
     with freeze_time("2025-01-01 12:00:00"):
-        # Setup mock response with stop types (API returns strings)
+        # Setup mock data with stop types (API returns strings)
         # Include both relevant and irrelevant types
         mock_stop_types = [
             "NaptanMetroStation",
@@ -1049,32 +1092,25 @@ async def test_fetch_stop_types(
             "NaptanFerryPort",  # Should be filtered out
             "NaptanAirport",  # Should be filtered out
         ]
-        mock_response = MockResponse(
-            data=mock_stop_types,
-            shared_expires=datetime(2025, 1, 8, 12, 0, 0, tzinfo=UTC),  # 7 days TTL
+
+        # Execute with helper
+        stop_types = await assert_fetch_from_api(
+            tfl_service=tfl_service,
+            method_callable=lambda: tfl_service.fetch_stop_types(use_cache=False),
+            mock_data=mock_stop_types,
+            expected_count=3,  # Only 3 relevant types
+            cache_key="stop_types:all",
+            expected_ttl=604800,  # 7 days
+            shared_expires=datetime(2025, 1, 8, 12, 0, 0, tzinfo=UTC),
         )
 
-        # Mock the event loop and executor
-        mock_loop = AsyncMock()
-        mock_loop.run_in_executor = AsyncMock(return_value=mock_response)
-        mock_get_loop.return_value = mock_loop
-
-        # Execute
-        stop_types = await tfl_service.fetch_stop_types(use_cache=False)
-
-        # Verify - only relevant types stored
-        assert len(stop_types) == 3
+        # Verify specific attributes - only relevant types stored
         type_names = {st.type_name for st in stop_types}
         assert "NaptanMetroStation" in type_names
         assert "NaptanRailStation" in type_names
         assert "NaptanBusCoachStation" in type_names
         assert "NaptanFerryPort" not in type_names
         assert "NaptanAirport" not in type_names
-
-        # Verify cache was set with correct TTL (7 days = 604800 seconds)
-        tfl_service.cache.set.assert_called_once()
-        assert tfl_service.cache.set.call_args[0][0] == "stop_types:all"
-        assert tfl_service.cache.set.call_args[1]["ttl"] == 604800
 
 
 async def test_fetch_stop_types_cache_hit(tfl_service: TfLService) -> None:
@@ -1087,68 +1123,45 @@ async def test_fetch_stop_types_cache_hit(tfl_service: TfLService) -> None:
             last_updated=datetime.now(UTC),
         ),
     ]
-    tfl_service.cache.get = AsyncMock(return_value=cached_types)
 
-    # Execute
-    stop_types = await tfl_service.fetch_stop_types(use_cache=True)
+    # Execute with helper
+    await assert_cache_hit(
+        tfl_service=tfl_service,
+        method_callable=lambda: tfl_service.fetch_stop_types(use_cache=True),
+        cache_key="stop_types:all",
+        cached_data=cached_types,
+    )
 
-    # Verify cache was used
-    assert stop_types == cached_types
-    tfl_service.cache.get.assert_called_once_with("stop_types:all")
 
-
-@patch("asyncio.get_running_loop")
 async def test_fetch_stop_types_cache_miss(
-    mock_get_loop: MagicMock,
     tfl_service: TfLService,
 ) -> None:
     """Test fetching stop types from API when cache is enabled but empty."""
     with freeze_time("2025-01-01 12:00:00"):
-        # Setup mock response
+        # Setup mock data
         mock_stop_types = ["NaptanMetroStation", "NaptanRailStation"]
-        mock_response = MockResponse(
-            data=mock_stop_types,
+
+        # Execute with helper
+        stop_types = await assert_cache_miss(
+            tfl_service=tfl_service,
+            method_callable=lambda: tfl_service.fetch_stop_types(use_cache=True),
+            mock_data=mock_stop_types,
+            expected_count=2,
             shared_expires=datetime(2025, 1, 8, 12, 0, 0, tzinfo=UTC),
         )
 
-        # Mock the event loop and executor
-        mock_loop = AsyncMock()
-        mock_loop.run_in_executor = AsyncMock(return_value=mock_response)
-        mock_get_loop.return_value = mock_loop
-
-        # Cache returns None (miss)
-        tfl_service.cache.get = AsyncMock(return_value=None)
-
-        # Execute with use_cache=True but cache is empty
-        stop_types = await tfl_service.fetch_stop_types(use_cache=True)
-
-        # Verify
+        # Verify specific attributes
         assert len(stop_types) == 2
 
-        # Verify cache was checked
-        tfl_service.cache.get.assert_called_once()
 
-        # Verify cache was populated
-        tfl_service.cache.set.assert_called_once()
-
-
-@patch("asyncio.get_running_loop")
 async def test_fetch_stop_types_api_failure(
-    mock_get_loop: MagicMock,
     tfl_service: TfLService,
 ) -> None:
     """Test handling TfL API failure when fetching stop types."""
-    # Setup mock to raise exception
-    mock_loop = AsyncMock()
-    mock_loop.run_in_executor = AsyncMock(side_effect=Exception("API Error"))
-    mock_get_loop.return_value = mock_loop
-
-    # Execute and verify exception
-    with pytest.raises(HTTPException) as exc_info:
-        await tfl_service.fetch_stop_types(use_cache=False)
-
-    assert exc_info.value.status_code == 503
-    assert "Failed to fetch stop types from TfL API" in exc_info.value.detail
+    await assert_api_failure(
+        method_callable=lambda: tfl_service.fetch_stop_types(use_cache=False),
+        expected_error_message="Failed to fetch stop types from TfL API",
+    )
 
 
 # ==================== fetch_station_disruptions Tests ====================
@@ -1192,7 +1205,7 @@ async def test_fetch_station_disruptions(
                 categoryDescription="Lift Closure",
                 description="Lift out of service",
                 affectedStops=[
-                    MockAffectedStop(id="940GZZLUKSX", name="King's Cross"),
+                    create_mock_stop_point(id="940GZZLUKSX", common_name="King's Cross"),
                 ],
                 created=datetime(2025, 1, 1, 11, 30, 0, tzinfo=UTC),
             ),
@@ -1202,7 +1215,7 @@ async def test_fetch_station_disruptions(
                 categoryDescription="Station Closure",
                 description="Station closed for maintenance",
                 affectedStops=[
-                    MockAffectedStop(id="940GZZLUOXC", name="Oxford Circus"),
+                    create_mock_stop_point(id="940GZZLUOXC", common_name="Oxford Circus"),
                 ],
                 created=datetime(2025, 1, 1, 10, 0, 0, tzinfo=UTC),
             ),
@@ -1288,7 +1301,7 @@ async def test_fetch_station_disruptions_cache_miss(
                 categoryDescription="Lift Closure",
                 description="Lift out of service",
                 affectedStops=[
-                    MockAffectedStop(id="940GZZLUKSX", name="King's Cross"),
+                    create_mock_stop_point(id="940GZZLUKSX", common_name="King's Cross"),
                 ],
                 created=datetime(2025, 1, 1, 11, 30, 0, tzinfo=UTC),
             ),
@@ -1357,7 +1370,7 @@ async def test_fetch_station_disruptions_unknown_station(
                 categoryDescription="Lift Closure",
                 description="Lift out of service",
                 affectedStops=[
-                    MockAffectedStop(id="UNKNOWN_STATION", name="Unknown Station"),
+                    create_mock_stop_point(id="UNKNOWN_STATION", common_name="Unknown Station"),
                 ],
                 created=datetime(2025, 1, 1, 11, 30, 0, tzinfo=UTC),
             ),
@@ -1561,7 +1574,7 @@ async def test_build_station_graph(
 
         # Mock responses for fetch_lines (called first in build_station_graph)
         mock_lines = [
-            MockLineData(id="victoria", name="Victoria", colour="0019A8"),
+            create_mock_line(id="victoria", name="Victoria"),
         ]
         mock_lines_response = MockResponse(
             data=mock_lines,
