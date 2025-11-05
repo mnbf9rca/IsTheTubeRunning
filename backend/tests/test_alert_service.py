@@ -186,7 +186,7 @@ async def test_process_all_routes_success(
     """Test successful processing of all routes."""
     # Mock TfL service
     mock_tfl_instance = AsyncMock()
-    mock_tfl_instance.fetch_disruptions = AsyncMock(return_value=sample_disruptions)
+    mock_tfl_instance.fetch_line_disruptions = AsyncMock(return_value=sample_disruptions)
     mock_tfl_class.return_value = mock_tfl_instance
 
     # Mock notification service
@@ -245,7 +245,7 @@ async def test_process_all_routes_no_disruptions(
     """Test processing when there are no disruptions."""
     # Mock TfL service with empty disruptions
     mock_tfl_instance = AsyncMock()
-    mock_tfl_instance.fetch_disruptions = AsyncMock(return_value=[])
+    mock_tfl_instance.fetch_line_disruptions = AsyncMock(return_value=[])
     mock_tfl_class.return_value = mock_tfl_instance
 
     result = await alert_service.process_all_routes()
@@ -266,7 +266,7 @@ async def test_process_all_routes_with_error(
     """Test that errors in individual routes don't stop processing."""
     # Mock TfL service to raise error
     mock_tfl_instance = AsyncMock()
-    mock_tfl_instance.fetch_disruptions = AsyncMock(side_effect=Exception("TfL API error"))
+    mock_tfl_instance.fetch_line_disruptions = AsyncMock(side_effect=Exception("TfL API error"))
     mock_tfl_class.return_value = mock_tfl_instance
 
     result = await alert_service.process_all_routes()
@@ -310,7 +310,7 @@ async def test_process_all_routes_skips_duplicate_alert_with_logging(
 
     # Mock TfL to return disruptions
     mock_tfl_instance = AsyncMock()
-    mock_tfl_instance.fetch_disruptions = AsyncMock(return_value=sample_disruptions)
+    mock_tfl_instance.fetch_line_disruptions = AsyncMock(return_value=sample_disruptions)
     mock_tfl_class.return_value = mock_tfl_instance
 
     # Mock notification service (should not be called)
@@ -584,7 +584,7 @@ async def test_get_route_disruptions_returns_relevant(
             created_at=datetime.now(UTC),
         ),
     ]
-    mock_tfl_instance.fetch_disruptions = AsyncMock(return_value=all_disruptions)
+    mock_tfl_instance.fetch_line_disruptions = AsyncMock(return_value=all_disruptions)
     mock_tfl_class.return_value = mock_tfl_instance
 
     disruptions, error_occurred = await alert_service._get_route_disruptions(test_route_with_schedule)
@@ -606,7 +606,7 @@ async def test_get_route_disruptions_empty(
     """Test getting disruptions when there are none."""
     # Mock TfL service with empty disruptions
     mock_tfl_instance = AsyncMock()
-    mock_tfl_instance.fetch_disruptions = AsyncMock(return_value=[])
+    mock_tfl_instance.fetch_line_disruptions = AsyncMock(return_value=[])
     mock_tfl_class.return_value = mock_tfl_instance
 
     disruptions, error_occurred = await alert_service._get_route_disruptions(test_route_with_schedule)
@@ -626,7 +626,7 @@ async def test_get_route_disruptions_filters_correctly(
     """Test that disruptions are filtered to route's lines only."""
     # Create a disruption for a line not in the route
     mock_tfl_instance = AsyncMock()
-    mock_tfl_instance.fetch_disruptions = AsyncMock(
+    mock_tfl_instance.fetch_line_disruptions = AsyncMock(
         return_value=[
             DisruptionResponse(
                 line_id="central",  # Not in route

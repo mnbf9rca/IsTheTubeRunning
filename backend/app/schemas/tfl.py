@@ -45,6 +45,19 @@ class DisruptionResponse(BaseModel):
     created_at: datetime | None = None  # When disruption started (if available)
 
 
+class StationDisruptionResponse(BaseModel):
+    """Response schema for station disruption data."""
+
+    station_id: UUID  # Database station UUID
+    station_tfl_id: str  # TfL station ID
+    station_name: str
+    disruption_category: str | None = None
+    description: str
+    severity: str | None = None
+    tfl_id: str  # TfL disruption ID
+    created_at_source: datetime  # When disruption was created at source
+
+
 # ==================== Request Schemas ====================
 
 

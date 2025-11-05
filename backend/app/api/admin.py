@@ -68,6 +68,46 @@ async def build_tfl_graph(
     )
 
 
+@router.post("/tfl/sync-metadata", response_model=dict[str, Any])
+async def sync_tfl_metadata(
+    admin_user: AdminUser = Depends(require_admin),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """
+    Sync TfL metadata (severity codes, disruption categories, stop types) from TfL API.
+
+    This endpoint fetches reference data from TfL API and stores it in the database
+    for use in disruption descriptions and frontend display. This should be run
+    periodically to keep reference data up to date.
+
+    **Requires admin privileges.**
+
+    Args:
+        admin_user: Authenticated admin user
+        db: Database session
+
+    Returns:
+        Sync statistics (counts of severity codes, disruption categories, stop types)
+
+    Raises:
+        HTTPException: 403 if not admin, 503 if TfL API is unavailable, 500 if sync fails
+    """
+    tfl_service = TfLService(db)
+
+    # Fetch all metadata concurrently (they're independent operations)
+    severity_codes = await tfl_service.fetch_severity_codes()
+    disruption_categories = await tfl_service.fetch_disruption_categories()
+    stop_types = await tfl_service.fetch_stop_types()
+
+    return {
+        "success": True,
+        "message": "TfL metadata synchronized successfully.",
+        "severity_codes_count": len(severity_codes),
+        "disruption_categories_count": len(disruption_categories),
+        "stop_types_count": len(stop_types),
+    }
+
+
 # ==================== Alert Management Endpoints ====================
 
 
