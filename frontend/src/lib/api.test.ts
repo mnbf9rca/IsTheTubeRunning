@@ -1,11 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import {
-  ApiError,
-  setAccessTokenGetter,
-  resetAccessTokenGetter,
-  checkHealth,
-  getRoot,
-} from './api'
+import { ApiError, setAccessTokenGetter, resetAccessTokenGetter, checkHealth, getRoot } from './api'
 
 // Mock the config module
 vi.mock('./config', () => ({
@@ -102,10 +96,7 @@ describe('API requests', () => {
     const result = await checkHealth()
 
     expect(result).toEqual({ status: 'ok' })
-    expect(global.fetch).toHaveBeenCalledWith(
-      'http://localhost:8000/health',
-      expect.any(Object)
-    )
+    expect(global.fetch).toHaveBeenCalledWith('http://localhost:8000/health', expect.any(Object))
   })
 
   it('should handle 204 No Content response', async () => {

@@ -81,10 +81,7 @@ describe('Callback', () => {
     )
 
     await waitFor(() => {
-      expect(consoleErrorSpy).toHaveBeenCalledWith(
-        'Authentication error:',
-        expect.any(Error)
-      )
+      expect(consoleErrorSpy).toHaveBeenCalledWith('Authentication error:', expect.any(Error))
       expect(mockNavigate).toHaveBeenCalledWith('/login')
     })
 
