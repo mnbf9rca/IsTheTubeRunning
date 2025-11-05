@@ -10,7 +10,7 @@ export default function Callback() {
 
   useEffect(() => {
     let isMounted = true
-    let timeoutId: NodeJS.Timeout
+    let timeoutId: number
 
     // If backend authentication succeeds, redirect to dashboard
     if (isBackendAuthenticated) {

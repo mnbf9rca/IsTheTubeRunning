@@ -19,10 +19,10 @@ export const useAuth = () => {
     await loginWithRedirect()
   }
 
-  const logoutUser = () => {
+  const logoutUser = (options?: { logoutParams?: { returnTo?: string } }) => {
     logout({
       logoutParams: {
-        returnTo: window.location.origin,
+        returnTo: options?.logoutParams?.returnTo || window.location.origin,
       },
     })
   }

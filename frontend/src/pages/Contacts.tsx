@@ -1,13 +1,14 @@
-import { useState } from 'react'
-import { Mail, Phone, Plus } from 'lucide-react'
+import { Mail, Phone, Plus, AlertCircle, X } from 'lucide-react'
 import { toast } from 'sonner'
 import { Button } from '../components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../components/ui/card'
+import { Alert, AlertDescription, AlertTitle } from '../components/ui/alert'
 import { ContactList } from '../components/contacts/ContactList'
 import { AddContactDialog } from '../components/contacts/AddContactDialog'
 import { VerificationDialog } from '../components/contacts/VerificationDialog'
 import { useContacts } from '../hooks/useContacts'
-import type { Contact } from '../lib/api'
+import { useContactDialogs } from '../hooks/useContactDialogs'
+import { useState, useEffect } from 'react'
 
 /**
  * Contacts page for managing email addresses and phone numbers
@@ -19,26 +20,44 @@ import type { Contact } from '../lib/api'
  * - View verification status and primary contacts
  */
 export function Contacts() {
+  const contactsHook = useContacts()
   const {
     contacts,
     loading,
+    error,
     addEmail,
     addPhone,
-    sendVerification,
     verifyCode,
     deleteContact,
     canResendVerification,
-  } = useContacts()
+  } = contactsHook
 
-  // Dialog states
-  const [addEmailOpen, setAddEmailOpen] = useState(false)
-  const [addPhoneOpen, setAddPhoneOpen] = useState(false)
-  const [verifyDialogOpen, setVerifyDialogOpen] = useState(false)
-  const [verifyingContact, setVerifyingContact] = useState<Contact | null>(null)
-  const [verifyingType, setVerifyingType] = useState<'email' | 'phone'>('email')
+  const {
+    addEmailOpen,
+    setAddEmailOpen,
+    addPhoneOpen,
+    setAddPhoneOpen,
+    verifyDialogOpen,
+    verifyingContact,
+    verifyingType,
+    deletingId,
+    openVerifyDialog,
+    openAddEmailFlow,
+    openAddPhoneFlow,
+    closeVerifyDialog,
+    startDelete,
+    endDelete,
+  } = useContactDialogs(contactsHook)
 
-  // Action loading states
-  const [deletingId, setDeletingId] = useState<string | undefined>(undefined)
+  // Track if user has dismissed the error
+  const [errorDismissed, setErrorDismissed] = useState(false)
+
+  // Reset dismissal when a new error appears
+  useEffect(() => {
+    if (error) {
+      setErrorDismissed(false)
+    }
+  }, [error])
 
   /**
    * Handle adding a new email address
@@ -48,14 +67,10 @@ export function Contacts() {
     toast.success(`Email added: ${result.email}`, {
       description: 'Check your inbox for the verification code.',
     })
-    // Automatically open verification dialog
-    setVerifyingContact(result)
-    setVerifyingType('email')
-    setVerifyDialogOpen(true)
 
-    // Auto-send verification code
+    // Auto-open verification dialog and send code
     try {
-      await sendVerification(result.id)
+      await openAddEmailFlow(result)
       toast.success('Verification code sent to your email')
     } catch {
       toast.error('Failed to send verification code', {
@@ -72,14 +87,10 @@ export function Contacts() {
     toast.success(`Phone added: ${result.phone}`, {
       description: 'Check your phone for the verification code.',
     })
-    // Automatically open verification dialog
-    setVerifyingContact(result)
-    setVerifyingType('phone')
-    setVerifyDialogOpen(true)
 
-    // Auto-send verification code
+    // Auto-open verification dialog and send code
     try {
-      await sendVerification(result.id)
+      await openAddPhoneFlow(result)
       toast.success('Verification code sent to your phone')
     } catch {
       toast.error('Failed to send verification code', {
@@ -92,20 +103,8 @@ export function Contacts() {
    * Handle verify button click from contact card
    */
   const handleVerify = async (id: string, type: 'email' | 'phone') => {
-    const contact =
-      type === 'email'
-        ? contacts?.emails.find((e) => e.id === id)
-        : contacts?.phones.find((p) => p.id === id)
-
-    if (!contact) return
-
-    setVerifyingContact(contact)
-    setVerifyingType(type)
-    setVerifyDialogOpen(true)
-
-    // Send verification code
     try {
-      await sendVerification(id)
+      await openVerifyDialog(id, type)
       toast.success(`Verification code sent to your ${type}`)
     } catch {
       toast.error('Failed to send verification code')
@@ -128,10 +127,8 @@ export function Contacts() {
   /**
    * Handle resend verification code
    */
-  const handleResendCode = async () => {
-    if (!verifyingContact) return
-
-    await sendVerification(verifyingContact.id)
+  const handleResendCode = async (id: string) => {
+    await openVerifyDialog(id, verifyingType)
     toast.success('Verification code resent')
   }
 
@@ -149,7 +146,7 @@ export function Contacts() {
     const value = 'email' in contact ? contact.email : contact.phone
 
     try {
-      setDeletingId(id)
+      startDelete(id)
       await deleteContact(id)
       toast.success(`${type === 'email' ? 'Email' : 'Phone'} removed`, {
         description: value,
@@ -157,7 +154,7 @@ export function Contacts() {
     } catch {
       toast.error('Failed to delete contact')
     } finally {
-      setDeletingId(undefined)
+      endDelete()
     }
   }
 
@@ -169,6 +166,28 @@ export function Contacts() {
           Manage your email addresses and phone numbers for receiving alerts.
         </p>
       </div>
+
+      {/* Persistent error banner */}
+      {error && !errorDismissed && (
+        <Alert variant="destructive">
+          <AlertCircle className="h-4 w-4" />
+          <AlertTitle>Error loading contacts</AlertTitle>
+          <AlertDescription className="flex items-start justify-between gap-2">
+            <span>
+              {error.message || 'Failed to load contacts. Please try refreshing the page.'}
+            </span>
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-auto p-1 hover:bg-transparent"
+              onClick={() => setErrorDismissed(true)}
+              aria-label="Dismiss error"
+            >
+              <X className="h-4 w-4" />
+            </Button>
+          </AlertDescription>
+        </Alert>
+      )}
 
       <div className="grid gap-6 md:grid-cols-2">
         {/* Email Addresses Section */}
@@ -249,14 +268,15 @@ export function Contacts() {
       {/* Verification Dialog */}
       <VerificationDialog
         open={verifyDialogOpen}
-        onClose={() => {
-          setVerifyDialogOpen(false)
-          setVerifyingContact(null)
-        }}
+        onClose={closeVerifyDialog}
         contact={verifyingContact}
         type={verifyingType}
         onVerify={handleVerifyCode}
-        onResend={handleResendCode}
+        onResend={async () => {
+          if (verifyingContact) {
+            await handleResendCode(verifyingContact.id)
+          }
+        }}
         canResend={verifyingContact ? canResendVerification(verifyingContact.id) : false}
       />
     </div>
