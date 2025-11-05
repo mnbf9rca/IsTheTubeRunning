@@ -22,7 +22,7 @@ import pytest
 from alembic import command
 from alembic.config import Config
 from app.core.auth import clear_jwks_cache, set_mock_jwks
-from app.core.config import settings
+from app.core.config import Settings, settings
 from app.core.database import get_db
 from app.core.utils import convert_async_db_url_to_sync
 from app.main import app
@@ -507,7 +507,7 @@ def admin_headers(test_user: User) -> dict[str, str]:
 
 
 @pytest.fixture
-def settings_fixture():
+def settings_fixture() -> Settings:
     """
     Provide settings instance for tests.
 
