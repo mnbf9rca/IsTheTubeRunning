@@ -182,6 +182,36 @@ export async function getRoot(): Promise<RootResponse> {
 }
 
 // ============================================================================
+// Authentication Types & API
+// ============================================================================
+
+/**
+ * User information response from /auth/me
+ */
+export interface UserResponse {
+  id: string
+  created_at: string
+  updated_at: string
+}
+
+/**
+ * Get current authenticated user information
+ *
+ * This endpoint validates the JWT token with the backend and returns user info.
+ * It also automatically creates a new user record on first authenticated request.
+ *
+ * @returns Current user information
+ * @throws {ApiError} 401 if token is invalid or expired
+ */
+export async function getCurrentUser(): Promise<UserResponse> {
+  const response = await fetchAPI<UserResponse>('/auth/me')
+  if (!response) {
+    throw new ApiError(204, 'Unexpected 204 response from auth/me endpoint')
+  }
+  return response
+}
+
+// ============================================================================
 // Contact Management Types & API
 // ============================================================================
 
