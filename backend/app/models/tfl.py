@@ -99,6 +99,11 @@ class Station(BaseModel):
         back_populates="to_station",
         cascade="all, delete-orphan",
     )
+    disruptions: Mapped[list["StationDisruption"]] = relationship(
+        back_populates="station",
+        cascade="all, delete-orphan",
+        lazy="select",
+    )
 
     def __repr__(self) -> str:
         """String representation of the station."""
@@ -263,10 +268,13 @@ class StationDisruption(BaseModel):
     )
 
     # Relationship
-    station: Mapped[Station] = relationship()
+    station: Mapped[Station] = relationship(
+        back_populates="disruptions",
+        lazy="select",
+    )
 
     __table_args__ = (
-        Index("ix_station_disruptions_station", "station_id"),
+        # Note: station_id index already defined via index=True in mapped_column
         Index("ix_station_disruptions_tfl_id", "tfl_id"),
     )
 

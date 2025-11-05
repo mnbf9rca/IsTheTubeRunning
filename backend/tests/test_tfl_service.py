@@ -2238,7 +2238,7 @@ async def test_process_station_pair_missing_station(db_session: AsyncSession) ->
     count = await tfl_service._process_station_pair(MockStop1(), MockStop2(), line, stations_set)
 
     assert count == 0
-    assert len(stations_set) == 0
+    assert not stations_set
 
 
 async def test_process_station_pair_existing_connections(db_session: AsyncSession) -> None:

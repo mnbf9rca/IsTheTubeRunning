@@ -14,6 +14,7 @@ from fastapi import HTTPException, status
 from pydantic_tfl_api import LineClient, StopPointClient
 from pydantic_tfl_api.core import ApiError, ResponseModel
 from sqlalchemy import delete, select
+from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import aliased
 
@@ -241,28 +242,32 @@ class TfLService:
             # Extract cache TTL from response
             ttl = self._extract_cache_ttl(response) or DEFAULT_METADATA_CACHE_TTL  # type: ignore[arg-type]
 
-            # Clear existing severity codes from database
-            await self.db.execute(delete(SeverityCode))
-
-            # Process and store severity codes
-            codes = []
+            # Process and upsert severity codes (avoids race conditions)
             # response.content is a SeverityCodeArray (RootModel), access via .root
             severity_data_list = response.content.root  # type: ignore[union-attr]
 
+            now = datetime.now(UTC)
             for severity_data in severity_data_list:
-                code = SeverityCode(
+                # Use PostgreSQL INSERT ... ON CONFLICT to atomically upsert
+                stmt = insert(SeverityCode).values(
                     severity_level=severity_data.severityLevel,
                     description=severity_data.description,
-                    last_updated=datetime.now(UTC),
+                    last_updated=now,
                 )
-                self.db.add(code)
-                codes.append(code)
+                stmt = stmt.on_conflict_do_update(
+                    index_elements=["severity_level"],
+                    set_={
+                        "description": stmt.excluded.description,
+                        "last_updated": stmt.excluded.last_updated,
+                    },
+                )
+                await self.db.execute(stmt)
 
             await self.db.commit()
 
-            # Refresh to get database IDs
-            for code in codes:
-                await self.db.refresh(code)
+            # Fetch all codes from database to return
+            result = await self.db.execute(select(SeverityCode))
+            codes = list(result.scalars().all())
 
             # Cache the results
             await self.cache.set(cache_key, codes, ttl=ttl)
@@ -314,28 +319,31 @@ class TfLService:
             # Extract cache TTL from response
             ttl = self._extract_cache_ttl(response) or DEFAULT_METADATA_CACHE_TTL  # type: ignore[arg-type]
 
-            # Clear existing disruption categories from database
-            await self.db.execute(delete(DisruptionCategory))
-
-            # Process and store disruption categories
-            categories = []
+            # Process and upsert disruption categories (avoids race conditions)
             # response.content is a RootModel array, access via .root
             category_data_list = response.content.root  # type: ignore[union-attr]
 
+            now = datetime.now(UTC)
             for category_data in category_data_list:
-                category = DisruptionCategory(
+                # Use PostgreSQL INSERT ... ON CONFLICT to atomically upsert
+                stmt = insert(DisruptionCategory).values(
                     category_name=category_data,
                     description=None,  # API only provides category name
-                    last_updated=datetime.now(UTC),
+                    last_updated=now,
                 )
-                self.db.add(category)
-                categories.append(category)
+                stmt = stmt.on_conflict_do_update(
+                    index_elements=["category_name"],
+                    set_={
+                        "last_updated": stmt.excluded.last_updated,
+                    },
+                )
+                await self.db.execute(stmt)
 
             await self.db.commit()
 
-            # Refresh to get database IDs
-            for category in categories:
-                await self.db.refresh(category)
+            # Fetch all categories from database to return
+            result = await self.db.execute(select(DisruptionCategory))
+            categories = list(result.scalars().all())
 
             # Cache the results
             await self.cache.set(cache_key, categories, ttl=ttl)
@@ -387,36 +395,42 @@ class TfLService:
             # Extract cache TTL from response
             ttl = self._extract_cache_ttl(response) or DEFAULT_METADATA_CACHE_TTL  # type: ignore[arg-type]
 
-            # Clear existing stop types from database
-            await self.db.execute(delete(StopType))
-
-            # Process and store stop types
-            types = []
+            # Process and upsert stop types (avoids race conditions)
             # response.content is a RootModel array, access via .root
             type_data_list = response.content.root  # type: ignore[union-attr]
 
             # Filter to relevant types for our use case
+            # These types cover tube, rail, and bus stations which are the main transport modes
+            # we're interested in for this application. To extend to other types (e.g., tram, ferry),
+            # add the appropriate Naptan type to this set.
             relevant_types = {"NaptanMetroStation", "NaptanRailStation", "NaptanBusCoachStation"}
 
+            now = datetime.now(UTC)
             for type_data in type_data_list:
                 # type_data might be a string or object - handle both cases
                 type_name = type_data if isinstance(type_data, str) else getattr(type_data, "stopType", str(type_data))
 
                 # Only store relevant types
                 if type_name in relevant_types:
-                    stop_type = StopType(
+                    # Use PostgreSQL INSERT ... ON CONFLICT to atomically upsert
+                    stmt = insert(StopType).values(
                         type_name=type_name,
                         description=None,  # API typically only provides type name
-                        last_updated=datetime.now(UTC),
+                        last_updated=now,
                     )
-                    self.db.add(stop_type)
-                    types.append(stop_type)
+                    stmt = stmt.on_conflict_do_update(
+                        index_elements=["type_name"],
+                        set_={
+                            "last_updated": stmt.excluded.last_updated,
+                        },
+                    )
+                    await self.db.execute(stmt)
 
             await self.db.commit()
 
-            # Refresh to get database IDs
-            for stop_type in types:
-                await self.db.refresh(stop_type)
+            # Fetch all relevant types from database to return
+            result = await self.db.execute(select(StopType).where(StopType.type_name.in_(relevant_types)))
+            types = list(result.scalars().all())
 
             # Cache the results
             await self.cache.set(cache_key, types, ttl=ttl)
@@ -727,11 +741,11 @@ class TfLService:
             # Extract cache TTL from response
             ttl = self._extract_cache_ttl(response) or DEFAULT_DISRUPTIONS_CACHE_TTL  # type: ignore[arg-type]
 
-            # Clear existing station disruptions from database
-            await self.db.execute(delete(StationDisruption))
-
             # Process station disruptions
             disruptions: list[StationDisruptionResponse] = []
+
+            # Clear existing station disruptions within the same transaction to minimize the gap
+            await self.db.execute(delete(StationDisruption))
             # response.content is a RootModel array of disruptions, access via .root
             disruption_data_list = response.content.root  # type: ignore[union-attr]
 
@@ -793,6 +807,11 @@ class TfLService:
             return str(stop.id)
         if hasattr(stop, "stationId"):
             return str(stop.stationId)
+        logger.warning(
+            "stop_id_extraction_failed",
+            message="Neither 'id' nor 'stationId' found in stop object",
+            stop_data=str(stop),
+        )
         return None
 
     async def _get_station_by_tfl_id(self, tfl_id: str) -> Station | None:
@@ -1032,6 +1051,8 @@ class TfLService:
                 logger.info("processing_line_for_graph", line_name=line.name, line_tfl_id=line.tfl_id)
 
                 # Process both directions
+                # Note: Duplicate connections are prevented by _connection_exists check in _process_station_pair
+                # Even if inbound and outbound routes overlap, we won't create duplicates
                 for direction in ["inbound", "outbound"]:
                     connections_count += await self._process_route_sequence(
                         line,
