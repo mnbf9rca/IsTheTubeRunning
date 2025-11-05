@@ -1,0 +1,11 @@
+{
+  "api": {
+    "baseUrl": "http://localhost:8000"
+  },
+  "auth0": {
+    "domain": "tfl-alerts.uk.auth0.com",
+    "clientId": "NVckMAltCOkp7RnKT7phKiIl0TqXQWa9",
+    "audience": "https://tfl-alert-api.cynexia.com",
+    "callbackUrl": "http://localhost:5173/callback"
+  }
+}

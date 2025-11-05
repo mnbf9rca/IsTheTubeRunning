@@ -96,13 +96,17 @@ jobs:
         working-directory: frontend
         run: npm ci
 
+      - name: Run format check
+        working-directory: frontend
+        run: npm run format:check
+
       - name: Run lint
         working-directory: frontend
         run: npm run lint
 
       - name: Run type check
         working-directory: frontend
-        run: npx tsc --noEmit
+        run: npm run type-check
 
       - name: Run tests
         working-directory: frontend
