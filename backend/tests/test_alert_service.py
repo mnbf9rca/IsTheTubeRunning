@@ -1626,6 +1626,60 @@ async def test_send_alerts_for_route_sms_notification(
 
 
 @pytest.mark.asyncio
+@patch("app.services.alert_service.NotificationService")
+async def test_send_single_notification_sms_success(
+    mock_notif_class: MagicMock,
+    alert_service: AlertService,
+    test_route_with_schedule: Route,
+    sample_disruptions: list[DisruptionResponse],
+    db_session: AsyncSession,
+) -> None:
+    """Test _send_single_notification SMS path (lines 575->582)."""
+    # Create verified phone
+    phone = PhoneNumber(
+        user_id=test_route_with_schedule.user_id,
+        phone="+447700900123",
+        verified=True,
+    )
+    db_session.add(phone)
+    await db_session.flush()
+
+    # Create SMS preference
+    sms_pref = NotificationPreference(
+        route_id=test_route_with_schedule.id,
+        method=NotificationMethod.SMS,
+        target_phone_id=phone.id,
+    )
+    db_session.add(sms_pref)
+    await db_session.commit()
+    await db_session.refresh(sms_pref)
+
+    # Mock notification service
+    mock_notif_instance = AsyncMock()
+    mock_notif_instance.send_disruption_sms = AsyncMock()
+    mock_notif_class.return_value = mock_notif_instance
+
+    # Call _send_single_notification directly
+    success, error = await alert_service._send_single_notification(
+        pref=sms_pref,
+        contact_info=phone.phone,
+        route=test_route_with_schedule,
+        disruptions=sample_disruptions,
+    )
+
+    # Verify success
+    assert success is True
+    assert error is None
+
+    # Verify SMS was sent
+    mock_notif_instance.send_disruption_sms.assert_called_once_with(
+        phone=phone.phone,
+        route_name=test_route_with_schedule.name,
+        disruptions=sample_disruptions,
+    )
+
+
+@pytest.mark.asyncio
 @freeze_time("2025-01-13 09:00:00", tz_offset=0)
 @patch("app.services.alert_service.NotificationService")
 async def test_send_alerts_for_route_preference_exception(

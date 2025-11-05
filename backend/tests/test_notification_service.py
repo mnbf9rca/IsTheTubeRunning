@@ -367,3 +367,65 @@ class TestNotificationService:
             pytest.raises(Exception, match="Template not found"),
         ):
             service._render_email_template("nonexistent.html", {})
+
+    @pytest.mark.asyncio
+    @patch("app.services.sms_service.SmsService.send_sms", new_callable=AsyncMock)
+    async def test_send_disruption_sms_truncates_long_message_multiple_disruptions(
+        self, mock_send_sms: AsyncMock
+    ) -> None:
+        """Test SMS truncation when message is too long with multiple disruptions (lines 152-153)."""
+        service = NotificationService()
+
+        # Create multiple disruptions with long line names and descriptions
+        # The format is: "TfL Alert: {route_name} affected. {line_name}: {status}. {line_name}: {status}. {url}"
+        # We need the message with 2 disruptions to exceed 160 chars to trigger truncation
+        disruptions = [
+            DisruptionResponse(
+                line_id="metropolitan",
+                line_name="Metropolitan Line Experiencing",
+                status_severity="9",
+                status_severity_description="Severe Delays and Signal Failures Throughout",
+                reason="Signal failure",
+            ),
+            DisruptionResponse(
+                line_id="hammersmith-city",
+                line_name="Hammersmith & City Line Now",
+                status_severity="10",
+                status_severity_description="Part Suspended Between Multiple Stations",
+                reason="Engineering works",
+            ),
+        ]
+
+        phone = "+447700900123"
+        route_name = "My Very Long Route Name For Testing"
+
+        # Call the method
+        await service.send_disruption_sms(
+            phone=phone,
+            route_name=route_name,
+            disruptions=disruptions,
+        )
+
+        # Verify SMS was sent
+        mock_send_sms.assert_called_once()
+
+        # Get the actual message sent
+        call_args = mock_send_sms.call_args
+        sent_phone = call_args[0][0]
+        sent_message = call_args[0][1]
+
+        # Verify phone number
+        assert sent_phone == phone
+
+        # Verify message was truncated (second disruption removed)
+        # Lines 152-153 were executed: it took only the first disruption when 2 were too long
+        assert "Severe Delays and Signal Failures Throughout" in sent_message  # First disruption included
+        assert "Part Suspended Between Multiple Stations" not in sent_message  # Second was truncated
+        assert "My Very Long Route Name For Testing" in sent_message
+        assert "tfl.gov.uk" in sent_message
+
+        # Verify the truncation actually happened by checking it's using only 1 disruption
+        # Count the number of disruptions in the message (each line has format "LineName: Status")
+        # We have "TfL Alert: ", "LineName: Status", and "More: url" - so 3 colons total
+        disruption_count = sent_message.count(": ") - 2  # -2 for "TfL Alert: " and "More: "
+        assert disruption_count == 1, f"Expected 1 disruption after truncation, got {disruption_count}"
