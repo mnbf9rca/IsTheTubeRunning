@@ -266,6 +266,79 @@ The backend supports mock JWT mode for development without Auth0. When `DEBUG=Tr
 **API Endpoints:**
 - `GET /api/v1/auth/me` - Get current authenticated user (auto-creates user on first login)
 
+## Admin Endpoints
+
+Certain endpoints require admin privileges for system management and monitoring. Admin status is tracked in the `admin_users` table and checked via the `require_admin()` dependency.
+
+### Granting Admin Access
+
+Admin users must be manually created in the database. To grant admin privileges to a user:
+
+```sql
+-- Get the user's ID
+SELECT id FROM users WHERE external_id = 'auth0|your_user_id';
+
+-- Grant admin role
+INSERT INTO admin_users (user_id, role, granted_at)
+VALUES ('user-uuid-here', 'admin', NOW());
+```
+
+**Note:** Production deployments should implement a secure admin management interface. Manual database access is acceptable for the MVP (Phase 8).
+
+### Available Admin Endpoints
+
+#### Alert Management
+
+**POST /api/v1/admin/alerts/trigger-check**
+- Manually trigger an immediate disruption check for all active routes
+- Bypasses normal Celery schedule
+- Returns statistics: routes_checked, alerts_sent, errors
+- Use case: Testing or forcing update after known TfL issues
+
+**GET /api/v1/admin/alerts/worker-status**
+- Check Celery worker health and status
+- Returns: worker_available, active_tasks, scheduled_tasks, last_heartbeat
+- Use case: Monitoring worker health, debugging task issues
+
+**GET /api/v1/admin/alerts/recent-logs**
+- Query recent notification logs with pagination
+- Query params: `limit` (1-1000, default 50), `offset` (default 0), `status` (sent/failed/pending)
+- Returns paginated list of notification logs
+- Use case: Audit trail, debugging failed notifications
+
+#### TfL Data Management
+
+**POST /api/v1/admin/tfl/build-graph**
+- Build station connection graph from TfL API data
+- Required for route validation
+- Returns: lines_count, stations_count, connections_count
+- Use case: Initial setup or refreshing station data
+
+### Example Usage
+
+```bash
+# Get auth token (use Auth0 or mock JWT in dev)
+TOKEN="your-jwt-token"
+
+# Trigger manual alert check
+curl -X POST https://api.isthetube.com/api/v1/admin/alerts/trigger-check \
+  -H "Authorization: Bearer $TOKEN"
+
+# Check worker status
+curl -X GET https://api.isthetube.com/api/v1/admin/alerts/worker-status \
+  -H "Authorization: Bearer $TOKEN"
+
+# Get recent failed notifications
+curl -X GET "https://api.isthetube.com/api/v1/admin/alerts/recent-logs?status=failed&limit=20" \
+  -H "Authorization: Bearer $TOKEN"
+```
+
+### Authorization
+
+All admin endpoints return:
+- **401 Unauthorized** - Missing or invalid JWT token
+- **403 Forbidden** - Valid JWT but user is not an admin
+
 ## Secret Management with python-dotenv-vault
 
 This project uses **python-dotenv-vault** for encrypted secret management across environments.
@@ -354,16 +427,14 @@ See [implementation_plan.md](./implementation_plan.md) for detailed implementati
 **Completed:**
 - ✅ Phase 1: Project Foundation
 - ✅ Phase 2: Database Models & Migrations
-
-**In Progress:**
-- 🚧 Phase 3: Auth0 Integration
+- ✅ Phase 3: Auth0 Integration
+- ✅ Phase 4: Contact Verification
+- ✅ Phase 5: TfL Data Integration
+- ✅ Phase 6: Route Management
+- ✅ Phase 7: Notification Preferences
+- ✅ Phase 8: Alert Processing Worker
 
 **Upcoming:**
-- Phase 4: Contact Verification
-- Phase 5: TfL Data Integration
-- Phase 6: Route Management
-- Phase 7: Notification Preferences
-- Phase 8: Alert Processing Worker
 - Phase 9: Admin Dashboard Backend
 - Phase 10: Frontend Development
 - Phase 11: Testing & Quality

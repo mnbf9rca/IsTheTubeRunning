@@ -3,7 +3,7 @@
 import hashlib
 import json
 from datetime import UTC, datetime
-from typing import Any
+from typing import Any, Protocol, cast
 from uuid import UUID
 from zoneinfo import ZoneInfo
 
@@ -30,24 +30,52 @@ from app.services.tfl_service import TfLService
 logger = structlog.get_logger(__name__)
 
 
-async def get_redis_client() -> redis.Redis[str]:
+class RedisClientProtocol(Protocol):
+    """
+    Protocol for Redis async client with proper type hints.
+
+    redis-py 5.x provides aclose() but redis-stubs package doesn't include it,
+    so we define this protocol to avoid type ignore comments everywhere.
+    """
+
+    async def get(self, name: str) -> str | None:
+        """Get the value at key name."""
+        ...
+
+    async def setex(self, name: str, time: int, value: str) -> bool:
+        """Set the value at key name with expiration time."""
+        ...
+
+    async def aclose(self, close_connection_pool: bool = True) -> None:
+        """Close the client connection."""
+        ...
+
+
+async def get_redis_client() -> RedisClientProtocol:
     """
     Create Redis client for alert deduplication.
 
     Returns:
-        Redis client instance
+        Redis client instance that satisfies RedisClientProtocol
+
+    Note:
+        redis.asyncio.Redis has aclose() at runtime, but redis-stubs doesn't
+        declare it. We cast to our Protocol to provide proper type hints.
     """
-    return redis.from_url(
-        settings.REDIS_URL,
-        encoding="utf-8",
-        decode_responses=True,
+    return cast(
+        RedisClientProtocol,
+        redis.from_url(
+            settings.REDIS_URL,
+            encoding="utf-8",
+            decode_responses=True,
+        ),
     )
 
 
 class AlertService:
     """Service for processing route alerts and sending notifications."""
 
-    def __init__(self, db: AsyncSession, redis_client: redis.Redis[str]) -> None:
+    def __init__(self, db: AsyncSession, redis_client: RedisClientProtocol) -> None:
         """
         Initialize the alert service.
 
@@ -453,6 +481,9 @@ class AlertService:
 
             return phone_number.phone
 
+        # Edge case: Unknown notification method
+        # This code path is unreachable in practice because NotificationMethod is an enum
+        # validated by Pydantic. This defensive logging remains for completeness.
         logger.warning(
             "unknown_notification_method",
             pref_id=str(pref.id),

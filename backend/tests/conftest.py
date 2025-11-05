@@ -12,6 +12,7 @@ import uuid
 from collections.abc import AsyncGenerator, Generator
 from contextlib import suppress
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 from unittest.mock import AsyncMock
@@ -24,6 +25,7 @@ from app.core.auth import clear_jwks_cache, set_mock_jwks
 from app.core.database import get_db
 from app.core.utils import convert_async_db_url_to_sync
 from app.main import app
+from app.models.admin import AdminRole, AdminUser
 from app.models.user import User
 from app.services.alert_service import AlertService
 from fastapi.testclient import TestClient
@@ -458,3 +460,43 @@ def mock_redis() -> AsyncMock:
 def alert_service(db_session: AsyncSession, mock_redis: AsyncMock) -> AlertService:
     """Create AlertService instance with mocked Redis."""
     return AlertService(db=db_session, redis_client=mock_redis)
+
+
+# Admin fixtures
+
+
+@pytest.fixture
+async def admin_user(db_session: AsyncSession, test_user: User) -> tuple[User, AdminUser]:
+    """
+    Create an admin user for testing admin endpoints.
+
+    Returns:
+        Tuple of (User, AdminUser) for admin-authenticated tests
+    """
+    admin = AdminUser(
+        user_id=test_user.id,
+        role=AdminRole.ADMIN,
+        granted_at=datetime.now(UTC),
+        granted_by=None,
+    )
+    db_session.add(admin)
+    await db_session.commit()
+    await db_session.refresh(admin)
+    return test_user, admin
+
+
+@pytest.fixture
+def admin_headers(test_user: User) -> dict[str, str]:
+    """
+    HTTP Authorization headers with Bearer token for admin user.
+
+    Generates a JWT token that matches the admin test_user's external_id.
+
+    Args:
+        test_user: Test user fixture (will be made admin in admin_user fixture)
+
+    Returns:
+        Dictionary with Authorization header for admin requests
+    """
+    token = MockJWTGenerator.generate(auth0_id=test_user.external_id)
+    return {"Authorization": f"Bearer {token}"}
