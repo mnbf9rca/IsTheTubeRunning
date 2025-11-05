@@ -642,6 +642,51 @@ class TfLService:
                 detail="Failed to fetch line disruptions from TfL API.",
             ) from e
 
+    async def _create_station_disruption(
+        self,
+        station: Station,
+        disruption_data: Any,  # noqa: ANN401
+    ) -> StationDisruptionResponse:
+        """
+        Create station disruption in database and return response.
+
+        Args:
+            station: Station object from database
+            disruption_data: Raw disruption data from TfL API
+
+        Returns:
+            StationDisruptionResponse object
+        """
+        # Extract disruption details with defaults
+        category = getattr(disruption_data, "category", None)
+        description = getattr(disruption_data, "description", "No description available")
+        severity = getattr(disruption_data, "categoryDescription", None)
+        tfl_id = getattr(disruption_data, "id", str(uuid.uuid4()))
+        created_at_source = getattr(disruption_data, "created", datetime.now(UTC))
+
+        # Store in database
+        station_disruption = StationDisruption(
+            station_id=station.id,
+            disruption_category=category,
+            description=description,
+            severity=severity,
+            tfl_id=tfl_id,
+            created_at_source=created_at_source,
+        )
+        self.db.add(station_disruption)
+
+        # Create response object
+        return StationDisruptionResponse(
+            station_id=station.id,
+            station_tfl_id=station.tfl_id,
+            station_name=station.name,
+            disruption_category=category,
+            description=description,
+            severity=severity,
+            tfl_id=tfl_id,
+            created_at_source=created_at_source,
+        )
+
     async def fetch_station_disruptions(self, use_cache: bool = True) -> list[StationDisruptionResponse]:
         """
         Fetch current station-level disruptions from TfL API.
@@ -695,9 +740,7 @@ class TfLService:
                 if hasattr(disruption_data, "affectedStops") and disruption_data.affectedStops:
                     for stop in disruption_data.affectedStops:
                         # Look up station in database by TfL ID
-                        stop_tfl_id = (
-                            stop.id if hasattr(stop, "id") else stop.stationId if hasattr(stop, "stationId") else None
-                        )
+                        stop_tfl_id = self._get_stop_ids(stop)
 
                         if not stop_tfl_id:
                             logger.warning("station_disruption_missing_tfl_id", stop_data=str(stop))
@@ -713,45 +756,8 @@ class TfLService:
                             )
                             continue
 
-                        # Extract disruption details
-                        category = disruption_data.category if hasattr(disruption_data, "category") else None
-                        description = (
-                            disruption_data.description
-                            if hasattr(disruption_data, "description")
-                            else "No description available"
-                        )
-                        severity = (
-                            disruption_data.categoryDescription
-                            if hasattr(disruption_data, "categoryDescription")
-                            else None
-                        )
-                        tfl_id = disruption_data.id if hasattr(disruption_data, "id") else str(uuid.uuid4())
-                        created_at_source = (
-                            disruption_data.created if hasattr(disruption_data, "created") else datetime.now(UTC)
-                        )
-
-                        # Store in database
-                        station_disruption = StationDisruption(
-                            station_id=station.id,
-                            disruption_category=category,
-                            description=description,
-                            severity=severity,
-                            tfl_id=tfl_id,
-                            created_at_source=created_at_source,
-                        )
-                        self.db.add(station_disruption)
-
-                        # Create response object
-                        disruption_response = StationDisruptionResponse(
-                            station_id=station.id,
-                            station_tfl_id=station.tfl_id,
-                            station_name=station.name,
-                            disruption_category=category,
-                            description=description,
-                            severity=severity,
-                            tfl_id=tfl_id,
-                            created_at_source=created_at_source,
-                        )
+                        # Create disruption using helper method
+                        disruption_response = await self._create_station_disruption(station, disruption_data)
                         disruptions.append(disruption_response)
 
             # Commit database changes
@@ -773,7 +779,231 @@ class TfLService:
                 detail="Failed to fetch station disruptions from TfL API.",
             ) from e
 
-    async def build_station_graph(self) -> dict[str, int]:  # noqa: PLR0912, PLR0915
+    def _get_stop_ids(self, stop: Any) -> str | None:  # noqa: ANN401
+        """
+        Extract stop ID from stop point data.
+
+        Args:
+            stop: Stop point data object
+
+        Returns:
+            Stop ID or None if not found
+        """
+        if hasattr(stop, "id"):
+            return str(stop.id)
+        if hasattr(stop, "stationId"):
+            return str(stop.stationId)
+        return None
+
+    async def _get_station_by_tfl_id(self, tfl_id: str) -> Station | None:
+        """
+        Look up station in database by TfL ID.
+
+        Args:
+            tfl_id: TfL station identifier
+
+        Returns:
+            Station object or None if not found
+        """
+        result = await self.db.execute(select(Station).where(Station.tfl_id == tfl_id))
+        return result.scalar_one_or_none()
+
+    async def _connection_exists(
+        self,
+        from_station_id: uuid.UUID,
+        to_station_id: uuid.UUID,
+        line_id: uuid.UUID,
+    ) -> bool:
+        """
+        Check if a station connection already exists.
+
+        Args:
+            from_station_id: Source station database ID
+            to_station_id: Destination station database ID
+            line_id: Line database ID
+
+        Returns:
+            True if connection exists, False otherwise
+        """
+        result = await self.db.execute(
+            select(StationConnection).where(
+                StationConnection.from_station_id == from_station_id,
+                StationConnection.to_station_id == to_station_id,
+                StationConnection.line_id == line_id,
+            )
+        )
+        return result.scalar_one_or_none() is not None
+
+    def _create_connection(
+        self,
+        from_station_id: uuid.UUID,
+        to_station_id: uuid.UUID,
+        line_id: uuid.UUID,
+    ) -> StationConnection:
+        """
+        Create a station connection object.
+
+        Args:
+            from_station_id: Source station database ID
+            to_station_id: Destination station database ID
+            line_id: Line database ID
+
+        Returns:
+            StationConnection object (not yet added to session)
+        """
+        return StationConnection(
+            from_station_id=from_station_id,
+            to_station_id=to_station_id,
+            line_id=line_id,
+        )
+
+    async def _process_station_pair(
+        self,
+        current_stop: Any,  # noqa: ANN401
+        next_stop: Any,  # noqa: ANN401
+        line: Line,
+        stations_set: set[str],
+    ) -> int:
+        """
+        Process a pair of consecutive stations and create bidirectional connections.
+
+        Args:
+            current_stop: Current stop point data
+            next_stop: Next stop point data
+            line: Line object
+            stations_set: Set to track unique station IDs
+
+        Returns:
+            Number of new connections created (0, 1, or 2)
+        """
+        # Extract stop IDs
+        current_stop_id = self._get_stop_ids(current_stop)
+        next_stop_id = self._get_stop_ids(next_stop)
+
+        if not current_stop_id or not next_stop_id:
+            return 0
+
+        # Look up stations
+        from_station = await self._get_station_by_tfl_id(current_stop_id)
+        to_station = await self._get_station_by_tfl_id(next_stop_id)
+
+        if not from_station or not to_station:
+            logger.debug(
+                "station_not_found_for_connection",
+                from_stop_id=current_stop_id,
+                to_stop_id=next_stop_id,
+                line_tfl_id=line.tfl_id,
+            )
+            return 0
+
+        # Track stations
+        stations_set.add(from_station.tfl_id)
+        stations_set.add(to_station.tfl_id)
+
+        connections_created = 0
+
+        # Create forward connection if needed
+        if not await self._connection_exists(from_station.id, to_station.id, line.id):
+            connection = self._create_connection(from_station.id, to_station.id, line.id)
+            self.db.add(connection)
+            connections_created += 1
+
+        # Create reverse connection if needed
+        if not await self._connection_exists(to_station.id, from_station.id, line.id):
+            connection = self._create_connection(to_station.id, from_station.id, line.id)
+            self.db.add(connection)
+            connections_created += 1
+
+        return connections_created
+
+    async def _fetch_route_sequence(
+        self,
+        line_tfl_id: str,
+        direction: str,
+    ) -> list[Any]:
+        """
+        Fetch route sequence for a line and direction from TfL API.
+
+        Args:
+            line_tfl_id: TfL line identifier
+            direction: "inbound" or "outbound"
+
+        Returns:
+            List of stop point sequences
+
+        Raises:
+            Exception: If API call fails
+        """
+        loop = asyncio.get_running_loop()
+        response = await loop.run_in_executor(
+            None,
+            self.line_client.RouteSequenceByPathIdPathDirectionQueryServiceTypesQueryExcludeCrowding,
+            line_tfl_id,
+            direction,
+            "",  # serviceTypes (empty for all)
+            True,  # excludeCrowding
+        )
+
+        # Check for API error
+        self._handle_api_error(response)
+
+        # Extract route sequence data
+        route_data = response.content  # type: ignore[union-attr]
+
+        # Return stop point sequences or empty list
+        if hasattr(route_data, "stopPointSequences") and route_data.stopPointSequences:
+            return list(route_data.stopPointSequences)
+
+        return []
+
+    async def _process_route_sequence(
+        self,
+        line: Line,
+        direction: str,
+        stations_set: set[str],
+    ) -> int:
+        """
+        Process route sequence for a line and direction.
+
+        Args:
+            line: Line object
+            direction: "inbound" or "outbound"
+            stations_set: Set to track unique station IDs
+
+        Returns:
+            Number of connections created
+        """
+        try:
+            sequences = await self._fetch_route_sequence(line.tfl_id, direction)
+            connections_count = 0
+
+            for sequence in sequences:
+                if not hasattr(sequence, "stopPoint") or not sequence.stopPoint:
+                    continue
+
+                stop_points = sequence.stopPoint
+
+                # Process consecutive station pairs
+                for i in range(len(stop_points) - 1):
+                    connections_count += await self._process_station_pair(
+                        stop_points[i],
+                        stop_points[i + 1],
+                        line,
+                        stations_set,
+                    )
+
+            return connections_count
+
+        except Exception as e:
+            logger.warning(
+                "failed_to_process_direction",
+                line_tfl_id=line.tfl_id,
+                direction=direction,
+                error=str(e),
+            )
+            return 0
+
+    async def build_station_graph(self) -> dict[str, int]:
         """
         Build the station connection graph from TfL API data using actual route sequences.
 
@@ -791,9 +1021,8 @@ class TfLService:
             await self.db.execute(delete(StationConnection))
             await self.db.commit()
 
-            # Fetch all lines first
+            # Fetch all lines
             lines = await self.fetch_lines(use_cache=False)
-            lines_count = len(lines)
 
             stations_set: set[str] = set()
             connections_count = 0
@@ -802,144 +1031,19 @@ class TfLService:
             for line in lines:
                 logger.info("processing_line_for_graph", line_name=line.name, line_tfl_id=line.tfl_id)
 
-                try:
-                    # Fetch route sequence for both directions
-                    for direction in ["inbound", "outbound"]:
-                        try:
-                            loop = asyncio.get_running_loop()
-                            response = await loop.run_in_executor(
-                                None,
-                                self.line_client.RouteSequenceByPathIdPathDirectionQueryServiceTypesQueryExcludeCrowding,
-                                line.tfl_id,
-                                direction,
-                                "",  # serviceTypes (empty for all)
-                                True,  # excludeCrowding
-                            )
-
-                            # Check for API error
-                            self._handle_api_error(response)
-
-                            # Extract route sequence data
-                            route_data = response.content  # type: ignore[union-attr]
-
-                            # Process stop point sequences
-                            if hasattr(route_data, "stopPointSequences") and route_data.stopPointSequences:
-                                for sequence in route_data.stopPointSequences:
-                                    if not hasattr(sequence, "stopPoint") or not sequence.stopPoint:
-                                        continue
-
-                                    # Get ordered list of stop points
-                                    stop_points = sequence.stopPoint
-
-                                    # Create connections between consecutive stations
-                                    for i in range(len(stop_points) - 1):
-                                        current_stop = stop_points[i]
-                                        next_stop = stop_points[i + 1]
-
-                                        # Get stop IDs
-                                        current_stop_id = (
-                                            current_stop.id
-                                            if hasattr(current_stop, "id")
-                                            else current_stop.stationId
-                                            if hasattr(current_stop, "stationId")
-                                            else None
-                                        )
-                                        next_stop_id = (
-                                            next_stop.id
-                                            if hasattr(next_stop, "id")
-                                            else next_stop.stationId
-                                            if hasattr(next_stop, "stationId")
-                                            else None
-                                        )
-
-                                        if not current_stop_id or not next_stop_id:
-                                            continue
-
-                                        # Look up stations in database
-                                        result = await self.db.execute(
-                                            select(Station).where(Station.tfl_id == current_stop_id)
-                                        )
-                                        from_station = result.scalar_one_or_none()
-
-                                        result = await self.db.execute(
-                                            select(Station).where(Station.tfl_id == next_stop_id)
-                                        )
-                                        to_station = result.scalar_one_or_none()
-
-                                        if not from_station or not to_station:
-                                            logger.debug(
-                                                "station_not_found_for_connection",
-                                                from_stop_id=current_stop_id,
-                                                to_stop_id=next_stop_id,
-                                                line_tfl_id=line.tfl_id,
-                                            )
-                                            continue
-
-                                        stations_set.add(from_station.tfl_id)
-                                        stations_set.add(to_station.tfl_id)
-
-                                        # Check if connection already exists (to avoid duplicates)
-                                        result = await self.db.execute(
-                                            select(StationConnection).where(
-                                                StationConnection.from_station_id == from_station.id,
-                                                StationConnection.to_station_id == to_station.id,
-                                                StationConnection.line_id == line.id,
-                                            )
-                                        )
-                                        existing = result.scalar_one_or_none()
-
-                                        if not existing:
-                                            # Forward connection
-                                            connection_forward = StationConnection(
-                                                from_station_id=from_station.id,
-                                                to_station_id=to_station.id,
-                                                line_id=line.id,
-                                            )
-                                            self.db.add(connection_forward)
-                                            connections_count += 1
-
-                                        # Check reverse connection
-                                        result = await self.db.execute(
-                                            select(StationConnection).where(
-                                                StationConnection.from_station_id == to_station.id,
-                                                StationConnection.to_station_id == from_station.id,
-                                                StationConnection.line_id == line.id,
-                                            )
-                                        )
-                                        existing_reverse = result.scalar_one_or_none()
-
-                                        if not existing_reverse:
-                                            # Reverse connection
-                                            connection_reverse = StationConnection(
-                                                from_station_id=to_station.id,
-                                                to_station_id=from_station.id,
-                                                line_id=line.id,
-                                            )
-                                            self.db.add(connection_reverse)
-                                            connections_count += 1
-
-                        except Exception as e:
-                            logger.warning(
-                                "failed_to_process_direction",
-                                line_tfl_id=line.tfl_id,
-                                direction=direction,
-                                error=str(e),
-                            )
-                            continue
-
-                except Exception as e:
-                    logger.warning(
-                        "failed_to_process_line",
-                        line_tfl_id=line.tfl_id,
-                        error=str(e),
+                # Process both directions
+                for direction in ["inbound", "outbound"]:
+                    connections_count += await self._process_route_sequence(
+                        line,
+                        direction,
+                        stations_set,
                     )
-                    continue
 
             # Commit all connections
             await self.db.commit()
 
             build_result = {
-                "lines_count": lines_count,
+                "lines_count": len(lines),
                 "stations_count": len(stations_set),
                 "connections_count": connections_count,
             }

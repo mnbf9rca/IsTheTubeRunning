@@ -733,19 +733,19 @@ async def test_fetch_disruptions_without_affected_routes(
 def test_extract_disruption_from_route(tfl_service: TfLService) -> None:
     """Test extraction of single disruption from route data."""
 
-    # Create mock objects with attributes
-    class MockRoute:
-        id = "victoria"
-        name = "Victoria"
+    # Create mock objects using existing mock classes
+    route = MockAffectedRoute(id="victoria", name="Victoria")
 
-    class MockDisruption:
-        categoryDescriptionDetail = 5
-        category = "Minor Delays"
-        description = "Signal failure"
-        created = datetime(2025, 1, 1, 12, 0, 0, tzinfo=UTC)
+    class MockDisruptionWithDetail:
+        """Mock disruption with categoryDescriptionDetail field."""
 
-    route = MockRoute()
-    disruption = MockDisruption()
+        def __init__(self) -> None:
+            self.categoryDescriptionDetail = 5
+            self.category = "Minor Delays"
+            self.description = "Signal failure"
+            self.created = datetime(2025, 1, 1, 12, 0, 0, tzinfo=UTC)
+
+    disruption = MockDisruptionWithDetail()
 
     result = tfl_service._extract_disruption_from_route(disruption, route)
 
@@ -760,15 +760,19 @@ def test_extract_disruption_from_route(tfl_service: TfLService) -> None:
 def test_extract_disruption_from_route_missing_fields(tfl_service: TfLService) -> None:
     """Test extraction handles missing optional fields gracefully."""
 
-    # Create mock objects with minimal attributes
-    class MockRoute:
-        pass  # No id or name
+    # Create mock objects with minimal attributes (no TfL API fields)
+    class EmptyMockRoute:
+        """Mock route with no fields."""
 
-    class MockDisruption:
-        pass  # No optional fields
+        pass
 
-    route = MockRoute()
-    disruption = MockDisruption()
+    class EmptyMockDisruption:
+        """Mock disruption with no fields."""
+
+        pass
+
+    route = EmptyMockRoute()
+    disruption = EmptyMockDisruption()
 
     result = tfl_service._extract_disruption_from_route(disruption, route)
 
@@ -1375,6 +1379,142 @@ async def test_fetch_station_disruptions_unknown_station(
         assert len(disruptions) == 0
 
 
+async def test_create_station_disruption(db_session: AsyncSession) -> None:
+    """Test station disruption creation with all fields."""
+    # Create station
+    station = Station(
+        tfl_id="940GZZLUVIC",
+        name="Victoria",
+        latitude=51.5,
+        longitude=-0.1,
+        lines=["victoria"],
+        last_updated=datetime.now(UTC),
+    )
+    db_session.add(station)
+    await db_session.commit()
+
+    # Create mock disruption data (mimics TfL API structure)
+    class MockDisruptionData:
+        """Mock TfL API disruption data."""
+
+        def __init__(self) -> None:
+            self.category = "PlannedWork"
+            self.description = "Station improvements"
+            self.categoryDescription = "Minor"
+            self.id = "disruption-123"
+            self.created = datetime(2025, 1, 1, 10, 0, 0, tzinfo=UTC)
+
+    # Test creation
+    tfl_service = TfLService(db_session)
+    result = await tfl_service._create_station_disruption(station, MockDisruptionData())
+
+    # Verify response
+    assert result.station_id == station.id
+    assert result.station_tfl_id == "940GZZLUVIC"
+    assert result.station_name == "Victoria"
+    assert result.disruption_category == "PlannedWork"
+    assert result.description == "Station improvements"
+    assert result.severity == "Minor"
+    assert result.tfl_id == "disruption-123"
+    assert result.created_at_source == datetime(2025, 1, 1, 10, 0, 0, tzinfo=UTC)
+
+    # Verify database record was created
+    await db_session.commit()
+    result_db = await db_session.execute(select(StationDisruption).where(StationDisruption.tfl_id == "disruption-123"))
+    disruption = result_db.scalar_one_or_none()
+    assert disruption is not None
+    assert disruption.station_id == station.id
+    assert disruption.disruption_category == "PlannedWork"
+
+
+async def test_create_station_disruption_missing_fields(db_session: AsyncSession) -> None:
+    """Test station disruption creation handles missing optional fields."""
+    # Create station
+    station = Station(
+        tfl_id="940GZZLUVIC",
+        name="Victoria",
+        latitude=51.5,
+        longitude=-0.1,
+        lines=["victoria"],
+        last_updated=datetime.now(UTC),
+    )
+    db_session.add(station)
+    await db_session.commit()
+
+    # Create mock disruption data with minimal fields (tests default handling)
+    class EmptyMockDisruption:
+        """Mock disruption with no fields to test defaults."""
+
+        pass
+
+    # Test creation with defaults
+    tfl_service = TfLService(db_session)
+    result = await tfl_service._create_station_disruption(station, EmptyMockDisruption())
+
+    # Verify defaults were used
+    assert result.station_id == station.id
+    assert result.disruption_category is None
+    assert result.description == "No description available"
+    assert result.severity is None
+    assert isinstance(result.tfl_id, str)  # UUID generated
+    assert isinstance(result.created_at_source, datetime)
+
+
+async def test_fetch_station_disruptions_uses_helpers(
+    db_session: AsyncSession,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Test that fetch_station_disruptions uses the helper methods."""
+    # Create line and station
+    line = Line(tfl_id="victoria", name="Victoria", color="#000000", last_updated=datetime.now(UTC))
+    station = Station(
+        tfl_id="940GZZLUVIC",
+        name="Victoria",
+        latitude=51.5,
+        longitude=-0.1,
+        lines=["victoria"],
+        last_updated=datetime.now(UTC),
+    )
+    db_session.add_all([line, station])
+    await db_session.commit()
+
+    # Create mock disruption data (mimics TfL API structure)
+    class MockStopData:
+        """Mock TfL API stop data."""
+
+        def __init__(self) -> None:
+            self.id = "940GZZLUVIC"
+
+    class MockStationDisruptionData:
+        """Mock TfL API station disruption data."""
+
+        def __init__(self) -> None:
+            self.category = "PlannedWork"
+            self.description = "Station improvements"
+            self.categoryDescription = "Minor"
+            self.id = "disruption-123"
+            self.created = datetime(2025, 1, 1, 10, 0, 0, tzinfo=UTC)
+            self.affectedStops = [MockStopData()]
+
+    # Mock API response
+    mock_response = MagicMock()
+    mock_response.content.root = [MockStationDisruptionData()]
+
+    # Mock asyncio.get_running_loop
+    mock_loop = AsyncMock()
+    mock_loop.run_in_executor = AsyncMock(return_value=mock_response)
+    monkeypatch.setattr("asyncio.get_running_loop", lambda: mock_loop)
+
+    # Test fetch
+    tfl_service = TfLService(db_session)
+    results = await tfl_service.fetch_station_disruptions(use_cache=False)
+
+    # Verify helpers were used (result should contain the disruption)
+    assert len(results) == 1
+    assert results[0].station_tfl_id == "940GZZLUVIC"
+    assert results[0].disruption_category == "PlannedWork"
+
+
 # ==================== build_station_graph Tests ====================
 
 
@@ -1874,3 +2014,269 @@ def test_parse_redis_port(tfl_service: TfLService) -> None:
     port = tfl_service._parse_redis_port()
     assert isinstance(port, int)
     assert port > 0
+
+
+# ==================== Helper Method Tests for build_station_graph ====================
+
+
+def test_get_stop_ids_with_id(tfl_service: TfLService) -> None:
+    """Test extracting stop ID from data with 'id' attribute."""
+
+    class MockStop:
+        id = "940GZZLUVIC"
+
+    result = tfl_service._get_stop_ids(MockStop())
+    assert result == "940GZZLUVIC"
+
+
+def test_get_stop_ids_with_station_id(tfl_service: TfLService) -> None:
+    """Test extracting stop ID from data with 'stationId' attribute."""
+
+    class MockStopWithStationId:
+        """Mock TfL API stop with stationId field."""
+
+        def __init__(self) -> None:
+            self.stationId = "940GZZLUVIC"
+
+    result = tfl_service._get_stop_ids(MockStopWithStationId())
+    assert result == "940GZZLUVIC"
+
+
+def test_get_stop_ids_missing(tfl_service: TfLService) -> None:
+    """Test extraction when no ID fields present."""
+
+    class MockStop:
+        pass
+
+    result = tfl_service._get_stop_ids(MockStop())
+    assert result is None
+
+
+async def test_get_station_by_tfl_id_exists(db_session: AsyncSession) -> None:
+    """Test station lookup when station exists."""
+    # Create a station
+    station = Station(
+        tfl_id="940GZZLUVIC",
+        name="Victoria",
+        latitude=51.5,
+        longitude=-0.1,
+        lines=["victoria"],
+        last_updated=datetime.now(UTC),
+    )
+    db_session.add(station)
+    await db_session.commit()
+
+    # Test lookup
+    tfl_service = TfLService(db_session)
+    result = await tfl_service._get_station_by_tfl_id("940GZZLUVIC")
+
+    assert result is not None
+    assert result.tfl_id == "940GZZLUVIC"
+    assert result.name == "Victoria"
+
+
+async def test_get_station_by_tfl_id_not_found(db_session: AsyncSession) -> None:
+    """Test station lookup when station doesn't exist."""
+    tfl_service = TfLService(db_session)
+    result = await tfl_service._get_station_by_tfl_id("nonexistent")
+
+    assert result is None
+
+
+async def test_connection_exists_true(db_session: AsyncSession) -> None:
+    """Test connection existence check returns True."""
+    # Create stations and line
+    line = Line(tfl_id="victoria", name="Victoria", color="#000000", last_updated=datetime.now(UTC))
+    station1 = Station(
+        tfl_id="940GZZLUVIC",
+        name="Victoria",
+        latitude=51.5,
+        longitude=-0.1,
+        lines=["victoria"],
+        last_updated=datetime.now(UTC),
+    )
+    station2 = Station(
+        tfl_id="940GZZLUGPK",
+        name="Green Park",
+        latitude=51.5,
+        longitude=-0.1,
+        lines=["victoria"],
+        last_updated=datetime.now(UTC),
+    )
+    db_session.add_all([line, station1, station2])
+    await db_session.commit()
+
+    # Create connection
+    connection = StationConnection(
+        from_station_id=station1.id,
+        to_station_id=station2.id,
+        line_id=line.id,
+    )
+    db_session.add(connection)
+    await db_session.commit()
+
+    # Test existence check
+    tfl_service = TfLService(db_session)
+    result = await tfl_service._connection_exists(station1.id, station2.id, line.id)
+
+    assert result is True
+
+
+async def test_connection_exists_false(db_session: AsyncSession) -> None:
+    """Test connection existence check returns False."""
+    # Create stations and line without connection
+    line = Line(tfl_id="victoria", name="Victoria", color="#000000", last_updated=datetime.now(UTC))
+    station1 = Station(
+        tfl_id="940GZZLUVIC",
+        name="Victoria",
+        latitude=51.5,
+        longitude=-0.1,
+        lines=["victoria"],
+        last_updated=datetime.now(UTC),
+    )
+    station2 = Station(
+        tfl_id="940GZZLUGPK",
+        name="Green Park",
+        latitude=51.5,
+        longitude=-0.1,
+        lines=["victoria"],
+        last_updated=datetime.now(UTC),
+    )
+    db_session.add_all([line, station1, station2])
+    await db_session.commit()
+
+    # Test existence check (no connection created)
+    tfl_service = TfLService(db_session)
+    result = await tfl_service._connection_exists(station1.id, station2.id, line.id)
+
+    assert result is False
+
+
+def test_create_connection(tfl_service: TfLService) -> None:
+    """Test connection object creation."""
+    from_id = uuid.uuid4()
+    to_id = uuid.uuid4()
+    line_id = uuid.uuid4()
+
+    connection = tfl_service._create_connection(from_id, to_id, line_id)
+
+    assert connection.from_station_id == from_id
+    assert connection.to_station_id == to_id
+    assert connection.line_id == line_id
+
+
+async def test_process_station_pair_creates_both(db_session: AsyncSession) -> None:
+    """Test station pair processing creates bidirectional connections."""
+    # Create line and stations
+    line = Line(tfl_id="victoria", name="Victoria", color="#000000", last_updated=datetime.now(UTC))
+    station1 = Station(
+        tfl_id="940GZZLUVIC",
+        name="Victoria",
+        latitude=51.5,
+        longitude=-0.1,
+        lines=["victoria"],
+        last_updated=datetime.now(UTC),
+    )
+    station2 = Station(
+        tfl_id="940GZZLUGPK",
+        name="Green Park",
+        latitude=51.5,
+        longitude=-0.1,
+        lines=["victoria"],
+        last_updated=datetime.now(UTC),
+    )
+    db_session.add_all([line, station1, station2])
+    await db_session.commit()
+
+    # Create mock stops
+    class MockStop1:
+        id = "940GZZLUVIC"
+
+    class MockStop2:
+        id = "940GZZLUGPK"
+
+    # Process pair
+    tfl_service = TfLService(db_session)
+    stations_set: set[str] = set()
+    count = await tfl_service._process_station_pair(MockStop1(), MockStop2(), line, stations_set)
+
+    assert count == 2  # Both forward and reverse connections created
+    assert "940GZZLUVIC" in stations_set
+    assert "940GZZLUGPK" in stations_set
+
+
+async def test_process_station_pair_missing_station(db_session: AsyncSession) -> None:
+    """Test station pair processing when station not in DB."""
+    # Create line but no stations
+    line = Line(tfl_id="victoria", name="Victoria", color="#000000", last_updated=datetime.now(UTC))
+    db_session.add(line)
+    await db_session.commit()
+
+    # Create mock stops
+    class MockStop1:
+        id = "nonexistent1"
+
+    class MockStop2:
+        id = "nonexistent2"
+
+    # Process pair
+    tfl_service = TfLService(db_session)
+    stations_set: set[str] = set()
+    count = await tfl_service._process_station_pair(MockStop1(), MockStop2(), line, stations_set)
+
+    assert count == 0
+    assert len(stations_set) == 0
+
+
+async def test_process_station_pair_existing_connections(db_session: AsyncSession) -> None:
+    """Test station pair processing when connections already exist."""
+    # Create line, stations, and connections
+    line = Line(tfl_id="victoria", name="Victoria", color="#000000", last_updated=datetime.now(UTC))
+    station1 = Station(
+        tfl_id="940GZZLUVIC",
+        name="Victoria",
+        latitude=51.5,
+        longitude=-0.1,
+        lines=["victoria"],
+        last_updated=datetime.now(UTC),
+    )
+    station2 = Station(
+        tfl_id="940GZZLUGPK",
+        name="Green Park",
+        latitude=51.5,
+        longitude=-0.1,
+        lines=["victoria"],
+        last_updated=datetime.now(UTC),
+    )
+    db_session.add_all([line, station1, station2])
+    await db_session.commit()
+
+    # Create existing connections
+    connection1 = StationConnection(
+        from_station_id=station1.id,
+        to_station_id=station2.id,
+        line_id=line.id,
+    )
+    connection2 = StationConnection(
+        from_station_id=station2.id,
+        to_station_id=station1.id,
+        line_id=line.id,
+    )
+    db_session.add_all([connection1, connection2])
+    await db_session.commit()
+
+    # Create mock stops
+    class MockStop1:
+        id = "940GZZLUVIC"
+
+    class MockStop2:
+        id = "940GZZLUGPK"
+
+    # Process pair
+    tfl_service = TfLService(db_session)
+    stations_set: set[str] = set()
+    count = await tfl_service._process_station_pair(MockStop1(), MockStop2(), line, stations_set)
+
+    assert count == 0  # No new connections created
+    assert "940GZZLUVIC" in stations_set
+    assert "940GZZLUGPK" in stations_set
