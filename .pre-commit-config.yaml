@@ -57,13 +57,13 @@ repos:
     hooks:
       - id: prettier
         name: prettier
-        entry: bash -c 'cd frontend && npm run format:check'
+        entry: bash -c 'cd frontend && npm run format'
         language: system
-        files: ^frontend/src/.*\.(ts|tsx|css)$
+        files: ^frontend/src/.*\.(js|ts|tsx|css)$
         pass_filenames: false
       - id: eslint
         name: eslint
-        entry: bash -c 'cd frontend && npm run lint'
+        entry: bash -c 'cd frontend && npm run lint:fix'
         language: system
         files: ^frontend/src/.*\.[jt]sx?$
         pass_filenames: false
