@@ -1,7 +1,9 @@
 """Admin API endpoints for system management."""
 
 from datetime import UTC, datetime
+from typing import Any, cast
 
+import structlog
 from celery.app.control import Inspect
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy import desc, func, select
@@ -23,6 +25,7 @@ from app.services.alert_service import AlertService, get_redis_client
 from app.services.tfl_service import TfLService
 
 router = APIRouter(prefix="/admin", tags=["admin"])
+logger = structlog.get_logger(__name__)
 
 
 # ==================== API Endpoints ====================
@@ -92,6 +95,9 @@ async def trigger_alert_check(
     Raises:
         HTTPException: 403 if not admin, 500 if check fails
     """
+    # Get Redis client and ensure cleanup
+    # Note: redis-py 5.x doesn't provide __aenter__/__aexit__ for context manager usage,
+    # so we use try/finally for explicit cleanup
     redis_client = await get_redis_client()
     try:
         alert_service = AlertService(db, redis_client)
@@ -107,7 +113,8 @@ async def trigger_alert_check(
             errors=stats["errors"],
         )
     finally:
-        await redis_client.aclose()  # type: ignore[attr-defined]
+        # Clean up Redis connection (aclose is the async equivalent of close)
+        await redis_client.aclose()
 
 
 @router.get("/alerts/worker-status", response_model=WorkerStatusResponse)
@@ -118,7 +125,8 @@ async def get_worker_status(
     Check Celery worker health and status.
 
     This endpoint inspects the Celery worker(s) to determine if they are
-    running and processing tasks correctly.
+    running and processing tasks correctly. It tracks the worker's logical
+    clock to detect if the worker is frozen (responding but not processing).
 
     **Requires admin privileges.**
 
@@ -142,17 +150,78 @@ async def get_worker_status(
     scheduled_tasks = inspector.scheduled()
     scheduled_count = sum(len(tasks) for tasks in scheduled_tasks.values()) if scheduled_tasks else 0
 
-    # Check if at least one worker is responding
-    worker_available = active_tasks is not None
+    # Check if at least one worker is responding (not None and not empty dict)
+    worker_available = active_tasks not in (None, {})
 
-    # Try to get last heartbeat (workers send periodic stats)
-    stats = inspector.stats()
-    last_heartbeat = None
-    if stats:
-        # Workers are alive and responding
-        last_heartbeat = datetime.now(UTC)
+    # Verify worker is actively processing by checking logical clock
+    # The clock increments with each event loop iteration, so comparing it
+    # across admin checks proves the worker hasn't frozen.
+    # Store (clock, timestamp) tuple to detect worker restarts (clock resets).
+    redis_client = await get_redis_client()
+    try:
+        stats = inspector.stats()
+        last_heartbeat: datetime | None = None
 
-    message = "Worker is healthy and processing tasks." if worker_available else "No workers available or responding."
+        if stats and len(stats) > 0:
+            # Get first worker's stats (in multi-worker setup, we check the first one)
+            # Cast to dict since Celery's _StatInfo is not typed in public API
+            worker_stats = cast(dict[str, Any], next(iter(stats.values())))
+            current_clock: int = worker_stats.get("clock", 0)
+            current_time = datetime.now(UTC)
+
+            # Compare with cached (clock, timestamp) from previous check
+            redis_key = "celery:worker:last_clock"
+            cached_data_str = await redis_client.get(redis_key)
+
+            if cached_data_str:
+                try:
+                    # Parse cached tuple: "clock,timestamp_iso"
+                    cached_clock_str, cached_timestamp_str = cached_data_str.split(",", 1)
+                    cached_clock = int(cached_clock_str)
+
+                    if current_clock < cached_clock:
+                        # Clock decreased - worker restarted, treat as healthy
+                        logger.info(
+                            "worker_restarted",
+                            previous_clock=cached_clock,
+                            new_clock=current_clock,
+                        )
+                        last_heartbeat = current_time
+                    elif current_clock > cached_clock:
+                        # Clock incremented - worker is actively processing
+                        last_heartbeat = current_time
+                    else:
+                        # Clock didn't increment - worker may be frozen
+                        logger.warning(
+                            "worker_clock_not_incrementing",
+                            clock=current_clock,
+                            last_check=cached_timestamp_str,
+                        )
+                        last_heartbeat = None
+                except (ValueError, IndexError):
+                    # Invalid cached data, treat as first check
+                    logger.warning("invalid_cached_clock_data", cached_data=cached_data_str)
+                    last_heartbeat = current_time
+            else:
+                # First check - no comparison data yet, assume healthy if stats returned
+                last_heartbeat = current_time
+
+            # Update cache for next check (5 minute TTL): "clock,timestamp_iso"
+            cache_value = f"{current_clock},{current_time.isoformat()}"
+            await redis_client.setex(redis_key, 300, cache_value)
+        else:
+            # No worker stats available
+            logger.warning("no_worker_stats_available")
+    finally:
+        await redis_client.aclose()
+
+    # Condition message on both worker availability and recent heartbeat
+    if not worker_available:
+        message = "No workers available or responding."
+    elif last_heartbeat is not None:
+        message = "Worker is healthy and processing tasks."
+    else:
+        message = "Worker is responding but may be frozen (clock not incrementing)."
 
     return WorkerStatusResponse(
         worker_available=worker_available,
@@ -208,9 +277,7 @@ async def get_recent_notification_logs(
     logs_sequence = result.scalars().all()
 
     # Convert to response models
-    log_items: list[NotificationLogItem] = []
-    for log in logs_sequence:
-        log_items.append(NotificationLogItem.model_validate(log))
+    log_items: list[NotificationLogItem] = [NotificationLogItem.model_validate(log) for log in logs_sequence]
 
     return RecentLogsResponse(
         total=total,

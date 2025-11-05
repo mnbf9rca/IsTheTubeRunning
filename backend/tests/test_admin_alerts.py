@@ -237,19 +237,28 @@ async def test_trigger_check_with_errors(
 
 
 @pytest.mark.asyncio
+@patch("app.api.admin.get_redis_client")
 @patch("app.api.admin.celery_app")
 async def test_worker_status_healthy(
     mock_celery: MagicMock,
+    mock_get_redis: AsyncMock,
     async_client_with_db: AsyncClient,
     admin_user: tuple[User, Any],
     admin_headers: dict[str, str],
 ) -> None:
     """Test worker status when workers are healthy."""
+    # Mock Redis client
+    mock_redis = AsyncMock()
+    mock_redis.get = AsyncMock(return_value=None)  # No cached clock (first run)
+    mock_redis.setex = AsyncMock()
+    mock_redis.aclose = AsyncMock()
+    mock_get_redis.return_value = mock_redis
+
     # Mock Celery inspector
     mock_inspector = MagicMock()
     mock_inspector.active.return_value = {"worker1": [{"id": "task1"}]}
     mock_inspector.scheduled.return_value = {"worker1": [{"id": "task2"}, {"id": "task3"}]}
-    mock_inspector.stats.return_value = {"worker1": {"total": {}}}
+    mock_inspector.stats.return_value = {"worker1": {"clock": 12345, "total": {}}}
     mock_celery.control.inspect.return_value = mock_inspector
 
     response = await async_client_with_db.get(
@@ -296,14 +305,23 @@ async def test_worker_status_no_workers(
 
 
 @pytest.mark.asyncio
+@patch("app.api.admin.get_redis_client")
 @patch("app.api.admin.celery_app")
 async def test_worker_status_multiple_workers(
     mock_celery: MagicMock,
+    mock_get_redis: AsyncMock,
     async_client_with_db: AsyncClient,
     admin_user: tuple[User, Any],
     admin_headers: dict[str, str],
 ) -> None:
     """Test worker status with multiple workers."""
+    # Mock Redis client with cached (clock, timestamp) tuple
+    mock_redis = AsyncMock()
+    mock_redis.get = AsyncMock(return_value="10,2025-01-01T00:00:00+00:00")  # Cached clock,timestamp
+    mock_redis.setex = AsyncMock()
+    mock_redis.aclose = AsyncMock()
+    mock_get_redis.return_value = mock_redis
+
     mock_inspector = MagicMock()
     mock_inspector.active.return_value = {
         "worker1": [{"id": "task1"}, {"id": "task2"}],
@@ -313,7 +331,7 @@ async def test_worker_status_multiple_workers(
         "worker1": [{"id": "task4"}],
         "worker2": [],
     }
-    mock_inspector.stats.return_value = {"worker1": {}, "worker2": {}}
+    mock_inspector.stats.return_value = {"worker1": {"clock": 42}, "worker2": {"clock": 43}}
     mock_celery.control.inspect.return_value = mock_inspector
 
     response = await async_client_with_db.get(
@@ -326,6 +344,117 @@ async def test_worker_status_multiple_workers(
     assert data["worker_available"] is True
     assert data["active_tasks"] == 3  # 2 + 1
     assert data["scheduled_tasks"] == 1  # 1 + 0
+    assert data["last_heartbeat"] is not None  # Worker is responding (clock 42 > cached 10)
+
+
+@pytest.mark.asyncio
+@patch("app.api.admin.get_redis_client")
+@patch("app.api.admin.celery_app")
+async def test_worker_status_frozen_worker(
+    mock_celery: MagicMock,
+    mock_get_redis: AsyncMock,
+    async_client_with_db: AsyncClient,
+    admin_user: tuple[User, Any],
+    admin_headers: dict[str, str],
+) -> None:
+    """Test worker status when worker clock doesn't increment (frozen)."""
+    # Mock Redis client with cached (clock, timestamp) - same clock value
+    mock_redis = AsyncMock()
+    mock_redis.get = AsyncMock(return_value="100,2025-01-01T00:00:00+00:00")
+    mock_redis.setex = AsyncMock()
+    mock_redis.aclose = AsyncMock()
+    mock_get_redis.return_value = mock_redis
+
+    mock_inspector = MagicMock()
+    mock_inspector.active.return_value = {"worker1": []}
+    mock_inspector.scheduled.return_value = {"worker1": []}
+    mock_inspector.stats.return_value = {"worker1": {"clock": 100}}  # Same clock as cached
+    mock_celery.control.inspect.return_value = mock_inspector
+
+    response = await async_client_with_db.get(
+        build_api_url("/admin/alerts/worker-status"),
+        headers=admin_headers,
+    )
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["worker_available"] is True
+    assert data["last_heartbeat"] is None  # Clock didn't increment - frozen
+    assert "frozen" in data["message"].lower()
+
+
+@pytest.mark.asyncio
+@patch("app.api.admin.get_redis_client")
+@patch("app.api.admin.celery_app")
+async def test_worker_status_worker_restarted(
+    mock_celery: MagicMock,
+    mock_get_redis: AsyncMock,
+    async_client_with_db: AsyncClient,
+    admin_user: tuple[User, Any],
+    admin_headers: dict[str, str],
+) -> None:
+    """Test worker status when worker restarts (clock resets to lower value)."""
+    # Mock Redis client with high cached clock value
+    mock_redis = AsyncMock()
+    mock_redis.get = AsyncMock(return_value="10000,2025-01-01T00:00:00+00:00")
+    mock_redis.setex = AsyncMock()
+    mock_redis.aclose = AsyncMock()
+    mock_get_redis.return_value = mock_redis
+
+    mock_inspector = MagicMock()
+    mock_inspector.active.return_value = {"worker1": [{"id": "task1"}]}
+    mock_inspector.scheduled.return_value = {"worker1": []}
+    mock_inspector.stats.return_value = {"worker1": {"clock": 42}}  # Clock reset (< cached)
+    mock_celery.control.inspect.return_value = mock_inspector
+
+    response = await async_client_with_db.get(
+        build_api_url("/admin/alerts/worker-status"),
+        headers=admin_headers,
+    )
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["worker_available"] is True
+    assert data["active_tasks"] == 1
+    assert data["last_heartbeat"] is not None  # Worker restarted - treat as healthy
+    assert "healthy" in data["message"].lower()
+
+
+@pytest.mark.asyncio
+@patch("app.api.admin.get_redis_client")
+@patch("app.api.admin.celery_app")
+async def test_worker_status_invalid_cached_data(
+    mock_celery: MagicMock,
+    mock_get_redis: AsyncMock,
+    async_client_with_db: AsyncClient,
+    admin_user: tuple[User, Any],
+    admin_headers: dict[str, str],
+) -> None:
+    """Test worker status when Redis cache has invalid data format."""
+    # Mock Redis client with invalid cached data (missing comma)
+    mock_redis = AsyncMock()
+    mock_redis.get = AsyncMock(return_value="not_a_valid_format")
+    mock_redis.setex = AsyncMock()
+    mock_redis.aclose = AsyncMock()
+    mock_get_redis.return_value = mock_redis
+
+    mock_inspector = MagicMock()
+    mock_inspector.active.return_value = {"worker1": [{"id": "task1"}]}
+    mock_inspector.scheduled.return_value = {"worker1": []}
+    mock_inspector.stats.return_value = {"worker1": {"clock": 123}}
+    mock_celery.control.inspect.return_value = mock_inspector
+
+    response = await async_client_with_db.get(
+        build_api_url("/admin/alerts/worker-status"),
+        headers=admin_headers,
+    )
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["worker_available"] is True
+    assert data["active_tasks"] == 1
+    assert data["last_heartbeat"] is not None  # Treated as first check - healthy
+    assert "healthy" in data["message"].lower()
 
 
 # ==================== Recent Logs Endpoint Tests ====================
