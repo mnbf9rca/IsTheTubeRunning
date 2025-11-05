@@ -234,6 +234,90 @@ async def test_list_users_with_contacts(
 
 
 @pytest.mark.asyncio
+async def test_list_users_with_multiple_contacts(
+    async_client_with_db: AsyncClient,
+    admin_user: tuple[User, Any],
+    admin_headers: dict[str, str],
+    another_user: User,
+    db_session: AsyncSession,
+) -> None:
+    """Test listing users with multiple email addresses and phone numbers."""
+    # Add multiple emails to another_user
+    email1 = EmailAddress(
+        user_id=another_user.id,
+        email="primary@example.com",
+        verified=True,
+        is_primary=True,
+    )
+    email2 = EmailAddress(
+        user_id=another_user.id,
+        email="secondary@example.com",
+        verified=True,
+        is_primary=False,
+    )
+    email3 = EmailAddress(
+        user_id=another_user.id,
+        email="unverified@example.com",
+        verified=False,
+        is_primary=False,
+    )
+
+    # Add multiple phones to another_user
+    phone1 = PhoneNumber(
+        user_id=another_user.id,
+        phone="+441111111111",
+        verified=True,
+        is_primary=True,
+    )
+    phone2 = PhoneNumber(
+        user_id=another_user.id,
+        phone="+442222222222",
+        verified=False,
+        is_primary=False,
+    )
+
+    db_session.add_all([email1, email2, email3, phone1, phone2])
+    await db_session.commit()
+
+    response = await async_client_with_db.get(
+        build_api_url("/admin/users"),
+        headers=admin_headers,
+    )
+
+    assert response.status_code == 200
+    data = response.json()
+
+    # Find another_user in results
+    another_user_data = next((u for u in data["users"] if u["id"] == str(another_user.id)), None)
+    assert another_user_data is not None
+
+    # Check that all email addresses are included
+    assert len(another_user_data["email_addresses"]) == 3
+    emails = [e["email"] for e in another_user_data["email_addresses"]]
+    assert "primary@example.com" in emails
+    assert "secondary@example.com" in emails
+    assert "unverified@example.com" in emails
+
+    # Check email verification status and primary flags
+    primary_email = next((e for e in another_user_data["email_addresses"] if e["is_primary"]), None)
+    assert primary_email is not None
+    assert primary_email["email"] == "primary@example.com"
+    assert primary_email["verified"] is True
+
+    # Check that all phone numbers are included
+    assert len(another_user_data["phone_numbers"]) == 2
+    phones = [p["phone"] for p in another_user_data["phone_numbers"]]
+    assert "+441111111111" in phones
+    assert "+442222222222" in phones
+
+    # Check phone verification status and primary flags
+    primary_phone = next((p for p in another_user_data["phone_numbers"] if p["is_primary"]), None)
+    assert primary_phone is not None
+    assert primary_phone["phone"] == "+441111111111"
+    assert primary_phone["verified"] is True
+
+
+@pytest.mark.asyncio
 async def test_list_users_pagination(
     async_client_with_db: AsyncClient,
     admin_user: tuple[User, Any],
@@ -345,7 +429,7 @@ async def test_list_users_exclude_deleted(
 
     assert response.status_code == 200
     data = response.json()
-    assert not any(u["id"] == str(deleted_user.id) for u in data["users"])
+    assert all(u["id"] != str(deleted_user.id) for u in data["users"])
 
 
 @pytest.mark.asyncio

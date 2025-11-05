@@ -60,15 +60,19 @@ class AdminService:
         if search:
             # Search in external_id or email addresses
             search_term = f"%{search}%"
-            query = query.outerjoin(User.email_addresses).where(
-                or_(
-                    User.external_id.ilike(search_term),
-                    EmailAddress.email.ilike(search_term),
+            query = (
+                query.outerjoin(User.email_addresses)
+                .where(
+                    or_(
+                        User.external_id.ilike(search_term),
+                        EmailAddress.email.ilike(search_term),
+                    )
                 )
+                .distinct()
             )
 
-        # Get total count
-        count_query = select(func.count()).select_from(query.subquery())
+        # Get total count (use COUNT(DISTINCT user.id) to avoid inflation from joins)
+        count_query = select(func.count(func.distinct(User.id))).select_from(query.subquery())
         result = await self.db.execute(count_query)
         total = result.scalar() or 0
 
@@ -102,9 +106,7 @@ class AdminService:
         )
 
         result = await self.db.execute(query)
-        user = result.scalar_one_or_none()
-
-        if not user:
+        if not (user := result.scalar_one_or_none()):
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail="User not found.",
@@ -140,32 +142,38 @@ class AdminService:
                 detail="User is already deleted.",
             )
 
-        # Begin anonymisation process
-        # 1. Delete verification codes first (they reference emails/phones via contact_id)
-        await self.db.execute(delete(VerificationCode).where(VerificationCode.user_id == user_id))
+        # Wrap all operations in a transaction to ensure atomicity
+        try:
+            # Begin anonymisation process
+            # 1. Delete verification codes first (they reference emails/phones via contact_id)
+            await self.db.execute(delete(VerificationCode).where(VerificationCode.user_id == user_id))
 
-        # 2. Delete email addresses
-        await self.db.execute(delete(EmailAddress).where(EmailAddress.user_id == user_id))
+            # 2. Delete email addresses
+            await self.db.execute(delete(EmailAddress).where(EmailAddress.user_id == user_id))
 
-        # 3. Delete phone numbers
-        await self.db.execute(delete(PhoneNumber).where(PhoneNumber.user_id == user_id))
+            # 3. Delete phone numbers
+            await self.db.execute(delete(PhoneNumber).where(PhoneNumber.user_id == user_id))
 
-        # 4. Deactivate all routes
-        await self.db.execute(update(Route).where(Route.user_id == user_id).values(active=False))
+            # 4. Deactivate all routes
+            await self.db.execute(update(Route).where(Route.user_id == user_id).values(active=False))
 
-        # 5. Update user: anonymise external_id, clear auth_provider, set deleted_at
-        await self.db.execute(
-            update(User)
-            .where(User.id == user_id)
-            .values(
-                external_id=f"deleted_{user_id}",
-                auth_provider="",
-                deleted_at=datetime.now(UTC),
+            # 5. Update user: anonymise external_id, clear auth_provider, set deleted_at
+            await self.db.execute(
+                update(User)
+                .where(User.id == user_id)
+                .values(
+                    external_id=f"deleted_{user_id}",
+                    auth_provider="",
+                    deleted_at=datetime.now(UTC),
+                )
             )
-        )
 
-        # Commit all changes
-        await self.db.commit()
+            # Commit all changes atomically
+            await self.db.commit()
+        except Exception:
+            # Rollback on any failure to ensure no partial deletion
+            await self.db.rollback()
+            raise
 
     async def get_engagement_metrics(self) -> dict[str, Any]:
         """
@@ -283,7 +291,7 @@ class AdminService:
             .where(NotificationLog.sent_at >= thirty_days_ago)
             .group_by(NotificationLog.method)
         )
-        by_method = {row.method: row.count for row in result}
+        by_method = {row.method.value: row.count for row in result}
         metrics["notification_stats"]["by_method_last_30_days"] = by_method
 
         # ==================== Growth Metrics ====================
