@@ -45,7 +45,7 @@ PR5 (Admin) → Independent after PR1
 - Build foundation for all future PRs
 
 ### Dependencies Installed
-- [x] `@auth0/auth0-react` (v2.3.1)
+- [x] `@auth0/auth0-react` (v2.8.0)
 
 ### shadcn/ui Components to Install
 - [ ] Button
@@ -58,6 +58,18 @@ PR5 (Admin) → Independent after PR1
 - [ ] Sheet (for mobile menu)
 
 ### Tasks
+
+#### 0. Frontend Quality Tooling Setup
+- [ ] Configure ESLint with React and TypeScript rules
+- [ ] Configure Prettier for code formatting
+- [ ] Set up Husky for Git hooks
+- [ ] Create pre-commit hook (lint, format, type-check)
+- [ ] Create GitHub Actions workflow for frontend CI:
+  - Lint check (ESLint)
+  - Type check (tsc --noEmit)
+  - Tests (Vitest)
+  - Build verification
+- [ ] Add frontend CI status badge to README
 
 #### 1. Configuration
 - [ ] Add Auth0 environment variables to `.env.example`:
