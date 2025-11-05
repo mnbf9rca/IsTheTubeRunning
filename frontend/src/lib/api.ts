@@ -180,3 +180,207 @@ export async function getRoot(): Promise<RootResponse> {
   }
   return response
 }
+
+// ============================================================================
+// Authentication Types & API
+// ============================================================================
+
+/**
+ * User information response from /auth/me
+ */
+export interface UserResponse {
+  id: string
+  created_at: string
+  updated_at: string
+}
+
+/**
+ * Get current authenticated user information
+ *
+ * This endpoint validates the JWT token with the backend and returns user info.
+ * It also automatically creates a new user record on first authenticated request.
+ *
+ * @returns Current user information
+ * @throws {ApiError} 401 if token is invalid or expired
+ */
+export async function getCurrentUser(): Promise<UserResponse> {
+  const response = await fetchAPI<UserResponse>('/auth/me')
+  if (!response) {
+    throw new ApiError(204, 'Unexpected 204 response from auth/me endpoint')
+  }
+  return response
+}
+
+// ============================================================================
+// Contact Management Types & API
+// ============================================================================
+
+/**
+ * Email contact response
+ */
+export interface EmailResponse {
+  id: string
+  email: string
+  verified: boolean
+  is_primary: boolean
+  created_at: string
+}
+
+/**
+ * Phone contact response
+ */
+export interface PhoneResponse {
+  id: string
+  phone: string
+  verified: boolean
+  is_primary: boolean
+  created_at: string
+}
+
+/**
+ * Union type for any contact
+ */
+export type Contact = EmailResponse | PhoneResponse
+
+/**
+ * Response from GET /contacts endpoint
+ */
+export interface ContactsResponse {
+  emails: EmailResponse[]
+  phones: PhoneResponse[]
+}
+
+/**
+ * Request to add an email
+ */
+export interface AddEmailRequest {
+  email: string
+}
+
+/**
+ * Request to add a phone
+ */
+export interface AddPhoneRequest {
+  phone: string
+}
+
+/**
+ * Request to verify a contact code
+ */
+export interface VerifyCodeRequest {
+  contact_id: string
+  code: string
+}
+
+/**
+ * Response from verification code send
+ */
+export interface SendVerificationResponse {
+  success: boolean
+  message: string
+}
+
+/**
+ * Response from verification code verification
+ */
+export interface VerifyCodeResponse {
+  success: boolean
+  message: string
+}
+
+/**
+ * Get all contacts for the authenticated user
+ *
+ * @returns ContactsResponse with emails and phones arrays
+ * @throws {ApiError} If the request fails
+ */
+export async function getContacts(): Promise<ContactsResponse> {
+  const response = await fetchAPI<ContactsResponse>('/contacts')
+  if (!response) {
+    throw new ApiError(204, 'Unexpected 204 response from contacts endpoint')
+  }
+  return response
+}
+
+/**
+ * Add a new email address
+ *
+ * @param email The email address to add
+ * @returns The created email contact
+ * @throws {ApiError} 409 if email already exists, 429 if rate limited
+ */
+export async function addEmail(email: string): Promise<EmailResponse> {
+  const response = await fetchAPI<EmailResponse>('/contacts/email', {
+    method: 'POST',
+    body: JSON.stringify({ email } as AddEmailRequest),
+  })
+  if (!response) {
+    throw new ApiError(204, 'Unexpected 204 response from add email endpoint')
+  }
+  return response
+}
+
+/**
+ * Add a new phone number
+ *
+ * @param phone The phone number to add (E.164 format)
+ * @returns The created phone contact
+ * @throws {ApiError} 400 if invalid format, 409 if phone already exists, 429 if rate limited
+ */
+export async function addPhone(phone: string): Promise<PhoneResponse> {
+  const response = await fetchAPI<PhoneResponse>('/contacts/phone', {
+    method: 'POST',
+    body: JSON.stringify({ phone } as AddPhoneRequest),
+  })
+  if (!response) {
+    throw new ApiError(204, 'Unexpected 204 response from add phone endpoint')
+  }
+  return response
+}
+
+/**
+ * Send verification code to a contact
+ *
+ * @param contactId The contact ID to verify
+ * @returns Response confirming code was sent
+ * @throws {ApiError} 404 if contact not found, 429 if rate limited (3 per hour)
+ */
+export async function sendVerification(contactId: string): Promise<SendVerificationResponse> {
+  const response = await fetchAPI<SendVerificationResponse>(
+    `/contacts/${contactId}/send-verification`,
+    { method: 'POST' }
+  )
+  if (!response) {
+    throw new ApiError(204, 'Unexpected 204 response from send verification endpoint')
+  }
+  return response
+}
+
+/**
+ * Verify a contact with the provided code
+ *
+ * @param contactId The contact ID to verify
+ * @param code The 6-digit verification code
+ * @returns Response confirming verification success
+ * @throws {ApiError} 400 if code invalid/expired, 404 if contact not found
+ */
+export async function verifyCode(contactId: string, code: string): Promise<VerifyCodeResponse> {
+  const response = await fetchAPI<VerifyCodeResponse>('/contacts/verify', {
+    method: 'POST',
+    body: JSON.stringify({ contact_id: contactId, code } as VerifyCodeRequest),
+  })
+  if (!response) {
+    throw new ApiError(204, 'Unexpected 204 response from verify code endpoint')
+  }
+  return response
+}
+
+/**
+ * Delete a contact
+ *
+ * @param contactId The contact ID to delete
+ * @throws {ApiError} 404 if contact not found
+ */
+export async function deleteContact(contactId: string): Promise<void> {
+  await fetchAPI<void>(`/contacts/${contactId}`, { method: 'DELETE' })
+}

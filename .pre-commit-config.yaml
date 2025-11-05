@@ -73,3 +73,9 @@ repos:
         language: system
         files: ^frontend/src/.*\.[jt]sx?$
         pass_filenames: false
+      - id: frontend-build
+        name: frontend build
+        entry: bash -c 'cd frontend && npm run build'
+        language: system
+        files: ^frontend/
+        pass_filenames: false

@@ -1,6 +1,6 @@
 {
   "api": {
-    "baseUrl": "http://localhost:8000"
+    "baseUrl": "http://localhost:8000/api/v1"
   },
   "auth0": {
     "domain": "tfl-alerts.uk.auth0.com",
