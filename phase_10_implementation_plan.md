@@ -21,12 +21,15 @@ Phase 10 implements all user-facing and admin frontend features. The backend API
 ```
 PR1 (Auth & Foundation) → Required for all other PRs
 PR2 (Contacts) → Independent after PR1
-PR3 (Routes) → Independent after PR1
-PR4 (Notifications) → Depends on PR2 + PR3
-PR5 (Admin) → Independent after PR1
+PR2.5 (Backend Auth Architecture) → Critical fix after PR2, blocks PR3+
+PR3 (Routes) → Independent after PR2.5
+PR4 (Notifications) → Depends on PR3
+PR5 (Admin) → Independent after PR2.5
 ```
 
-**Recommended Order**: PR1 → PR2 → PR3 → PR4 → PR5
+**Recommended Order**: PR1 → PR2 → **PR2.5** → PR3 → PR4 → PR5
+
+**⚠️ CRITICAL**: PR2.5 must be completed before continuing with PR3+ to ensure proper authentication architecture.
 
 ---
 
@@ -182,7 +185,8 @@ PR5 (Admin) → Independent after PR1
 
 **Branch**: `feature/phase-10-pr2-contacts`
 **Estimated Time**: 2-3 days
-**Status**: Not Started
+**Status**: In Progress (95% complete - needs auth architecture fix before merge)
+**Started**: 2025-11-05
 **Depends on**: PR1
 
 ### Goals
@@ -249,6 +253,169 @@ PR5 (Admin) → Independent after PR1
 - Hooks: `hooks/useContacts.ts`
 - Tests: `*.test.tsx`
 - Routes: `App.tsx` (updated)
+
+---
+
+## PR2.5: Backend Auth Architecture (CRITICAL FIX)
+
+**Branch**: `feature/phase-10-pr2.5-backend-auth-architecture`
+**Estimated Time**: 1-2 days
+**Status**: Not Started
+**Priority**: CRITICAL - Blocks PR3, PR4, PR5
+**Started**: TBD
+**Depends on**: PR2
+
+### Goals
+- Fix authentication architecture to make backend the single source of truth
+- Resolve infinite loop bug in BackendAuthContext
+- Ensure frontend cannot access protected routes without backend validation
+- Prevent dashboard access when backend is unavailable
+
+### Problem Statement
+**Current Issue**: Frontend trusts Auth0's `isAuthenticated` state directly, allowing dashboard access even when the backend is unavailable or returns 401/500 errors. This violates the architecture principle: "Backend is the source of truth for authentication."
+
+**Symptoms**:
+- User can access dashboard after backend validation fails
+- Infinite loop in BackendAuthContext causing rapid re-renders (hundreds per second)
+- Backend being unavailable doesn't prevent frontend access
+
+**Root Cause**: The current BackendAuthContext implementation has dependency and state management issues causing infinite re-render loops when validation fails.
+
+### Technical Requirements
+
+#### 1. Fix BackendAuthContext
+**File**: `src/contexts/BackendAuthContext.tsx`
+
+Current problematic pattern:
+```typescript
+useEffect(() => {
+  if (auth0IsAuthenticated && !auth0IsLoading && !user && !isValidating && !error) {
+    validateWithBackend().catch(() => {})
+  }
+}, [auth0IsAuthenticated, auth0IsLoading, user, isValidating, error, validateWithBackend])
+```
+
+**Issues to fix**:
+- `validateWithBackend` dependency causing infinite loop
+- No clear separation between initial load and retry logic
+- Error state not properly preventing retries
+- Race conditions between Auth0 state changes and backend validation
+
+**Required fixes**:
+1. Implement proper dependency management for `validateWithBackend`
+2. Add ref-based tracking to prevent duplicate calls
+3. Implement exponential backoff or circuit breaker for failed validations
+4. Clear distinction between "never validated" and "validation failed"
+5. Handle Auth0 logout → backend state cleanup properly
+
+#### 2. Update ProtectedRoute
+**File**: `src/components/ProtectedRoute.tsx`
+
+**Current behavior**: Shows loading spinner during validation but has timing issues
+
+**Required fixes**:
+1. Handle the case where backend validation is pending but Auth0 is ready
+2. Show appropriate loading states vs error states
+3. Ensure navigation to `/login` happens consistently when backend rejects
+
+#### 3. Update Callback Page
+**File**: `src/pages/Callback.tsx`
+
+**Current behavior**: Simplified but still has edge cases with logout timing
+
+**Required fixes**:
+1. Ensure consistent error messages for different failure modes
+2. Properly handle logout redirect with correct return URL
+3. Add timeout protection against infinite validation attempts
+
+### Testing Requirements
+
+#### Unit Tests
+- [ ] BackendAuthContext: Initial validation on Auth0 authentication
+- [ ] BackendAuthContext: Validation failure sets error state
+- [ ] BackendAuthContext: No infinite loop on validation failure
+- [ ] BackendAuthContext: clearAuth() properly resets state
+- [ ] BackendAuthContext: Handles Auth0 logout correctly
+- [ ] ProtectedRoute: Redirects to /login when backend validation fails
+- [ ] ProtectedRoute: Shows loading during initial validation
+- [ ] ProtectedRoute: Renders children only after successful backend validation
+- [ ] Callback: Redirects to dashboard on successful backend validation
+- [ ] Callback: Redirects to login on backend validation failure
+- [ ] Callback: Displays appropriate error messages
+
+#### Integration Tests
+- [ ] Full auth flow: Auth0 login → backend validation → dashboard access
+- [ ] Backend unavailable: Auth0 success → backend fails → redirect to login
+- [ ] Backend 401: Auth0 success → backend unauthorized → redirect to login
+- [ ] Backend 500: Auth0 success → backend error → redirect to login
+- [ ] Logout flow: Clear both Auth0 and backend state
+
+#### Manual Testing Scenarios
+1. **Happy path**: Start backend, login via Auth0, verify dashboard access
+2. **Backend down on login**: Stop backend, login via Auth0, verify redirect to login with appropriate message
+3. **Backend dies after login**: Login successfully, stop backend, navigate to protected route, verify redirect to login
+4. **Invalid token**: Manipulate token, try to access dashboard, verify backend rejects and redirects to login
+5. **No infinite loops**: Monitor console/React DevTools during failed validations to confirm no rapid re-renders
+
+### Implementation Strategy
+
+**Option 1: Ref-based deduplication** (Recommended)
+```typescript
+const validationAttemptRef = useRef<{ inProgress: boolean; timestamp: number }>({
+  inProgress: false,
+  timestamp: 0,
+})
+
+const validateWithBackend = useCallback(async () => {
+  // Prevent concurrent validations
+  if (validationAttemptRef.current.inProgress) return
+
+  validationAttemptRef.current = { inProgress: true, timestamp: Date.now() }
+  try {
+    setIsValidating(true)
+    setError(null)
+    const userData = await getCurrentUser()
+    setUser(userData)
+  } catch (err) {
+    setError(err as Error)
+    setUser(null)
+  } finally {
+    setIsValidating(false)
+    validationAttemptRef.current.inProgress = false
+  }
+}, [])
+```
+
+**Option 2: Separate "hasAttempted" flag**
+Track whether validation has been attempted to distinguish "not yet tried" from "tried and failed."
+
+**Option 3: AbortController for cancellation**
+Use AbortController to cancel in-flight requests when component unmounts or Auth0 state changes.
+
+### Completion Criteria
+- [ ] No infinite loops during validation failures
+- [ ] Backend unavailable prevents dashboard access
+- [ ] All protected routes require successful backend validation
+- [ ] Error messages are clear and actionable
+- [ ] All tests passing (unit + integration)
+- [ ] Manual testing scenarios pass
+- [ ] Code review approved
+- [ ] Documentation updated
+
+### Files Modified
+- `src/contexts/BackendAuthContext.tsx` - Fix validation logic
+- `src/components/ProtectedRoute.tsx` - Update to handle edge cases
+- `src/pages/Callback.tsx` - Ensure proper error handling
+- `src/components/ProtectedRoute.test.tsx` - Update mocks and tests
+- `src/pages/Callback.test.tsx` - Update mocks and tests
+- `src/contexts/BackendAuthContext.test.tsx` - Create comprehensive tests (NEW)
+
+### Success Metrics
+1. Zero infinite loop occurrences in dev/test
+2. All 12+ new tests passing
+3. Backend down = no dashboard access (100% of time)
+4. Clean console output (no error spam)
+5. Smooth UX transitions (no flashing/flickering)
 
 ---
 
