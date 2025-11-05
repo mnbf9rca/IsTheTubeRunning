@@ -10,20 +10,20 @@ interface BackendAuthContextType {
   error: Error | null
   validateWithBackend: () => Promise<void>
   clearAuth: () => void
+  forceLogout: () => Promise<void>
 }
 
 const BackendAuthContext = createContext<BackendAuthContextType | undefined>(undefined)
 
 export function BackendAuthProvider({ children }: { children: ReactNode }) {
-  const { isAuthenticated: auth0IsAuthenticated, isLoading: auth0IsLoading } = useAuth()
+  const { isAuthenticated: auth0IsAuthenticated, isLoading: auth0IsLoading, logout } = useAuth()
   const [user, setUser] = useState<UserResponse | null>(null)
   const [isValidating, setIsValidating] = useState(false)
   const [error, setError] = useState<Error | null>(null)
 
-  // Use ref to track validation state and prevent duplicate/infinite calls
+  // Use ref to track validation state and prevent duplicate calls
   const validationRef = useRef({
     inProgress: false,
-    hasAttempted: false,
   })
 
   const validateWithBackend = useCallback(async () => {
@@ -37,7 +37,6 @@ export function BackendAuthProvider({ children }: { children: ReactNode }) {
     }
 
     validationRef.current.inProgress = true
-    validationRef.current.hasAttempted = true
 
     try {
       setIsValidating(true)
@@ -57,30 +56,16 @@ export function BackendAuthProvider({ children }: { children: ReactNode }) {
   const clearAuth = useCallback(() => {
     setUser(null)
     setError(null)
-    validationRef.current.hasAttempted = false
     validationRef.current.inProgress = false
   }, [])
 
-  // Auto-validate when Auth0 authenticates
-  useEffect(() => {
-    // Only validate if:
-    // - Auth0 says authenticated
-    // - Not currently loading
-    // - No user yet
-    // - Haven't attempted validation yet (or retrying after clearAuth)
-    // - No existing error (don't retry on error)
-    if (
-      auth0IsAuthenticated &&
-      !auth0IsLoading &&
-      !user &&
-      !validationRef.current.hasAttempted &&
-      !error
-    ) {
-      validateWithBackend().catch(() => {
-        // Error already set in state
-      })
-    }
-  }, [auth0IsAuthenticated, auth0IsLoading, user, error, validateWithBackend])
+  const forceLogout = useCallback(async () => {
+    // Clear backend state first
+    clearAuth()
+
+    // Then logout from Auth0
+    await logout()
+  }, [logout, clearAuth])
 
   // Clear backend auth when Auth0 logs out
   useEffect(() => {
@@ -98,6 +83,7 @@ export function BackendAuthProvider({ children }: { children: ReactNode }) {
         error,
         validateWithBackend,
         clearAuth,
+        forceLogout,
       }}
     >
       {children}

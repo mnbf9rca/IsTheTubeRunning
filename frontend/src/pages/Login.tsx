@@ -3,17 +3,21 @@ import { useNavigate } from 'react-router-dom'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { useAuth } from '@/hooks/useAuth'
+import { useBackendAuth } from '@/contexts/BackendAuthContext'
 import { Train, Bell, MapPin, Shield } from 'lucide-react'
 
 export default function Login() {
   const { isAuthenticated, login, isLoading } = useAuth()
+  const { isBackendAuthenticated } = useBackendAuth()
   const navigate = useNavigate()
 
   useEffect(() => {
-    if (isAuthenticated) {
+    // Only redirect if BOTH Auth0 AND backend confirm authentication
+    // This prevents redirect loops when backend denies auth
+    if (isAuthenticated && isBackendAuthenticated) {
       navigate('/dashboard')
     }
-  }, [isAuthenticated, navigate])
+  }, [isAuthenticated, isBackendAuthenticated, navigate])
 
   if (isLoading) {
     return (

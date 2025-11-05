@@ -4,6 +4,7 @@ import base64
 import json
 from collections.abc import AsyncGenerator
 from datetime import timedelta
+from unittest.mock import AsyncMock
 
 import pytest
 from app.core.database import get_db
@@ -16,6 +17,67 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from tests.helpers.jwt_helpers import MockJWTGenerator
 from tests.helpers.test_data import make_unique_external_id
+
+
+class TestAuthReadyEndpoint:
+    """Tests for GET /auth/ready endpoint."""
+
+    @pytest.mark.asyncio
+    async def test_auth_ready_success(self, db_session: AsyncSession) -> None:
+        """Test /auth/ready returns ready=true when database is available."""
+
+        # Override database dependency to use test database
+        async def override_get_db() -> AsyncGenerator[AsyncSession]:
+            yield db_session
+
+        app.dependency_overrides[get_db] = override_get_db
+
+        try:
+            async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+                response = await client.get("/api/v1/auth/ready")
+
+                assert response.status_code == 200
+                data = response.json()
+                assert data["ready"] is True
+                assert data.get("message") is None  # No error message
+        finally:
+            # Clean up override
+            app.dependency_overrides.clear()
+
+    def test_auth_ready_no_auth_required(self) -> None:
+        """Test /auth/ready does not require authentication."""
+        # This endpoint should be accessible without authentication
+        # because it's checked before login
+        with TestClient(app) as client:
+            response = client.get("/api/v1/auth/ready")
+
+            # Should not be 401 or 403
+            assert response.status_code != 401
+            assert response.status_code != 403
+
+    @pytest.mark.asyncio
+    async def test_auth_ready_database_error(self) -> None:
+        """Test /auth/ready returns ready=false when database connection fails."""
+
+        # Create a mock session that raises an error
+        async def override_get_db_error() -> AsyncGenerator[AsyncSession]:
+            mock_session = AsyncMock(spec=AsyncSession)
+            mock_session.execute.side_effect = Exception("Database connection failed")
+            yield mock_session
+
+        app.dependency_overrides[get_db] = override_get_db_error
+
+        try:
+            async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+                response = await client.get("/api/v1/auth/ready")
+
+                assert response.status_code == 200
+                data = response.json()
+                assert data["ready"] is False
+                assert "Database connection failed" in data["message"]
+        finally:
+            # Clean up override
+            app.dependency_overrides.clear()
 
 
 class TestAuthMeEndpoint:

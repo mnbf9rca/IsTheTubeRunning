@@ -3,27 +3,31 @@ import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
 import { AppLayout } from './components/layout/AppLayout'
 import { ProtectedRoute } from './components/ProtectedRoute'
 import { BackendAuthProvider } from './contexts/BackendAuthContext'
+import {
+  BackendAvailabilityProvider,
+  useBackendAvailability,
+} from './contexts/BackendAvailabilityContext'
 import { useAuth } from './hooks/useAuth'
 import { setAccessTokenGetter } from './lib/api'
 import Login from './pages/Login'
 import Callback from './pages/Callback'
 import Dashboard from './pages/Dashboard'
 import { Contacts } from './pages/Contacts'
+import { ServiceUnavailable } from './pages/ServiceUnavailable'
 
-function AppContent() {
-  const { getAccessToken } = useAuth()
+function AppRoutes() {
+  const { isAvailable, isChecking, lastChecked, checkAvailability } = useBackendAvailability()
 
-  // Set up the access token getter for the API client
-  // This allows the API client to retrieve fresh tokens on each request
-  // The cleanup function resets it on unmount to prevent stale references
-  useEffect(() => {
-    setAccessTokenGetter(getAccessToken)
-
-    return () => {
-      // Reset on unmount to prevent stale references
-      setAccessTokenGetter(() => Promise.reject(new Error('Auth context unmounted')))
-    }
-  }, [getAccessToken])
+  // If backend is unavailable, show service unavailable page
+  if (!isAvailable) {
+    return (
+      <ServiceUnavailable
+        onRetry={checkAvailability}
+        lastChecked={lastChecked ?? undefined}
+        isRetrying={isChecking}
+      />
+    )
+  }
 
   return (
     <BrowserRouter>
@@ -59,6 +63,28 @@ function AppContent() {
         </AppLayout>
       </BackendAuthProvider>
     </BrowserRouter>
+  )
+}
+
+function AppContent() {
+  const { getAccessToken } = useAuth()
+
+  // Set up the access token getter for the API client
+  // This allows the API client to retrieve fresh tokens on each request
+  // The cleanup function resets it on unmount to prevent stale references
+  useEffect(() => {
+    setAccessTokenGetter(getAccessToken)
+
+    return () => {
+      // Reset on unmount to prevent stale references
+      setAccessTokenGetter(() => Promise.reject(new Error('Auth context unmounted')))
+    }
+  }, [getAccessToken])
+
+  return (
+    <BackendAvailabilityProvider>
+      <AppRoutes />
+    </BackendAvailabilityProvider>
   )
 }
 
