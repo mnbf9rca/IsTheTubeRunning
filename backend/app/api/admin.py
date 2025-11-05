@@ -2,6 +2,7 @@
 
 from datetime import UTC, datetime
 from typing import Any, cast
+from uuid import UUID
 
 import structlog
 from celery.app.control import Inspect
@@ -15,12 +16,23 @@ from app.core.database import get_db
 from app.models.admin import AdminUser
 from app.models.notification import NotificationLog, NotificationStatus
 from app.schemas.admin import (
+    AnonymiseUserResponse,
+    DailySignup,
+    EngagementMetrics,
+    GrowthMetrics,
     NotificationLogItem,
+    NotificationStatMetrics,
+    PaginatedUsersResponse,
     RecentLogsResponse,
+    RouteStatMetrics,
     TriggerCheckResponse,
+    UserCountMetrics,
+    UserDetailResponse,
+    UserListItem,
     WorkerStatusResponse,
 )
 from app.schemas.tfl import BuildGraphResponse
+from app.services.admin_service import AdminService
 from app.services.alert_service import AlertService, get_redis_client
 from app.services.tfl_service import TfLService
 
@@ -324,4 +336,181 @@ async def get_recent_notification_logs(
         logs=log_items,
         limit=limit,
         offset=offset,
+    )
+
+
+# ==================== User Management Endpoints ====================
+
+
+@router.get("/users", response_model=PaginatedUsersResponse)
+async def list_users(
+    admin_user: AdminUser = Depends(require_admin),
+    db: AsyncSession = Depends(get_db),
+    limit: int = Query(50, ge=1, le=1000, description="Number of users to return"),
+    offset: int = Query(0, ge=0, description="Starting offset for pagination"),
+    search: str | None = Query(None, description="Search term (email or external_id)"),
+    include_deleted: bool = Query(False, description="Include soft-deleted users"),
+) -> PaginatedUsersResponse:
+    """
+    List all users with pagination and optional search/filters.
+
+    This endpoint returns a paginated list of users, optionally filtered by
+    search term (searches email and external_id) and deleted status.
+
+    **Requires admin privileges.**
+
+    Args:
+        admin_user: Authenticated admin user
+        db: Database session
+        limit: Number of users per page (1-1000, default 50)
+        offset: Starting offset for pagination (default 0)
+        search: Optional search term for email or external_id
+        include_deleted: Whether to include soft-deleted users (default False)
+
+    Returns:
+        Paginated list of users with email/phone contacts
+
+    Raises:
+        HTTPException: 403 if not admin
+    """
+    admin_service = AdminService(db)
+    users, total = await admin_service.get_users_paginated(
+        limit=limit,
+        offset=offset,
+        search=search,
+        include_deleted=include_deleted,
+    )
+
+    # Convert to response models
+    user_items = [UserListItem.model_validate(user) for user in users]
+
+    return PaginatedUsersResponse(
+        total=total,
+        users=user_items,
+        limit=limit,
+        offset=offset,
+    )
+
+
+@router.get("/users/{user_id}", response_model=UserDetailResponse)
+async def get_user_details(
+    user_id: UUID,
+    admin_user: AdminUser = Depends(require_admin),
+    db: AsyncSession = Depends(get_db),
+) -> UserDetailResponse:
+    """
+    Get detailed information about a specific user.
+
+    This endpoint returns comprehensive user information including
+    email addresses, phone numbers, and other profile details.
+
+    **Requires admin privileges.**
+
+    Args:
+        user_id: UUID of the user to retrieve
+        admin_user: Authenticated admin user
+        db: Database session
+
+    Returns:
+        Detailed user information
+
+    Raises:
+        HTTPException: 403 if not admin, 404 if user not found
+    """
+    admin_service = AdminService(db)
+    user = await admin_service.get_user_details(user_id)
+
+    return UserDetailResponse.model_validate(user)
+
+
+@router.delete("/users/{user_id}", response_model=AnonymiseUserResponse)
+async def anonymise_user(
+    user_id: UUID,
+    admin_user: AdminUser = Depends(require_admin),
+    db: AsyncSession = Depends(get_db),
+) -> AnonymiseUserResponse:
+    """
+    Anonymise a user by deleting PII and deactivating routes.
+
+    This is a privacy-focused deletion that implements data minimisation:
+    - Deletes email addresses, phone numbers, verification codes (PII)
+    - Anonymises external_id to "deleted_{user_id}"
+    - Clears auth_provider
+    - Deactivates all user routes (stops alerts)
+    - Sets deleted_at timestamp
+    - Preserves notification logs and route structure for analytics
+
+    **Requires admin privileges.**
+
+    Args:
+        user_id: UUID of the user to anonymise
+        admin_user: Authenticated admin user
+        db: Database session
+
+    Returns:
+        Confirmation of anonymisation
+
+    Raises:
+        HTTPException: 403 if not admin, 404 if user not found, 400 if already deleted
+    """
+    admin_service = AdminService(db)
+    await admin_service.anonymise_user(user_id)
+
+    logger.info(
+        "user_anonymised",
+        user_id=str(user_id),
+        admin_id=str(admin_user.user_id),
+    )
+
+    return AnonymiseUserResponse(
+        success=True,
+        message="User anonymised successfully. PII deleted, routes deactivated.",
+        user_id=user_id,
+    )
+
+
+# ==================== Analytics Endpoints ====================
+
+
+@router.get("/analytics/engagement", response_model=EngagementMetrics)
+async def get_engagement_metrics(
+    admin_user: AdminUser = Depends(require_admin),
+    db: AsyncSession = Depends(get_db),
+) -> EngagementMetrics:
+    """
+    Get comprehensive engagement metrics for the admin dashboard.
+
+    This endpoint provides four categories of metrics:
+    - **User Counts**: Total users, active users, verified contacts, admin users
+    - **Route Statistics**: Total routes, active routes, average per user
+    - **Notification Statistics**: Sent, failed, success rate, by method (last 30 days)
+    - **Growth Metrics**: New users (7/30 days), daily signups (last 7 days)
+
+    **Requires admin privileges.**
+
+    Args:
+        admin_user: Authenticated admin user
+        db: Database session
+
+    Returns:
+        Comprehensive engagement metrics
+
+    Raises:
+        HTTPException: 403 if not admin
+    """
+    admin_service = AdminService(db)
+    metrics = await admin_service.get_engagement_metrics()
+
+    # Convert metrics dict to Pydantic models
+    return EngagementMetrics(
+        user_counts=UserCountMetrics(**metrics["user_counts"]),
+        route_stats=RouteStatMetrics(**metrics["route_stats"]),
+        notification_stats=NotificationStatMetrics(**metrics["notification_stats"]),
+        growth_metrics=GrowthMetrics(
+            new_users_last_7_days=metrics["growth_metrics"]["new_users_last_7_days"],
+            new_users_last_30_days=metrics["growth_metrics"]["new_users_last_30_days"],
+            daily_signups_last_7_days=[
+                DailySignup(**signup) for signup in metrics["growth_metrics"]["daily_signups_last_7_days"]
+            ],
+        ),
     )
