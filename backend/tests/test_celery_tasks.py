@@ -31,7 +31,7 @@ async def test_check_disruptions_async_success(
 
     # Mock Redis client
     mock_redis = AsyncMock()
-    mock_redis.close = AsyncMock()
+    mock_redis.aclose = AsyncMock()
     mock_redis_func.return_value = mock_redis
 
     # Mock AlertService
@@ -78,7 +78,7 @@ async def test_check_disruptions_async_returns_stats(
 
     # Mock Redis client
     mock_redis = AsyncMock()
-    mock_redis.close = AsyncMock()
+    mock_redis.aclose = AsyncMock()
     mock_redis_func.return_value = mock_redis
 
     # Mock AlertService with different stats
@@ -120,7 +120,7 @@ async def test_check_disruptions_async_closes_resources(
 
     # Mock Redis client
     mock_redis = AsyncMock()
-    mock_redis.close = AsyncMock()
+    mock_redis.aclose = AsyncMock()
     mock_redis_func.return_value = mock_redis
 
     # Mock AlertService
@@ -138,7 +138,7 @@ async def test_check_disruptions_async_closes_resources(
     await _check_disruptions_async()
 
     # Verify resources were closed
-    mock_redis.close.assert_called_once()
+    mock_redis.aclose.assert_called_once()
     mock_session.close.assert_called_once()
 
 
@@ -159,7 +159,7 @@ async def test_check_disruptions_async_closes_resources_on_error(
 
     # Mock Redis client
     mock_redis = AsyncMock()
-    mock_redis.close = AsyncMock()
+    mock_redis.aclose = AsyncMock()
     mock_redis_func.return_value = mock_redis
 
     # Mock AlertService to raise error
@@ -172,7 +172,7 @@ async def test_check_disruptions_async_closes_resources_on_error(
         await _check_disruptions_async()
 
     # Verify resources were still closed
-    mock_redis.close.assert_called_once()
+    mock_redis.aclose.assert_called_once()
     mock_session.close.assert_called_once()
 
 
@@ -193,7 +193,7 @@ async def test_check_disruptions_async_no_routes_checked(
 
     # Mock Redis client
     mock_redis = AsyncMock()
-    mock_redis.close = AsyncMock()
+    mock_redis.aclose = AsyncMock()
     mock_redis_func.return_value = mock_redis
 
     # Mock AlertService with no routes
@@ -234,7 +234,7 @@ async def test_check_disruptions_async_with_errors(
 
     # Mock Redis client
     mock_redis = AsyncMock()
-    mock_redis.close = AsyncMock()
+    mock_redis.aclose = AsyncMock()
     mock_redis_func.return_value = mock_redis
 
     # Mock AlertService with partial errors
@@ -299,7 +299,7 @@ async def test_check_disruptions_async_closes_redis_when_service_fails(
 
     # Mock Redis client
     mock_redis = AsyncMock()
-    mock_redis.close = AsyncMock()
+    mock_redis.aclose = AsyncMock()
     mock_redis_func.return_value = mock_redis
 
     # Mock AlertService to raise error on instantiation
@@ -310,7 +310,7 @@ async def test_check_disruptions_async_closes_redis_when_service_fails(
         await _check_disruptions_async()
 
     # Verify both resources were closed (lines 95-98)
-    mock_redis.close.assert_called_once()
+    mock_redis.aclose.assert_called_once()
     mock_session.close.assert_called_once()
 
 

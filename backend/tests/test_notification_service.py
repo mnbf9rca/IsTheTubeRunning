@@ -1,8 +1,10 @@
 """Tests for notification service."""
 
+import re
 import smtplib
 from datetime import UTC, datetime
 from unittest.mock import AsyncMock, patch
+from urllib.parse import urlparse
 
 import pytest
 from app.schemas.tfl import DisruptionResponse
@@ -422,7 +424,14 @@ class TestNotificationService:
         assert "Severe Delays and Signal Failures Throughout" in sent_message  # First disruption included
         assert "Part Suspended Between Multiple Stations" not in sent_message  # Second was truncated
         assert "My Very Long Route Name For Testing" in sent_message
-        assert "tfl.gov.uk" in sent_message
+
+        # Parse the tfl.gov.uk URL in sent_message and check its hostname
+        # Extract URL using regex (it is the last part after "More: ")
+        url_match = re.search(r"More: (\S+)", sent_message)
+        assert url_match is not None, f"Expected URL after 'More:', got message: {sent_message}"
+        sent_url = url_match.group(1)
+        parsed = urlparse(f"https://{sent_url}")  # Add scheme for proper parsing
+        assert parsed.hostname == "tfl.gov.uk", f"Expected hostname 'tfl.gov.uk', got '{parsed.hostname}'"
 
         # Verify the truncation actually happened by checking it's using only 1 disruption
         # Count the number of disruptions in the message (each line has format "LineName: Status")
