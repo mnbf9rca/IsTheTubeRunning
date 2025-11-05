@@ -579,8 +579,17 @@ Once this plan is committed, Phase 1 implementation will begin with:
     - Comprehensive tests (authorization, endpoints, edge cases)
     - Documentation updates (ARCHITECTURE.md ADRs 32-35, README.md)
 
+- [x] Phase 9: Admin Dashboard Backend (Completed: November 2025)
+  - AdminService with user management and analytics methods
+  - User management endpoints: GET /admin/users (list with pagination/search), GET /admin/users/{id} (details), DELETE /admin/users/{id} (privacy-focused anonymisation)
+  - Analytics endpoint: GET /admin/analytics/engagement (comprehensive metrics: user counts, route stats, notification stats, growth/retention)
+  - Privacy-focused user deletion: removes PII (emails, phones, verification codes), anonymises external_id, deactivates routes, preserves analytics data
+  - Test suite: 24 comprehensive tests covering authorization, CRUD operations, search/pagination, edge cases
+  - Coverage: AdminService 100%, admin schemas 100%, admin API endpoints tested
+  - Type-safe (mypy --strict) and linting compliant (ruff)
+  - Follows KISS principle: single engagement metrics endpoint instead of multiple specialized analytics APIs
+
 ### Upcoming Phases
-- [ ] Phase 9: Admin Dashboard Backend
 - [ ] Phase 10: Frontend Development
 - [ ] Phase 11: Testing & Quality
 - [ ] Phase 12: Deployment
