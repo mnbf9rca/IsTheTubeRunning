@@ -1,0 +1,11 @@
+{
+  "api": {
+    "baseUrl": "http://localhost:8000"
+  },
+  "auth0": {
+    "domain": "test.auth0.com",
+    "clientId": "test-client-id",
+    "audience": "https://api.test.local",
+    "callbackUrl": "http://localhost:5173/callback"
+  }
+}

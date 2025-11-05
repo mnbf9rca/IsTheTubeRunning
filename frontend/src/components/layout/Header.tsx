@@ -12,22 +12,55 @@ import {
 } from '@/components/ui/dropdown-menu'
 import { Sheet, SheetContent, SheetTrigger } from '@/components/ui/sheet'
 import { useAuth } from '@/hooks/useAuth'
+import { resetAccessTokenGetter } from '@/lib/api'
 import { Navigation } from './Navigation'
 
 export const Header = () => {
   const { user, isAuthenticated, isLoading, login, logout } = useAuth()
 
+  /**
+   * Handle logout - cleans up auth state and resets API token getter
+   */
+  const handleLogout = () => {
+    resetAccessTokenGetter()
+    logout()
+  }
+
+  /**
+   * Get user initials from name or email
+   *
+   * Handles edge cases:
+   * - Multiple spaces between names
+   * - Single-word names (returns first 2 chars)
+   * - Empty or whitespace-only names
+   * - Non-ASCII characters
+   *
+   * @returns 1-2 character string for avatar display
+   */
   const getUserInitials = () => {
     if (!user) return '?'
+
     if (user.name) {
-      const names = user.name.split(' ')
-      return names
-        .map((n) => n[0])
-        .slice(0, 2)
-        .join('')
-        .toUpperCase()
+      // Split by whitespace and filter out empty strings
+      const names = user.name.trim().split(/\s+/).filter(Boolean)
+
+      if (names.length === 0) {
+        // Name is empty or only whitespace, fall through to email
+      } else if (names.length === 1) {
+        // Single word name - return first 2 characters
+        return names[0].slice(0, 2).toUpperCase()
+      } else {
+        // Multiple words - return first char of first 2 words
+        return names
+          .slice(0, 2)
+          .map((n) => n[0])
+          .join('')
+          .toUpperCase()
+      }
     }
-    return user.email?.[0].toUpperCase() || '?'
+
+    // Fallback to email first character
+    return user.email?.[0]?.toUpperCase() || '?'
   }
 
   return (
@@ -74,7 +107,7 @@ export const Header = () => {
                   <Link to="/dashboard/contacts">Contacts</Link>
                 </DropdownMenuItem>
                 <DropdownMenuSeparator />
-                <DropdownMenuItem onClick={logout}>Log out</DropdownMenuItem>
+                <DropdownMenuItem onClick={handleLogout}>Log out</DropdownMenuItem>
               </DropdownMenuContent>
             </DropdownMenu>
           ) : (

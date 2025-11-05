@@ -3,20 +3,16 @@ import { createRoot } from 'react-dom/client'
 import { Auth0Provider } from '@auth0/auth0-react'
 import './index.css'
 import App from './App.tsx'
-
-const domain = import.meta.env.VITE_AUTH0_DOMAIN
-const clientId = import.meta.env.VITE_AUTH0_CLIENT_ID
-const audience = import.meta.env.VITE_AUTH0_AUDIENCE
-const redirectUri = import.meta.env.VITE_AUTH0_CALLBACK_URL || window.location.origin + '/callback'
+import { config } from './lib/config'
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
     <Auth0Provider
-      domain={domain}
-      clientId={clientId}
+      domain={config.auth0.domain}
+      clientId={config.auth0.clientId}
       authorizationParams={{
-        redirect_uri: redirectUri,
-        audience: audience,
+        redirect_uri: config.auth0.callbackUrl,
+        audience: config.auth0.audience,
       }}
       cacheLocation="localstorage"
       useRefreshTokens={true}

@@ -6,6 +6,8 @@ interface AppLayoutProps {
 }
 
 export const AppLayout = ({ children }: AppLayoutProps) => {
+  const currentYear = new Date().getFullYear()
+
   return (
     <div className="relative flex min-h-screen flex-col">
       <Header />
@@ -15,7 +17,7 @@ export const AppLayout = ({ children }: AppLayoutProps) => {
       <footer className="border-t py-6">
         <div className="container flex flex-col items-center justify-between gap-4 md:flex-row">
           <p className="text-sm text-muted-foreground">
-            © 2025 TfL Alerts. Not affiliated with Transport for London.
+            © {currentYear} TfL Alerts. Not affiliated with Transport for London.
           </p>
           <p className="text-sm text-muted-foreground">Powered by TfL Open Data</p>
         </div>
