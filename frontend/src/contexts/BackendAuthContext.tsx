@@ -1,4 +1,4 @@
-import { createContext, useContext, useState, useEffect, ReactNode } from 'react'
+import { createContext, useContext, useState, useEffect, useCallback, ReactNode } from 'react'
 import { useAuth } from '@/hooks/useAuth'
 import { getCurrentUser, type UserResponse } from '@/lib/api'
 
@@ -19,7 +19,7 @@ export function BackendAuthProvider({ children }: { children: ReactNode }) {
   const [isValidating, setIsValidating] = useState(false)
   const [error, setError] = useState<Error | null>(null)
 
-  const validateWithBackend = async () => {
+  const validateWithBackend = useCallback(async () => {
     if (!auth0IsAuthenticated || auth0IsLoading) {
       return
     }
@@ -36,12 +36,12 @@ export function BackendAuthProvider({ children }: { children: ReactNode }) {
     } finally {
       setIsValidating(false)
     }
-  }
+  }, [auth0IsAuthenticated, auth0IsLoading])
 
-  const clearAuth = () => {
+  const clearAuth = useCallback(() => {
     setUser(null)
     setError(null)
-  }
+  }, [])
 
   // Auto-validate when Auth0 authenticates
   useEffect(() => {
@@ -56,7 +56,7 @@ export function BackendAuthProvider({ children }: { children: ReactNode }) {
         // Error already set in state
       })
     }
-  }, [auth0IsAuthenticated, auth0IsLoading, user, isValidating, error])
+  }, [auth0IsAuthenticated, auth0IsLoading, user, isValidating, error, validateWithBackend])
 
   return (
     <BackendAuthContext.Provider

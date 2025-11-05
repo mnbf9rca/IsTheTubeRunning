@@ -81,7 +81,9 @@ export function useContacts(): UseContactsReturn {
    * Initial fetch on mount
    */
   useEffect(() => {
-    refresh()
+    refresh().catch(() => {
+      // Error already set in state
+    })
   }, [refresh])
 
   /**

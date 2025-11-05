@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useAuth } from '@/hooks/useAuth'
 import { useBackendAuth } from '@/contexts/BackendAuthContext'
@@ -7,7 +7,6 @@ export default function Callback() {
   const { isLoading: auth0IsLoading, error: authError, logout } = useAuth()
   const { isBackendAuthenticated, isValidating, error: backendError } = useBackendAuth()
   const navigate = useNavigate()
-  const [shouldShowError, setShouldShowError] = useState(false)
 
   useEffect(() => {
     let isMounted = true
@@ -21,7 +20,6 @@ export default function Callback() {
 
     // If backend validation fails, show error and logout
     if (!isValidating && !auth0IsLoading && backendError) {
-      setShouldShowError(true)
       console.error('Backend validation error:', backendError)
 
       timeoutId = setTimeout(() => {
@@ -52,6 +50,8 @@ export default function Callback() {
   ])
 
   // Determine what message to show
+  // Show error if backend failed and we're not still validating
+  const shouldShowError = !isValidating && !auth0IsLoading && !!backendError
   let message = 'Completing sign in...'
   if (shouldShowError && backendError) {
     message = 'Backend unavailable. Please ensure the server is running.'

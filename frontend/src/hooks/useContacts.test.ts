@@ -128,14 +128,16 @@ describe('useContacts', () => {
       })
 
       // Try to add duplicate email - catch error to prevent unhandled rejection
-      try {
-        await result.current.addEmail('test@example.com')
-        // Should not reach here
-        expect(true).toBe(false)
-      } catch (err) {
-        expect(err).toBeInstanceOf(ApiError)
-        expect((err as ApiError).status).toBe(409)
-      }
+      await waitFor(async () => {
+        try {
+          await result.current.addEmail('test@example.com')
+          // Should not reach here
+          expect(true).toBe(false)
+        } catch (err) {
+          expect(err).toBeInstanceOf(ApiError)
+          expect((err as ApiError).status).toBe(409)
+        }
+      })
 
       // Error should be set in state
       await waitFor(() => {

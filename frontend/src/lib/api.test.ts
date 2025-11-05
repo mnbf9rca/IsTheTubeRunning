@@ -67,7 +67,7 @@ describe('Token management', () => {
     expect(typeof mockGetToken).toBe('function')
   })
 
-  it('should reset access token getter', () => {
+  it('should reset access token getter', async () => {
     const mockGetToken = vi.fn().mockResolvedValue('test-token')
     setAccessTokenGetter(mockGetToken)
     resetAccessTokenGetter()
@@ -79,17 +79,17 @@ describe('Token management', () => {
     })
 
     // Should work without token after reset
-    expect(checkHealth()).resolves.toBeDefined()
+    await expect(checkHealth()).resolves.toBeDefined()
   })
 
-  it('should handle token getter failures gracefully', () => {
+  it('should handle token getter failures gracefully', async () => {
     const mockGetToken = vi.fn().mockRejectedValue(new Error('Token error'))
     setAccessTokenGetter(mockGetToken)
 
     // Token getter is set and will fail when called
     // The actual error handling happens in fetchAPI when making authenticated requests
     expect(mockGetToken).toBeDefined()
-    expect(mockGetToken()).rejects.toThrow('Token error')
+    await expect(mockGetToken()).rejects.toThrow('Token error')
   })
 })
 
