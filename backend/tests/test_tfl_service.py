@@ -730,6 +730,72 @@ async def test_fetch_disruptions_without_affected_routes(
         assert disruptions[0].line_id == "victoria"
 
 
+def test_extract_disruption_from_route(tfl_service: TfLService) -> None:
+    """Test extraction of single disruption from route data."""
+
+    # Create mock objects with attributes
+    class MockRoute:
+        id = "victoria"
+        name = "Victoria"
+
+    class MockDisruption:
+        categoryDescriptionDetail = 5
+        category = "Minor Delays"
+        description = "Signal failure"
+        created = datetime(2025, 1, 1, 12, 0, 0, tzinfo=UTC)
+
+    route = MockRoute()
+    disruption = MockDisruption()
+
+    result = tfl_service._extract_disruption_from_route(disruption, route)
+
+    assert result.line_id == "victoria"
+    assert result.line_name == "Victoria"
+    assert result.status_severity == 5
+    assert result.status_severity_description == "Minor Delays"
+    assert result.reason == "Signal failure"
+    assert result.created_at == datetime(2025, 1, 1, 12, 0, 0, tzinfo=UTC)
+
+
+def test_extract_disruption_from_route_missing_fields(tfl_service: TfLService) -> None:
+    """Test extraction handles missing optional fields gracefully."""
+
+    # Create mock objects with minimal attributes
+    class MockRoute:
+        pass  # No id or name
+
+    class MockDisruption:
+        pass  # No optional fields
+
+    route = MockRoute()
+    disruption = MockDisruption()
+
+    result = tfl_service._extract_disruption_from_route(disruption, route)
+
+    assert result.line_id == "unknown"
+    assert result.line_name == "Unknown"
+    assert result.status_severity == 0
+    assert result.status_severity_description == "Unknown"
+    assert result.reason is None
+    assert isinstance(result.created_at, datetime)
+
+
+def test_process_disruption_data_empty_list(tfl_service: TfLService) -> None:
+    """Test processing empty disruption list."""
+    result = tfl_service._process_disruption_data([])
+    assert result == []
+
+
+def test_process_disruption_data_no_affected_routes(tfl_service: TfLService) -> None:
+    """Test processing disruptions without affectedRoutes."""
+
+    class MockDisruption:
+        pass  # No affectedRoutes attribute
+
+    result = tfl_service._process_disruption_data([MockDisruption()])
+    assert result == []
+
+
 # ==================== fetch_severity_codes Tests ====================
 
 

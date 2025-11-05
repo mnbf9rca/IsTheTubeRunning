@@ -530,6 +530,58 @@ class TfLService:
                 detail="Failed to fetch stations from TfL API.",
             ) from e
 
+    def _extract_disruption_from_route(
+        self,
+        disruption_data: Any,  # noqa: ANN401
+        route: Any,  # noqa: ANN401
+    ) -> DisruptionResponse:
+        """
+        Extract disruption information for a specific route.
+
+        Args:
+            disruption_data: Raw disruption data from TfL API
+            route: Affected route data
+
+        Returns:
+            DisruptionResponse object
+        """
+        line_id = getattr(route, "id", "unknown")
+        line_name = getattr(route, "name", "Unknown")
+
+        return DisruptionResponse(
+            line_id=line_id,
+            line_name=line_name,
+            status_severity=getattr(disruption_data, "categoryDescriptionDetail", 0),
+            status_severity_description=getattr(disruption_data, "category", "Unknown"),
+            reason=getattr(disruption_data, "description", None),
+            created_at=getattr(disruption_data, "created", datetime.now(UTC)),
+        )
+
+    def _process_disruption_data(
+        self,
+        disruption_data_list: list[Any],
+    ) -> list[DisruptionResponse]:
+        """
+        Process raw disruption data into structured responses.
+
+        Args:
+            disruption_data_list: List of raw disruption data from TfL API
+
+        Returns:
+            List of processed disruption responses
+        """
+        disruptions: list[DisruptionResponse] = []
+
+        for disruption_data in disruption_data_list:
+            if not hasattr(disruption_data, "affectedRoutes") or not disruption_data.affectedRoutes:
+                continue
+
+            for route in disruption_data.affectedRoutes:
+                disruption = self._extract_disruption_from_route(disruption_data, route)
+                disruptions.append(disruption)
+
+        return disruptions
+
     async def fetch_line_disruptions(self, use_cache: bool = True) -> list[DisruptionResponse]:
         """
         Fetch current line-level disruptions from TfL API.
@@ -570,36 +622,10 @@ class TfLService:
             # Type narrowing: _handle_api_error raises if response is ApiError, so it's safe here
             ttl = self._extract_cache_ttl(response) or DEFAULT_DISRUPTIONS_CACHE_TTL  # type: ignore[arg-type]
 
-            # Process disruptions
-            disruptions: list[DisruptionResponse] = []
+            # Process disruptions using helper method
             # response.content is a RootModel array of disruptions, access via .root
             disruption_data_list = response.content.root  # type: ignore[union-attr]
-
-            for disruption_data in disruption_data_list:
-                # Extract information from disruption object
-                # The structure includes affectedRoutes which contain line information
-                if hasattr(disruption_data, "affectedRoutes") and disruption_data.affectedRoutes:
-                    for route in disruption_data.affectedRoutes:
-                        # Extract line information from the route
-                        line_id = route.id if hasattr(route, "id") else "unknown"
-                        line_name = route.name if hasattr(route, "name") else "Unknown"
-
-                        # Create disruption response
-                        disruption = DisruptionResponse(
-                            line_id=line_id,
-                            line_name=line_name,
-                            status_severity=disruption_data.categoryDescriptionDetail
-                            if hasattr(disruption_data, "categoryDescriptionDetail")
-                            else 0,
-                            status_severity_description=disruption_data.category
-                            if hasattr(disruption_data, "category")
-                            else "Unknown",
-                            reason=disruption_data.description if hasattr(disruption_data, "description") else None,
-                            created_at=disruption_data.created
-                            if hasattr(disruption_data, "created")
-                            else datetime.now(UTC),
-                        )
-                        disruptions.append(disruption)
+            disruptions = self._process_disruption_data(disruption_data_list)
 
             # Cache the results
             await self.cache.set(cache_key, disruptions, ttl=ttl)
