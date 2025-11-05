@@ -13,6 +13,7 @@ from app.schemas.tfl import (
     LineResponse,
     RouteValidationRequest,
     RouteValidationResponse,
+    StationDisruptionResponse,
     StationResponse,
 )
 from app.services.tfl_service import TfLService
@@ -83,9 +84,9 @@ async def get_disruptions(
     db: AsyncSession = Depends(get_db),
 ) -> list[DisruptionResponse]:
     """
-    Get current disruptions across the tube network.
+    Get current line-level disruptions across the tube network.
 
-    Returns only non-"Good Service" statuses (delays, closures, etc.).
+    Returns disruptions affecting tube lines.
     Data is cached for 2 minutes (or TTL specified by TfL API).
 
     Args:
@@ -93,13 +94,13 @@ async def get_disruptions(
         db: Database session
 
     Returns:
-        List of current disruptions with severity and details
+        List of current line disruptions with severity and details
 
     Raises:
         HTTPException: 503 if TfL API is unavailable
     """
     tfl_service = TfLService(db)
-    return await tfl_service.fetch_disruptions()
+    return await tfl_service.fetch_line_disruptions()
 
 
 @router.post("/validate-route", response_model=RouteValidationResponse)
@@ -180,3 +181,156 @@ async def get_network_graph(
     """
     tfl_service = TfLService(db)
     return await tfl_service.get_network_graph()
+
+
+@router.get("/station-disruptions", response_model=list[StationDisruptionResponse])
+async def get_station_disruptions(
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> list[StationDisruptionResponse]:
+    """
+    Get current station-level disruptions across the tube network.
+
+    Returns disruptions affecting specific stations (e.g., station closures,
+    lift outages, etc.) as opposed to line-wide disruptions.
+    Data is cached for 2 minutes (or TTL specified by TfL API).
+
+    Args:
+        current_user: Authenticated user
+        db: Database session
+
+    Returns:
+        List of current station disruptions with details
+
+    Raises:
+        HTTPException: 503 if TfL API is unavailable
+    """
+    tfl_service = TfLService(db)
+    return await tfl_service.fetch_station_disruptions()
+
+
+@router.get("/metadata/severity-codes", response_model=list[dict[str, Any]])
+async def get_severity_codes(
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> list[dict[str, Any]]:
+    """
+    Get TfL severity code reference data.
+
+    Returns the list of severity codes and their descriptions from TfL API.
+    Data is cached for 7 days (or TTL specified by TfL API).
+
+    Args:
+        current_user: Authenticated user
+        db: Database session
+
+    Returns:
+        List of severity codes with levels and descriptions:
+        ```json
+        [
+            {
+                "severity_level": 10,
+                "description": "Good Service"
+            },
+            ...
+        ]
+        ```
+
+    Raises:
+        HTTPException: 503 if TfL API is unavailable
+    """
+    tfl_service = TfLService(db)
+    severity_codes = await tfl_service.fetch_severity_codes()
+    return [
+        {
+            "severity_level": code.severity_level,
+            "description": code.description,
+            "last_updated": code.last_updated.isoformat(),
+        }
+        for code in severity_codes
+    ]
+
+
+@router.get("/metadata/disruption-categories", response_model=list[dict[str, Any]])
+async def get_disruption_categories(
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> list[dict[str, Any]]:
+    """
+    Get TfL disruption category reference data.
+
+    Returns the list of disruption categories from TfL API.
+    Data is cached for 7 days (or TTL specified by TfL API).
+
+    Args:
+        current_user: Authenticated user
+        db: Database session
+
+    Returns:
+        List of disruption categories with names and descriptions:
+        ```json
+        [
+            {
+                "category_name": "PlannedWork",
+                "description": "Planned engineering work"
+            },
+            ...
+        ]
+        ```
+
+    Raises:
+        HTTPException: 503 if TfL API is unavailable
+    """
+    tfl_service = TfLService(db)
+    categories = await tfl_service.fetch_disruption_categories()
+    return [
+        {
+            "category_name": cat.category_name,
+            "description": cat.description,
+            "last_updated": cat.last_updated.isoformat(),
+        }
+        for cat in categories
+    ]
+
+
+@router.get("/metadata/stop-types", response_model=list[dict[str, Any]])
+async def get_stop_types(
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> list[dict[str, Any]]:
+    """
+    Get TfL stop point type reference data.
+
+    Returns the list of relevant stop point types (filtered to
+    NaptanMetroStation, NaptanRailStation, NaptanBusCoachStation).
+    Data is cached for 7 days (or TTL specified by TfL API).
+
+    Args:
+        current_user: Authenticated user
+        db: Database session
+
+    Returns:
+        List of stop types with names and descriptions:
+        ```json
+        [
+            {
+                "type_name": "NaptanMetroStation",
+                "description": "London Underground station"
+            },
+            ...
+        ]
+        ```
+
+    Raises:
+        HTTPException: 503 if TfL API is unavailable
+    """
+    tfl_service = TfLService(db)
+    stop_types = await tfl_service.fetch_stop_types()
+    return [
+        {
+            "type_name": st.type_name,
+            "description": st.description,
+            "last_updated": st.last_updated.isoformat(),
+        }
+        for st in stop_types
+    ]

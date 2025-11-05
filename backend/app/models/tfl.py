@@ -99,6 +99,11 @@ class Station(BaseModel):
         back_populates="to_station",
         cascade="all, delete-orphan",
     )
+    disruptions: Mapped[list["StationDisruption"]] = relationship(
+        back_populates="station",
+        cascade="all, delete-orphan",
+        lazy="select",
+    )
 
     def __repr__(self) -> str:
         """String representation of the station."""
@@ -153,3 +158,126 @@ class StationConnection(BaseModel):
     def __repr__(self) -> str:
         """String representation of the station connection."""
         return f"<StationConnection(id={self.id}, from={self.from_station_id}, to={self.to_station_id})>"
+
+
+class SeverityCode(BaseModel):
+    """TfL severity code reference data."""
+
+    __tablename__ = "severity_codes"
+
+    severity_level: Mapped[int] = mapped_column(
+        nullable=False,
+        unique=True,
+        index=True,
+    )
+    description: Mapped[str] = mapped_column(
+        String(255),
+        nullable=False,
+    )
+    last_updated: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+    )
+
+    def __repr__(self) -> str:
+        """String representation of the severity code."""
+        return f"<SeverityCode(id={self.id}, level={self.severity_level}, description={self.description})>"
+
+
+class DisruptionCategory(BaseModel):
+    """TfL disruption category reference data."""
+
+    __tablename__ = "disruption_categories"
+
+    category_name: Mapped[str] = mapped_column(
+        String(255),
+        nullable=False,
+        unique=True,
+        index=True,
+    )
+    description: Mapped[str | None] = mapped_column(
+        String(500),
+        nullable=True,
+    )
+    last_updated: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+    )
+
+    def __repr__(self) -> str:
+        """String representation of the disruption category."""
+        return f"<DisruptionCategory(id={self.id}, name={self.category_name})>"
+
+
+class StopType(BaseModel):
+    """TfL stop point type reference data."""
+
+    __tablename__ = "stop_types"
+
+    type_name: Mapped[str] = mapped_column(
+        String(255),
+        nullable=False,
+        unique=True,
+        index=True,
+    )
+    description: Mapped[str | None] = mapped_column(
+        String(500),
+        nullable=True,
+    )
+    last_updated: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+    )
+
+    def __repr__(self) -> str:
+        """String representation of the stop type."""
+        return f"<StopType(id={self.id}, name={self.type_name})>"
+
+
+class StationDisruption(BaseModel):
+    """Station-level disruption information."""
+
+    __tablename__ = "station_disruptions"
+
+    station_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("stations.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    disruption_category: Mapped[str | None] = mapped_column(
+        String(255),
+        nullable=True,
+    )
+    description: Mapped[str] = mapped_column(
+        String(1000),
+        nullable=False,
+    )
+    severity: Mapped[str | None] = mapped_column(
+        String(100),
+        nullable=True,
+    )
+    tfl_id: Mapped[str] = mapped_column(
+        String(100),
+        nullable=False,
+        index=True,
+    )
+    created_at_source: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+    )
+
+    # Relationship
+    station: Mapped[Station] = relationship(
+        back_populates="disruptions",
+        lazy="select",
+    )
+
+    __table_args__ = (
+        # Note: station_id index already defined via index=True in mapped_column
+        Index("ix_station_disruptions_tfl_id", "tfl_id"),
+    )
+
+    def __repr__(self) -> str:
+        """String representation of the station disruption."""
+        return f"<StationDisruption(id={self.id}, station_id={self.station_id}, severity={self.severity})>"

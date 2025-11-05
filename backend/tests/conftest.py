@@ -22,6 +22,7 @@ import pytest
 from alembic import command
 from alembic.config import Config
 from app.core.auth import clear_jwks_cache, set_mock_jwks
+from app.core.config import Settings, settings
 from app.core.database import get_db
 from app.core.utils import convert_async_db_url_to_sync
 from app.main import app
@@ -500,3 +501,19 @@ def admin_headers(test_user: User) -> dict[str, str]:
     """
     token = MockJWTGenerator.generate(auth0_id=test_user.external_id)
     return {"Authorization": f"Bearer {token}"}
+
+
+# Settings fixture for integration tests
+
+
+@pytest.fixture
+def settings_fixture() -> Settings:
+    """
+    Provide settings instance for tests.
+
+    Used primarily by integration tests to check for API keys and other configuration.
+
+    Returns:
+        Settings instance
+    """
+    return settings

@@ -2,6 +2,7 @@
 
 import json
 from datetime import UTC, datetime, time, timedelta
+from typing import Any
 from unittest.mock import AsyncMock, MagicMock, Mock, patch
 from uuid import uuid4
 
@@ -186,7 +187,7 @@ async def test_process_all_routes_success(
     """Test successful processing of all routes."""
     # Mock TfL service
     mock_tfl_instance = AsyncMock()
-    mock_tfl_instance.fetch_disruptions = AsyncMock(return_value=sample_disruptions)
+    mock_tfl_instance.fetch_line_disruptions = AsyncMock(return_value=sample_disruptions)
     mock_tfl_class.return_value = mock_tfl_instance
 
     # Mock notification service
@@ -245,7 +246,7 @@ async def test_process_all_routes_no_disruptions(
     """Test processing when there are no disruptions."""
     # Mock TfL service with empty disruptions
     mock_tfl_instance = AsyncMock()
-    mock_tfl_instance.fetch_disruptions = AsyncMock(return_value=[])
+    mock_tfl_instance.fetch_line_disruptions = AsyncMock(return_value=[])
     mock_tfl_class.return_value = mock_tfl_instance
 
     result = await alert_service.process_all_routes()
@@ -266,7 +267,7 @@ async def test_process_all_routes_with_error(
     """Test that errors in individual routes don't stop processing."""
     # Mock TfL service to raise error
     mock_tfl_instance = AsyncMock()
-    mock_tfl_instance.fetch_disruptions = AsyncMock(side_effect=Exception("TfL API error"))
+    mock_tfl_instance.fetch_line_disruptions = AsyncMock(side_effect=Exception("TfL API error"))
     mock_tfl_class.return_value = mock_tfl_instance
 
     result = await alert_service.process_all_routes()
@@ -310,7 +311,7 @@ async def test_process_all_routes_skips_duplicate_alert_with_logging(
 
     # Mock TfL to return disruptions
     mock_tfl_instance = AsyncMock()
-    mock_tfl_instance.fetch_disruptions = AsyncMock(return_value=sample_disruptions)
+    mock_tfl_instance.fetch_line_disruptions = AsyncMock(return_value=sample_disruptions)
     mock_tfl_class.return_value = mock_tfl_instance
 
     # Mock notification service (should not be called)
@@ -584,7 +585,7 @@ async def test_get_route_disruptions_returns_relevant(
             created_at=datetime.now(UTC),
         ),
     ]
-    mock_tfl_instance.fetch_disruptions = AsyncMock(return_value=all_disruptions)
+    mock_tfl_instance.fetch_line_disruptions = AsyncMock(return_value=all_disruptions)
     mock_tfl_class.return_value = mock_tfl_instance
 
     disruptions, error_occurred = await alert_service._get_route_disruptions(test_route_with_schedule)
@@ -606,7 +607,7 @@ async def test_get_route_disruptions_empty(
     """Test getting disruptions when there are none."""
     # Mock TfL service with empty disruptions
     mock_tfl_instance = AsyncMock()
-    mock_tfl_instance.fetch_disruptions = AsyncMock(return_value=[])
+    mock_tfl_instance.fetch_line_disruptions = AsyncMock(return_value=[])
     mock_tfl_class.return_value = mock_tfl_instance
 
     disruptions, error_occurred = await alert_service._get_route_disruptions(test_route_with_schedule)
@@ -626,7 +627,7 @@ async def test_get_route_disruptions_filters_correctly(
     """Test that disruptions are filtered to route's lines only."""
     # Create a disruption for a line not in the route
     mock_tfl_instance = AsyncMock()
-    mock_tfl_instance.fetch_disruptions = AsyncMock(
+    mock_tfl_instance.fetch_line_disruptions = AsyncMock(
         return_value=[
             DisruptionResponse(
                 line_id="central",  # Not in route
@@ -1357,52 +1358,77 @@ async def test_alert_service_skips_duplicate_alerts(
 
 
 @pytest.mark.asyncio
-async def test_alert_service_inner_exception_handler(
-    alert_service: AlertService,
-) -> None:
-    """Test inner exception handler in process_all_routes (lines 153-155)."""
-    # Mock _get_active_routes to return a single route
-    mock_route = Mock(spec=Route)
-    mock_route.id = "test-route"
-    mock_route.name = "Error Route"
-    mock_route.schedules = [Mock()]
-
-    with (
-        patch.object(alert_service, "_get_active_routes", return_value=[mock_route]),
-        patch.object(alert_service, "_get_active_schedule", return_value=Mock()),
-        patch.object(
-            alert_service,
-            "_get_route_disruptions",
-            side_effect=RuntimeError("TfL API error"),
+@pytest.mark.parametrize(
+    ("scenario", "mock_config", "expected_result"),
+    [
+        (
+            "inner_exception_handler",
+            {
+                "method": "_get_route_disruptions",
+                "side_effect": RuntimeError("TfL API error"),
+                "setup_route": True,
+            },
+            {"errors": 1, "routes_checked": 1},
         ),
-    ):
-        result = await alert_service.process_all_routes()
-
-        # Should track error but continue processing
-        assert result["errors"] == 1
-
-
-@pytest.mark.asyncio
-async def test_alert_service_outer_exception_handler(
+        (
+            "outer_exception_handler",
+            {
+                "method": "_get_active_routes",
+                "side_effect": RuntimeError("Database error"),
+                "setup_route": False,
+            },
+            {"errors": 1, "routes_checked": 0},
+        ),
+    ],
+)
+async def test_process_all_routes_exception_handling(
     alert_service: AlertService,
+    scenario: str,
+    mock_config: dict[str, Any],
+    expected_result: dict[str, int],
 ) -> None:
-    """Test outer exception handler in process_all_routes (lines 166-169)."""
-    with patch.object(
-        alert_service,
-        "_get_active_routes",
-        side_effect=RuntimeError("Database error"),
-    ):
-        result = await alert_service.process_all_routes()
+    """Test exception handling in process_all_routes for various error scenarios.
 
-        # Should return stats with error count
-        assert result["errors"] == 1
+    Covers:
+    - Inner exception handler (lines 181-186): Errors during route processing
+    - Outer exception handler (lines 194-197): Errors during route retrieval
+    """
+    if mock_config["setup_route"]:
+        # Setup for inner exception tests - need a route to process
+        mock_route = Mock(spec=Route)
+        mock_route.id = "test-route"
+        mock_route.name = "Error Route"
+        mock_route.schedules = [Mock()]
+
+        with (
+            patch.object(alert_service, "_get_active_routes", return_value=[mock_route]),
+            patch.object(alert_service, "_get_active_schedule", return_value=Mock()),
+            patch.object(
+                alert_service,
+                mock_config["method"],
+                side_effect=mock_config["side_effect"],
+            ),
+        ):
+            result = await alert_service.process_all_routes()
+    else:
+        # Setup for outer exception tests - error before route processing
+        with patch.object(
+            alert_service,
+            mock_config["method"],
+            side_effect=mock_config["side_effect"],
+        ):
+            result = await alert_service.process_all_routes()
+
+    # Verify error handling
+    assert result["errors"] == expected_result["errors"]
+    assert result["routes_checked"] == expected_result["routes_checked"]
 
 
 @pytest.mark.asyncio
 async def test_alert_service_get_active_routes_error(
     alert_service: AlertService,
 ) -> None:
-    """Test _get_active_routes exception handler (lines 194-196)."""
+    """Test _get_active_routes exception handler (lines 199-201)."""
     with patch.object(
         alert_service.db,
         "execute",

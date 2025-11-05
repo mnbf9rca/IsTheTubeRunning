@@ -307,8 +307,8 @@ class AlertService:
             # Create TfL service instance
             tfl_service = TfLService(db=self.db)
 
-            # Fetch all disruptions (uses cache automatically)
-            all_disruptions = await tfl_service.fetch_disruptions(use_cache=True)
+            # Fetch all line disruptions (uses cache automatically)
+            all_disruptions = await tfl_service.fetch_line_disruptions(use_cache=True)
 
             # Get unique line IDs from route segments
             # Batch query to avoid N+1 problem

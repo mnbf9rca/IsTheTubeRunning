@@ -245,12 +245,12 @@ async def test_get_stations_with_invalid_line_id(
 # ==================== GET /tfl/disruptions Tests ====================
 
 
-@patch("app.services.tfl_service.TfLService.fetch_disruptions")
+@patch("app.services.tfl_service.TfLService.fetch_line_disruptions")
 async def test_get_disruptions(
-    mock_fetch_disruptions: AsyncMock,
+    mock_fetch_line_disruptions: AsyncMock,
     async_client_with_auth: AsyncClient,
 ) -> None:
-    """Test retrieving current disruptions."""
+    """Test retrieving current line-level disruptions."""
     # Setup mock data
     mock_disruptions = [
         {
@@ -262,7 +262,7 @@ async def test_get_disruptions(
             "created_at": datetime.now(UTC).isoformat(),
         },
     ]
-    mock_fetch_disruptions.return_value = mock_disruptions
+    mock_fetch_line_disruptions.return_value = mock_disruptions
 
     # Execute
     response = await async_client_with_auth.get(build_api_url("/tfl/disruptions"))
