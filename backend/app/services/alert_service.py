@@ -481,6 +481,9 @@ class AlertService:
 
             return phone_number.phone
 
+        # Edge case: Unknown notification method
+        # This code path is unreachable in practice because NotificationMethod is an enum
+        # validated by Pydantic. This defensive logging remains for completeness.
         logger.warning(
             "unknown_notification_method",
             pref_id=str(pref.id),

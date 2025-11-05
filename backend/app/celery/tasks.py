@@ -93,6 +93,6 @@ async def _check_disruptions_async() -> dict[str, Any]:
     finally:
         # Ensure resources are properly closed
         if redis_client is not None:
-            await redis_client.close()
+            await redis_client.aclose()
         if session is not None:
             await session.close()

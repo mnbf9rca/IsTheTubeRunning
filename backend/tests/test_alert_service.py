@@ -1,7 +1,7 @@
 """Tests for AlertService."""
 
 import json
-from datetime import UTC, datetime, time
+from datetime import UTC, datetime, time, timedelta
 from unittest.mock import AsyncMock, MagicMock, Mock, patch
 from uuid import uuid4
 
@@ -274,6 +274,60 @@ async def test_process_all_routes_with_error(
     assert result["routes_checked"] == 1
     assert result["alerts_sent"] == 0
     assert result["errors"] == 1
+
+
+@pytest.mark.asyncio
+@patch("app.services.alert_service.TfLService")
+@patch("app.services.alert_service.NotificationService")
+@freeze_time("2025-01-15 08:30:00", tz_offset=0)  # Wednesday 8:30 AM UTC
+async def test_process_all_routes_skips_duplicate_alert_with_logging(
+    mock_notif_class: MagicMock,
+    mock_tfl_class: MagicMock,
+    alert_service: AlertService,
+    test_route_with_schedule: Route,
+    sample_disruptions: list[DisruptionResponse],
+    db_session: AsyncSession,
+) -> None:
+    """Test that duplicate alerts are skipped and logged (lines 165-170)."""
+    # Calculate the disruption hash that would be stored
+    disruption_hash = alert_service._create_disruption_hash(sample_disruptions)
+
+    # Pre-populate Redis to simulate a previous alert with the same content
+    stored_state = {
+        "hash": disruption_hash,  # Use "hash" key to match the actual implementation
+        "disruptions": [
+            {
+                "line_id": d.line_id,
+                "status": d.status_severity_description,
+                "reason": d.reason or "",
+            }
+            for d in sample_disruptions
+        ],
+        "stored_at": (datetime.now(UTC) - timedelta(hours=1)).isoformat(),
+    }
+    alert_service.redis_client.get = AsyncMock(return_value=json.dumps(stored_state))  # type: ignore[method-assign]
+    alert_service.redis_client.setex = AsyncMock()  # type: ignore[method-assign]
+
+    # Mock TfL to return disruptions
+    mock_tfl_instance = AsyncMock()
+    mock_tfl_instance.fetch_disruptions = AsyncMock(return_value=sample_disruptions)
+    mock_tfl_class.return_value = mock_tfl_instance
+
+    # Mock notification service (should not be called)
+    mock_notif_instance = AsyncMock()
+    mock_notif_instance.send_disruption_email = AsyncMock()
+    mock_notif_class.return_value = mock_notif_instance
+
+    # Process all routes
+    result = await alert_service.process_all_routes()
+
+    # Verify results
+    assert result["routes_checked"] == 1
+    assert result["alerts_sent"] == 0
+    assert result["errors"] == 0
+
+    # Notification service was not called (duplicate was skipped)
+    mock_notif_instance.send_disruption_email.assert_not_called()
 
 
 # ==================== _get_active_routes Tests ====================
@@ -907,6 +961,111 @@ async def test_send_alerts_unverified_contact(
 
 @pytest.mark.asyncio
 @patch("app.services.alert_service.NotificationService")
+async def test_send_alerts_for_route_skips_unverified_contact_continue(
+    mock_notif_class: MagicMock,
+    alert_service: AlertService,
+    db_session: AsyncSession,
+    test_user_with_contacts: User,
+    test_line: Line,
+    test_station: Station,
+    sample_disruptions: list[DisruptionResponse],
+) -> None:
+    """Test that the loop continues when contact_info is None (line 635)."""
+    # Get verified email from test_user_with_contacts
+    result = await db_session.execute(
+        select(EmailAddress).where(
+            EmailAddress.user_id == test_user_with_contacts.id,
+            EmailAddress.verified == True,  # noqa: E712
+        )
+    )
+    verified_email = result.scalar_one()
+
+    # Create unverified email
+    unverified_email = EmailAddress(
+        user_id=test_user_with_contacts.id,
+        email="unverified@example.com",
+        verified=False,
+    )
+    db_session.add(unverified_email)
+    await db_session.flush()
+
+    # Create route with TWO preferences: one unverified, one verified
+    route = Route(
+        user_id=test_user_with_contacts.id,
+        name="Mixed Verification Route",
+        active=True,
+        timezone="Europe/London",
+    )
+    db_session.add(route)
+    await db_session.flush()
+
+    segment = RouteSegment(
+        route_id=route.id,
+        sequence=0,
+        station_id=test_station.id,
+        line_id=test_line.id,
+    )
+    db_session.add(segment)
+
+    schedule = RouteSchedule(
+        route_id=route.id,
+        days_of_week=["MON", "TUE", "WED", "THU", "FRI"],
+        start_time=time(8, 0),
+        end_time=time(10, 0),
+    )
+    db_session.add(schedule)
+
+    # First preference: unverified (should be skipped with continue)
+    notification_pref_unverified = NotificationPreference(
+        route_id=route.id,
+        method=NotificationMethod.EMAIL,
+        target_email_id=unverified_email.id,
+    )
+    db_session.add(notification_pref_unverified)
+
+    # Second preference: verified (should be processed)
+    notification_pref_verified = NotificationPreference(
+        route_id=route.id,
+        method=NotificationMethod.EMAIL,
+        target_email_id=verified_email.id,
+    )
+    db_session.add(notification_pref_verified)
+
+    await db_session.commit()
+
+    # Reload route with relationships using selectinload
+    route_result = await db_session.execute(
+        select(Route)
+        .where(Route.id == route.id)
+        .options(
+            selectinload(Route.segments),
+            selectinload(Route.schedules),
+            selectinload(Route.notification_preferences),
+            selectinload(Route.user).selectinload(User.email_addresses),
+        )
+    )
+    route = route_result.scalar_one()
+
+    # Mock notification service (should be called once for verified email)
+    mock_notif_instance = AsyncMock()
+    mock_notif_instance.send_disruption_email = AsyncMock(return_value=(True, None))
+    mock_notif_class.return_value = mock_notif_instance
+
+    alerts_sent = await alert_service._send_alerts_for_route(
+        route=route,
+        schedule=schedule,
+        disruptions=sample_disruptions,
+    )
+
+    # One alert sent (for verified email, unverified was skipped via continue)
+    assert alerts_sent == 1
+
+    # Notification service was called exactly once (for verified contact)
+    assert mock_notif_instance.send_disruption_email.call_count == 1
+
+
+@pytest.mark.asyncio
+@patch("app.services.alert_service.NotificationService")
 async def test_send_alerts_notification_failure(
     mock_notif_class: MagicMock,
     alert_service: AlertService,
@@ -1519,3 +1678,38 @@ async def test_store_alert_state_exception_handling(
     except RuntimeError:
         # Should not raise
         pytest.fail("Exception was not handled")
+
+
+@pytest.mark.asyncio
+@patch("app.services.alert_service.NotificationService")
+async def test_send_alerts_for_route_handles_get_verified_contact_exception(
+    mock_notif_class: MagicMock,
+    alert_service: AlertService,
+    test_route_with_schedule: Route,
+    sample_disruptions: list[DisruptionResponse],
+    db_session: AsyncSession,
+) -> None:
+    """Test exception handling in preference processing loop (lines 663-665)."""
+    # Mock notification service
+    mock_notif_instance = AsyncMock()
+    mock_notif_instance.send_disruption_email = AsyncMock()
+    mock_notif_class.return_value = mock_notif_instance
+
+    # Patch _get_verified_contact to raise an unexpected exception
+    with patch.object(
+        alert_service,
+        "_get_verified_contact",
+        side_effect=RuntimeError("Unexpected error in preference processing"),
+    ):
+        # Call the method - should not raise, should catch and log error
+        alerts_sent = await alert_service._send_alerts_for_route(
+            route=test_route_with_schedule,
+            schedule=test_route_with_schedule.schedules[0],
+            disruptions=sample_disruptions,
+        )
+
+    # No alerts sent due to exception
+    assert alerts_sent == 0
+
+    # Notification service was not called
+    mock_notif_instance.send_disruption_email.assert_not_called()
