@@ -10,7 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.models.admin import AdminUser
-from app.models.notification import NotificationLog, NotificationStatus
+from app.models.notification import NotificationLog, NotificationPreference, NotificationStatus
 from app.models.route import Route
 from app.models.user import EmailAddress, PhoneNumber, User, VerificationCode
 
@@ -46,19 +46,39 @@ class AdminService:
         Returns:
             Tuple of (list of users, total count)
         """
-        # Build base query
+        # Build count query (separate from main query to avoid cartesian product)
+        count_query = select(func.count(func.distinct(User.id)))
+
+        # Filter deleted users unless explicitly included
+        if not include_deleted:
+            count_query = count_query.where(User.deleted_at.is_(None))
+
+        # Apply search if provided
+        if search:
+            # Search in external_id or email addresses
+            search_term = f"%{search}%"
+            count_query = count_query.outerjoin(User.email_addresses).where(
+                or_(
+                    User.external_id.ilike(search_term),
+                    EmailAddress.email.ilike(search_term),
+                )
+            )
+
+        # Get total count
+        result = await self.db.execute(count_query)
+        total = result.scalar() or 0
+
+        # Build main query with relationships loaded
         query = select(User).options(
             selectinload(User.email_addresses),
             selectinload(User.phone_numbers),
         )
 
-        # Filter deleted users unless explicitly included
+        # Apply same filters as count query
         if not include_deleted:
             query = query.where(User.deleted_at.is_(None))
 
-        # Apply search if provided
         if search:
-            # Search in external_id or email addresses
             search_term = f"%{search}%"
             query = (
                 query.outerjoin(User.email_addresses)
@@ -70,11 +90,6 @@ class AdminService:
                 )
                 .distinct()
             )
-
-        # Get total count (use COUNT(DISTINCT user.id) to avoid inflation from joins)
-        count_query = select(func.count(func.distinct(User.id))).select_from(query.subquery())
-        result = await self.db.execute(count_query)
-        total = result.scalar() or 0
 
         # Get paginated results
         query = query.order_by(User.created_at.desc()).limit(limit).offset(offset)
@@ -154,10 +169,20 @@ class AdminService:
             # 3. Delete phone numbers
             await self.db.execute(delete(PhoneNumber).where(PhoneNumber.user_id == user_id))
 
-            # 4. Deactivate all routes
+            # 4. Delete notification preferences
+            # Note: CASCADE from email/phone deletion would handle this, but we're explicit
+            # for clarity. Preferences without active contacts/user are not actionable;
+            # NotificationLog preserves historical behavior data for analytics.
+            await self.db.execute(
+                delete(NotificationPreference).where(
+                    NotificationPreference.route_id.in_(select(Route.id).where(Route.user_id == user_id))
+                )
+            )
+
+            # 5. Deactivate all routes
             await self.db.execute(update(Route).where(Route.user_id == user_id).values(active=False))
 
-            # 5. Update user: anonymise external_id, clear auth_provider, set deleted_at
+            # 6. Update user: anonymise external_id, clear auth_provider, set deleted_at
             await self.db.execute(
                 update(User)
                 .where(User.id == user_id)
