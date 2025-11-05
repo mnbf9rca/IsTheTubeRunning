@@ -7,6 +7,7 @@ import { setAccessTokenGetter } from './lib/api'
 import Login from './pages/Login'
 import Callback from './pages/Callback'
 import Dashboard from './pages/Dashboard'
+import { Contacts } from './pages/Contacts'
 
 function App() {
   const { getAccessToken } = useAuth()
@@ -38,6 +39,14 @@ function App() {
             element={
               <ProtectedRoute>
                 <Dashboard />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/dashboard/contacts"
+            element={
+              <ProtectedRoute>
+                <Contacts />
               </ProtectedRoute>
             }
           />

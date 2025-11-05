@@ -1,4 +1,5 @@
 import type { ReactNode } from 'react'
+import { Toaster } from 'sonner'
 import { Header } from './Header'
 
 interface AppLayoutProps {
@@ -22,6 +23,7 @@ export const AppLayout = ({ children }: AppLayoutProps) => {
           <p className="text-sm text-muted-foreground">Powered by TfL Open Data</p>
         </div>
       </footer>
+      <Toaster />
     </div>
   )
 }
