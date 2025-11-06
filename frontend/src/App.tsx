@@ -71,14 +71,10 @@ function AppContent() {
 
   // Set up the access token getter for the API client
   // This allows the API client to retrieve fresh tokens on each request
-  // The cleanup function resets it on unmount to prevent stale references
+  // Note: No cleanup function - the access token getter should persist across
+  // component remounts during navigation (e.g., Auth0 callback flow)
   useEffect(() => {
     setAccessTokenGetter(getAccessToken)
-
-    return () => {
-      // Reset on unmount to prevent stale references
-      setAccessTokenGetter(() => Promise.reject(new Error('Auth context unmounted')))
-    }
   }, [getAccessToken])
 
   return (
