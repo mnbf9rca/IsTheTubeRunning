@@ -24,6 +24,7 @@ export function BackendAuthProvider({ children }: { children: ReactNode }) {
   // Use ref to track validation state and prevent duplicate calls
   const validationRef = useRef({
     inProgress: false,
+    hasAttempted: false,
   })
 
   const validateWithBackend = useCallback(async () => {
@@ -37,6 +38,7 @@ export function BackendAuthProvider({ children }: { children: ReactNode }) {
     }
 
     validationRef.current.inProgress = true
+    validationRef.current.hasAttempted = true
 
     try {
       setIsValidating(true)
@@ -57,6 +59,7 @@ export function BackendAuthProvider({ children }: { children: ReactNode }) {
     setUser(null)
     setError(null)
     validationRef.current.inProgress = false
+    validationRef.current.hasAttempted = false
   }, [])
 
   const forceLogout = useCallback(async () => {
@@ -73,6 +76,30 @@ export function BackendAuthProvider({ children }: { children: ReactNode }) {
       clearAuth()
     }
   }, [auth0IsAuthenticated, auth0IsLoading, clearAuth])
+
+  // Automatic validation on Auth0 authentication (e.g., page refresh)
+  // This ensures that when a user refreshes the page with valid Auth0 tokens,
+  // we automatically validate with the backend
+  useEffect(() => {
+    // Only auto-validate if:
+    // 1. Auth0 is authenticated and not loading
+    // 2. We don't have a backend user yet
+    // 3. We're not currently validating
+    // 4. We haven't attempted validation yet (prevents retry loops on error)
+    if (
+      auth0IsAuthenticated &&
+      !auth0IsLoading &&
+      !user &&
+      !isValidating &&
+      !validationRef.current.hasAttempted
+    ) {
+      // Call validation but don't throw if it fails (just log)
+      validateWithBackend().catch((err) => {
+        console.error('Auto-validation failed:', err)
+        // Error is already set in state by validateWithBackend
+      })
+    }
+  }, [auth0IsAuthenticated, auth0IsLoading, user, isValidating, validateWithBackend])
 
   return (
     <BackendAuthContext.Provider

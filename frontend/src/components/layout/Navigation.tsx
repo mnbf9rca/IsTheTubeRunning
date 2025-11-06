@@ -35,7 +35,7 @@ export const Navigation = () => {
         const isActive = location.pathname === item.href
         return (
           <Link
-            key={item.href}
+            key={item.title}
             to={item.href}
             className={cn(
               'flex items-center space-x-2 text-sm font-medium transition-colors hover:text-primary',

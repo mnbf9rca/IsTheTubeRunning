@@ -1,5 +1,5 @@
 import { useEffect } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, useLocation } from 'react-router-dom'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { useAuth } from '@/hooks/useAuth'
@@ -10,14 +10,17 @@ export default function Login() {
   const { isAuthenticated, login, isLoading } = useAuth()
   const { isBackendAuthenticated } = useBackendAuth()
   const navigate = useNavigate()
+  const location = useLocation()
 
   useEffect(() => {
     // Only redirect if BOTH Auth0 AND backend confirm authentication
     // This prevents redirect loops when backend denies auth
     if (isAuthenticated && isBackendAuthenticated) {
-      navigate('/dashboard')
+      // Redirect to the page they were trying to access, or dashboard if none
+      const from = (location.state as { from?: string })?.from || '/dashboard'
+      navigate(from, { replace: true })
     }
-  }, [isAuthenticated, isBackendAuthenticated, navigate])
+  }, [isAuthenticated, isBackendAuthenticated, navigate, location])
 
   if (isLoading) {
     return (
