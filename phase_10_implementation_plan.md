@@ -442,10 +442,213 @@ Use AbortController to cancel in-flight requests when component unmounts or Auth
 - [x] Zero infinite loop occurrences in dev/test
 - [x] All backend tests passing (3/3 for `/ready`)
 - [x] Backend down = no dashboard access (100% of time) - verified with Playwright
-- [x] Clean console output (no error spam)
-- [x] Smooth UX transitions (no flashing/flickering) - verified with Playwright
+- [ ] ~~Clean console output (no error spam)~~ - **FAILED** (see Test Results below)
+- [ ] ~~Smooth UX transitions (no flashing/flickering)~~ - **FAILED** (see Test Results below)
+
+### Manual Test Results (2025-11-06)
+
+**Testing Environment:**
+- Backend: uvicorn on port 8000 (FastAPI)
+- Frontend: Vite dev server on port 5173
+- Test User: tfl.test@cynexia.org
+- Browser: Playwright (Chromium)
+
+**Test Scenarios Executed:**
+
+#### Scenario 1: Happy Path Login Flow ❌ FAILED
+
+**Steps Completed:**
+1. ✅ Navigated to http://localhost:5173/
+2. ✅ ServiceUnavailable page showed briefly, then auto-retry detected backend
+3. ✅ Redirected to /login successfully
+4. ✅ Clicked "Sign in with Auth0" button
+5. ✅ Auth0 consent page appeared for tfl.test@cynexia.org
+6. ✅ Clicked "Accept" button
+7. ❌ **BLOCKED**: Callback page stuck on "Verifying with server..." indefinitely
+
+**Issues Found:**
 
 ---
+
+### Issue #1: Callback Page Stuck in Loading State (CRITICAL)
+
+**Severity:** Critical - Blocks all authentication flows
+
+**Scenario:** Happy path login flow (Scenario 1)
+
+**Steps to Reproduce:**
+1. Start backend and frontend services
+2. Navigate to http://localhost:5173/
+3. Click "Sign in with Auth0"
+4. Complete Auth0 login with test credentials
+5. Click "Accept" on Auth0 consent page
+6. Observe callback page behavior
+
+**Expected Behavior:**
+- Callback page should show "Verifying with server..." briefly
+- Backend validation should complete (success or failure)
+- Page should either:
+  - Navigate to /dashboard (on success), OR
+  - Show error message with logout/retry options (on 403), OR
+  - Show error message with retry option (on 500+)
+
+**Actual Behavior:**
+- Callback page shows "Verifying with server..." spinner indefinitely (15+ seconds observed)
+- Page remains stuck on /callback URL
+- No visual feedback about the failure
+- User has no way to proceed or retry
+
+**Console Errors:**
+```
+[ERROR] Failed to get access token: Error: Auth context unmounted
+    at http://localhost:5173/src/App.tsx:151:49
+    at fetchAPI (http://localhost:5173/src/lib/api.ts:34:27)
+    at getCurrentUser (http://localhost:5173/src/lib/api.ts:73:26)
+    at http://localhost:5173/src/contexts/BackendAuthContext.tsx:27:30
+    at performValidation (http://localhost:5173/src/pages/Callback.tsx:48:19)
+
+[ERROR] Failed to load resource: the server responded with a status of 403 (Forbidden)
+@ http://localhost:8000/api/v1/auth/me:0
+```
+
+**Backend Logs:**
+```
+INFO:     127.0.0.1:62917 - "GET /api/v1/auth/me HTTP/1.1" 403 Forbidden
+```
+
+**Root Cause Analysis:**
+
+This issue has **two distinct problems**:
+
+**Problem 1: Backend 403 Forbidden Response**
+- Auth0 authentication succeeds (user gets token)
+- Frontend attempts to call `GET /api/v1/auth/me` with the Auth0 token
+- Backend rejects with 403 Forbidden
+- Possible causes:
+  - JWT token validation failing (wrong audience, issuer, or algorithm)
+  - Token not properly formatted in Authorization header
+  - Backend auth configuration mismatch with Auth0 config
+  - User not in database and backend not creating user automatically
+
+**Problem 2: "Auth context unmounted" Error**
+- The API client (src/lib/api.ts line 151) tries to call `getAccessTokenFn()`
+- This function attempts to get Auth0 token via `getAccessTokenSilently()`
+- Error: "Auth context unmounted" suggests the Auth0 context is not available
+- This occurs during the API call to `/auth/me` in `getCurrentUser()`
+- Timing issue: Auth0 context may be unmounting/remounting during callback processing
+
+**Problem 3: Error Handling Not Working**
+- Despite the 403 error, the Callback page doesn't transition to error state
+- The three-way error handling (lines 68-95 in Callback.tsx) should catch this
+- Expected: Show "Authentication denied" alert and force logout after 2 seconds
+- Actual: Page stays in "validating" state indefinitely
+- Possible causes:
+  - The error from `validateWithBackend()` is not being caught properly
+  - State management issue preventing error state from rendering
+  - The "Auth context unmounted" error is thrown before the 403 is processed
+
+**Screenshot Evidence:**
+- `/Users/rob/Downloads/git/IsTheTubeRunning/.playwright-mcp/issue1-callback-stuck.png`
+
+**Investigation Results:**
+
+✅ **Auth0 Configuration:** VERIFIED - Frontend and backend configs match correctly
+   - Domain: tfl-alerts.uk.auth0.com ✓
+   - Audience: https://tfl-alert-api.cynexia.com ✓
+   - Algorithm: RS256 ✓
+   - CORS: http://localhost:5173 in ALLOWED_ORIGINS ✓
+
+✅ **Backend Auth Logic:** VERIFIED - JWT validation code is correct
+   - JWKS fetching works
+   - Token validation properly configured
+   - User auto-creation on first login implemented
+
+❌ **ROOT CAUSE IDENTIFIED:** Component Lifecycle Bug in App.tsx
+
+**Location:** `frontend/src/App.tsx` lines 78-80
+
+**Problematic Code:**
+```typescript
+useEffect(() => {
+  setAccessTokenGetter(getAccessToken)
+
+  return () => {
+    // Reset on unmount to prevent stale references
+    setAccessTokenGetter(() => Promise.reject(new Error('Auth context unmounted')))
+  }
+}, [getAccessToken])
+```
+
+**The Bug:**
+1. The `AppContent` component sets up the access token getter in a `useEffect`
+2. The cleanup function replaces it with an error-throwing function when the component unmounts
+3. During Auth0 callback navigation, React may unmount/remount `AppContent`
+4. When unmounting, the cleanup runs and replaces `getAccessToken` with error function
+5. The Callback page tries to validate with backend
+6. API client calls `getAccessToken()`, gets rejected with "Auth context unmounted"
+7. API request either fails before sending or sends without valid token
+8. Backend returns 403 because no/invalid token received
+9. Callback page's error handling doesn't trigger correctly due to the thrown error
+
+**Why It's Wrong:**
+- The cleanup function is too aggressive - it shouldn't break the API client during navigation
+- Component lifecycle events shouldn't disrupt authentication state
+- This creates a race condition between navigation and token retrieval
+
+**Suggested Fix:**
+Either:
+1. **Remove the cleanup** - Don't reset the access token getter on unmount
+2. **Use a ref instead of cleanup** - Track if component is mounted without disrupting API calls
+3. **Restructure component hierarchy** - Move API setup to a higher level that doesn't unmount
+
+**Example Fix (Option 1):**
+```typescript
+useEffect(() => {
+  setAccessTokenGetter(getAccessToken)
+  // Remove cleanup function entirely - access token getter should persist
+}, [getAccessToken])
+```
+
+**Impact:**
+- **Blocks all user authentication** - Cannot log in to application
+- Race condition occurs on every Auth0 callback
+- No fallback or recovery mechanism for users
+- Poor UX with infinite loading state
+
+**Priority:** P0 - Must fix before any further testing
+
+**Additional Issues Found:**
+- Error handling in Callback.tsx (lines 68-95) not triggering despite 403 error
+- Need to verify why error state doesn't render after validation failure
+
+---
+
+### Testing Summary
+
+**Date:** 2025-11-06
+**Tester:** Claude Code AI Assistant (Playwright automation)
+**Branch:** feature/phase-10-pr2.5-fix-auth-flow
+**Status:** ❌ **CRITICAL BLOCKER FOUND**
+
+**Tests Attempted:**
+1. ❌ Scenario 1: Happy Path Login Flow - **FAILED** (blocking bug found)
+2. ⏸️  Scenario 2-7: **BLOCKED** (cannot proceed without working auth)
+
+**Critical Issues:**
+- **1 P0 blocker**: Component lifecycle bug in App.tsx breaks authentication flow
+
+**Next Steps:**
+1. Fix the component lifecycle bug in `frontend/src/App.tsx` (remove aggressive cleanup)
+2. Re-run Scenario 1 to verify fix
+3. Continue with remaining test scenarios (2-7)
+4. Verify error handling in Callback.tsx works correctly after fix
+
+**Recommendation:**
+Do not proceed with PR2.5 merge until this issue is resolved. The authentication flow is completely broken and blocks all user access to the application.
+
+---
+
+
 
 ## PR3: Route Management
 
