@@ -67,6 +67,38 @@ export default function Callback() {
   // Show error states
   // Handle Auth0 errors
   if (authError) {
+    // Detect "Invalid state" error (happens when state expires or is cleared)
+    const isInvalidStateError =
+      authError.message?.includes('Invalid state') || authError.message?.includes('state')
+
+    if (isInvalidStateError) {
+      return (
+        <div className="flex min-h-screen flex-col items-center justify-center p-4">
+          <div className="max-w-md w-full space-y-4">
+            <Alert variant="destructive">
+              <AlertCircle className="h-4 w-4" />
+              <AlertTitle>Session Expired</AlertTitle>
+              <AlertDescription>
+                Your login session expired. This can happen if you took too long on the login page
+                or if your browser was closed during login.
+              </AlertDescription>
+            </Alert>
+            <Button
+              onClick={() => {
+                // Clear any stale Auth0 state and redirect to login
+                sessionStorage.clear()
+                navigate('/login')
+              }}
+              className="w-full"
+            >
+              Try Logging In Again
+            </Button>
+          </div>
+        </div>
+      )
+    }
+
+    // Handle other Auth0 errors
     return (
       <div className="flex min-h-screen flex-col items-center justify-center p-4">
         <div className="max-w-md w-full space-y-4">
@@ -75,6 +107,9 @@ export default function Callback() {
             <AlertTitle>Authentication Failed</AlertTitle>
             <AlertDescription>Authentication failed: {authError.message}</AlertDescription>
           </Alert>
+          <Button onClick={() => navigate('/login')} variant="outline" className="w-full">
+            Back to Login
+          </Button>
         </div>
       </div>
     )
