@@ -71,10 +71,10 @@ This split allows:
 - [x] **RouteCard.tsx** - Display route summary card
   - Shows name, description, active badge
   - Displays segment count, schedule count
-  - Shows timezone
   - Edit and delete buttons
   - Optional onClick for navigation
   - isDeleting state support
+  - **Note**: Timezone NOT shown (YAGNI - defaulted to Europe/London for all users)
 - [x] **RouteList.tsx** - Grid of route cards
   - Loading state (3 skeleton cards)
   - Empty state with helpful message
@@ -83,11 +83,11 @@ This split allows:
 - [x] **RouteFormDialog.tsx** - Create/edit route metadata
   - Name input (required, max 255 chars)
   - Description input (optional)
-  - Timezone selector (8 common timezones)
   - Active switch with description
   - Dual mode: create vs edit
   - Client-side validation
   - Error handling with Alert component
+  - **Note**: Timezone NOT shown to users (auto-defaults to 'Europe/London' - YAGNI principle)
 
 #### 5. Pages Created/Updated
 - [x] **Routes.tsx** - Main routes management page
@@ -273,9 +273,10 @@ Add TfL methods:
 - [ ] Create `src/pages/RouteDetails.tsx` - Full route details
   - Tabs: Overview, Segments, Schedules
   - **Overview tab**:
-    - Route metadata (name, desc, timezone)
+    - Route metadata (name, description)
     - Active toggle
     - Edit metadata button
+    - **Note**: Timezone NOT shown (YAGNI - all users in London)
   - **Segments tab**:
     - SegmentList component
     - Add Segment button
@@ -353,6 +354,7 @@ Add TfL methods:
 - **Simple Forms over Complex Wizards**: Following YAGNI, using straightforward form components instead of multi-step wizards
 - **Real-time Validation**: Balancing UX (immediate feedback) with API efficiency
 - **Component Reusability**: SegmentForm and ScheduleForm designed for both create and edit modes
+- **Timezone Hidden from Users**: All users are in London, so timezone is automatically defaulted to 'Europe/London' and not shown in the UI (YAGNI principle)
 
 ### Deferred to PR3b
 - Route details view/edit
@@ -367,6 +369,9 @@ Add TfL methods:
 
 ---
 
-**Document Version**: 1.0
+**Document Version**: 1.1
 **Last Updated**: 2025-11-07
 **Author**: Claude Code AI Assistant
+**Changelog**:
+- v1.1: Updated to reflect timezone hidden from UI (YAGNI - all users in London)
+- v1.0: Initial split implementation plan
