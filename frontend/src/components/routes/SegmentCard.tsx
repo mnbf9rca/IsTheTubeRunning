@@ -10,14 +10,14 @@ export interface SegmentCardProps {
   stationName: string
 
   /**
-   * Line name
+   * Line name (optional - null for destination segments)
    */
-  lineName: string
+  lineName?: string | null
 
   /**
-   * Line color (hex code)
+   * Line color (hex code, optional - null for destination segments)
    */
-  lineColor: string
+  lineColor?: string | null
 
   /**
    * Segment sequence number
@@ -66,6 +66,8 @@ export function SegmentCard({
   canDelete,
   onDelete,
 }: SegmentCardProps) {
+  const isDestination = !lineName || !lineColor
+
   return (
     <div className="flex items-center gap-2">
       <Card className="flex flex-1 items-center gap-3 p-3">
@@ -75,12 +77,18 @@ export function SegmentCard({
         <div className="flex-1">
           <div className="font-medium">{stationName}</div>
           <div className="flex items-center gap-2 text-sm text-muted-foreground">
-            <Badge
-              style={{ backgroundColor: lineColor }}
-              className="h-3 w-3 rounded-full p-0"
-              aria-label={`${lineName} line color`}
-            />
-            <span>{lineName} line</span>
+            {isDestination ? (
+              <span>Destination</span>
+            ) : (
+              <>
+                <Badge
+                  style={{ backgroundColor: lineColor ?? undefined }}
+                  className="h-3 w-3 rounded-full p-0"
+                  aria-label={`${lineName} line color`}
+                />
+                <span>{lineName} line</span>
+              </>
+            )}
           </div>
         </div>
         <Button

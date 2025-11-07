@@ -156,7 +156,10 @@ export function SegmentBuilder({
     // (the line we're currently traveling on)
     if (localSegments.length > 0 && !selectedLineId) {
       const lastSegment = localSegments[localSegments.length - 1]
-      setSelectedLineId(lastSegment.line_id)
+      // Only auto-fill if previous segment has a line_id (it might be null if it was a destination)
+      if (lastSegment.line_id) {
+        setSelectedLineId(lastSegment.line_id)
+      }
     }
   }, [selectedStationId, availableLines, selectedLineId, localSegments])
 
@@ -166,7 +169,11 @@ export function SegmentBuilder({
     // Auto-fill line_id from previous segment if not explicitly selected
     let finalLineId = selectedLineId
     if (!finalLineId && localSegments.length > 0) {
-      finalLineId = localSegments[localSegments.length - 1].line_id
+      const lastSegmentLine = localSegments[localSegments.length - 1].line_id
+      // Only use last segment's line if it's not null
+      if (lastSegmentLine) {
+        finalLineId = lastSegmentLine
+      }
     }
 
     if (!finalLineId) {
@@ -222,15 +229,20 @@ export function SegmentBuilder({
       setIsSaving(true)
       setError(null)
 
+      // Set last segment's line_id to null (destination has no outgoing line)
+      const segmentsToSave = localSegments.map((seg, index) =>
+        index === localSegments.length - 1 ? { ...seg, line_id: null } : seg
+      )
+
       // Validate route
-      const validation = await onValidate(localSegments)
+      const validation = await onValidate(segmentsToSave)
       if (!validation.valid) {
         setError(validation.message)
         return
       }
 
       // Save segments
-      await onSave(localSegments)
+      await onSave(segmentsToSave)
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to save segments')
     } finally {

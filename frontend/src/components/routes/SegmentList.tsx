@@ -60,11 +60,11 @@ export function SegmentList({ segments, lines, stations, onDeleteSegment }: Segm
         .sort((a, b) => a.sequence - b.sequence)
         .map((segment, index) => {
           // Find line and station details
-          const line = lines.find((l) => l.id === segment.line_id)
+          const line = segment.line_id ? lines.find((l) => l.id === segment.line_id) : null
           const station = stations.find((s) => s.id === segment.station_id)
 
-          if (!line || !station) {
-            // Skip if data not found (shouldn't happen)
+          if (!station) {
+            // Skip if station not found (shouldn't happen)
             return null
           }
 
@@ -72,8 +72,8 @@ export function SegmentList({ segments, lines, stations, onDeleteSegment }: Segm
             <SegmentCard
               key={segment.id}
               stationName={station.name}
-              lineName={line.name}
-              lineColor={line.color}
+              lineName={line?.name ?? null}
+              lineColor={line?.color ?? null}
               sequence={segment.sequence}
               isLast={index === segments.length - 1}
               canDelete={canDelete}

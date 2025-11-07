@@ -396,7 +396,7 @@ export interface SegmentResponse {
   id: string
   sequence: number
   station_id: string
-  line_id: string
+  line_id: string | null
 }
 
 /**
@@ -544,7 +544,7 @@ export async function deleteRoute(routeId: string): Promise<void> {
 export interface SegmentRequest {
   sequence: number
   station_id: string
-  line_id: string
+  line_id: string | null
 }
 
 /**
@@ -834,7 +834,7 @@ export type NetworkGraph = Record<string, NetworkConnection[]>
  */
 export interface RouteValidationSegment {
   station_id: string
-  line_id: string
+  line_id: string | null
 }
 
 /**
