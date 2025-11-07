@@ -1,4 +1,4 @@
-import { createContext, useContext, useState, useEffect, useCallback, useRef } from 'react'
+import { createContext, useState, useEffect, useCallback, useRef } from 'react'
 import type { ReactNode } from 'react'
 import { useAuth } from '@/hooks/useAuth'
 import { getCurrentUser, type UserResponse } from '@/lib/api'
@@ -14,6 +14,9 @@ interface BackendAuthContextType {
 }
 
 const BackendAuthContext = createContext<BackendAuthContextType | undefined>(undefined)
+
+// Export context for use in hooks
+export { BackendAuthContext }
 
 export function BackendAuthProvider({ children }: { children: ReactNode }) {
   const { isAuthenticated: auth0IsAuthenticated, isLoading: auth0IsLoading, logout } = useAuth()
@@ -118,10 +121,6 @@ export function BackendAuthProvider({ children }: { children: ReactNode }) {
   )
 }
 
-export function useBackendAuth() {
-  const context = useContext(BackendAuthContext)
-  if (context === undefined) {
-    throw new Error('useBackendAuth must be used within a BackendAuthProvider')
-  }
-  return context
-}
+// Re-export hook for backward compatibility
+// eslint-disable-next-line react-refresh/only-export-components
+export { useBackendAuth } from '@/hooks/useBackendAuth'

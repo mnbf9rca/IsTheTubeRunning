@@ -1,4 +1,4 @@
-import { createContext, useContext, useState, useEffect, useCallback } from 'react'
+import { createContext, useState, useEffect, useCallback } from 'react'
 import type { ReactNode } from 'react'
 
 interface BackendAvailabilityContextType {
@@ -11,6 +11,9 @@ interface BackendAvailabilityContextType {
 const BackendAvailabilityContext = createContext<BackendAvailabilityContextType | undefined>(
   undefined
 )
+
+// Export context for use in hooks
+export { BackendAvailabilityContext }
 
 const CHECK_INTERVAL_MS = 10000 // 10 seconds
 
@@ -81,10 +84,6 @@ export function BackendAvailabilityProvider({ children }: { children: ReactNode 
   )
 }
 
-export function useBackendAvailability() {
-  const context = useContext(BackendAvailabilityContext)
-  if (context === undefined) {
-    throw new Error('useBackendAvailability must be used within a BackendAvailabilityProvider')
-  }
-  return context
-}
+// Re-export hook for backward compatibility
+// eslint-disable-next-line react-refresh/only-export-components
+export { useBackendAvailability } from '@/hooks/useBackendAvailability'
