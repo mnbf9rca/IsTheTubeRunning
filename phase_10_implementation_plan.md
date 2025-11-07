@@ -269,7 +269,7 @@ PR5 (Admin) → Independent after PR2.5
 ### Summary
 Fixed critical authentication architecture issues to make backend the single source of truth for authentication state. Implemented backend availability check pattern to distinguish between "backend unavailable" and "backend denies auth", resolving infinite loop bugs and improving error handling.
 
-See ARCHITECTURE.md ADRs 39-42 for architectural decisions.
+See [Authentication & Authorization ADRs](../../docs/adr/04-authentication.md) for architectural decisions.
 
 
 

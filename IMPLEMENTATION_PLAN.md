@@ -577,7 +577,7 @@ Once this plan is committed, Phase 1 implementation will begin with:
     - GET /admin/alerts/recent-logs - Paginated notification logs (limit, offset, status filter)
     - Updated POST /admin/tfl/build-graph to require admin privileges
     - Comprehensive tests (authorization, endpoints, edge cases)
-    - Documentation updates (ARCHITECTURE.md ADRs 32-35, README.md)
+    - Documentation updates (Background Jobs ADRs, README.md)
 
 - [x] Phase 9: Admin Dashboard Backend (Completed: November 2025)
   - AdminService with user management and analytics methods
@@ -602,7 +602,7 @@ Once this plan is committed, Phase 1 implementation will begin with:
 
 ## Architecture Decisions
 
-See [ARCHITECTURE.md](./ARCHITECTURE.md) for all architectural decision records.
+See [Architecture Decision Records](./docs/adr/README.md) for all architectural decision records.
 
 ### Future Enhancements (Post-MVP)
 - SMS implementation via Twilio
