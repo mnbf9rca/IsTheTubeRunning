@@ -110,7 +110,7 @@ Connection 0: {from_station: Southgate, line: Piccadilly, to_station: Leicester 
 - No ambiguity about what line_id means
 
 **Disadvantages**:
-- Requires schema migration
+- Requires schema migration (although we have no user data to migrate)
 - Changes validation logic
 - More complex for multi-segment routes
 
@@ -170,7 +170,7 @@ ALTER COLUMN line_id DROP NOT NULL;
 
 **Cons**:
 - Nullable field adds complexity
-- Need to update all existing routes in migration
+- Need to update all existing routes in migration (although we have no user data to migrate)
 - Validation logic needs to handle NULL case
 
 ### Option 2: Restructure to Connection Model (Model C)
@@ -207,7 +207,7 @@ CREATE TABLE route_connections (
 - No meaningless data
 
 **Cons**:
-- Major schema migration
+- Major schema migration (although we have no user data to migrate)
 - All existing code needs updating
 - More disruptive change
 
@@ -232,6 +232,53 @@ CREATE TABLE route_connections (
 - Storing meaningless data
 - Future developers will be confused
 
+### Option 4: Sentinel/Dummy Line (e.g., "TERMINATES")
+
+**Database Changes**:
+```sql
+-- Add a special "terminating" line
+INSERT INTO lines (id, tfl_id, name, color, last_updated)
+VALUES (
+    '00000000-0000-0000-0000-000000000000',  -- Well-known UUID
+    'TERMINATES',
+    'Journey Terminates',
+    '#000000',
+    NOW()
+);
+```
+
+**Backend Changes**:
+- Add constant: `TERMINATES_LINE_ID = UUID('00000000-0000-0000-0000-000000000000')`
+- Update validation: Skip validation if `line_id == TERMINATES_LINE_ID`
+- Update display logic: Don't show "TERMINATES" line in UI
+- Filter out TERMINATES line from line lists
+
+**Frontend Changes**:
+- Set `line_id = TERMINATES_LINE_ID` for destination stations
+- Hide line selector for destinations
+- Filter TERMINATES line from all line selectors
+
+**Pros**:
+- No nullable fields (avoids NULL handling complexity)
+- Clear sentinel value: explicitly marks terminating segments
+- Easier queries (no NULL checks needed)
+- No schema change (just data insertion)
+
+**Cons**:
+- Feels like a hack/workaround
+- Pollutes lines table with fake data
+- Still storing meaningless data (just using sentinel instead of NULL)
+- Need to filter out fake line everywhere in UI
+- Could confuse developers: "What is TERMINATES line?"
+- Need to prevent users from selecting TERMINATES line manually
+- Migration still needed to update existing last segments
+
+**Comparison to Option 1 (Nullable)**:
+- Both require migration to update existing data
+- Nullable is more semantically correct (NULL = "no value")
+- Sentinel is operationally simpler (no NULL checks)
+- Sentinel adds clutter to domain model
+
 ---
 
 ## Recommendation
@@ -240,9 +287,16 @@ CREATE TABLE route_connections (
 
 **Rationale**:
 1. **Minimal disruption**: Single column constraint change
-2. **Clear semantics**: NULL explicitly means "journey ends here"
+2. **Clear semantics**: NULL explicitly means "no value" (standard SQL pattern)
 3. **Matches user intent**: Line only needed when departing from a station
 4. **Proper data modeling**: Don't store meaningless values
+5. **Cleaner than sentinel**: No fake data in domain model
+
+**Why not Option 4 (Sentinel line)?**
+- While avoiding NULL checks is nice, it pollutes the domain model with fake data
+- Every query needs to filter out TERMINATES line
+- Semantically, NULL is the correct representation of "no outgoing line"
+- The operational complexity of NULL handling is minimal with modern ORMs
 
 **Implementation Steps**:
 1. Write migration to:
@@ -270,7 +324,7 @@ CREATE TABLE route_connections (
 
 4. **Impact on existing data**:
    - How many routes exist in production?
-   - Can we safely set last segment's line_id to NULL in migration?
+   - Can we safely set last segment's line_id to NULL in migration?  (we have no user data to migrate)
 
 ---
 
@@ -285,7 +339,7 @@ Based on decision:
 4. [ ] Update validation logic
 5. [ ] Update frontend SegmentBuilder
 6. [ ] Update tests
-7. [ ] Test migration with sample data
+7. [ ] Test migration with sample data (although we have no user data to migrate)
 
 ### If Option 2 (Connection model):
 1. [ ] Design new schema in detail
@@ -297,3 +351,12 @@ Based on decision:
 1. [ ] Document the quirk
 2. [ ] Accept technical debt
 3. [ ] Complete UX hiding (already done)
+
+### If Option 4 (Sentinel line):
+1. [ ] Create TERMINATES line in database
+2. [ ] Add constant to codebase
+3. [ ] Update validation logic to skip TERMINATES
+4. [ ] Add filters to exclude TERMINATES from UI
+5. [ ] Update frontend to use TERMINATES_LINE_ID
+6. [ ] Write migration to update existing routes
+7. [ ] Add tests for TERMINATES handling
