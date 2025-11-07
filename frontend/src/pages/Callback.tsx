@@ -110,7 +110,9 @@ export default function Callback() {
     validateWithBackend,
     forceLogout,
     navigate,
-    validationState,
+    // Note: validationState is intentionally NOT in dependencies to prevent
+    // cleanup from running when state changes to 'validating', which would
+    // set isMounted=false and prevent error state updates
   ])
 
   const handleRetry = () => {

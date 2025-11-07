@@ -2,6 +2,7 @@ import { render, screen, waitFor } from '@testing-library/react'
 import { BrowserRouter } from 'react-router-dom'
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import Callback from './Callback'
+import { ApiError } from '@/lib/api'
 
 // Mock useAuth hook
 vi.mock('@/hooks/useAuth', () => ({
@@ -180,5 +181,134 @@ describe('Callback', () => {
     })
 
     expect(screen.getByText('Verifying with server...')).toBeInTheDocument()
+  })
+
+  it('should handle backend 401 error with force logout', async () => {
+    // Mock validateWithBackend to reject with 401 error
+    mockValidateWithBackend.mockRejectedValueOnce(new ApiError(401, 'Unauthorized'))
+
+    mockUseAuth.mockReturnValue({
+      isAuthenticated: true,
+      isLoading: false,
+      error: undefined,
+    })
+    mockUseBackendAuth.mockReturnValue({
+      isBackendAuthenticated: false,
+      validateWithBackend: mockValidateWithBackend,
+      forceLogout: mockForceLogout,
+    })
+
+    render(
+      <BrowserRouter>
+        <Callback />
+      </BrowserRouter>
+    )
+
+    // Wait for error state to appear
+    await waitFor(() => {
+      expect(screen.getByText('Authentication Failed')).toBeInTheDocument()
+    })
+
+    expect(screen.getByText('Authentication denied by server. Logging out...')).toBeInTheDocument()
+
+    // Should NOT have retry button (force logout instead)
+    expect(screen.queryByText('Retry')).not.toBeInTheDocument()
+  })
+
+  it('should handle backend 403 error with force logout', async () => {
+    // Mock validateWithBackend to reject with 403 error
+    mockValidateWithBackend.mockRejectedValueOnce(new ApiError(403, 'Forbidden'))
+
+    mockUseAuth.mockReturnValue({
+      isAuthenticated: true,
+      isLoading: false,
+      error: undefined,
+    })
+    mockUseBackendAuth.mockReturnValue({
+      isBackendAuthenticated: false,
+      validateWithBackend: mockValidateWithBackend,
+      forceLogout: mockForceLogout,
+    })
+
+    render(
+      <BrowserRouter>
+        <Callback />
+      </BrowserRouter>
+    )
+
+    // Wait for error state to appear
+    await waitFor(() => {
+      expect(screen.getByText('Authentication Failed')).toBeInTheDocument()
+    })
+
+    expect(screen.getByText('Authentication denied by server. Logging out...')).toBeInTheDocument()
+  })
+
+  it('should handle backend 500 error with retry option', async () => {
+    // Mock validateWithBackend to reject with 500 error
+    mockValidateWithBackend.mockRejectedValueOnce(new ApiError(500, 'Internal Server Error'))
+
+    mockUseAuth.mockReturnValue({
+      isAuthenticated: true,
+      isLoading: false,
+      error: undefined,
+    })
+    mockUseBackendAuth.mockReturnValue({
+      isBackendAuthenticated: false,
+      validateWithBackend: mockValidateWithBackend,
+      forceLogout: mockForceLogout,
+    })
+
+    render(
+      <BrowserRouter>
+        <Callback />
+      </BrowserRouter>
+    )
+
+    // Wait for error state to appear
+    await waitFor(() => {
+      expect(screen.getByText('Connection Error')).toBeInTheDocument()
+    })
+
+    expect(screen.getByText('Server error (500). Please try again.')).toBeInTheDocument()
+
+    // Should have retry and back to login buttons
+    expect(screen.getByText('Retry')).toBeInTheDocument()
+    expect(screen.getByText('Back to Login')).toBeInTheDocument()
+  })
+
+  it('should handle network error with retry option', async () => {
+    // Mock validateWithBackend to reject with network error (not ApiError)
+    mockValidateWithBackend.mockRejectedValueOnce(new Error('Network error'))
+
+    mockUseAuth.mockReturnValue({
+      isAuthenticated: true,
+      isLoading: false,
+      error: undefined,
+    })
+    mockUseBackendAuth.mockReturnValue({
+      isBackendAuthenticated: false,
+      validateWithBackend: mockValidateWithBackend,
+      forceLogout: mockForceLogout,
+    })
+
+    render(
+      <BrowserRouter>
+        <Callback />
+      </BrowserRouter>
+    )
+
+    // Wait for error state to appear
+    await waitFor(() => {
+      expect(screen.getByText('Connection Error')).toBeInTheDocument()
+    })
+
+    expect(
+      screen.getByText('Unable to connect to server. Please check your connection.')
+    ).toBeInTheDocument()
+
+    // Should have retry and back to login buttons
+    expect(screen.getByText('Retry')).toBeInTheDocument()
+    expect(screen.getByText('Back to Login')).toBeInTheDocument()
   })
 })

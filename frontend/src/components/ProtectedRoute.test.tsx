@@ -1,5 +1,5 @@
-import { render, screen } from '@testing-library/react'
-import { BrowserRouter } from 'react-router-dom'
+import { render, screen, waitFor } from '@testing-library/react'
+import { MemoryRouter, Routes, Route } from 'react-router-dom'
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { ProtectedRoute } from './ProtectedRoute'
 
@@ -23,6 +23,7 @@ describe('ProtectedRoute', () => {
   beforeEach(() => {
     vi.clearAllMocks()
   })
+
   it('should render children when authenticated', () => {
     mockUseAuth.mockReturnValue({
       isAuthenticated: true,
@@ -36,11 +37,18 @@ describe('ProtectedRoute', () => {
     })
 
     render(
-      <BrowserRouter>
-        <ProtectedRoute>
-          <div>Protected Content</div>
-        </ProtectedRoute>
-      </BrowserRouter>
+      <MemoryRouter initialEntries={['/protected']}>
+        <Routes>
+          <Route
+            path="/protected"
+            element={
+              <ProtectedRoute>
+                <div>Protected Content</div>
+              </ProtectedRoute>
+            }
+          />
+        </Routes>
+      </MemoryRouter>
     )
 
     expect(screen.getByText('Protected Content')).toBeInTheDocument()
@@ -59,17 +67,24 @@ describe('ProtectedRoute', () => {
     })
 
     render(
-      <BrowserRouter>
-        <ProtectedRoute>
-          <div>Protected Content</div>
-        </ProtectedRoute>
-      </BrowserRouter>
+      <MemoryRouter initialEntries={['/protected']}>
+        <Routes>
+          <Route
+            path="/protected"
+            element={
+              <ProtectedRoute>
+                <div>Protected Content</div>
+              </ProtectedRoute>
+            }
+          />
+        </Routes>
+      </MemoryRouter>
     )
 
     expect(screen.getByText('Authenticating...')).toBeInTheDocument()
   })
 
-  it('should redirect to login when not authenticated', () => {
+  it('should redirect to login when not authenticated', async () => {
     mockUseAuth.mockReturnValue({
       isAuthenticated: false,
       isLoading: false,
@@ -82,14 +97,27 @@ describe('ProtectedRoute', () => {
     })
 
     render(
-      <BrowserRouter>
-        <ProtectedRoute>
-          <div>Protected Content</div>
-        </ProtectedRoute>
-      </BrowserRouter>
+      <MemoryRouter initialEntries={['/protected']}>
+        <Routes>
+          <Route path="/login" element={<div>Login Page</div>} />
+          <Route
+            path="/protected"
+            element={
+              <ProtectedRoute>
+                <div>Protected Content</div>
+              </ProtectedRoute>
+            }
+          />
+        </Routes>
+      </MemoryRouter>
     )
 
-    // Content should not be visible
+    // Should redirect to login page
+    await waitFor(() => {
+      expect(screen.getByText('Login Page')).toBeInTheDocument()
+    })
+
+    // Protected content should not be visible
     expect(screen.queryByText('Protected Content')).not.toBeInTheDocument()
   })
 })
