@@ -12,6 +12,18 @@ vi.mock('@/hooks/useAuth', () => ({
   })),
 }))
 
+// Mock useBackendAuth hook
+vi.mock('@/contexts/BackendAuthContext', () => ({
+  useBackendAuth: vi.fn(() => ({
+    isBackendAuthenticated: false,
+    user: null,
+    isValidating: false,
+    error: null,
+    validateWithBackend: vi.fn(),
+    clearAuth: vi.fn(),
+  })),
+}))
+
 describe('Login', () => {
   it('should render login page with branding', () => {
     render(

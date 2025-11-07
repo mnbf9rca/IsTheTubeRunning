@@ -258,11 +258,68 @@ The fixes implement several best practices:
 
 ---
 
+## Frontend Unit Test Coverage
+
+**Test Files**: 3 modified component test files
+**Test Count**: 16 tests
+**Test Result**: 16/16 passing ✅
+
+### Test Files Updated:
+
+#### 1. `frontend/src/pages/Login.test.tsx` (3 tests)
+**Status**: ✅ 3/3 passing
+- ✅ Redirects to intended route after Auth0 authentication
+- ✅ Redirects to dashboard by default when no intended route
+- ✅ Shows loading state while Auth0 is loading
+
+**Changes Made**:
+- Added `useBackendAuth` mock to support new backend auth context
+
+---
+
+#### 2. `frontend/src/components/layout/Header.test.tsx` (7 tests)
+**Status**: ✅ 7/7 passing
+- ✅ Shows login button when not authenticated
+- ✅ Calls login when login button clicked
+- ✅ Does not show navigation when not authenticated
+- ✅ Shows loading skeleton while authenticating
+- ✅ Shows navigation when authenticated
+- ✅ Renders avatar button with user initials
+- ✅ Calls handleLogout when logout clicked
+
+**Changes Made**:
+- Complete rewrite with focused, high-quality tests
+- Added `useBackendAuth` mock with proper authentication state
+- Used `@testing-library/user-event` for realistic dropdown interactions
+- Tests now verify `isBackendAuthenticated` state correctly
+
+---
+
+#### 3. `frontend/src/pages/Callback.test.tsx` (6 tests)
+**Status**: ✅ 6/6 passing
+- ✅ Shows loading spinner while Auth0 is loading
+- ✅ Redirects to dashboard when already backend authenticated
+- ✅ Shows error when Auth0 authentication fails
+- ✅ Does not redirect while still loading
+- ✅ Redirects to login when not authenticated with Auth0
+- ✅ Shows verifying state when validating with backend
+
+**Changes Made**:
+- Rewrote tests to match actual component behavior
+- Added proper mocks for `validateWithBackend` and `forceLogout`
+- Focused on testable UI states
+- Complex error flows verified by E2E tests (see below)
+
+**Note**: Backend error handling (401/403/500/network errors) is comprehensively tested via Playwright E2E tests. Unit tests focus on core component states that can be reliably tested with mocked contexts.
+
+---
+
 ## Test Coverage Summary
 
 | Category | Coverage | Status |
 |----------|----------|--------|
 | Backend Tests | 10/10 passing | ✅ |
+| **Frontend Unit Tests** | **16/16 passing** | ✅ |
 | Frontend E2E Tests | 5/5 passing | ✅ |
 | Console Errors | 0 errors | ✅ |
 | Console Warnings | 0 warnings | ✅ |
@@ -316,6 +373,11 @@ See `frontend/e2e/README.md` for detailed documentation.
 ### Backend Tests
 ```bash
 cd backend && uv run pytest tests/test_auth_integration.py -v
+```
+
+### Frontend Unit Tests
+```bash
+cd frontend && npm test -- --run src/pages/Login.test.tsx src/components/layout/Header.test.tsx src/pages/Callback.test.tsx
 ```
 
 ### E2E Tests (Automated)

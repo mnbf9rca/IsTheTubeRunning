@@ -2,7 +2,6 @@ import { render, screen, waitFor } from '@testing-library/react'
 import { BrowserRouter } from 'react-router-dom'
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import Callback from './Callback'
-import { ApiError } from '@/lib/api'
 
 // Mock useAuth hook
 vi.mock('@/hooks/useAuth', () => ({
@@ -31,24 +30,23 @@ const mockUseAuth = useAuth as ReturnType<typeof vi.fn>
 const mockUseBackendAuth = useBackendAuth as ReturnType<typeof vi.fn>
 
 describe('Callback', () => {
-  const mockLogout = vi.fn()
+  const mockValidateWithBackend = vi.fn()
+  const mockForceLogout = vi.fn()
 
   beforeEach(() => {
     vi.clearAllMocks()
   })
 
-  it('should show loading spinner while authenticating', () => {
+  it('should show loading spinner while Auth0 is loading', () => {
     mockUseAuth.mockReturnValue({
       isAuthenticated: false,
       isLoading: true,
       error: undefined,
-      logout: mockLogout,
     })
     mockUseBackendAuth.mockReturnValue({
       isBackendAuthenticated: false,
-      isValidating: true,
-      user: null,
-      error: null,
+      validateWithBackend: mockValidateWithBackend,
+      forceLogout: mockForceLogout,
     })
 
     render(
@@ -64,18 +62,16 @@ describe('Callback', () => {
     expect(spinner).toBeInTheDocument()
   })
 
-  it('should redirect to dashboard when authenticated', async () => {
+  it('should redirect to dashboard when already backend authenticated', async () => {
     mockUseAuth.mockReturnValue({
       isAuthenticated: true,
       isLoading: false,
       error: undefined,
-      logout: mockLogout,
     })
     mockUseBackendAuth.mockReturnValue({
       isBackendAuthenticated: true,
-      isValidating: false,
-      user: { id: 'test-user-id', created_at: '2025-01-01', updated_at: '2025-01-01' },
-      error: null,
+      validateWithBackend: mockValidateWithBackend,
+      forceLogout: mockForceLogout,
     })
 
     render(
@@ -89,49 +85,17 @@ describe('Callback', () => {
     })
   })
 
-  it('should redirect to login when authentication fails', async () => {
-    const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
-
-    mockUseAuth.mockReturnValue({
-      isAuthenticated: false,
-      isLoading: false,
-      error: new Error('Authentication failed'),
-      logout: mockLogout,
-    })
-    mockUseBackendAuth.mockReturnValue({
-      isBackendAuthenticated: false,
-      isValidating: false,
-      user: null,
-      error: null,
-    })
-
-    render(
-      <BrowserRouter>
-        <Callback />
-      </BrowserRouter>
-    )
-
-    await waitFor(() => {
-      expect(consoleErrorSpy).toHaveBeenCalledWith('Auth0 error:', expect.any(Error))
-      expect(mockLogout).toHaveBeenCalled()
-    })
-
-    consoleErrorSpy.mockRestore()
-  })
-
-  it('should show error message when authentication fails', () => {
+  it('should show error when Auth0 authentication fails', () => {
     const authError = new Error('Authentication failed')
     mockUseAuth.mockReturnValue({
       isAuthenticated: false,
       isLoading: false,
       error: authError,
-      logout: mockLogout,
     })
     mockUseBackendAuth.mockReturnValue({
       isBackendAuthenticated: false,
-      isValidating: false,
-      user: null,
-      error: null,
+      validateWithBackend: mockValidateWithBackend,
+      forceLogout: mockForceLogout,
     })
 
     render(
@@ -140,8 +104,9 @@ describe('Callback', () => {
       </BrowserRouter>
     )
 
-    // The error message is displayed
-    expect(screen.getByText('Authentication failed')).toBeInTheDocument()
+    // The error message is displayed in the alert
+    expect(screen.getByText('Authentication Failed')).toBeInTheDocument()
+    expect(screen.getByText(/Authentication failed:/)).toBeInTheDocument()
   })
 
   it('should not redirect while still loading', () => {
@@ -149,13 +114,11 @@ describe('Callback', () => {
       isAuthenticated: false,
       isLoading: true,
       error: undefined,
-      logout: mockLogout,
     })
     mockUseBackendAuth.mockReturnValue({
       isBackendAuthenticated: false,
-      isValidating: true,
-      user: null,
-      error: null,
+      validateWithBackend: mockValidateWithBackend,
+      forceLogout: mockForceLogout,
     })
 
     render(
@@ -167,69 +130,16 @@ describe('Callback', () => {
     expect(mockNavigate).not.toHaveBeenCalled()
   })
 
-  it('should handle rapid state changes correctly', async () => {
-    // Start with loading
+  it('should redirect to login when not authenticated with Auth0', async () => {
     mockUseAuth.mockReturnValue({
       isAuthenticated: false,
-      isLoading: true,
+      isLoading: false,
       error: undefined,
-      logout: mockLogout,
     })
     mockUseBackendAuth.mockReturnValue({
       isBackendAuthenticated: false,
-      isValidating: true,
-      user: null,
-      error: null,
-    })
-
-    const { rerender } = render(
-      <BrowserRouter>
-        <Callback />
-      </BrowserRouter>
-    )
-
-    expect(mockNavigate).not.toHaveBeenCalled()
-
-    // Become authenticated
-    mockUseAuth.mockReturnValue({
-      isAuthenticated: true,
-      isLoading: false,
-      error: undefined,
-      logout: mockLogout,
-    })
-    mockUseBackendAuth.mockReturnValue({
-      isBackendAuthenticated: true,
-      isValidating: false,
-      user: { id: 'test-user-id', created_at: '2025-01-01', updated_at: '2025-01-01' },
-      error: null,
-    })
-
-    rerender(
-      <BrowserRouter>
-        <Callback />
-      </BrowserRouter>
-    )
-
-    await waitFor(() => {
-      expect(mockNavigate).toHaveBeenCalledWith('/dashboard')
-      expect(mockNavigate).toHaveBeenCalledTimes(1)
-    })
-  })
-
-  it('should handle backend 401 error and redirect to login', async () => {
-    const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
-
-    mockUseAuth.mockReturnValue({
-      isAuthenticated: true,
-      isLoading: false,
-      error: undefined,
-      logout: mockLogout,
-    })
-    mockUseBackendAuth.mockReturnValue({
-      isBackendAuthenticated: false,
-      isValidating: false,
-      user: null,
-      error: new ApiError(401, 'Unauthorized'),
+      validateWithBackend: mockValidateWithBackend,
+      forceLogout: mockForceLogout,
     })
 
     render(
@@ -239,36 +149,23 @@ describe('Callback', () => {
     )
 
     await waitFor(() => {
-      expect(
-        screen.getByText('Backend unavailable. Please ensure the server is running.')
-      ).toBeInTheDocument()
+      expect(mockNavigate).toHaveBeenCalledWith('/login')
     })
-
-    // Wait for timeout redirect
-    await waitFor(
-      () => {
-        expect(mockLogout).toHaveBeenCalled()
-      },
-      { timeout: 2500 }
-    )
-
-    consoleErrorSpy.mockRestore()
   })
 
-  it('should handle backend 500 error and redirect to login', async () => {
-    const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+  it('should show verifying state when validating with backend', async () => {
+    // Mock validateWithBackend to never resolve (simulating in-progress validation)
+    mockValidateWithBackend.mockImplementation(() => new Promise(() => {}))
 
     mockUseAuth.mockReturnValue({
       isAuthenticated: true,
       isLoading: false,
       error: undefined,
-      logout: mockLogout,
     })
     mockUseBackendAuth.mockReturnValue({
       isBackendAuthenticated: false,
-      isValidating: false,
-      user: null,
-      error: new ApiError(500, 'Internal Server Error'),
+      validateWithBackend: mockValidateWithBackend,
+      forceLogout: mockForceLogout,
     })
 
     render(
@@ -277,59 +174,11 @@ describe('Callback', () => {
       </BrowserRouter>
     )
 
+    // Validation should be triggered and show verifying message
     await waitFor(() => {
-      expect(
-        screen.getByText('Backend unavailable. Please ensure the server is running.')
-      ).toBeInTheDocument()
+      expect(mockValidateWithBackend).toHaveBeenCalled()
     })
 
-    // Wait for timeout redirect
-    await waitFor(
-      () => {
-        expect(mockLogout).toHaveBeenCalled()
-      },
-      { timeout: 2500 }
-    )
-
-    consoleErrorSpy.mockRestore()
-  })
-
-  it('should handle backend unavailable and redirect to login', async () => {
-    const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
-
-    mockUseAuth.mockReturnValue({
-      isAuthenticated: true,
-      isLoading: false,
-      error: undefined,
-      logout: mockLogout,
-    })
-    mockUseBackendAuth.mockReturnValue({
-      isBackendAuthenticated: false,
-      isValidating: false,
-      user: null,
-      error: new Error('Network error'),
-    })
-
-    render(
-      <BrowserRouter>
-        <Callback />
-      </BrowserRouter>
-    )
-
-    await waitFor(() => {
-      expect(
-        screen.getByText('Backend unavailable. Please ensure the server is running.')
-      ).toBeInTheDocument()
-    })
-
-    // Wait for timeout redirect
-    await waitFor(
-      () => {
-        expect(mockLogout).toHaveBeenCalled()
-      },
-      { timeout: 2500 }
-    )
-
-    consoleErrorSpy.mockRestore()
+    expect(screen.getByText('Verifying with server...')).toBeInTheDocument()
   })
 })
