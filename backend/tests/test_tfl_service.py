@@ -17,7 +17,7 @@ from app.models.tfl import (
 )
 from app.schemas.tfl import DisruptionResponse, RouteSegmentRequest, StationDisruptionResponse
 from app.services.tfl_service import TfLService
-from fastapi import HTTPException
+from fastapi import HTTPException, status
 from freezegun import freeze_time
 from pydantic_tfl_api.core import ApiError
 from pydantic_tfl_api.models import (
@@ -35,7 +35,7 @@ from pydantic_tfl_api.models import (
 from pydantic_tfl_api.models import (
     StopPoint as TflStopPoint,
 )
-from sqlalchemy import select
+from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 # Mock Factory Functions using pydantic_tfl_api models
@@ -1537,47 +1537,32 @@ async def test_build_station_graph(
     tfl_service: TfLService,
     db_session: AsyncSession,
 ) -> None:
-    """Test building the station connection graph using route sequences."""
-    with freeze_time("2025-01-01 12:00:00"):
-        # First, create stations in the database (build_station_graph expects them to exist)
-        stations = [
-            Station(
-                tfl_id="940GZZLUKSX",
-                name="King's Cross",
-                latitude=51.5308,
-                longitude=-0.1238,
-                lines=["victoria"],
-                last_updated=datetime.now(UTC),
-            ),
-            Station(
-                tfl_id="940GZZLUOXC",
-                name="Oxford Circus",
-                latitude=51.5152,
-                longitude=-0.1419,
-                lines=["victoria"],
-                last_updated=datetime.now(UTC),
-            ),
-            Station(
-                tfl_id="940GZZLUVIC",
-                name="Victoria",
-                latitude=51.4965,
-                longitude=-0.1447,
-                lines=["victoria"],
-                last_updated=datetime.now(UTC),
-            ),
-        ]
-        for station in stations:
-            db_session.add(station)
-        await db_session.commit()
-        for station in stations:
-            await db_session.refresh(station)
+    """Test building the station connection graph using route sequences.
 
+    This test verifies that build_station_graph:
+    1. Fetches all lines
+    2. Fetches stations for each line (populates Station table)
+    3. Builds connections from route sequences
+    4. Returns correct statistics
+    """
+    with freeze_time("2025-01-01 12:00:00"):
         # Mock responses for fetch_lines (called first in build_station_graph)
         mock_lines = [
             create_mock_line(id="victoria", name="Victoria"),
         ]
         mock_lines_response = MockResponse(
             data=mock_lines,
+            shared_expires=datetime(2025, 1, 2, 12, 0, 0, tzinfo=UTC),
+        )
+
+        # Mock responses for fetch_stations (called for each line)
+        mock_stations = [
+            create_mock_place(id="940GZZLUKSX", common_name="King's Cross", lat=51.5308, lon=-0.1238),
+            create_mock_place(id="940GZZLUOXC", common_name="Oxford Circus", lat=51.5152, lon=-0.1419),
+            create_mock_place(id="940GZZLUVIC", common_name="Victoria", lat=51.4965, lon=-0.1447),
+        ]
+        mock_stations_response = MockResponse(
+            data=mock_stations,
             shared_expires=datetime(2025, 1, 2, 12, 0, 0, tzinfo=UTC),
         )
 
@@ -1605,8 +1590,8 @@ async def test_build_station_graph(
         mock_outbound_response = MockRouteResponse(content=mock_route_sequence)
 
         # Mock the event loop - cycle through responses
-        # Order: lines, inbound route, outbound route
-        responses = [mock_lines_response, mock_inbound_response, mock_outbound_response]
+        # Order: lines, stations (for victoria line), inbound route, outbound route
+        responses = [mock_lines_response, mock_stations_response, mock_inbound_response, mock_outbound_response]
         call_count = [0]
 
         async def mock_executor(*args: Any) -> Any:  # noqa: ANN401
@@ -1626,10 +1611,214 @@ async def test_build_station_graph(
         assert result["stations_count"] == 3
         assert result["connections_count"] == 4  # 2 connections forward + 2 reverse
 
+        # Verify stations were created in database
+        stations_result = await db_session.execute(select(Station))
+        stations = stations_result.scalars().all()
+        assert len(stations) == 3
+
         # Verify connections were created in database
         connections_result = await db_session.execute(select(StationConnection))
         connections = connections_result.scalars().all()
         assert len(connections) == 4
+
+
+@patch("asyncio.get_running_loop")
+async def test_build_station_graph_fails_without_stations(
+    mock_get_loop: MagicMock,
+    tfl_service: TfLService,
+    db_session: AsyncSession,
+) -> None:
+    """Test that build_station_graph fails fast when no stations are found after fetching."""
+    with freeze_time("2025-01-01 12:00:00"):
+        # Mock responses for fetch_lines
+        mock_lines = [
+            create_mock_line(id="victoria", name="Victoria"),
+        ]
+        mock_lines_response = MockResponse(
+            data=mock_lines,
+            shared_expires=datetime(2025, 1, 2, 12, 0, 0, tzinfo=UTC),
+        )
+
+        # Mock EMPTY station response (no stations returned from API)
+        mock_stations_response = MockResponse(
+            data=[],  # Empty list - no stations
+            shared_expires=datetime(2025, 1, 2, 12, 0, 0, tzinfo=UTC),
+        )
+
+        # Mock the event loop
+        responses = [mock_lines_response, mock_stations_response]
+        call_count = [0]
+
+        async def mock_executor(*args: Any) -> Any:  # noqa: ANN401
+            result = responses[call_count[0]]
+            call_count[0] += 1
+            return result
+
+        mock_loop = AsyncMock()
+        mock_loop.run_in_executor = AsyncMock(side_effect=mock_executor)
+        mock_get_loop.return_value = mock_loop
+
+        # Execute - should raise HTTPException with validation error
+        with pytest.raises(HTTPException) as exc_info:
+            await tfl_service.build_station_graph()
+
+        # Verify error details
+        assert exc_info.value.status_code == status.HTTP_500_INTERNAL_SERVER_ERROR
+        assert "No stations found" in exc_info.value.detail
+        assert "Cannot build graph" in exc_info.value.detail
+
+
+async def test_build_station_graph_rollback_on_error(
+    tfl_service: TfLService,
+) -> None:
+    """Test that build_station_graph properly handles errors and performs rollback.
+
+    This test verifies that if the graph build fails (e.g., due to an API error),
+    the error is caught, wrapped in an HTTPException, and the transaction is rolled back.
+    Additionally verifies that no partial data exists in the database after rollback.
+    """
+    with freeze_time("2025-01-01 12:00:00"):
+        # Ensure database is clean before test
+        stations_before = await tfl_service.db.execute(text("SELECT COUNT(*) FROM stations"))
+        connections_before = await tfl_service.db.execute(text("SELECT COUNT(*) FROM station_connections"))
+        stations_count_before = stations_before.scalar()
+        connections_count_before = connections_before.scalar()
+
+        # Mock the fetch_lines method to raise an exception simulating a database/API failure
+        original_fetch_lines = tfl_service.fetch_lines
+        error_msg = "Simulated API error during fetch_lines"
+
+        async def mock_fetch_lines_with_error(*args: Any, **kwargs: Any) -> Any:  # noqa: ANN401
+            raise RuntimeError(error_msg)
+
+        tfl_service.fetch_lines = mock_fetch_lines_with_error  # type: ignore[method-assign]
+
+        try:
+            # Execute - should raise HTTPException
+            with pytest.raises(HTTPException) as exc_info:
+                await tfl_service.build_station_graph()
+
+            # Verify error was caught and wrapped in HTTPException
+            assert exc_info.value.status_code == status.HTTP_500_INTERNAL_SERVER_ERROR
+            assert "Failed to build station graph" in exc_info.value.detail
+
+            # The rollback is called automatically in the exception handler
+            # This ensures the database is in a consistent state
+
+            # Verify that no partial data exists after rollback
+            stations_after = await tfl_service.db.execute(text("SELECT COUNT(*) FROM stations"))
+            connections_after = await tfl_service.db.execute(text("SELECT COUNT(*) FROM station_connections"))
+            stations_count_after = stations_after.scalar()
+            connections_count_after = connections_after.scalar()
+
+            # Counts should be unchanged (no partial data committed)
+            assert stations_count_after == stations_count_before
+            assert connections_count_after == connections_count_before
+
+        finally:
+            # Restore original method
+            tfl_service.fetch_lines = original_fetch_lines  # type: ignore[method-assign]
+
+
+@patch("asyncio.get_running_loop")
+async def test_build_station_graph_no_duplicate_connections(
+    mock_get_loop: MagicMock,
+    tfl_service: TfLService,
+    db_session: AsyncSession,
+) -> None:
+    """Test that build_station_graph prevents duplicate connections from inbound/outbound overlap.
+
+    When processing both inbound and outbound routes, the same station pairs appear in both directions.
+    This test verifies that we don't create duplicate connections by tracking pending connections
+    within the transaction.
+    """
+    with freeze_time("2025-01-01 12:00:00"):
+        # Mock responses for fetch_lines
+        mock_lines = [
+            create_mock_line(id="victoria", name="Victoria"),
+        ]
+        mock_lines_response = MockResponse(
+            data=mock_lines,
+            shared_expires=datetime(2025, 1, 2, 12, 0, 0, tzinfo=UTC),
+        )
+
+        # Mock responses for fetch_stations
+        mock_stations = [
+            create_mock_place(id="940GZZLUKSX", common_name="King's Cross", lat=51.5308, lon=-0.1238),
+            create_mock_place(id="940GZZLUOXC", common_name="Oxford Circus", lat=51.5152, lon=-0.1419),
+            create_mock_place(id="940GZZLUVIC", common_name="Victoria", lat=51.4965, lon=-0.1447),
+        ]
+        mock_stations_response = MockResponse(
+            data=mock_stations,
+            shared_expires=datetime(2025, 1, 2, 12, 0, 0, tzinfo=UTC),
+        )
+
+        # Mock route sequence for INBOUND: A -> B -> C
+        inbound_stop_points = [
+            MockStopPoint2(id="940GZZLUKSX", name="King's Cross"),
+            MockStopPoint2(id="940GZZLUOXC", name="Oxford Circus"),
+            MockStopPoint2(id="940GZZLUVIC", name="Victoria"),
+        ]
+        mock_inbound_sequence = MockRouteSequence(
+            stopPointSequences=[
+                MockStopPointSequence2(stopPoint=inbound_stop_points),
+            ],
+        )
+
+        # Mock route sequence for OUTBOUND: C -> B -> A (reverse of inbound)
+        # This creates the SAME connections but in opposite order
+        outbound_stop_points = [
+            MockStopPoint2(id="940GZZLUVIC", name="Victoria"),
+            MockStopPoint2(id="940GZZLUOXC", name="Oxford Circus"),
+            MockStopPoint2(id="940GZZLUKSX", name="King's Cross"),
+        ]
+        mock_outbound_sequence = MockRouteSequence(
+            stopPointSequences=[
+                MockStopPointSequence2(stopPoint=outbound_stop_points),
+            ],
+        )
+
+        class MockRouteResponse:
+            def __init__(self, content: MockRouteSequence) -> None:
+                self.content = content
+
+        mock_inbound_response = MockRouteResponse(content=mock_inbound_sequence)
+        mock_outbound_response = MockRouteResponse(content=mock_outbound_sequence)
+
+        # Mock the event loop
+        responses = [mock_lines_response, mock_stations_response, mock_inbound_response, mock_outbound_response]
+        call_count = [0]
+
+        async def mock_executor(*args: Any) -> Any:  # noqa: ANN401
+            result = responses[call_count[0]]
+            call_count[0] += 1
+            return result
+
+        mock_loop = AsyncMock()
+        mock_loop.run_in_executor = AsyncMock(side_effect=mock_executor)
+        mock_get_loop.return_value = mock_loop
+
+        # Execute
+        result = await tfl_service.build_station_graph()
+
+        # Verify result - should create exactly 4 bidirectional connections (not 8!)
+        # Inbound creates: A->B, B->A, B->C, C->B
+        # Outbound would try to create: C->B, B->C, B->A, A->B (all duplicates, should be skipped)
+        assert result["lines_count"] == 1
+        assert result["stations_count"] == 3
+        assert result["connections_count"] == 4, "Should create exactly 4 connections, not duplicates"
+
+        # Verify in database - should have exactly 4 connections
+        connections_result = await db_session.execute(select(StationConnection))
+        connections = connections_result.scalars().all()
+        assert len(connections) == 4, "Database should have exactly 4 connections"
+
+        # Verify each unique connection exists exactly once
+        connection_keys = set()
+        for conn in connections:
+            key = (str(conn.from_station_id), str(conn.to_station_id), str(conn.line_id))
+            assert key not in connection_keys, f"Duplicate connection found: {key}"
+            connection_keys.add(key)
 
 
 # ==================== validate_route Tests ====================
@@ -2211,7 +2400,8 @@ async def test_process_station_pair_creates_both(db_session: AsyncSession) -> No
     # Process pair
     tfl_service = TfLService(db_session)
     stations_set: set[str] = set()
-    count = await tfl_service._process_station_pair(MockStop1(), MockStop2(), line, stations_set)
+    pending_connections: set[tuple[uuid.UUID, uuid.UUID, uuid.UUID]] = set()
+    count = await tfl_service._process_station_pair(MockStop1(), MockStop2(), line, stations_set, pending_connections)
 
     assert count == 2  # Both forward and reverse connections created
     assert "940GZZLUVIC" in stations_set
@@ -2235,15 +2425,16 @@ async def test_process_station_pair_missing_station(db_session: AsyncSession) ->
     # Process pair
     tfl_service = TfLService(db_session)
     stations_set: set[str] = set()
-    count = await tfl_service._process_station_pair(MockStop1(), MockStop2(), line, stations_set)
+    pending_connections: set[tuple[uuid.UUID, uuid.UUID, uuid.UUID]] = set()
+    count = await tfl_service._process_station_pair(MockStop1(), MockStop2(), line, stations_set, pending_connections)
 
     assert count == 0
     assert not stations_set
 
 
 async def test_process_station_pair_existing_connections(db_session: AsyncSession) -> None:
-    """Test station pair processing when connections already exist."""
-    # Create line, stations, and connections
+    """Test station pair processing when connections already exist in pending set."""
+    # Create line and stations
     line = Line(tfl_id="victoria", name="Victoria", color="#000000", last_updated=datetime.now(UTC))
     station1 = Station(
         tfl_id="940GZZLUVIC",
@@ -2264,20 +2455,6 @@ async def test_process_station_pair_existing_connections(db_session: AsyncSessio
     db_session.add_all([line, station1, station2])
     await db_session.commit()
 
-    # Create existing connections
-    connection1 = StationConnection(
-        from_station_id=station1.id,
-        to_station_id=station2.id,
-        line_id=line.id,
-    )
-    connection2 = StationConnection(
-        from_station_id=station2.id,
-        to_station_id=station1.id,
-        line_id=line.id,
-    )
-    db_session.add_all([connection1, connection2])
-    await db_session.commit()
-
     # Create mock stops
     class MockStop1:
         id = "940GZZLUVIC"
@@ -2288,7 +2465,14 @@ async def test_process_station_pair_existing_connections(db_session: AsyncSessio
     # Process pair
     tfl_service = TfLService(db_session)
     stations_set: set[str] = set()
-    count = await tfl_service._process_station_pair(MockStop1(), MockStop2(), line, stations_set)
+    # Pre-populate pending_connections with the connections we're about to create
+    # This simulates them already being processed in this transaction
+    pending_connections: set[tuple[uuid.UUID, uuid.UUID, uuid.UUID]] = {
+        (station1.id, station2.id, line.id),
+        (station2.id, station1.id, line.id),
+    }
+
+    count = await tfl_service._process_station_pair(MockStop1(), MockStop2(), line, stations_set, pending_connections)
 
     assert count == 0  # No new connections created
     assert "940GZZLUVIC" in stations_set
@@ -2496,11 +2680,13 @@ async def test_process_station_pair_missing_stop_ids(
 
     # Process pair with missing IDs
     stations_set: set[str] = set()
+    pending_connections: set[tuple[uuid.UUID, uuid.UUID, uuid.UUID]] = set()
     count = await tfl_service._process_station_pair(
         MockStopNoId(),
         MockStopNoId(),
         line,
         stations_set,
+        pending_connections,
     )
 
     # Should return 0 and not add to set
@@ -2619,7 +2805,8 @@ async def test_process_route_sequence_empty_stop_points(
 
     # Execute
     stations_set: set[str] = set()
-    count = await tfl_service._process_route_sequence(line, "inbound", stations_set)
+    pending_connections: set[tuple[uuid.UUID, uuid.UUID, uuid.UUID]] = set()
+    count = await tfl_service._process_route_sequence(line, "inbound", stations_set, pending_connections)
 
     # Should skip sequence without stopPoint and return 0
     assert count == 0

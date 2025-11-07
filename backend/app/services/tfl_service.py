@@ -13,7 +13,7 @@ from aiocache.serializers import PickleSerializer
 from fastapi import HTTPException, status
 from pydantic_tfl_api import LineClient, StopPointClient
 from pydantic_tfl_api.core import ApiError, ResponseModel
-from sqlalchemy import delete, select
+from sqlalchemy import delete, func, select
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import aliased
@@ -882,6 +882,7 @@ class TfLService:
         next_stop: Any,  # noqa: ANN401
         line: Line,
         stations_set: set[str],
+        pending_connections: set[tuple[uuid.UUID, uuid.UUID, uuid.UUID]],
     ) -> int:
         """
         Process a pair of consecutive stations and create bidirectional connections.
@@ -891,6 +892,7 @@ class TfLService:
             next_stop: Next stop point data
             line: Line object
             stations_set: Set to track unique station IDs
+            pending_connections: Set to track pending connections (from_id, to_id, line_id)
 
         Returns:
             Number of new connections created (0, 1, or 2)
@@ -921,16 +923,20 @@ class TfLService:
 
         connections_created = 0
 
-        # Create forward connection if needed
-        if not await self._connection_exists(from_station.id, to_station.id, line.id):
+        # Create forward connection if needed (check pending set to avoid duplicates in same transaction)
+        forward_key = (from_station.id, to_station.id, line.id)
+        if forward_key not in pending_connections:
             connection = self._create_connection(from_station.id, to_station.id, line.id)
             self.db.add(connection)
+            pending_connections.add(forward_key)
             connections_created += 1
 
-        # Create reverse connection if needed
-        if not await self._connection_exists(to_station.id, from_station.id, line.id):
+        # Create reverse connection if needed (check pending set to avoid duplicates in same transaction)
+        reverse_key = (to_station.id, from_station.id, line.id)
+        if reverse_key not in pending_connections:
             connection = self._create_connection(to_station.id, from_station.id, line.id)
             self.db.add(connection)
+            pending_connections.add(reverse_key)
             connections_created += 1
 
         return connections_created
@@ -980,6 +986,7 @@ class TfLService:
         line: Line,
         direction: str,
         stations_set: set[str],
+        pending_connections: set[tuple[uuid.UUID, uuid.UUID, uuid.UUID]],
     ) -> int:
         """
         Process route sequence for a line and direction.
@@ -988,6 +995,7 @@ class TfLService:
             line: Line object
             direction: "inbound" or "outbound"
             stations_set: Set to track unique station IDs
+            pending_connections: Set to track pending connections (from_id, to_id, line_id)
 
         Returns:
             Number of connections created
@@ -1009,6 +1017,7 @@ class TfLService:
                         stop_points[i + 1],
                         line,
                         stations_set,
+                        pending_connections,
                     )
 
             return connections_count
@@ -1032,18 +1041,46 @@ class TfLService:
 
         Returns:
             Dictionary with build statistics (lines_count, stations_count, connections_count)
+
+        Raises:
+            HTTPException: 500 if graph building fails (old connections preserved via rollback)
+            HTTPException: 500 if no stations found after fetching (validation failure)
         """
         logger.info("building_station_graph_start")
 
         try:
-            # Clear existing connections
-            await self.db.execute(delete(StationConnection))
-            await self.db.commit()
-
             # Fetch all lines
             lines = await self.fetch_lines(use_cache=False)
+            logger.info("lines_fetched", lines_count=len(lines))
+
+            # Fetch stations for all lines BEFORE building connections
+            # This ensures stations exist in the database for connection creation
+            for line in lines:
+                logger.info("fetching_stations_for_line", line_tfl_id=line.tfl_id, line_name=line.name)
+                await self.fetch_stations(line_tfl_id=line.tfl_id, use_cache=False)
+
+            # Validate that stations were populated
+            station_count_result = await self.db.execute(select(func.count()).select_from(Station))
+            station_count = station_count_result.scalar_one()
+
+            if station_count == 0:
+                logger.error("no_stations_found_after_fetch")
+                raise HTTPException(
+                    status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                    detail="No stations found after fetching from TfL API. Cannot build graph.",
+                )
+
+            logger.info("stations_validated", station_count=station_count)
+
+            # Clear existing connections (within transaction - will rollback if building fails)
+            await self.db.execute(delete(StationConnection))
+            # Required: flush prevents unique constraint violations when rebuilding connections.
+            # Without this, SQLAlchemy may reorder operations causing duplicate key errors.
+            await self.db.flush()
+            logger.info("existing_connections_cleared")
 
             stations_set: set[str] = set()
+            pending_connections: set[tuple[uuid.UUID, uuid.UUID, uuid.UUID]] = set()
             connections_count = 0
 
             # Process each line
@@ -1051,16 +1088,18 @@ class TfLService:
                 logger.info("processing_line_for_graph", line_name=line.name, line_tfl_id=line.tfl_id)
 
                 # Process both directions
-                # Note: Duplicate connections are prevented by _connection_exists check in _process_station_pair
+                # Note: Duplicate connections are prevented by pending_connections set
                 # Even if inbound and outbound routes overlap, we won't create duplicates
                 for direction in ["inbound", "outbound"]:
                     connections_count += await self._process_route_sequence(
                         line,
                         direction,
                         stations_set,
+                        pending_connections,
                     )
 
-            # Commit all connections
+            # Commit all changes (delete + new connections) atomically
+            # If we reach here, everything succeeded
             await self.db.commit()
 
             build_result = {
@@ -1072,6 +1111,10 @@ class TfLService:
             logger.info("building_station_graph_complete", **build_result)
             return build_result
 
+        except HTTPException:
+            # Re-raise HTTP exceptions (validation failures)
+            await self.db.rollback()
+            raise
         except Exception as e:
             logger.error("build_station_graph_failed", error=str(e), exc_info=e)
             await self.db.rollback()
