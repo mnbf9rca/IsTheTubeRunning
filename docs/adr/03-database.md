@@ -101,3 +101,41 @@ Routes store explicit `timezone` field in IANA format (e.g., `"Europe/London"`).
 - Must always interpret times in route's timezone (can't forget context)
 - Slightly more complex queries (must join route to get timezone)
 - Need to convert to user's timezone for display (but this is necessary anyway)
+
+---
+
+## Nullable Route Segment line_id
+
+### Status
+Active (Implemented 2025-11-07)
+
+### Context
+Users create routes by selecting stations and lines conceptually as "From Station A, take Line X to Station B". The database initially required `line_id` for every segment, but the destination segment has no outgoing line - the journey terminates there. This created a mismatch:
+- Validation only uses `segment[i].line_id` to check connections to `segment[i+1]`
+- The last segment's `line_id` is never used in validation
+- Storing a line for the destination is semantically meaningless
+
+Four options considered:
+1. **Nullable line_id**: Allow NULL for destination (chosen)
+2. **Connection model**: Restructure to `{from_station, line, to_station}` per segment (too disruptive)
+3. **Status quo**: Keep workaround, store redundant data (technical debt)
+4. **Sentinel line**: Create fake "TERMINATES" line (pollutes domain model)
+
+### Decision
+Make `route_segments.line_id` nullable. NULL explicitly means "journey terminates here" (no outgoing line). Only the final segment can have NULL `line_id` - intermediate segments must have a line to travel on.
+
+Backend validation enforces this rule. Frontend automatically sets the last segment's `line_id` to NULL when saving routes.
+
+### Consequences
+**Easier:**
+- Data model matches conceptual model ("From A on Line X to B" followed by "Arrive at C")
+- Semantically correct: NULL means "no value" (standard SQL pattern)
+- No redundant data stored (DRY principle)
+- Clear validation rules prevent misuse
+- No fake/polluting data in domain model
+- Minimal disruption (single column constraint change)
+
+**More Difficult:**
+- Need NULL checks in validation and display logic
+- Slightly more complex queries (must handle NULL case)
+- Nullable fields require careful handling in TypeScript (but type system helps)
