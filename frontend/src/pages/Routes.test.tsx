@@ -1,0 +1,156 @@
+import { render, screen } from '@testing-library/react'
+import { userEvent } from '@testing-library/user-event'
+import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { Routes } from './Routes'
+import { ApiError, type RouteListItemResponse } from '../lib/api'
+
+// Mock the useRoutes hook
+vi.mock('../hooks/useRoutes', () => ({
+  useRoutes: vi.fn(),
+}))
+
+// Mock sonner for toast notifications
+vi.mock('sonner', () => ({
+  toast: {
+    success: vi.fn(),
+    error: vi.fn(),
+  },
+}))
+
+import { useRoutes } from '../hooks/useRoutes'
+
+describe('Routes', () => {
+  const mockRoutes: RouteListItemResponse[] = [
+    {
+      id: 'route-1',
+      name: 'Home to Work',
+      description: 'Daily commute',
+      active: true,
+      timezone: 'Europe/London',
+      segment_count: 3,
+      schedule_count: 2,
+    },
+  ]
+
+  const mockUseRoutes = {
+    routes: mockRoutes,
+    loading: false,
+    error: null,
+    createRoute: vi.fn(),
+    updateRoute: vi.fn(),
+    deleteRoute: vi.fn(),
+    getRoute: vi.fn(),
+    refresh: vi.fn(),
+  }
+
+  beforeEach(() => {
+    vi.clearAllMocks()
+    vi.mocked(useRoutes).mockReturnValue(mockUseRoutes)
+  })
+
+  it('should render page header', () => {
+    render(<Routes />)
+
+    expect(screen.getByRole('heading', { name: /routes/i })).toBeInTheDocument()
+    expect(screen.getByText(/manage your commute routes/i)).toBeInTheDocument()
+  })
+
+  it('should render create route button', () => {
+    render(<Routes />)
+
+    const createButton = screen.getByRole('button', { name: /create route/i })
+    expect(createButton).toBeInTheDocument()
+  })
+
+  it('should open create dialog when create button is clicked', async () => {
+    const user = userEvent.setup()
+    render(<Routes />)
+
+    const createButton = screen.getByRole('button', { name: /create route/i })
+    await user.click(createButton)
+
+    // Dialog should open with title
+    expect(screen.getByRole('dialog')).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: /create route/i })).toBeInTheDocument()
+  })
+
+  it('should render loading state', () => {
+    vi.mocked(useRoutes).mockReturnValue({
+      ...mockUseRoutes,
+      loading: true,
+      routes: null,
+    })
+
+    render(<Routes />)
+
+    expect(screen.getByText(/loading routes/i)).toBeInTheDocument()
+  })
+
+  it('should render error state', () => {
+    const mockError = new ApiError(500, 'Internal Server Error')
+    vi.mocked(useRoutes).mockReturnValue({
+      ...mockUseRoutes,
+      error: mockError,
+    })
+
+    render(<Routes />)
+
+    expect(screen.getByText(/error/i)).toBeInTheDocument()
+    expect(screen.getByText(/failed to load routes/i)).toBeInTheDocument()
+  })
+
+  it('should render auth error state', () => {
+    const mockError = new ApiError(401, 'Unauthorized')
+    vi.mocked(useRoutes).mockReturnValue({
+      ...mockUseRoutes,
+      error: mockError,
+    })
+
+    render(<Routes />)
+
+    expect(screen.getByText(/your session has expired/i)).toBeInTheDocument()
+  })
+
+  it('should render routes list', () => {
+    render(<Routes />)
+
+    expect(screen.getByText('Home to Work')).toBeInTheDocument()
+    expect(screen.getByText(/you have 1 route/i)).toBeInTheDocument()
+  })
+
+  it('should handle plural routes count', () => {
+    vi.mocked(useRoutes).mockReturnValue({
+      ...mockUseRoutes,
+      routes: [...mockRoutes, { ...mockRoutes[0], id: 'route-2', name: 'Route 2' }],
+    })
+
+    render(<Routes />)
+
+    expect(screen.getByText(/you have 2 routes/i)).toBeInTheDocument()
+  })
+
+  it('should disable create button when loading', () => {
+    vi.mocked(useRoutes).mockReturnValue({
+      ...mockUseRoutes,
+      loading: true,
+    })
+
+    render(<Routes />)
+
+    const createButton = screen.getByRole('button', { name: /create route/i })
+    expect(createButton).toBeDisabled()
+  })
+
+  it('should open delete confirmation dialog when delete is clicked', async () => {
+    const user = userEvent.setup()
+    render(<Routes />)
+
+    // Click delete button on route card
+    const deleteButton = screen.getByRole('button', { name: /delete route home to work/i })
+    await user.click(deleteButton)
+
+    // Confirmation dialog should appear
+    expect(screen.getByText(/delete route\?/i)).toBeInTheDocument()
+    expect(screen.getByText(/are you sure/i)).toBeInTheDocument()
+  })
+})

@@ -9,13 +9,31 @@ vi.mock('@/hooks/useAuth', () => ({
   useAuth: vi.fn(),
 }))
 
+// Mock useRoutes hook
+vi.mock('@/hooks/useRoutes', () => ({
+  useRoutes: vi.fn(),
+}))
+
 import { useAuth } from '@/hooks/useAuth'
+import { useRoutes } from '@/hooks/useRoutes'
 
 const mockUseAuth = useAuth as ReturnType<typeof vi.fn>
+const mockUseRoutes = useRoutes as ReturnType<typeof vi.fn>
 
 describe('Dashboard', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    // Default mock for useRoutes
+    mockUseRoutes.mockReturnValue({
+      routes: [],
+      loading: false,
+      error: null,
+      createRoute: vi.fn(),
+      updateRoute: vi.fn(),
+      deleteRoute: vi.fn(),
+      getRoute: vi.fn(),
+      refresh: vi.fn(),
+    })
   })
 
   it('should render welcome message with user first name', () => {

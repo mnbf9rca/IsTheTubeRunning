@@ -13,6 +13,7 @@ import Login from './pages/Login'
 import Callback from './pages/Callback'
 import Dashboard from './pages/Dashboard'
 import { Contacts } from './pages/Contacts'
+import { Routes as RoutesPage } from './pages/Routes'
 import { ServiceUnavailable } from './pages/ServiceUnavailable'
 
 function AppRoutes() {
@@ -53,6 +54,14 @@ function AppRoutes() {
               element={
                 <ProtectedRoute>
                   <Contacts />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/routes"
+              element={
+                <ProtectedRoute>
+                  <RoutesPage />
                 </ProtectedRoute>
               }
             />

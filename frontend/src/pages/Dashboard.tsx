@@ -1,9 +1,16 @@
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { useAuth } from '@/hooks/useAuth'
+import { useRoutes } from '@/hooks/useRoutes'
 import { MapPin, Bell, Contact } from 'lucide-react'
+import { useNavigate } from 'react-router-dom'
 
 export default function Dashboard() {
   const { user } = useAuth()
+  const { routes, loading: routesLoading } = useRoutes()
+  const navigate = useNavigate()
+
+  const routeCount = routes?.length || 0
+  const activeRouteCount = routes?.filter((r) => r.active).length || 0
 
   return (
     <div className="space-y-6">
@@ -17,14 +24,23 @@ export default function Dashboard() {
       </div>
 
       <div className="grid gap-4 md:grid-cols-3">
-        <Card>
+        <Card
+          className="cursor-pointer hover:shadow-md transition-shadow"
+          onClick={() => navigate('/routes')}
+        >
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
             <CardTitle className="text-sm font-medium">Routes</CardTitle>
             <MapPin className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">0</div>
-            <p className="text-xs text-muted-foreground">No routes configured yet</p>
+            <div className="text-2xl font-bold">{routesLoading ? '...' : routeCount}</div>
+            <p className="text-xs text-muted-foreground">
+              {routesLoading
+                ? 'Loading...'
+                : routeCount === 0
+                  ? 'No routes configured yet'
+                  : `${activeRouteCount} active`}
+            </p>
           </CardContent>
         </Card>
 
