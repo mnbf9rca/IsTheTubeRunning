@@ -35,7 +35,7 @@ from pydantic_tfl_api.models import (
 from pydantic_tfl_api.models import (
     StopPoint as TflStopPoint,
 )
-from sqlalchemy import select
+from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 # Mock Factory Functions using pydantic_tfl_api models
@@ -1675,8 +1675,15 @@ async def test_build_station_graph_rollback_on_error(
 
     This test verifies that if the graph build fails (e.g., due to an API error),
     the error is caught, wrapped in an HTTPException, and the transaction is rolled back.
+    Additionally verifies that no partial data exists in the database after rollback.
     """
     with freeze_time("2025-01-01 12:00:00"):
+        # Ensure database is clean before test
+        stations_before = await tfl_service.db.execute(text("SELECT COUNT(*) FROM stations"))
+        connections_before = await tfl_service.db.execute(text("SELECT COUNT(*) FROM station_connections"))
+        stations_count_before = stations_before.scalar()
+        connections_count_before = connections_before.scalar()
+
         # Mock the fetch_lines method to raise an exception simulating a database/API failure
         original_fetch_lines = tfl_service.fetch_lines
         error_msg = "Simulated API error during fetch_lines"
@@ -1697,6 +1704,16 @@ async def test_build_station_graph_rollback_on_error(
 
             # The rollback is called automatically in the exception handler
             # This ensures the database is in a consistent state
+
+            # Verify that no partial data exists after rollback
+            stations_after = await tfl_service.db.execute(text("SELECT COUNT(*) FROM stations"))
+            connections_after = await tfl_service.db.execute(text("SELECT COUNT(*) FROM station_connections"))
+            stations_count_after = stations_after.scalar()
+            connections_count_after = connections_after.scalar()
+
+            # Counts should be unchanged (no partial data committed)
+            assert stations_count_after == stations_count_before
+            assert connections_count_after == connections_count_before
 
         finally:
             # Restore original method
@@ -2448,12 +2465,12 @@ async def test_process_station_pair_existing_connections(db_session: AsyncSessio
     # Process pair
     tfl_service = TfLService(db_session)
     stations_set: set[str] = set()
-    pending_connections: set[tuple[uuid.UUID, uuid.UUID, uuid.UUID]] = set()
-
     # Pre-populate pending_connections with the connections we're about to create
     # This simulates them already being processed in this transaction
-    pending_connections.add((station1.id, station2.id, line.id))
-    pending_connections.add((station2.id, station1.id, line.id))
+    pending_connections: set[tuple[uuid.UUID, uuid.UUID, uuid.UUID]] = {
+        (station1.id, station2.id, line.id),
+        (station2.id, station1.id, line.id),
+    }
 
     count = await tfl_service._process_station_pair(MockStop1(), MockStop2(), line, stations_set, pending_connections)
 

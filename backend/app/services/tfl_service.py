@@ -1074,7 +1074,9 @@ class TfLService:
 
             # Clear existing connections (within transaction - will rollback if building fails)
             await self.db.execute(delete(StationConnection))
-            await self.db.flush()  # Ensure DELETE is executed before adding new connections
+            # Required: flush prevents unique constraint violations when rebuilding connections.
+            # Without this, SQLAlchemy may reorder operations causing duplicate key errors.
+            await self.db.flush()
             logger.info("existing_connections_cleared")
 
             stations_set: set[str] = set()
