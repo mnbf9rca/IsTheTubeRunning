@@ -31,16 +31,16 @@ describe('SegmentCard', () => {
   it('should show arrow when not last segment', () => {
     const { container } = render(<SegmentCard {...defaultProps} isLast={false} />)
 
-    // Arrow icon should be present
-    const arrow = container.querySelector('[aria-hidden="true"]')
+    // Arrow icon should be present (ArrowRight has lucide-arrow-right class)
+    const arrow = container.querySelector('.lucide-arrow-right')
     expect(arrow).toBeInTheDocument()
   })
 
   it('should not show arrow when last segment', () => {
     const { container } = render(<SegmentCard {...defaultProps} isLast={true} />)
 
-    // Arrow icon should not be present
-    const arrow = container.querySelector('[aria-hidden="true"]')
+    // Arrow icon should not be present (ArrowRight has lucide-arrow-right class)
+    const arrow = container.querySelector('.lucide-arrow-right')
     expect(arrow).not.toBeInTheDocument()
   })
 

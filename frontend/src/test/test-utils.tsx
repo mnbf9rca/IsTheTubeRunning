@@ -1,4 +1,7 @@
 import { vi } from 'vitest'
+import { render } from '@testing-library/react'
+import { MemoryRouter } from 'react-router-dom'
+import React from 'react'
 
 interface BackendUser {
   id: string
@@ -83,3 +86,23 @@ export function createMockAuth(
     ...overrides,
   }
 }
+
+/**
+ * Custom render function that wraps components in MemoryRouter
+ * Use this for components that use React Router hooks (useNavigate, useParams, etc.)
+ *
+ * @example
+ * ```tsx
+ * renderWithRouter(<MyComponent />)
+ * renderWithRouter(<MyComponent />, { route: '/my-route' })
+ * ```
+ */
+export function renderWithRouter(
+  ui: React.ReactElement,
+  { route = '/', ...renderOptions }: { route?: string } & Parameters<typeof render>[1] = {}
+) {
+  return render(<MemoryRouter initialEntries={[route]}>{ui}</MemoryRouter>, renderOptions)
+}
+
+// Re-export everything from React Testing Library for convenience
+export * from '@testing-library/react'

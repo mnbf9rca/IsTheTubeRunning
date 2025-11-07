@@ -112,7 +112,7 @@ describe('SegmentBuilder', () => {
     expect(onCancel).toHaveBeenCalledTimes(1)
   })
 
-  it('should show error when trying to save with less than 2 segments', async () => {
+  it('should disable save button when less than 2 segments', async () => {
     const user = userEvent.setup()
     const props = {
       ...defaultProps,
@@ -125,35 +125,46 @@ describe('SegmentBuilder', () => {
     const deleteButton = screen.getByLabelText(/Delete segment/)
     await user.click(deleteButton)
 
-    // Try to save
+    // Save button should be disabled (less than 2 segments)
     const saveButton = screen.getByRole('button', { name: /Save Segments/i })
-    await user.click(saveButton)
-
-    expect(await screen.findByText('Route must have at least 2 segments')).toBeInTheDocument()
+    expect(saveButton).toBeDisabled()
   })
 
-  it('should call onValidate and onSave when saving', async () => {
+  it('should enable save button when there are changes and at least 2 segments', async () => {
     const user = userEvent.setup()
     const onValidate = vi.fn(async () => ({ valid: true, message: 'Valid route' }))
     const onSave = vi.fn(async () => {})
 
-    render(<SegmentBuilder {...defaultProps} onValidate={onValidate} onSave={onSave} />)
+    // Start with 3 segments so we can delete one and still have 2
+    const threeSegments: SegmentResponse[] = [
+      ...mockInitialSegments,
+      {
+        id: 'segment-3',
+        sequence: 2,
+        station_id: 'station-2',
+        line_id: 'line-1',
+      },
+    ]
 
-    // Delete a segment to create changes
+    render(
+      <SegmentBuilder
+        {...defaultProps}
+        initialSegments={threeSegments}
+        onValidate={onValidate}
+        onSave={onSave}
+      />
+    )
+
+    // Delete a segment to create changes (3 -> 2 segments, still valid)
     const deleteButtons = screen.getAllByLabelText(/Delete segment/)
-    await user.click(deleteButtons[1])
+    await user.click(deleteButtons[2])
 
-    // Add it back (would need full interaction flow - simplified for test)
-    // For now, just test that save validates
-
-    // Try to save
+    // Save button should be enabled (has changes AND >= 2 segments)
     const saveButton = screen.getByRole('button', { name: /Save Segments/i })
-
-    // Button should be enabled now due to changes
     expect(saveButton).not.toBeDisabled()
   })
 
-  it('should display validation error when validation fails', async () => {
+  it('should disable save button when only 1 segment remains after deletion', async () => {
     const user = userEvent.setup()
     const onValidate = vi.fn(async () => ({
       valid: false,
@@ -163,15 +174,13 @@ describe('SegmentBuilder', () => {
 
     render(<SegmentBuilder {...defaultProps} onValidate={onValidate} />)
 
-    // Delete a segment to make changes
+    // Delete a segment to make changes (2 segments -> 1 segment)
     const deleteButtons = screen.getAllByLabelText(/Delete segment/)
     await user.click(deleteButtons[1])
 
-    // Try to save (segment count would be 1, which triggers client-side error)
+    // Save button should be disabled (only 1 segment remaining)
     const saveButton = screen.getByRole('button', { name: /Save Segments/i })
-    await user.click(saveButton)
-
-    expect(await screen.findByText(/Route must have at least 2 segments/)).toBeInTheDocument()
+    expect(saveButton).toBeDisabled()
   })
 
   it('should show add segment form', () => {

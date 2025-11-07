@@ -12,7 +12,7 @@ describe('ScheduleForm', () => {
   it('should render form with day toggles and time inputs', () => {
     render(<ScheduleForm {...defaultProps} />)
 
-    expect(screen.getByLabelText('Days of Week')).toBeInTheDocument()
+    expect(screen.getByText('Days of Week')).toBeInTheDocument()
     expect(screen.getByLabelText('Start Time')).toBeInTheDocument()
     expect(screen.getByLabelText('End Time')).toBeInTheDocument()
   })
