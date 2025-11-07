@@ -612,6 +612,21 @@ See [Architecture Decision Records](./docs/adr/README.md) for all architectural 
 - Historical disruption analytics
 - Integration with other transit systems
 
+### Deferred Code Quality Improvements
+
+The following refactoring suggestions were identified during code review but deferred following KISS principles for this hobby project. These could be revisited in the future if the codebase grows or if additional complexity is added:
+
+**TfL Service Refactoring (Phase 5)**:
+- **Encapsulate `pending_connections`**: Currently passed through 2 method signatures (`build_station_graph` → `_process_route_sequence` → `_process_station_pair`). Could be encapsulated into a helper class or context object if more methods need this pattern in the future.
+- **Split `build_station_graph` method**: Currently handles fetching, validation, deletion, processing, and commit in one method (~120 lines). Could be split into smaller private methods (e.g., `_fetch_and_validate_data()`, `_clear_existing_connections()`, `_process_all_lines()`) if the method becomes harder to maintain.
+- **Transaction context manager**: Currently uses manual `commit()` and `rollback()` in exception handlers. Could create a custom context manager for automatic rollback on errors, though current pattern works well and is explicit.
+
+**Rationale for deferring**:
+- `pending_connections` only used in 2 methods - encapsulation would add complexity without clear benefit
+- `build_station_graph` is readable as-is and well-tested (96%+ coverage)
+- Manual transaction management is explicit and easy to understand for a hobby project
+- Following YAGNI principle - add complexity only when needed
+
 ## Progress Tracking
 
 This document will be updated as phases are completed. Each phase will be marked with completion status and any relevant notes about implementation decisions or deviations from the original plan.
