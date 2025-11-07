@@ -882,6 +882,7 @@ class TfLService:
         next_stop: Any,  # noqa: ANN401
         line: Line,
         stations_set: set[str],
+        pending_connections: set[tuple[uuid.UUID, uuid.UUID, uuid.UUID]],
     ) -> int:
         """
         Process a pair of consecutive stations and create bidirectional connections.
@@ -891,6 +892,7 @@ class TfLService:
             next_stop: Next stop point data
             line: Line object
             stations_set: Set to track unique station IDs
+            pending_connections: Set to track pending connections (from_id, to_id, line_id)
 
         Returns:
             Number of new connections created (0, 1, or 2)
@@ -921,16 +923,20 @@ class TfLService:
 
         connections_created = 0
 
-        # Create forward connection if needed
-        if not await self._connection_exists(from_station.id, to_station.id, line.id):
+        # Create forward connection if needed (check pending set to avoid duplicates in same transaction)
+        forward_key = (from_station.id, to_station.id, line.id)
+        if forward_key not in pending_connections:
             connection = self._create_connection(from_station.id, to_station.id, line.id)
             self.db.add(connection)
+            pending_connections.add(forward_key)
             connections_created += 1
 
-        # Create reverse connection if needed
-        if not await self._connection_exists(to_station.id, from_station.id, line.id):
+        # Create reverse connection if needed (check pending set to avoid duplicates in same transaction)
+        reverse_key = (to_station.id, from_station.id, line.id)
+        if reverse_key not in pending_connections:
             connection = self._create_connection(to_station.id, from_station.id, line.id)
             self.db.add(connection)
+            pending_connections.add(reverse_key)
             connections_created += 1
 
         return connections_created
@@ -980,6 +986,7 @@ class TfLService:
         line: Line,
         direction: str,
         stations_set: set[str],
+        pending_connections: set[tuple[uuid.UUID, uuid.UUID, uuid.UUID]],
     ) -> int:
         """
         Process route sequence for a line and direction.
@@ -988,6 +995,7 @@ class TfLService:
             line: Line object
             direction: "inbound" or "outbound"
             stations_set: Set to track unique station IDs
+            pending_connections: Set to track pending connections (from_id, to_id, line_id)
 
         Returns:
             Number of connections created
@@ -1009,6 +1017,7 @@ class TfLService:
                         stop_points[i + 1],
                         line,
                         stations_set,
+                        pending_connections,
                     )
 
             return connections_count
@@ -1065,9 +1074,11 @@ class TfLService:
 
             # Clear existing connections (within transaction - will rollback if building fails)
             await self.db.execute(delete(StationConnection))
+            await self.db.flush()  # Ensure DELETE is executed before adding new connections
             logger.info("existing_connections_cleared")
 
             stations_set: set[str] = set()
+            pending_connections: set[tuple[uuid.UUID, uuid.UUID, uuid.UUID]] = set()
             connections_count = 0
 
             # Process each line
@@ -1075,13 +1086,14 @@ class TfLService:
                 logger.info("processing_line_for_graph", line_name=line.name, line_tfl_id=line.tfl_id)
 
                 # Process both directions
-                # Note: Duplicate connections are prevented by _connection_exists check in _process_station_pair
+                # Note: Duplicate connections are prevented by pending_connections set
                 # Even if inbound and outbound routes overlap, we won't create duplicates
                 for direction in ["inbound", "outbound"]:
                     connections_count += await self._process_route_sequence(
                         line,
                         direction,
                         stations_set,
+                        pending_connections,
                     )
 
             # Commit all changes (delete + new connections) atomically
