@@ -16,14 +16,25 @@ export const useAuth = () => {
   } = useAuth0()
 
   const login = async () => {
-    // Clear any stale local session state before starting new login flow
-    // This prevents "Invalid state" errors when reopening browser with stale OAuth transactions
-    // Use Auth0's built-in local logout (openUrl: false) to safely clear state
+    // Clear stale OAuth transaction state before starting new login flow
+    // This prevents "Invalid state" errors when reopening browser with stale transactions
+    // Auth0 stores transaction state (nonce, state, code_verifier) with key: a0.spajs.txs.{clientId}
     try {
+      // Clear transaction state (not cleared by logout)
+      const keysToRemove: string[] = []
+      for (let i = 0; i < localStorage.length; i++) {
+        const key = localStorage.key(i)
+        if (key?.startsWith('a0.spajs.txs.')) {
+          keysToRemove.push(key)
+        }
+      }
+      keysToRemove.forEach((key) => localStorage.removeItem(key))
+
+      // Also clear any token cache (belt and suspenders)
       await auth0Logout({ openUrl: false })
     } catch (error) {
-      // If logout fails, continue anyway - loginWithRedirect will handle it
-      console.warn('Could not clear local session before login:', error)
+      // If clearing fails, continue anyway - loginWithRedirect will handle it
+      console.warn('Could not clear Auth0 state before login:', error)
     }
 
     await loginWithRedirect()

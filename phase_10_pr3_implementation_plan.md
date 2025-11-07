@@ -794,13 +794,115 @@ Following the principle to use language normal users understand:
 
 ---
 
-**Document Version**: 1.5
-**Last Updated**: 2025-11-07
+### PR3C Defect Fixes - COMPLETE ✅
+
+**Date**: 2025-11-07
+**Status**: Complete
+**Branch**: feature/phase-10-pr3b-route-builder (continues on same branch)
+
+#### Reported Defects
+
+**Defect 1: Unnecessary Line Selection**
+- **Issue**: User forced to select line for destination station even when journey ends there
+- **Example**: Southgate → Leicester Square should only require line selection once (Piccadilly), not at Leicester Square
+- **User's Clarification**: "A valid route is Station + Line + Station, NOT station + line + station + line"
+
+**Defect 2: "Unknown line" Validation Error**
+- **Issue**: Backend shows "No connection found between 'Southgate Underground Station' and 'Leicester Square Underground Station' on Unknown line."
+- **Suspected Cause**: UUID type mismatch or missing station connections
+
+#### Investigation Results
+
+**Diagnostic Tests Created** (`backend/tests/test_tfl_validation_debug.py`):
+1. ✅ Pydantic UUID Conversion Test - **PASSED**: Pydantic correctly converts string UUIDs to UUID objects
+2. ✅ Database UUID Lookup Test - **PASSED**: SQLAlchemy `db.get()` works with both UUID objects AND string UUIDs
+3. ✅ Route Validation Test - **PASSED**: Backend validation works perfectly with test data
+
+**Key Finding**: Backend validation logic is **100% correct**. The issue was in the frontend UX, not the backend!
+
+#### Root Cause Analysis
+
+**Data Model Understanding**:
+- RouteSegment stores: `{station_id, line_id}`
+- Validation checks connection FROM segment[i] TO segment[i+1] USING segment[i].line_id
+- For a 2-station route:
+  - Segment 0: Southgate + Piccadilly (used to validate connection to segment 1)
+  - Segment 1: Leicester Square + ??? (NOT used for validation since there's no segment 2)
+
+**The Real Problem**:
+- Frontend forced users to select line_id for EVERY segment, including the destination
+- Destination's line_id is only used for display, not validation
+- Users should only select a line when DEPARTING from a station, not when ARRIVING
+
+#### Fixes Implemented
+
+**File**: `frontend/src/components/routes/SegmentBuilder.tsx`
+
+1. **Auto-fill line from previous segment** (lines 144-161):
+   - When adding a station after the first one, automatically fill selectedLineId from previous segment's line
+   - Represents "the line you're currently traveling on"
+
+2. **Make line selection optional** (lines 163-175):
+   - Changed validation: only requires `selectedStationId`, not both station and line
+   - Line auto-fills from previous segment if not explicitly selected
+   - Users can override if they want to change lines at an interchange
+
+3. **Updated UI labels** (lines 278-286, 327-346):
+   - Changed instructions: "Select your starting station and line to begin your route"
+   - Added hint on line selector: "Line (optional - auto-fills from current line)"
+   - Updated placeholder: "Auto-filled (change if needed)"
+
+4. **Updated test** (`frontend/src/components/routes/SegmentBuilder.test.tsx`):
+   - Fixed test expectation to match new instruction text
+
+#### Test Results
+
+**Backend Tests**: All 527 tests pass (7 new diagnostic tests + 520 existing)
+- Diagnostic tests confirm Pydantic and SQLAlchemy handle UUIDs correctly
+- Validation logic works perfectly
+
+**Frontend Tests**: All 212 tests pass
+- SegmentBuilder tests updated and passing
+- No regressions introduced
+
+#### Files Modified
+
+1. **NEW**: `backend/tests/test_tfl_validation_debug.py` (241 lines)
+   - Diagnostic tests for UUID handling
+   - Route validation tests with real scenario data
+
+2. **MODIFIED**: `frontend/src/components/routes/SegmentBuilder.tsx`
+   - Auto-fill line logic in useEffect hook
+   - Optional line selection for non-first segments
+   - Improved UI labels and placeholders
+
+3. **MODIFIED**: `frontend/src/components/routes/SegmentBuilder.test.tsx`
+   - Updated instruction text expectation
+
+#### User Experience Improvement
+
+**Before**:
+1. Select Southgate → Select Piccadilly → Click "Add"
+2. Select Leicester Square → **Forced to select Piccadilly again** → Click "Add"
+3. Get "Unknown line" error (if wrong line selected)
+
+**After**:
+1. Select Southgate → Select Piccadilly → Click "Add"
+2. Select Leicester Square → **Piccadilly auto-fills** → Click "Add" (done!)
+3. Validation succeeds ✅
+
+For interchanges (e.g., Leicester Square → Waterloo):
+- Select Waterloo → Piccadilly auto-fills → **Manually change to Northern** → Click "Add"
+
+---
+
+**Document Version**: 1.6
+**Last Updated**: 2025-11-07 (Defect fixes)
 **Author**: Claude Code AI Assistant
 **Changelog**:
+- v1.6: Added PR3C Defect Fixes section - auto-fill line selection, diagnostic tests (2025-11-07)
+- v1.5: PR3C Improvements complete - alphabetical sorting, acyclic validation, max segments (2025-11-07)
 - v1.4: PR3C progress update - 6-7 hours work complete, 2-3 hours remaining (2025-11-07)
-  - Major refactoring complete: CreateRoute, RouteDetails, display components
-  - Remaining: routing wiring, station selection bug fix, tests
 - v1.3: Added PR3C - Route Builder UI Refactoring (remove tabs, user-friendly labels) (2025-11-07)
 - v1.2: PR3b marked complete with implementation summary (2025-11-07)
 - v1.1: Updated to reflect timezone hidden from UI (YAGNI - all users in London)

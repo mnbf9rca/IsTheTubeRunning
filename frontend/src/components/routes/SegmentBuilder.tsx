@@ -142,14 +142,37 @@ export function SegmentBuilder({
   const availableLines = getAvailableLinesForNewSegment()
 
   // Auto-select line when only one option is available
+  // OR auto-fill from previous segment (current travel line)
   useEffect(() => {
-    if (selectedStationId && availableLines.length === 1 && !selectedLineId) {
+    if (!selectedStationId) return
+
+    // If only one line available, auto-select it
+    if (availableLines.length === 1 && !selectedLineId) {
       setSelectedLineId(availableLines[0].id)
+      return
     }
-  }, [selectedStationId, availableLines, selectedLineId])
+
+    // If this is not the first segment, auto-fill with the previous segment's line
+    // (the line we're currently traveling on)
+    if (localSegments.length > 0 && !selectedLineId) {
+      const lastSegment = localSegments[localSegments.length - 1]
+      setSelectedLineId(lastSegment.line_id)
+    }
+  }, [selectedStationId, availableLines, selectedLineId, localSegments])
 
   const handleAddSegment = () => {
-    if (!selectedStationId || !selectedLineId) return
+    if (!selectedStationId) return
+
+    // Auto-fill line_id from previous segment if not explicitly selected
+    let finalLineId = selectedLineId
+    if (!finalLineId && localSegments.length > 0) {
+      finalLineId = localSegments[localSegments.length - 1].line_id
+    }
+
+    if (!finalLineId) {
+      setError('Please select a line for the first station')
+      return
+    }
 
     // Check for duplicate stations (acyclic enforcement)
     const isDuplicate = localSegments.some((seg) => seg.station_id === selectedStationId)
@@ -170,7 +193,7 @@ export function SegmentBuilder({
     const newSegment: SegmentRequest = {
       sequence: localSegments.length,
       station_id: selectedStationId,
-      line_id: selectedLineId,
+      line_id: finalLineId,
     }
 
     setLocalSegments([...localSegments, newSegment])
@@ -229,8 +252,9 @@ export function SegmentBuilder({
     onCancel()
   }
 
-  const canAddSegment =
-    selectedStationId && selectedLineId && localSegments.length < MAX_ROUTE_SEGMENTS
+  // Can add segment if station is selected
+  // Line will auto-fill from previous segment or be auto-selected if only one option
+  const canAddSegment = selectedStationId && localSegments.length < MAX_ROUTE_SEGMENTS
   const hasMaxSegments = localSegments.length >= MAX_ROUTE_SEGMENTS
   const hasChanges =
     JSON.stringify(localSegments) !==
@@ -255,10 +279,10 @@ export function SegmentBuilder({
         <AlertCircle className="h-4 w-4" />
         <AlertDescription>
           {localSegments.length === 0
-            ? 'Select your starting station, then choose a line. Continue adding stations to build your route.'
+            ? 'Select your starting station and line to begin your route.'
             : hasMaxSegments
               ? `Maximum ${MAX_ROUTE_SEGMENTS} segments reached. Save your route or remove segments to continue.`
-              : 'Add the next station on your route. You can select any station on the current line.'}
+              : 'Add the next station. The line will auto-fill from your current travel line. Change it only if you need to switch lines at this station.'}
         </AlertDescription>
       </Alert>
 
@@ -301,7 +325,9 @@ export function SegmentBuilder({
             </div>
 
             <div className="space-y-2">
-              <Label htmlFor="line-select">Line</Label>
+              <Label htmlFor="line-select">
+                Line{localSegments.length > 0 ? ' (optional - auto-fills from current line)' : ''}
+              </Label>
               <LineSelect
                 lines={availableLines}
                 value={selectedLineId}
@@ -311,7 +337,9 @@ export function SegmentBuilder({
                     ? 'Maximum segments reached'
                     : availableLines.length === 0
                       ? 'Select station first'
-                      : 'Select line...'
+                      : localSegments.length > 0
+                        ? 'Auto-filled (change if needed)'
+                        : 'Select line...'
                 }
                 disabled={hasMaxSegments || !selectedStationId || availableLines.length === 0}
               />

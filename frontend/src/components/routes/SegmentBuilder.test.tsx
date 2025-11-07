@@ -76,7 +76,9 @@ describe('SegmentBuilder', () => {
   it('should show instructions for adding stations', () => {
     render(<SegmentBuilder {...defaultProps} initialSegments={[]} />)
 
-    expect(screen.getByText(/Select your starting station, then choose a line/)).toBeInTheDocument()
+    expect(
+      screen.getByText(/Select your starting station and line to begin your route/)
+    ).toBeInTheDocument()
   })
 
   it('should show route path heading', () => {
