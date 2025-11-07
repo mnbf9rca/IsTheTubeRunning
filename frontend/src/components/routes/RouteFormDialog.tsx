@@ -13,7 +13,6 @@ import { Input } from '../ui/input'
 import { Label } from '../ui/label'
 import { Alert, AlertDescription } from '../ui/alert'
 import { Switch } from '../ui/switch'
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../ui/select'
 import type { RouteResponse } from '../../lib/api'
 
 export interface RouteFormDialogProps {
@@ -30,18 +29,6 @@ export interface RouteFormData {
   timezone: string
 }
 
-// Common timezones for TfL (UK-focused)
-const TIMEZONES = [
-  'Europe/London',
-  'Europe/Dublin',
-  'Europe/Paris',
-  'Europe/Berlin',
-  'America/New_York',
-  'America/Los_Angeles',
-  'Asia/Tokyo',
-  'Australia/Sydney',
-]
-
 /**
  * RouteFormDialog component for creating or editing a route
  *
@@ -56,9 +43,11 @@ export function RouteFormDialog({ open, onClose, onSubmit, route }: RouteFormDia
   const [name, setName] = useState('')
   const [description, setDescription] = useState('')
   const [active, setActive] = useState(true)
-  const [timezone, setTimezone] = useState('Europe/London')
   const [error, setError] = useState<string | null>(null)
   const [isSubmitting, setIsSubmitting] = useState(false)
+
+  // Timezone is always Europe/London (YAGNI - all users in London)
+  const timezone = 'Europe/London'
 
   // Populate form when editing
   useEffect(() => {
@@ -66,14 +55,13 @@ export function RouteFormDialog({ open, onClose, onSubmit, route }: RouteFormDia
       setName(route.name)
       setDescription(route.description || '')
       setActive(route.active)
-      setTimezone(route.timezone)
     } else {
       // Reset for create mode
       setName('')
       setDescription('')
       setActive(true)
-      setTimezone('Europe/London')
     }
+    // Timezone always defaults to Europe/London (YAGNI - all users in London)
   }, [route, open])
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -126,7 +114,7 @@ export function RouteFormDialog({ open, onClose, onSubmit, route }: RouteFormDia
       setName('')
       setDescription('')
       setActive(true)
-      setTimezone('Europe/London')
+      // Timezone stays at default 'Europe/London'
     }
     setError(null)
     onClose()
@@ -180,22 +168,6 @@ export function RouteFormDialog({ open, onClose, onSubmit, route }: RouteFormDia
                 onChange={(e) => setDescription(e.target.value)}
                 disabled={isSubmitting}
               />
-            </div>
-
-            <div className="space-y-2">
-              <Label htmlFor="route-timezone">Timezone</Label>
-              <Select value={timezone} onValueChange={setTimezone} disabled={isSubmitting}>
-                <SelectTrigger id="route-timezone">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {TIMEZONES.map((tz) => (
-                    <SelectItem key={tz} value={tz}>
-                      {tz}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
             </div>
 
             <div className="flex items-center justify-between">
