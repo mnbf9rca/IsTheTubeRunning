@@ -68,6 +68,15 @@ export function StationCombobox({
   'aria-label': ariaLabel = 'Select tube station',
 }: StationComboboxProps) {
   const [open, setOpen] = useState(false)
+  const [search, setSearch] = useState('')
+
+  // Sort stations alphabetically
+  const sortedStations = [...stations].sort((a, b) => a.name.localeCompare(b.name))
+
+  // Filter stations by substring match (case-insensitive)
+  const filteredStations = sortedStations.filter((station) =>
+    station.name.toLowerCase().includes(search.toLowerCase())
+  )
 
   // Find selected station for display
   const selectedStation = stations.find((station) => station.id === value)
@@ -88,18 +97,19 @@ export function StationCombobox({
         </Button>
       </PopoverTrigger>
       <PopoverContent className="w-[400px] p-0" align="start">
-        <Command>
-          <CommandInput placeholder="Search stations..." />
+        <Command shouldFilter={false}>
+          <CommandInput placeholder="Search stations..." value={search} onValueChange={setSearch} />
           <CommandList>
             <CommandEmpty>No station found.</CommandEmpty>
             <CommandGroup>
-              {stations.map((station) => (
+              {filteredStations.map((station) => (
                 <CommandItem
                   key={station.id}
                   value={station.name}
                   onSelect={() => {
                     onChange(station.id)
                     setOpen(false)
+                    setSearch('') // Clear search on selection
                   }}
                 >
                   <Check

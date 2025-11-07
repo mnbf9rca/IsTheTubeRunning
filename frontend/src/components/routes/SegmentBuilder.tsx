@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { Plus, Save, X, AlertCircle } from 'lucide-react'
 import { Button } from '../ui/button'
 import { Alert, AlertDescription } from '../ui/alert'
@@ -14,6 +14,9 @@ import type {
   SegmentRequest,
   RouteValidationResponse,
 } from '../../lib/api'
+
+// Maximum number of segments allowed per route
+const MAX_ROUTE_SEGMENTS = 20
 
 export interface SegmentBuilderProps {
   /**
@@ -35,11 +38,6 @@ export interface SegmentBuilderProps {
    * All available stations
    */
   stations: StationResponse[]
-
-  /**
-   * Helper function to get next reachable stations
-   */
-  getNextStations: (currentStationTflId: string, currentLineTflId: string) => StationResponse[]
 
   /**
    * Helper function to get lines for a station
@@ -67,9 +65,10 @@ export interface SegmentBuilderProps {
  *
  * Provides a sequential UX for building routes:
  * 1. Select start station (any station)
- * 2. Select next station (constrained by network graph)
- * 3. Continue adding stations
- * 4. Validate and save
+ * 2. Select line at that station
+ * 3. Select next station (any station on current line)
+ * 4. Continue adding stations
+ * 5. Validate and save
  *
  * @example
  * <SegmentBuilder
@@ -77,10 +76,7 @@ export interface SegmentBuilderProps {
  *   initialSegments={route.segments}
  *   lines={lines}
  *   stations={stations}
- *   getNextStations={getNextStations}
  *   getLinesForStation={getLinesForStation}
- *   getStationByTflId={getStationByTflId}
- *   getLineById={getLineById}
  *   onValidate={validateRoute}
  *   onSave={upsertSegments}
  *   onCancel={() => setEditing(false)}
@@ -90,7 +86,6 @@ export function SegmentBuilder({
   initialSegments,
   lines,
   stations,
-  getNextStations,
   getLinesForStation,
   onValidate,
   onSave,
@@ -120,15 +115,15 @@ export function SegmentBuilder({
       return stations
     }
 
-    // Get last segment
+    // Get last segment's line
     const lastSegment = localSegments[localSegments.length - 1]
-    const lastStation = stations.find((s) => s.id === lastSegment.station_id)
     const lastLine = lines.find((l) => l.id === lastSegment.line_id)
 
-    if (!lastStation || !lastLine) return []
+    if (!lastLine) return []
 
-    // Get next reachable stations on the last line
-    return getNextStations(lastStation.tfl_id, lastLine.tfl_id)
+    // Return ALL stations on the last line (not just adjacent ones)
+    // The user can select any station on the current line to build their journey
+    return stations.filter((station) => station.lines.includes(lastLine.tfl_id))
   }
 
   // Determine available lines for selected station
@@ -138,30 +133,39 @@ export function SegmentBuilder({
     const station = stations.find((s) => s.id === selectedStationId)
     if (!station) return []
 
-    // If this is the first segment, show all lines serving this station
-    if (localSegments.length === 0) {
-      return getLinesForStation(station.tfl_id)
-    }
-
-    // For subsequent segments, constrain to lines that connect from previous station
-    const lastSegment = localSegments[localSegments.length - 1]
-    const lastStation = stations.find((s) => s.id === lastSegment.station_id)
-    const lastLine = lines.find((l) => l.id === lastSegment.line_id)
-
-    if (!lastStation || !lastLine) return []
-
-    // Get connections from last station on last line
-    const nextStations = getNextStations(lastStation.tfl_id, lastLine.tfl_id)
-    const isReachable = nextStations.some((s) => s.id === selectedStationId)
-
-    if (!isReachable) return []
-
-    // Station is reachable - show all lines serving it
+    // Show all lines serving the selected station
+    // The backend will validate if the route is physically possible
     return getLinesForStation(station.tfl_id)
   }
 
+  const availableStations = getAvailableStations()
+  const availableLines = getAvailableLinesForNewSegment()
+
+  // Auto-select line when only one option is available
+  useEffect(() => {
+    if (selectedStationId && availableLines.length === 1 && !selectedLineId) {
+      setSelectedLineId(availableLines[0].id)
+    }
+  }, [selectedStationId, availableLines, selectedLineId])
+
   const handleAddSegment = () => {
     if (!selectedStationId || !selectedLineId) return
+
+    // Check for duplicate stations (acyclic enforcement)
+    const isDuplicate = localSegments.some((seg) => seg.station_id === selectedStationId)
+    if (isDuplicate) {
+      const station = stations.find((s) => s.id === selectedStationId)
+      setError(
+        `This station (${station?.name || 'Unknown'}) is already in your route. Routes cannot visit the same station twice.`
+      )
+      return
+    }
+
+    // Check max segments limit
+    if (localSegments.length >= MAX_ROUTE_SEGMENTS) {
+      setError(`Maximum ${MAX_ROUTE_SEGMENTS} segments allowed per route.`)
+      return
+    }
 
     const newSegment: SegmentRequest = {
       sequence: localSegments.length,
@@ -225,9 +229,9 @@ export function SegmentBuilder({
     onCancel()
   }
 
-  const availableStations = getAvailableStations()
-  const availableLines = getAvailableLinesForNewSegment()
-  const canAddSegment = selectedStationId && selectedLineId
+  const canAddSegment =
+    selectedStationId && selectedLineId && localSegments.length < MAX_ROUTE_SEGMENTS
+  const hasMaxSegments = localSegments.length >= MAX_ROUTE_SEGMENTS
   const hasChanges =
     JSON.stringify(localSegments) !==
     JSON.stringify(
@@ -252,7 +256,9 @@ export function SegmentBuilder({
         <AlertDescription>
           {localSegments.length === 0
             ? 'Select your starting station, then choose a line. Continue adding stations to build your route.'
-            : 'Add the next station on your route. Only stations reachable from the previous station are shown.'}
+            : hasMaxSegments
+              ? `Maximum ${MAX_ROUTE_SEGMENTS} segments reached. Save your route or remove segments to continue.`
+              : 'Add the next station on your route. You can select any station on the current line.'}
         </AlertDescription>
       </Alert>
 
@@ -284,9 +290,13 @@ export function SegmentBuilder({
                   setSelectedLineId(undefined) // Reset line when station changes
                 }}
                 placeholder={
-                  availableStations.length === 0 ? 'No stations available' : 'Select station...'
+                  hasMaxSegments
+                    ? 'Maximum segments reached'
+                    : availableStations.length === 0
+                      ? 'No stations available'
+                      : 'Select station...'
                 }
-                disabled={availableStations.length === 0}
+                disabled={hasMaxSegments || availableStations.length === 0}
               />
             </div>
 
@@ -297,9 +307,13 @@ export function SegmentBuilder({
                 value={selectedLineId}
                 onChange={setSelectedLineId}
                 placeholder={
-                  availableLines.length === 0 ? 'Select station first' : 'Select line...'
+                  hasMaxSegments
+                    ? 'Maximum segments reached'
+                    : availableLines.length === 0
+                      ? 'Select station first'
+                      : 'Select line...'
                 }
-                disabled={!selectedStationId || availableLines.length === 0}
+                disabled={hasMaxSegments || !selectedStationId || availableLines.length === 0}
               />
             </div>
           </div>

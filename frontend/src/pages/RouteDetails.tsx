@@ -394,7 +394,6 @@ export function RouteDetails() {
                 initialSegments={route.segments}
                 lines={tflData.lines || []}
                 stations={tflData.stations || []}
-                getNextStations={tflData.getNextStations}
                 getLinesForStation={tflData.getLinesForStation}
                 onValidate={handleValidateRoute}
                 onSave={handleSaveSegments}

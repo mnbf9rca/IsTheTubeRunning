@@ -56,7 +56,6 @@ describe('SegmentBuilder', () => {
     initialSegments: mockInitialSegments,
     lines: mockLines,
     stations: mockStations,
-    getNextStations: vi.fn(() => [mockStations[1]]),
     getLinesForStation: vi.fn(() => mockLines),
     onValidate: vi.fn(async () => ({ valid: true, message: 'Valid route' })),
     onSave: vi.fn(async () => {}),

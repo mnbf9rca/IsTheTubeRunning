@@ -41,6 +41,7 @@ DEFAULT_METADATA_CACHE_TTL = 604800  # 7 days
 # TfL API constants
 TFL_GOOD_SERVICE_SEVERITY = 10  # Status severity value for "Good Service"
 MIN_ROUTE_SEGMENTS = 2  # Minimum number of segments required for route validation
+MAX_ROUTE_SEGMENTS = 20  # Maximum number of segments allowed per route
 
 
 class TfLService:
@@ -1223,6 +1224,7 @@ class TfLService:
         Validate a route by checking if connections exist between segments.
 
         Uses BFS to check if a path exists between consecutive stations on the specified line.
+        Also enforces acyclic routes (no duplicate stations) and maximum segment limits.
 
         Args:
             segments: List of route segments (station + line pairs)
@@ -1230,8 +1232,45 @@ class TfLService:
         Returns:
             Tuple of (is_valid, message, invalid_segment_index)
         """
+        # Check minimum segments
         if len(segments) < MIN_ROUTE_SEGMENTS:
             return False, f"Route must have at least {MIN_ROUTE_SEGMENTS} segments (start and end).", None
+
+        # Check maximum segments
+        if len(segments) > MAX_ROUTE_SEGMENTS:
+            return (
+                False,
+                f"Route cannot have more than {MAX_ROUTE_SEGMENTS} segments. Current: {len(segments)}.",
+                None,
+            )
+
+        # Check for duplicate stations (enforce acyclic routes)
+        station_ids = [segment.station_id for segment in segments]
+        unique_stations = set(station_ids)
+
+        if len(unique_stations) != len(station_ids):
+            # Find the duplicate station
+            seen: set[uuid.UUID] = set()
+            for idx, station_id in enumerate(station_ids):
+                if station_id in seen:
+                    # Get station name for error message
+                    station = await self.db.get(Station, station_id)
+                    station_name = station.name if station else "Unknown"
+
+                    logger.warning(
+                        "route_validation_failed_duplicate_station",
+                        station_id=str(station_id),
+                        station_name=station_name,
+                        segment_index=idx,
+                    )
+
+                    return (
+                        False,
+                        f"Route cannot visit the same station ('{station_name}') more than once. "
+                        f"Duplicate found at segment {idx + 1}.",
+                        idx,
+                    )
+                seen.add(station_id)
 
         logger.info("validating_route", segments_count=len(segments))
 

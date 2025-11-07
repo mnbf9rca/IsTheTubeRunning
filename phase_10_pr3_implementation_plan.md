@@ -637,6 +637,42 @@ Following the principle to use language normal users understand:
 3. Run tests and fix any broken ones
 4. Use Playwright MCP to test the full flow
 
+### PR3C Improvements (UX Fixes) - IN PROGRESS
+
+**Started**: 2025-11-07
+**Status**: In Progress
+
+#### Issues to Fix
+1. **Sort station names alphabetically** - Stations currently appear in database order
+2. **Fix filtering** - "abcde" matches "Barons Court", "Barbican", "Marble Arch" (fuzzy matching issue)
+3. **Auto-select line** - If only one line at a station, select it automatically
+4. **Remove adjacency constraint** - Users can't select non-adjacent stations (e.g., Southgate → Oxford Circus → Waterloo)
+
+#### Design Requirements (from user)
+- Pick starting station → pick line → pick next station (ANY station on that line) → pick line at next station → repeat
+- Minimum 2 stations (different), no maximum (considering 20 station soft limit)
+- Validate after each station is added
+- Routes must be acyclic (no duplicate stations)
+- **Backend enforcement**: Max stations and acyclic checks MUST be enforced in backend validation, not just frontend
+
+#### Implementation Tasks
+- [x] **Backend**: Add acyclic route validation to `tfl_service.py` validate_route method
+- [x] **Backend**: Add max stations limit (20) to `tfl_service.py` validate_route method
+- [x] **Backend**: Add tests for new validation rules (test_validate_route_with_duplicate_stations, test_validate_route_with_too_many_segments)
+- [x] **Frontend**: Fix StationCombobox filtering (substring matching, not fuzzy)
+- [x] **Frontend**: Sort stations alphabetically in StationCombobox
+- [x] **Frontend**: Remove adjacency constraint in SegmentBuilder (show all stations on current line)
+- [x] **Frontend**: Add auto-select line when only one option (useEffect hook)
+- [x] **Frontend**: Add client-side acyclic check for immediate UX feedback
+- [x] **Frontend**: Add client-side max stations check for immediate UX feedback
+- [x] **Frontend**: All existing tests pass (212 tests)
+- [x] **Testing**: Verified UI loads correctly and stations are sorted alphabetically
+
+#### Test Results
+- **Backend**: All 520 tests pass with 98.34% coverage
+- **Frontend**: All 212 tests pass
+- **Manual testing**: Verified route builder UI loads, stations are alphabetically sorted
+
 ### Files to Create/Modify
 
 #### NEW FILES ✅ (3 - ALL COMPLETE)
@@ -714,7 +750,51 @@ Following the principle to use language normal users understand:
 
 ---
 
-**Document Version**: 1.4
+#### PR3C Summary of Changes
+
+**Completed**: 2025-11-07
+
+##### Backend Changes (`backend/app/services/tfl_service.py`)
+1. Added `MAX_ROUTE_SEGMENTS = 20` constant
+2. Enhanced `validate_route()` method:
+   - Check for maximum segments limit
+   - Check for duplicate stations (acyclic enforcement)
+   - Clear error messages with station names and segment indices
+3. Added 2 new test cases in `backend/tests/test_tfl_service.py`:
+   - `test_validate_route_with_duplicate_stations`
+   - `test_validate_route_with_too_many_segments`
+
+##### Frontend Changes (`frontend/src/components/routes/`)
+
+**StationCombobox.tsx**:
+1. Added alphabetical sorting of stations using `localeCompare()`
+2. Implemented custom substring-based filtering (replaced fuzzy matching)
+3. Added `shouldFilter={false}` to Command component
+4. Added `search` state and `onValueChange` handler
+
+**SegmentBuilder.tsx**:
+1. Added `MAX_ROUTE_SEGMENTS = 20` constant
+2. Modified `getAvailableStations()` to show all stations on current line (removed adjacency constraint)
+3. Simplified `getAvailableLinesForNewSegment()` to show all lines at selected station
+4. Added `useEffect` hook to auto-select line when only one option available
+5. Added duplicate station check in `handleAddSegment()`
+6. Added max segments check in `handleAddSegment()`
+7. Added `hasMaxSegments` computed property
+8. Updated UI messages to reflect new behavior
+9. Disabled controls when max segments reached
+
+##### Key Improvements
+- **UX**: Users can now select non-adjacent stations (e.g., Southgate → Oxford Circus → Waterloo)
+- **UX**: Stations sorted alphabetically for easier discovery
+- **UX**: Substring filtering works correctly (no more false matches)
+- **UX**: Line auto-selects when only one option (reduces clicks)
+- **Validation**: Backend enforces acyclic routes and max segments (security)
+- **Validation**: Frontend provides immediate feedback (better UX)
+- **Testing**: All 732 tests pass (520 backend + 212 frontend)
+
+---
+
+**Document Version**: 1.5
 **Last Updated**: 2025-11-07
 **Author**: Claude Code AI Assistant
 **Changelog**:

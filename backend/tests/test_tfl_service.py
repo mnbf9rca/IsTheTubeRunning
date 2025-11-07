@@ -2118,6 +2118,108 @@ async def test_validate_route_with_deleted_stations(
     assert is_valid is True or is_valid is False  # Either behavior is acceptable
 
 
+async def test_validate_route_with_duplicate_stations(
+    tfl_service: TfLService,
+    db_session: AsyncSession,
+) -> None:
+    """Test route validation with duplicate stations (acyclic enforcement)."""
+    # Create test data
+    line = Line(tfl_id="victoria", name="Victoria", color="#0019A8", last_updated=datetime.now(UTC))
+    db_session.add(line)
+    await db_session.flush()
+
+    station1 = Station(
+        tfl_id="st1",
+        name="King's Cross",
+        latitude=51.5,
+        longitude=-0.1,
+        lines=["victoria"],
+        last_updated=datetime.now(UTC),
+    )
+    station2 = Station(
+        tfl_id="st2",
+        name="Oxford Circus",
+        latitude=51.5,
+        longitude=-0.1,
+        lines=["victoria"],
+        last_updated=datetime.now(UTC),
+    )
+    db_session.add_all([station1, station2])
+    await db_session.flush()
+
+    # Create connections (not used for this test, but included for completeness)
+    conn1 = StationConnection(from_station_id=station1.id, to_station_id=station2.id, line_id=line.id)
+    conn2 = StationConnection(from_station_id=station2.id, to_station_id=station1.id, line_id=line.id)
+    db_session.add_all([conn1, conn2])
+    await db_session.commit()
+
+    # Create route with duplicate station (st1 appears twice)
+    segments = [
+        RouteSegmentRequest(station_id=station1.id, line_id=line.id),
+        RouteSegmentRequest(station_id=station2.id, line_id=line.id),
+        RouteSegmentRequest(station_id=station1.id, line_id=line.id),  # Duplicate!
+    ]
+
+    # Execute
+    is_valid, message, invalid_segment = await tfl_service.validate_route(segments)
+
+    # Verify
+    assert is_valid is False
+    assert "cannot visit the same station" in message.lower()
+    assert "King's Cross" in message
+    assert invalid_segment == 2  # Third segment (index 2) is the duplicate
+
+
+async def test_validate_route_with_too_many_segments(
+    tfl_service: TfLService,
+    db_session: AsyncSession,
+) -> None:
+    """Test route validation with too many segments (exceeds MAX_ROUTE_SEGMENTS)."""
+    # Create test data
+    line = Line(tfl_id="victoria", name="Victoria", color="#0019A8", last_updated=datetime.now(UTC))
+    db_session.add(line)
+    await db_session.flush()
+
+    # Create 25 stations (exceeds MAX_ROUTE_SEGMENTS of 20)
+    stations = []
+    for i in range(25):
+        station = Station(
+            tfl_id=f"st{i}",
+            name=f"Station {i}",
+            latitude=51.5,
+            longitude=-0.1,
+            lines=["victoria"],
+            last_updated=datetime.now(UTC),
+        )
+        stations.append(station)
+        db_session.add(station)
+
+    await db_session.flush()
+
+    # Create connections between consecutive stations
+    for i in range(len(stations) - 1):
+        conn = StationConnection(
+            from_station_id=stations[i].id,
+            to_station_id=stations[i + 1].id,
+            line_id=line.id,
+        )
+        db_session.add(conn)
+
+    await db_session.commit()
+
+    # Create route segments with 21 stations (exceeds limit of 20)
+    segments = [RouteSegmentRequest(station_id=station.id, line_id=line.id) for station in stations[:21]]
+
+    # Execute
+    is_valid, message, invalid_segment = await tfl_service.validate_route(segments)
+
+    # Verify
+    assert is_valid is False
+    assert "cannot have more than 20 segments" in message.lower()
+    assert "21" in message  # Should mention current count
+    assert invalid_segment is None  # No specific segment is invalid
+
+
 # ==================== Helper Method Tests ====================
 
 
