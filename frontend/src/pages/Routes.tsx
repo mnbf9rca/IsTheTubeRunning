@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { Plus, AlertCircle, X } from 'lucide-react'
 import { toast } from 'sonner'
 import { Button } from '../components/ui/button'
@@ -27,6 +28,7 @@ import type { RouteResponse } from '../lib/api'
  * - View route details (segments and schedules added in PR3b)
  */
 export function Routes() {
+  const navigate = useNavigate()
   const { routes, loading, error, createRoute, updateRoute, deleteRoute } = useRoutes()
 
   const [createDialogOpen, setCreateDialogOpen] = useState(false)
@@ -93,6 +95,13 @@ export function Routes() {
     } catch (err: unknown) {
       setEditError(err instanceof Error ? err.message : 'Failed to update route.')
     }
+  }
+
+  /**
+   * Handle route card click
+   */
+  const handleRouteClick = (id: string) => {
+    navigate(`/routes/${id}`)
   }
 
   /**
@@ -180,6 +189,7 @@ export function Routes() {
         <CardContent>
           <RouteList
             routes={routes || []}
+            onClick={handleRouteClick}
             onEdit={handleEdit}
             onDelete={handleDeleteClick}
             loading={loading}

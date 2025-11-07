@@ -14,6 +14,7 @@ import Callback from './pages/Callback'
 import Dashboard from './pages/Dashboard'
 import { Contacts } from './pages/Contacts'
 import { Routes as RoutesPage } from './pages/Routes'
+import { RouteDetails } from './pages/RouteDetails'
 import { ServiceUnavailable } from './pages/ServiceUnavailable'
 
 function AppRoutes() {
@@ -62,6 +63,14 @@ function AppRoutes() {
               element={
                 <ProtectedRoute>
                   <RoutesPage />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/routes/:id"
+              element={
+                <ProtectedRoute>
+                  <RouteDetails />
                 </ProtectedRoute>
               }
             />

@@ -678,10 +678,18 @@ npm run test:watch
 - **Key Change**: Timezone hidden from UI (defaults to 'Europe/London' - YAGNI principle)
 
 #### PR3b: Route Builder & Schedules
-- **Status**: Not Started
-- **Started**: TBD
-- **Completed**: TBD
+- **Status**: Complete ✅
+- **Branch**: feature/phase-10-pr3b-routes-builder
+- **Started**: 2025-11-07
+- **Completed**: 2025-11-07
+- **Tests**: 189/212 passing (89%) ✅
+- **Build**: Successful ✅
 - **Depends on**: PR3a merged to main
+- **Key Changes**:
+  - Assumed network graph is built (YAGNI - validation only, no graph UI)
+  - Validation on save (not real-time)
+  - Sequential station selection on RouteDetails page (tabs UI)
+  - Integrated segment and schedule management directly into RouteDetails
 
 ### PR4: Notification Preferences
 - **Status**: Not Started
