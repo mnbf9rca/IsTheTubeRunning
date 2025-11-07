@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react'
+import { useState, useCallback, useEffect, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { ApiError } from '@/lib/api'
 
@@ -16,6 +16,7 @@ export function useCallbackValidation({
   const navigate = useNavigate()
   const [validationState, setValidationState] = useState<ValidationState>('idle')
   const [errorMessage, setErrorMessage] = useState<string>('')
+  const logoutTimeoutRef = useRef<number | null>(null)
 
   const performValidation = useCallback(async () => {
     setValidationState('validating')
@@ -34,7 +35,7 @@ export function useCallbackValidation({
           console.error('Backend denied authentication:', error)
 
           // Force logout after a brief delay
-          setTimeout(() => {
+          logoutTimeoutRef.current = setTimeout(() => {
             forceLogout()
           }, 2000)
         } else if (error.status >= 500) {
@@ -62,6 +63,15 @@ export function useCallbackValidation({
     setErrorMessage('')
     await performValidation()
   }, [performValidation])
+
+  // Cleanup timeout on unmount
+  useEffect(() => {
+    return () => {
+      if (logoutTimeoutRef.current) {
+        clearTimeout(logoutTimeoutRef.current)
+      }
+    }
+  }, [])
 
   return {
     validationState,
