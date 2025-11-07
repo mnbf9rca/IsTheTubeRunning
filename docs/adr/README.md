@@ -4,6 +4,8 @@ This document captures key architectural decisions made during the development o
 
 **Note**: When running commands in `/backend`, ALWAYS use `uv run` (never naked `python`). Do not use `pip`.
 
+**ensure that you read any specific ADRs related to development setup and tools for more context.**
+
 ---
 
 ## ADR Categories
