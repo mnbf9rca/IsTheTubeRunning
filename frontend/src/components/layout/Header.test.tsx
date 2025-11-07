@@ -4,6 +4,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 import userEvent from '@testing-library/user-event'
 import { Header } from './Header'
 import type { User } from '@auth0/auth0-react'
+import { createMockAuth, createMockBackendAuth } from '@/test/test-utils'
 
 // Mock useAuth hook
 vi.mock('@/hooks/useAuth', () => ({
@@ -38,22 +39,13 @@ describe('Header', () => {
 
   describe('when not authenticated', () => {
     beforeEach(() => {
-      mockUseAuth.mockReturnValue({
-        user: null,
-        isAuthenticated: false,
-        isLoading: false,
-        login: mockLogin,
-        logout: mockLogout,
-        getAccessToken: vi.fn(),
-      })
-      mockUseBackendAuth.mockReturnValue({
-        isBackendAuthenticated: false,
-        user: null,
-        isValidating: false,
-        error: null,
-        validateWithBackend: vi.fn(),
-        clearAuth: vi.fn(),
-      })
+      mockUseAuth.mockReturnValue(
+        createMockAuth({
+          login: mockLogin,
+          logout: mockLogout,
+        })
+      )
+      mockUseBackendAuth.mockReturnValue(createMockBackendAuth())
     })
 
     it('should show login button', () => {
@@ -91,22 +83,14 @@ describe('Header', () => {
 
   describe('when loading', () => {
     beforeEach(() => {
-      mockUseAuth.mockReturnValue({
-        user: null,
-        isAuthenticated: false,
-        isLoading: true,
-        login: mockLogin,
-        logout: mockLogout,
-        getAccessToken: vi.fn(),
-      })
-      mockUseBackendAuth.mockReturnValue({
-        isBackendAuthenticated: false,
-        user: null,
-        isValidating: false,
-        error: null,
-        validateWithBackend: vi.fn(),
-        clearAuth: vi.fn(),
-      })
+      mockUseAuth.mockReturnValue(
+        createMockAuth({
+          isLoading: true,
+          login: mockLogin,
+          logout: mockLogout,
+        })
+      )
+      mockUseBackendAuth.mockReturnValue(createMockBackendAuth())
     })
 
     it('should show loading skeleton', () => {
@@ -124,28 +108,25 @@ describe('Header', () => {
 
   describe('when authenticated', () => {
     beforeEach(() => {
-      mockUseBackendAuth.mockReturnValue({
-        isBackendAuthenticated: true,
-        user: null,
-        isValidating: false,
-        error: null,
-        validateWithBackend: vi.fn(),
-        clearAuth: vi.fn(),
-      })
+      mockUseBackendAuth.mockReturnValue(
+        createMockBackendAuth({
+          isBackendAuthenticated: true,
+        })
+      )
     })
 
     it('should show navigation when authenticated', () => {
-      mockUseAuth.mockReturnValue({
-        user: {
-          name: 'John Doe',
-          email: 'john@example.com',
-        } as User,
-        isAuthenticated: true,
-        isLoading: false,
-        login: mockLogin,
-        logout: mockLogout,
-        getAccessToken: vi.fn(),
-      })
+      mockUseAuth.mockReturnValue(
+        createMockAuth({
+          user: {
+            name: 'John Doe',
+            email: 'john@example.com',
+          } as User,
+          isAuthenticated: true,
+          login: mockLogin,
+          logout: mockLogout,
+        })
+      )
 
       render(
         <BrowserRouter>
@@ -157,17 +138,17 @@ describe('Header', () => {
     })
 
     it('should render avatar button with user initials', () => {
-      mockUseAuth.mockReturnValue({
-        user: {
-          name: 'John Doe',
-          email: 'john@example.com',
-        } as User,
-        isAuthenticated: true,
-        isLoading: false,
-        login: mockLogin,
-        logout: mockLogout,
-        getAccessToken: vi.fn(),
-      })
+      mockUseAuth.mockReturnValue(
+        createMockAuth({
+          user: {
+            name: 'John Doe',
+            email: 'john@example.com',
+          } as User,
+          isAuthenticated: true,
+          login: mockLogin,
+          logout: mockLogout,
+        })
+      )
 
       render(
         <BrowserRouter>
@@ -182,17 +163,17 @@ describe('Header', () => {
     it('should call handleLogout when logout is clicked', async () => {
       const user = userEvent.setup()
 
-      mockUseAuth.mockReturnValue({
-        user: {
-          name: 'John Doe',
-          email: 'john@example.com',
-        } as User,
-        isAuthenticated: true,
-        isLoading: false,
-        login: mockLogin,
-        logout: mockLogout,
-        getAccessToken: vi.fn(),
-      })
+      mockUseAuth.mockReturnValue(
+        createMockAuth({
+          user: {
+            name: 'John Doe',
+            email: 'john@example.com',
+          } as User,
+          isAuthenticated: true,
+          login: mockLogin,
+          logout: mockLogout,
+        })
+      )
 
       render(
         <BrowserRouter>

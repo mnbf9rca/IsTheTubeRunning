@@ -1,8 +1,8 @@
-import { useEffect, useState } from 'react'
+import { useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useAuth } from '@/hooks/useAuth'
 import { useBackendAuth } from '@/contexts/BackendAuthContext'
-import { ApiError } from '@/lib/api'
+import { useCallbackValidation } from '@/hooks/useCallbackValidation'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
 import { AlertCircle } from 'lucide-react'
@@ -15,26 +15,23 @@ export default function Callback() {
   } = useAuth()
   const { isBackendAuthenticated, validateWithBackend, forceLogout } = useBackendAuth()
   const navigate = useNavigate()
-  const [validationState, setValidationState] = useState<
-    'idle' | 'validating' | 'success' | 'auth_denied' | 'server_error'
-  >('idle')
-  const [errorMessage, setErrorMessage] = useState<string>('')
+
+  const { validationState, errorMessage, performValidation, handleRetry } = useCallbackValidation({
+    validateWithBackend,
+    forceLogout,
+  })
 
   // Explicit validation on mount when Auth0 is ready
   useEffect(() => {
-    let isMounted = true
-
-    const performValidation = async () => {
+    const checkAndValidate = async () => {
       // Wait for Auth0 to finish loading
       if (auth0IsLoading) {
         return
       }
 
-      // If Auth0 failed, redirect to login
+      // If Auth0 failed, show error
       if (authError) {
         console.error('Auth0 error:', authError)
-        setErrorMessage(`Authentication failed: ${authError.message}`)
-        setValidationState('auth_denied')
         return
       }
 
@@ -50,77 +47,40 @@ export default function Callback() {
         return
       }
 
-      // Perform explicit backend validation
+      // Perform explicit backend validation only once
       if (validationState === 'idle') {
-        setValidationState('validating')
-
-        try {
-          await validateWithBackend()
-
-          if (isMounted) {
-            setValidationState('success')
-            navigate('/dashboard')
-          }
-        } catch (error) {
-          if (!isMounted) return
-
-          // Determine error type
-          if (error instanceof ApiError) {
-            if (error.status === 401 || error.status === 403) {
-              // Backend denies auth - force logout
-              setValidationState('auth_denied')
-              setErrorMessage('Authentication denied by server. Logging out...')
-              console.error('Backend denied authentication:', error)
-
-              // Force logout after a brief delay
-              setTimeout(() => {
-                forceLogout()
-              }, 2000)
-            } else if (error.status >= 500) {
-              // Server error - allow retry
-              setValidationState('server_error')
-              setErrorMessage(`Server error (${error.status}). Please try again.`)
-              console.error('Backend server error:', error)
-            } else {
-              // Other error - treat as server error
-              setValidationState('server_error')
-              setErrorMessage(`Unexpected error: ${error.message}`)
-              console.error('Backend validation error:', error)
-            }
-          } else {
-            // Network error or other issue - allow retry
-            setValidationState('server_error')
-            setErrorMessage('Unable to connect to server. Please check your connection.')
-            console.error('Backend validation failed:', error)
-          }
-        }
+        await performValidation()
       }
     }
 
-    performValidation()
-
-    return () => {
-      isMounted = false
-    }
+    checkAndValidate()
   }, [
     auth0IsAuthenticated,
     auth0IsLoading,
     authError,
     isBackendAuthenticated,
-    validateWithBackend,
-    forceLogout,
     navigate,
-    // Note: validationState is intentionally NOT in dependencies to prevent
-    // cleanup from running when state changes to 'validating', which would
-    // set isMounted=false and prevent error state updates
+    validationState,
+    performValidation,
   ])
 
-  const handleRetry = () => {
-    setValidationState('idle')
-    setErrorMessage('')
+  // Show error states
+  // Handle Auth0 errors
+  if (authError) {
+    return (
+      <div className="flex min-h-screen flex-col items-center justify-center p-4">
+        <div className="max-w-md w-full space-y-4">
+          <Alert variant="destructive">
+            <AlertCircle className="h-4 w-4" />
+            <AlertTitle>Authentication Failed</AlertTitle>
+            <AlertDescription>Authentication failed: {authError.message}</AlertDescription>
+          </Alert>
+        </div>
+      </div>
+    )
   }
 
-  // Show error states
+  // Handle backend validation errors
   if (validationState === 'auth_denied') {
     return (
       <div className="flex min-h-screen flex-col items-center justify-center p-4">

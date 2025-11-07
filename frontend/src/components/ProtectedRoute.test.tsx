@@ -2,6 +2,7 @@ import { render, screen, waitFor } from '@testing-library/react'
 import { MemoryRouter, Routes, Route } from 'react-router-dom'
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { ProtectedRoute } from './ProtectedRoute'
+import { createMockAuth, createMockBackendAuth } from '@/test/test-utils'
 
 // Mock useAuth hook
 vi.mock('@/hooks/useAuth', () => ({
@@ -25,16 +26,17 @@ describe('ProtectedRoute', () => {
   })
 
   it('should render children when authenticated', () => {
-    mockUseAuth.mockReturnValue({
-      isAuthenticated: true,
-      isLoading: false,
-    })
-    mockUseBackendAuth.mockReturnValue({
-      isBackendAuthenticated: true,
-      isValidating: false,
-      user: { id: '1', created_at: '2024-01-01', updated_at: '2024-01-01' },
-      error: null,
-    })
+    mockUseAuth.mockReturnValue(
+      createMockAuth({
+        isAuthenticated: true,
+      })
+    )
+    mockUseBackendAuth.mockReturnValue(
+      createMockBackendAuth({
+        isBackendAuthenticated: true,
+        user: { id: '1', created_at: '2024-01-01', updated_at: '2024-01-01' },
+      })
+    )
 
     render(
       <MemoryRouter initialEntries={['/protected']}>
@@ -55,16 +57,16 @@ describe('ProtectedRoute', () => {
   })
 
   it('should show loading state when loading', () => {
-    mockUseAuth.mockReturnValue({
-      isAuthenticated: true,
-      isLoading: false,
-    })
-    mockUseBackendAuth.mockReturnValue({
-      isBackendAuthenticated: false,
-      isValidating: true,
-      user: null,
-      error: null,
-    })
+    mockUseAuth.mockReturnValue(
+      createMockAuth({
+        isAuthenticated: true,
+      })
+    )
+    mockUseBackendAuth.mockReturnValue(
+      createMockBackendAuth({
+        isValidating: true,
+      })
+    )
 
     render(
       <MemoryRouter initialEntries={['/protected']}>
@@ -85,16 +87,12 @@ describe('ProtectedRoute', () => {
   })
 
   it('should redirect to login when not authenticated', async () => {
-    mockUseAuth.mockReturnValue({
-      isAuthenticated: false,
-      isLoading: false,
-    })
-    mockUseBackendAuth.mockReturnValue({
-      isBackendAuthenticated: false,
-      isValidating: false,
-      user: null,
-      error: null,
-    })
+    mockUseAuth.mockReturnValue(
+      createMockAuth({
+        isAuthenticated: false,
+      })
+    )
+    mockUseBackendAuth.mockReturnValue(createMockBackendAuth())
 
     render(
       <MemoryRouter initialEntries={['/protected']}>
