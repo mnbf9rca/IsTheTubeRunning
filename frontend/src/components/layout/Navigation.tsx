@@ -10,7 +10,7 @@ const navItems = [
   },
   {
     title: 'Routes',
-    href: '/dashboard',
+    href: '/routes',
     icon: MapPin,
   },
   {

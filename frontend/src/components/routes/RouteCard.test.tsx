@@ -31,7 +31,6 @@ describe('RouteCard', () => {
     expect(screen.getByText('Active')).toBeInTheDocument()
     expect(screen.getByText('3 segments')).toBeInTheDocument()
     expect(screen.getByText('2 schedules')).toBeInTheDocument()
-    expect(screen.getByText('Europe/London')).toBeInTheDocument()
   })
 
   it('should render inactive badge for inactive routes', () => {

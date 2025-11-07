@@ -1,4 +1,4 @@
-import { MapPin, Calendar, Pencil, Trash2, Route as RouteIcon } from 'lucide-react'
+import { Calendar, Pencil, Trash2, Route as RouteIcon } from 'lucide-react'
 import { Card, CardContent, CardHeader, CardTitle } from '../ui/card'
 import { Button } from '../ui/button'
 import { Badge } from '../ui/badge'
@@ -80,11 +80,6 @@ export function RouteCard({
             <Calendar className="h-4 w-4" aria-hidden="true" />
             <span>{route.schedule_count} schedules</span>
           </div>
-        </div>
-
-        <div className="flex items-center gap-2 text-xs text-muted-foreground">
-          <MapPin className="h-3 w-3" aria-hidden="true" />
-          <span>{route.timezone}</span>
         </div>
 
         <div className="flex gap-2 mt-4">
