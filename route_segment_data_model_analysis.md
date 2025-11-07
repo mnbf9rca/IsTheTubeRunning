@@ -2,6 +2,7 @@
 
 **Date**: 2025-11-07
 **Issue**: Data model mismatch between conceptual route representation and database schema
+**Status**: ✅ RESOLVED - Option 1 (Nullable line_id) implemented on 2025-11-07
 
 ---
 
@@ -360,3 +361,496 @@ Based on decision:
 5. [ ] Update frontend to use TERMINATES_LINE_ID
 6. [ ] Write migration to update existing routes
 7. [ ] Add tests for TERMINATES handling
+
+---
+
+## Implementation Summary (2025-11-07)
+
+**Decision**: Implemented Option 1 (Nullable line_id)
+
+### Changes Made
+
+#### Backend
+1. ✅ **Migration** (`958e140c30a0_make_route_segment_line_id_nullable.py`):
+   - Made `route_segments.line_id` nullable using `ALTER COLUMN`
+   - No data migration needed (development project with no production data)
+
+2. ✅ **Models** (`backend/app/models/route.py`):
+   - Updated `RouteSegment.line_id` to `Mapped[uuid.UUID | None]`
+
+3. ✅ **Schemas**:
+   - `backend/app/schemas/routes.py`: `SegmentRequest.line_id` and `SegmentResponse.line_id` → `UUID | None`
+   - `backend/app/schemas/tfl.py`: `RouteSegmentRequest.line_id` → `UUID | None`
+
+4. ✅ **Validation** (`backend/app/services/tfl_service.py:1283-1294`):
+   - Added NULL check for intermediate segments (only destination can have NULL line_id)
+   - Validation loop skips last segment (as it always did)
+   - Clear error message: "Segment X must have a line_id. Only the final destination segment can have NULL line_id."
+
+5. ✅ **Tests** (`backend/tests/test_tfl_service.py`):
+   - `test_validate_route_with_null_destination_line_id`: Validates NULL is accepted for destination
+   - `test_validate_route_with_null_intermediate_line_id`: Validates NULL is rejected for intermediate segments
+   - All 81 TfL service tests passing
+
+#### Frontend
+1. ✅ **Type Definitions** (`frontend/src/lib/api.ts`):
+   - `SegmentRequest.line_id` and `SegmentResponse.line_id` → `string | null`
+
+2. ✅ **SegmentBuilder** (`frontend/src/components/routes/SegmentBuilder.tsx`):
+   - `handleSave()`: Automatically sets last segment's `line_id` to `null` before validation and saving
+   - Auto-fill logic updated to handle NULL line_id from previous segments
+   - User experience unchanged (transparent handling)
+
+3. ✅ **Display Components**:
+   - `SegmentDisplay.tsx`: Shows "Destination" label for segments with NULL line_id
+   - `SegmentList.tsx`: Passes NULL to SegmentCard when line_id is NULL
+   - `SegmentCard.tsx`: Updated props to accept optional `lineName` and `lineColor`, displays "Destination" when both are NULL
+
+4. ✅ **Tests**:
+   - All 212 frontend tests passing
+   - No test updates required (existing tests continue to work with auto-fill workaround)
+
+### Benefits Achieved
+- ✅ **Semantic Correctness**: NULL clearly means "no outgoing line" (journey terminates here)
+- ✅ **No Redundant Data**: Last segment no longer stores meaningless line_id
+- ✅ **Clear Validation**: Explicit NULL check prevents misuse
+- ✅ **Backward Compatible**: Frontend auto-fills for smooth UX transition
+- ✅ **Well Tested**: 81 backend + 212 frontend tests passing
+
+### User Experience
+- **Route Creation**: Users continue to build routes as before
+- **Display**: Destination stations now show "Destination" label instead of redundant line information
+- **Validation**: Backend rejects routes with NULL line_id on non-terminal segments with clear error messages
+
+### Technical Debt Eliminated
+- ✅ Data model now matches domain model
+- ✅ Validation logic conceptually complete
+- ✅ No confusion for future developers
+- ✅ DRY principle restored (line not specified twice)
+
+---
+
+## UX Issues Discovered During Testing (2025-11-07)
+
+**Testing Session**: Playwright MCP testing of route builder UI
+**Route Tested**: Southgate → Leicester Square (Piccadilly line)
+
+### Defects Identified
+
+#### Defect #1: Line Auto-Fills for Starting Station (NOT A DEFECT - ANALYSIS ERROR)
+**Issue**: When adding the very first station to a route, the line dropdown automatically populates with a line value.
+
+**Analysis**: This is actually CORRECT behavior - Southgate Underground Station only has one line (Piccadilly). Auto-filling when only one line exists is good UX.
+
+**Corrected Understanding**: Auto-fill is appropriate when:
+- Station only has one line (like Southgate → Piccadilly)
+- Continuing from previous segment (auto-fill current travel line)
+
+**Impact**: No defect - working as intended.
+
+#### Defect #2: Line Auto-Fills for Terminal Station
+**Issue**: When adding the destination/terminal station, the line dropdown automatically populates with the current travel line.
+
+**Expected Behavior**: Terminal station should have `line_id: null` (no outgoing line).
+
+**Current Behavior**: Leicester Square (destination) shows "Piccadilly" auto-filled.
+
+**Impact**:
+- Data model violation (terminal segment should have NULL line_id per backend implementation)
+- Frontend workaround sets it to NULL on save, but this is hidden from user
+- Confusing UX - why does destination need a line?
+
+#### Defect #3: No Way to Unselect Line
+**Issue**: Once a line is selected (or auto-filled), there's no way to set it back to NULL/empty.
+
+**Current Behavior**: Line dropdown only shows "Northern" and "Piccadilly" options (lines available at Leicester Square).
+
+**Expected Behavior**: Should have option like "None" or "Not applicable" to unselect.
+
+**Impact**:
+- User cannot manually correct auto-filled values
+- Cannot express "arrival without continuing"
+- Forces user to accept auto-filled value even if incorrect
+
+#### Defect #4: Misleading Label
+**Issue**: The line field label says "Line (optional - auto-fills from current line)" for all segments.
+
+**Current Behavior**: Same label for starting station, intermediate stations, and terminal station.
+
+**Expected Behavior**:
+- Starting station: "Line *" (required, no auto-fill)
+- Intermediate stations: "Line (optional - continue on <current line> or change lines)"
+- Terminal station: Should not show line selector at all, or show "Destination" message
+
+**Impact**: Confusing instructions - doesn't communicate when line is truly optional vs. required.
+
+#### Defect #5: "Save Segments" Button Unclear
+**Issue**: Clicking "Save Segments" provides no clear feedback about what happened.
+
+**Current Behavior**: Button remains enabled, no visual change, unclear if save succeeded.
+
+**Expected Behavior**:
+- Button should disable after successful save, OR
+- Show success message/toast, OR
+- Hide the segment builder UI and show read-only view
+
+**Impact**: User doesn't know if their action succeeded or if they need to do something else.
+
+---
+
+## Proposed UX Improvements
+
+### Option A: Simplified Sequential Flow (Recommended for Hobby Project - KISS)
+
+**Remove line selection entirely for terminal stations.**
+
+**Flow**:
+1. Add starting station → manually select line
+2. Add next station →
+   - Auto-fill line from previous segment
+   - Show message: "Continuing on <Line Name> line" or "Change line:"
+   - If user wants to change: click dropdown, select different line
+   - Option to "clear" and set to null (shown as "Arriving at destination")
+3. Terminal station detection:
+   - If user doesn't add another segment after clicking "Add Segment", treat current as terminal
+   - Automatically set `line_id: null` for terminal segment
+   - Show "Destination" badge instead of line info
+
+**Changes Required**:
+- Add "None (Destination)" option to line dropdown
+- Update SegmentBuilder logic to detect terminal segment
+- Show different UI for terminal vs. intermediate segments
+- Auto-save on segment add (remove separate "Save Segments" button confusion)
+
+**Benefits**:
+- Simpler UX - less clicking
+- Clear visual distinction between terminal and intermediate stations
+- Matches user mental model: "traveling on a line" vs. "arriving at destination"
+
+### Option B: Button-Based Line Selection
+
+**Replace dropdown with buttons/chips for better UX.**
+
+**Visual Design**:
+```
+Station: [Southgate Underground Station ▼]
+
+Traveling on line:
+[ Piccadilly ] ← Button/chip (colored with line color)
+[+ Add another station] [✓ This is my destination]
+```
+
+**If user clicks "+ Add another station"**:
+- Shows next station selector
+- Auto-fills line or allows change
+
+**If user clicks "This is my destination"**:
+- Sets `line_id: null`
+- Shows "Destination" badge
+- Hides line selector
+
+**Changes Required**:
+- Complete redesign of SegmentBuilder component
+- Button-based UI instead of dropdown
+- More visual/intuitive
+
+**Benefits**:
+- Much clearer user intent
+- Explicit "destination" marker
+- Better mobile experience (large tap targets)
+
+**Drawbacks**:
+- Larger implementation effort
+- May be over-engineered for hobby project
+
+### Option C: Keep Current Approach, Fix Defects Only (Minimal Change)
+
+**Just fix the specific defects without major UX redesign.**
+
+**Changes**:
+1. Add "None (Destination)" option to line dropdown
+2. Don't auto-fill line for first station
+3. Update label based on segment position:
+   - First: "Line *"
+   - Middle: "Line (optional - change if switching lines)"
+   - Would-be-last: "Line (optional - leave empty if destination)"
+4. Change "Save Segments" to show toast notification on success
+
+**Benefits**:
+- Minimal code changes
+- Addresses all defects
+
+**Drawbacks**:
+- Still somewhat confusing UX
+- "Line (optional - leave empty if destination)" is wordy
+- Doesn't fundamentally improve mental model
+
+---
+
+## Recommendation for Implementation
+
+**Selected Approach**: **Option B - Button-Based Interface** (User Choice)
+
+**Key Requirements from User**:
+1. **Journey Model**: STATION→LINE→STATION (line is the edge between two vertices)
+2. **Minimum 2 Stations**: Need at least 2 stations to form a valid journey segment
+3. **Manual Save**: Keep separate save button with confirmation tick
+4. **Post-Save Behavior**: Move user to next section (Active Times) or show validation errors in context
+5. **Terminal Detection**: User explicitly marks with "✓ This is my destination" button
+
+**Implementation Complexity**: ~6-8 hours
+- 2 hours: Redesign SegmentBuilder component with button-based UI
+- 1.5 hours: Implement "Continue journey" vs "This is my destination" logic
+- 1 hour: Add confirmation tick and post-save navigation
+- 1 hour: Update validation and error display (show in context)
+- 1 hour: Update display components (colored line buttons/chips)
+- 30 min: Update tests
+- 1 hour: Manual testing and polish
+
+---
+
+## Implementation Plan for Option B
+
+### Overview
+
+Implement button-based interface for route building that clearly represents the journey model: **STATION→LINE→STATION**.
+
+### User Flow
+
+**Step 1: Add Starting Station**
+```
+┌─────────────────────────────────────────┐
+│ Add Starting Station                     │
+├─────────────────────────────────────────┤
+│ Station: [Southgate Underground ▼]      │
+│                                          │
+│ (No line selection yet - need 2 stations)│
+└─────────────────────────────────────────┘
+```
+
+**Step 2: Select Line and Add Destination**
+```
+┌─────────────────────────────────────────┐
+│ Journey from Southgate Underground       │
+├─────────────────────────────────────────┤
+│ Travel on line:                          │
+│ ┌─────────────────┐                     │
+│ │ 🚇 Piccadilly   │ ← Colored button   │
+│ └─────────────────┘                     │
+│                                          │
+│ To station: [Leicester Square ▼]        │
+│                                          │
+│ What next?                               │
+│ ┌────────────────┐ ┌─────────────────┐ │
+│ │ + Continue     │ │ ✓ Destination   │ │
+│ │   journey      │ │                 │ │
+│ └────────────────┘ └─────────────────┘ │
+└─────────────────────────────────────────┘
+```
+
+**If user clicks "✓ Destination"**:
+- Set `line_id: null` for Leicester Square segment
+- Show in segment list as "Destination"
+- Enable "Save Segments" button
+
+**If user clicks "+ Continue journey"**:
+- Add Leicester Square with current line (Piccadilly)
+- Show new form to add next segment
+- Auto-fill line or allow change for interchange
+
+**Step 3: Save with Confirmation**
+```
+┌─────────────────────────────────────────┐
+│ [Save Segments ✓]  [Cancel]            │
+│                                          │
+│ After click:                             │
+│ ✓ Segments saved!                       │
+│ (Auto-scroll to "Active Times" section) │
+└─────────────────────────────────────────┘
+```
+
+### Technical Implementation
+
+#### Phase 1: Update Data Structures
+
+**File**: `frontend/src/components/routes/SegmentBuilder.tsx`
+
+```typescript
+interface SegmentBuilderState {
+  segments: Segment[];
+  currentStation: Station | null;
+  currentLine: Line | null;
+  nextStation: Station | null;
+  isAddingSegment: boolean;
+  saveStatus: 'idle' | 'saving' | 'success' | 'error';
+}
+
+// Segment building rules:
+// - Need currentStation + currentLine + nextStation to form valid segment
+// - If user marks as destination: nextStation.line_id = null
+// - If user continues: nextStation.line_id = currentLine.id (or changed line)
+```
+
+#### Phase 2: Component Redesign
+
+**New Components to Create**:
+
+1. **`LineButton.tsx`** - Colored button/chip for line selection
+   ```tsx
+   interface LineButtonProps {
+     line: Line;
+     selected: boolean;
+     onClick: () => void;
+   }
+   ```
+
+2. **`JourneyActionButtons.tsx`** - "Continue journey" vs "Destination" buttons
+   ```tsx
+   interface JourneyActionButtonsProps {
+     onContinue: () => void;
+     onDestination: () => void;
+     disabled: boolean;
+   }
+   ```
+
+3. **`SaveConfirmation.tsx`** - Success tick and auto-scroll
+   ```tsx
+   interface SaveConfirmationProps {
+     show: boolean;
+     onDismiss: () => void;
+   }
+   ```
+
+**Modified Components**:
+
+1. **`SegmentBuilder.tsx`**
+   - Remove dropdown-based line selector
+   - Add button-based line selection (show lines for current station)
+   - Implement "Continue" vs "Destination" logic
+   - Add save confirmation and navigation
+
+2. **`SegmentCard.tsx`** / **`SegmentList.tsx`**
+   - Update to show "Destination" badge for terminal segments
+   - Show line as colored chip/badge instead of text
+
+#### Phase 3: Validation Logic
+
+**File**: `frontend/src/components/routes/SegmentBuilder.tsx`
+
+```typescript
+const validateSegmentBuilder = (state: SegmentBuilderState): string | null => {
+  // Rule 1: Need at least 2 stations to form a journey
+  if (state.segments.length === 0) {
+    return "Add at least 2 stations to create a journey";
+  }
+
+  // Rule 2: Each intermediate segment must have a line_id
+  for (let i = 0; i < state.segments.length - 1; i++) {
+    if (!state.segments[i].line_id) {
+      return `Segment ${i + 1} must have a line`;
+    }
+  }
+
+  // Rule 3: Last segment can have null line_id (destination)
+  // This is valid
+
+  return null; // Valid
+};
+```
+
+#### Phase 4: Save Flow with Confirmation
+
+```typescript
+const handleSave = async () => {
+  setSaveStatus('saving');
+
+  try {
+    // Validate
+    const error = validateSegmentBuilder(state);
+    if (error) {
+      toast.error(error);
+      setSaveStatus('error');
+      return;
+    }
+
+    // Save to backend
+    await saveSegments(routeId, state.segments);
+
+    // Show success
+    setSaveStatus('success');
+
+    // Auto-scroll to next section after 1 second
+    setTimeout(() => {
+      document.getElementById('active-times-section')?.scrollIntoView({
+        behavior: 'smooth'
+      });
+    }, 1000);
+
+  } catch (err) {
+    setSaveStatus('error');
+    toast.error('Failed to save segments. Please try again.');
+  }
+};
+```
+
+#### Phase 5: Error Display
+
+Show validation errors inline, in context:
+
+```tsx
+{saveStatus === 'error' && validationError && (
+  <Alert variant="destructive" className="mb-4">
+    <AlertCircle className="h-4 w-4" />
+    <AlertDescription>{validationError}</AlertDescription>
+  </Alert>
+)}
+```
+
+### Files to Modify
+
+1. **`frontend/src/components/routes/SegmentBuilder.tsx`** - Main redesign
+2. **`frontend/src/components/routes/SegmentCard.tsx`** - Update display
+3. **`frontend/src/components/routes/SegmentList.tsx`** - Update display
+4. **`frontend/src/components/routes/LineButton.tsx`** - New component
+5. **`frontend/src/components/routes/JourneyActionButtons.tsx`** - New component
+6. **`frontend/src/components/routes/SaveConfirmation.tsx`** - New component
+7. **`frontend/src/pages/CreateRoute.tsx`** - Add ID to Active Times section
+
+### Testing Checklist
+
+- [ ] Can add starting station
+- [ ] Can select line (only shows lines available at that station)
+- [ ] Can add destination station
+- [ ] "Continue journey" and "Destination" buttons work correctly
+- [ ] Marking as destination sets `line_id: null`
+- [ ] Continuing journey auto-fills line correctly
+- [ ] Can add multiple segments (interchange routes)
+- [ ] Save button shows confirmation tick
+- [ ] Auto-scrolls to Active Times after successful save
+- [ ] Validation errors show inline with context
+- [ ] Can't save with invalid data (shows error)
+- [ ] Line buttons show correct colors
+- [ ] Works on mobile (buttons are tappable)
+
+### Success Criteria
+
+1. ✅ User understands journey model: STATION→LINE→STATION
+2. ✅ Clear distinction between "continuing" vs "arriving at destination"
+3. ✅ Terminal segments correctly have `line_id: null`
+4. ✅ Visual feedback on save (confirmation tick)
+5. ✅ Smooth transition to next section after save
+6. ✅ Validation errors clear and actionable
+7. ✅ Better mobile experience (large tap targets)
+
+---
+
+## Summary
+
+**Analysis Complete**: ✅
+**Defects Identified**: 4 real defects (1 was analysis error)
+**User Decision**: Option B - Button-Based Interface
+**Implementation Time**: 6-8 hours
+**Documentation Updated**: `route_segment_data_model_analysis.md`
+**Screenshot Captured**: `.playwright-mcp/route-builder-before-save.png`
+
+**Next Steps**: Ready to implement Option B with button-based interface.
