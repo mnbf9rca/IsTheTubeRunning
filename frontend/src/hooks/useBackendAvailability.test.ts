@@ -1,5 +1,5 @@
 import { renderHook, waitFor } from '@testing-library/react'
-import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { useBackendAvailability } from './useBackendAvailability'
 import { BackendAvailabilityProvider } from '@/contexts/BackendAvailabilityContext'
 
@@ -9,6 +9,14 @@ global.fetch = vi.fn()
 describe('useBackendAvailability', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    // Use fake timers to prevent real intervals from running
+    vi.useFakeTimers()
+  })
+
+  afterEach(() => {
+    // Restore real timers and clear all pending timers
+    vi.clearAllTimers()
+    vi.useRealTimers()
   })
 
   it('should throw error when used outside BackendAvailabilityProvider', () => {
@@ -23,13 +31,16 @@ describe('useBackendAvailability', () => {
   })
 
   it('should return context value when used within BackendAvailabilityProvider', async () => {
+    // Use real timers for this test since we need to wait for async operations
+    vi.useRealTimers()
+
     // Mock successful backend response
     ;(global.fetch as ReturnType<typeof vi.fn>).mockResolvedValue({
       ok: true,
       json: async () => ({ ready: true }),
     })
 
-    const { result } = renderHook(() => useBackendAvailability(), {
+    const { result, unmount } = renderHook(() => useBackendAvailability(), {
       wrapper: BackendAvailabilityProvider,
     })
 
@@ -45,5 +56,14 @@ describe('useBackendAvailability', () => {
 
     expect(result.current.isAvailable).toBe(true)
     expect(result.current.lastChecked).toBeInstanceOf(Date)
+
+    // Explicitly unmount to clean up intervals BEFORE test ends
+    unmount()
+
+    // Give cleanup time to complete
+    await new Promise((resolve) => setTimeout(resolve, 10))
+
+    // Restore fake timers for next test
+    vi.useFakeTimers()
   })
 })

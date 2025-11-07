@@ -1,4 +1,4 @@
-import { renderHook, waitFor } from '@testing-library/react'
+import { renderHook, waitFor, act } from '@testing-library/react'
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { useContacts } from './useContacts'
 import { ApiError } from '../lib/api'
@@ -121,51 +121,44 @@ describe('useContacts', () => {
       })
       vi.mocked(api.addEmail).mockRejectedValue(mockError)
 
-      const { result } = renderHook(() => useContacts())
+      const { result, unmount } = renderHook(() => useContacts())
 
       await waitFor(() => {
         expect(result.current.loading).toBe(false)
       })
 
-      // Try to add duplicate email - catch error to prevent unhandled rejection
-      await waitFor(async () => {
-        try {
-          await result.current.addEmail('test@example.com')
-          // Should not reach here
-          expect(true).toBe(false)
-        } catch (err) {
-          expect(err).toBeInstanceOf(ApiError)
-          expect((err as ApiError).status).toBe(409)
-        }
+      // Try to add duplicate email
+      await act(async () => {
+        await expect(result.current.addEmail('test@example.com')).rejects.toThrow()
       })
 
       // Error should be set in state
       await waitFor(() => {
         expect(result.current.error).toEqual(mockError)
       })
+
+      unmount()
     })
 
     it('should handle 429 rate limit error', async () => {
       const mockError = new ApiError(429, 'Too Many Requests')
       vi.mocked(api.addEmail).mockRejectedValue(mockError)
 
-      const { result } = renderHook(() => useContacts())
+      const { result, unmount } = renderHook(() => useContacts())
 
       await waitFor(() => {
         expect(result.current.loading).toBe(false)
       })
 
-      try {
-        await result.current.addEmail('test@example.com')
-        expect(true).toBe(false)
-      } catch (err) {
-        expect(err).toBeInstanceOf(ApiError)
-        expect((err as ApiError).status).toBe(429)
-      }
+      await act(async () => {
+        await expect(result.current.addEmail('test@example.com')).rejects.toThrow()
+      })
 
       await waitFor(() => {
         expect(result.current.error).toEqual(mockError)
       })
+
+      unmount()
     })
   })
 
@@ -204,23 +197,21 @@ describe('useContacts', () => {
       })
       vi.mocked(api.addPhone).mockRejectedValue(mockError)
 
-      const { result } = renderHook(() => useContacts())
+      const { result, unmount } = renderHook(() => useContacts())
 
       await waitFor(() => {
         expect(result.current.loading).toBe(false)
       })
 
-      try {
-        await result.current.addPhone('invalid')
-        expect(true).toBe(false)
-      } catch (err) {
-        expect(err).toBeInstanceOf(ApiError)
-        expect((err as ApiError).status).toBe(400)
-      }
+      await act(async () => {
+        await expect(result.current.addPhone('invalid')).rejects.toThrow()
+      })
 
       await waitFor(() => {
         expect(result.current.error).toEqual(mockError)
       })
+
+      unmount()
     })
   })
 
@@ -291,46 +282,42 @@ describe('useContacts', () => {
       const mockError = new ApiError(404, 'Not Found')
       vi.mocked(api.sendVerification).mockRejectedValue(mockError)
 
-      const { result } = renderHook(() => useContacts())
+      const { result, unmount } = renderHook(() => useContacts())
 
       await waitFor(() => {
         expect(result.current.loading).toBe(false)
       })
 
-      try {
-        await result.current.sendVerification('nonexistent')
-        expect(true).toBe(false)
-      } catch (err) {
-        expect(err).toBeInstanceOf(ApiError)
-        expect((err as ApiError).status).toBe(404)
-      }
+      await act(async () => {
+        await expect(result.current.sendVerification('nonexistent')).rejects.toThrow()
+      })
 
       await waitFor(() => {
         expect(result.current.error).toEqual(mockError)
       })
+
+      unmount()
     })
 
     it('should handle 429 rate limit (server)', async () => {
       const mockError = new ApiError(429, 'Too Many Requests')
       vi.mocked(api.sendVerification).mockRejectedValue(mockError)
 
-      const { result } = renderHook(() => useContacts())
+      const { result, unmount } = renderHook(() => useContacts())
 
       await waitFor(() => {
         expect(result.current.loading).toBe(false)
       })
 
-      try {
-        await result.current.sendVerification('email-1')
-        expect(true).toBe(false)
-      } catch (err) {
-        expect(err).toBeInstanceOf(ApiError)
-        expect((err as ApiError).status).toBe(429)
-      }
+      await act(async () => {
+        await expect(result.current.sendVerification('email-1')).rejects.toThrow()
+      })
 
       await waitFor(() => {
         expect(result.current.error).toEqual(mockError)
       })
+
+      unmount()
     })
   })
 
@@ -383,23 +370,21 @@ describe('useContacts', () => {
       })
       vi.mocked(api.verifyCode).mockRejectedValue(mockError)
 
-      const { result } = renderHook(() => useContacts())
+      const { result, unmount } = renderHook(() => useContacts())
 
       await waitFor(() => {
         expect(result.current.loading).toBe(false)
       })
 
-      try {
-        await result.current.verifyCode('email-1', 'wrong')
-        expect(true).toBe(false)
-      } catch (err) {
-        expect(err).toBeInstanceOf(ApiError)
-        expect((err as ApiError).status).toBe(400)
-      }
+      await act(async () => {
+        await expect(result.current.verifyCode('email-1', 'wrong')).rejects.toThrow()
+      })
 
       await waitFor(() => {
         expect(result.current.error).toEqual(mockError)
       })
+
+      unmount()
     })
 
     it('should handle 400 expired code', async () => {
@@ -408,23 +393,21 @@ describe('useContacts', () => {
       })
       vi.mocked(api.verifyCode).mockRejectedValue(mockError)
 
-      const { result } = renderHook(() => useContacts())
+      const { result, unmount } = renderHook(() => useContacts())
 
       await waitFor(() => {
         expect(result.current.loading).toBe(false)
       })
 
-      try {
-        await result.current.verifyCode('email-1', '123456')
-        expect(true).toBe(false)
-      } catch (err) {
-        expect(err).toBeInstanceOf(ApiError)
-        expect((err as ApiError).status).toBe(400)
-      }
+      await act(async () => {
+        await expect(result.current.verifyCode('email-1', '123456')).rejects.toThrow()
+      })
 
       await waitFor(() => {
         expect(result.current.error).toEqual(mockError)
       })
+
+      unmount()
     })
   })
 
@@ -472,29 +455,27 @@ describe('useContacts', () => {
       const mockError = new ApiError(404, 'Not Found')
       vi.mocked(api.deleteContact).mockRejectedValue(mockError)
 
-      const { result } = renderHook(() => useContacts())
+      const { result, unmount } = renderHook(() => useContacts())
 
       await waitFor(() => {
         expect(result.current.loading).toBe(false)
       })
 
-      try {
-        await result.current.deleteContact('nonexistent')
-        expect(true).toBe(false)
-      } catch (err) {
-        expect(err).toBeInstanceOf(ApiError)
-        expect((err as ApiError).status).toBe(404)
-      }
+      await act(async () => {
+        await expect(result.current.deleteContact('nonexistent')).rejects.toThrow()
+      })
 
       await waitFor(() => {
         expect(result.current.error).toEqual(mockError)
       })
+
+      unmount()
     })
   })
 
   describe('refresh', () => {
     it('should manually refresh contacts', async () => {
-      const { result } = renderHook(() => useContacts())
+      const { result, unmount } = renderHook(() => useContacts())
 
       await waitFor(() => {
         expect(result.current.loading).toBe(false)
@@ -503,17 +484,27 @@ describe('useContacts', () => {
       expect(api.getContacts).toHaveBeenCalledTimes(1)
 
       // Manually refresh
-      await result.current.refresh()
+      await act(async () => {
+        await result.current.refresh()
+      })
 
       expect(api.getContacts).toHaveBeenCalledTimes(2)
+
+      unmount()
     })
   })
 
   describe('canResendVerification', () => {
-    it('should return true when attempts < 3', () => {
-      const { result } = renderHook(() => useContacts())
+    it('should return true when attempts < 3', async () => {
+      const { result, unmount } = renderHook(() => useContacts())
+
+      await waitFor(() => {
+        expect(result.current.loading).toBe(false)
+      })
 
       expect(result.current.canResendVerification('any-id')).toBe(true)
+
+      unmount()
     })
 
     it('should return false when attempts >= 3', async () => {

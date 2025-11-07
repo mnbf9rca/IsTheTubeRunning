@@ -241,7 +241,7 @@ PR5 (Admin) → Independent after PR2.5
 - [ ] Users can add email addresses and phone numbers
 - [ ] Verification code flow works (send, resend, verify)
 - [ ] Rate limiting handled gracefully with user feedback
-- [ ] Primary contact can be set
+- [ ] Primary contact can be set. Deferred until needed (YAGNI)
 - [ ] Contacts can be deleted
 - [ ] All tests passing (>80% coverage)
 - [ ] Mobile responsive
@@ -275,10 +275,15 @@ See [Authentication & Authorization ADRs](../../docs/adr/04-authentication.md) f
 
 ## PR3: Route Management
 
-**Branch**: `feature/phase-10-pr3-routes`
-**Estimated Time**: 4-5 days
-**Status**: Not Started
-**Depends on**: PR1
+> **⚠️ SPLIT DECISION**: This PR was split into PR3a and PR3b for manageability.
+> See `phase_10_pr3_implementation_plan.md` for detailed split plan.
+> - **PR3a**: Routes Foundation (metadata CRUD) - ✅ Complete
+> - **PR3b**: Route Builder & Schedules (segments, TfL integration) - Not Started
+
+**Branch**: `feature/phase-10-pr3-routes` (original plan, see split branches)
+**Estimated Time**: 4-5 days (now split across 2 PRs)
+**Status**: Split - PR3a Complete ✅, PR3b Not Started
+**Depends on**: PR2.5 (Backend Auth Architecture)
 
 ### Goals
 - Implement complete route management (CRUD)
@@ -333,7 +338,7 @@ See [Authentication & Authorization ADRs](../../docs/adr/04-authentication.md) f
 
 #### 7. Route Builder Logic
 - [ ] Multi-step form flow:
-  1. Basic info (name, description, timezone)
+  1. Basic info (name, description) - **Note**: Timezone auto-defaults to 'Europe/London', not shown to users (YAGNI)
   2. Station selection (start → interchanges → end)
   3. Schedule configuration (days, times)
   4. Review and create
@@ -659,10 +664,24 @@ npm run test:watch
 - **Tests**: All passing (backend 10/10, frontend 16/16) ✅
 - **Build**: Successful ✅
 
-### PR3: Route Management
+### PR3: Route Management (SPLIT)
+- **Status**: Split into PR3a (Complete ✅) and PR3b (Not Started)
+- **See**: `phase_10_pr3_implementation_plan.md` for detailed split plan
+
+#### PR3a: Routes Foundation
+- **Status**: Complete ✅
+- **Branch**: feature/phase-10-pr3a-routes-foundation
+- **Started**: 2025-11-07
+- **Completed**: 2025-11-07
+- **Tests**: 137/137 passing ✅
+- **Build**: Successful ✅
+- **Key Change**: Timezone hidden from UI (defaults to 'Europe/London' - YAGNI principle)
+
+#### PR3b: Route Builder & Schedules
 - **Status**: Not Started
 - **Started**: TBD
 - **Completed**: TBD
+- **Depends on**: PR3a merged to main
 
 ### PR4: Notification Preferences
 - **Status**: Not Started

@@ -384,3 +384,152 @@ export async function verifyCode(contactId: string, code: string): Promise<Verif
 export async function deleteContact(contactId: string): Promise<void> {
   await fetchAPI<void>(`/contacts/${contactId}`, { method: 'DELETE' })
 }
+
+// ============================================================================
+// Route Management Types & API
+// ============================================================================
+
+/**
+ * Segment information (part of a route)
+ */
+export interface SegmentResponse {
+  id: string
+  sequence: number
+  station_id: string
+  line_id: string
+}
+
+/**
+ * Schedule information (when a route is active)
+ */
+export interface ScheduleResponse {
+  id: string
+  days_of_week: string[] // ['MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT', 'SUN']
+  start_time: string // HH:MM:SS format
+  end_time: string // HH:MM:SS format
+}
+
+/**
+ * Full route response with segments and schedules
+ */
+export interface RouteResponse {
+  id: string
+  name: string
+  description: string | null
+  active: boolean
+  timezone: string
+  segments: SegmentResponse[]
+  schedules: ScheduleResponse[]
+}
+
+/**
+ * Route list item response (summary without segments/schedules)
+ */
+export interface RouteListItemResponse {
+  id: string
+  name: string
+  description: string | null
+  active: boolean
+  timezone: string
+  segment_count: number
+  schedule_count: number
+}
+
+/**
+ * Request to create a new route
+ */
+export interface CreateRouteRequest {
+  name: string
+  description?: string
+  active?: boolean
+  timezone?: string
+}
+
+/**
+ * Request to update an existing route
+ */
+export interface UpdateRouteRequest {
+  name?: string
+  description?: string
+  active?: boolean
+  timezone?: string
+}
+
+/**
+ * Get all routes for the authenticated user
+ *
+ * @returns Array of route summaries
+ * @throws {ApiError} If the request fails
+ */
+export async function getRoutes(): Promise<RouteListItemResponse[]> {
+  const response = await fetchAPI<RouteListItemResponse[]>('/routes')
+  if (!response) {
+    throw new ApiError(204, 'Unexpected 204 response from routes endpoint')
+  }
+  return response
+}
+
+/**
+ * Get a single route with full details
+ *
+ * @param routeId The route ID to fetch
+ * @returns Full route details including segments and schedules
+ * @throws {ApiError} 404 if route not found
+ */
+export async function getRoute(routeId: string): Promise<RouteResponse> {
+  const response = await fetchAPI<RouteResponse>(`/routes/${routeId}`)
+  if (!response) {
+    throw new ApiError(204, 'Unexpected 204 response from route endpoint')
+  }
+  return response
+}
+
+/**
+ * Create a new route
+ *
+ * @param data Route creation data
+ * @returns The created route
+ * @throws {ApiError} 400 if validation fails
+ */
+export async function createRoute(data: CreateRouteRequest): Promise<RouteResponse> {
+  const response = await fetchAPI<RouteResponse>('/routes', {
+    method: 'POST',
+    body: JSON.stringify(data),
+  })
+  if (!response) {
+    throw new ApiError(204, 'Unexpected 204 response from create route endpoint')
+  }
+  return response
+}
+
+/**
+ * Update an existing route
+ *
+ * @param routeId The route ID to update
+ * @param data Route update data (partial updates supported)
+ * @returns The updated route
+ * @throws {ApiError} 404 if route not found, 400 if validation fails
+ */
+export async function updateRoute(
+  routeId: string,
+  data: UpdateRouteRequest
+): Promise<RouteResponse> {
+  const response = await fetchAPI<RouteResponse>(`/routes/${routeId}`, {
+    method: 'PATCH',
+    body: JSON.stringify(data),
+  })
+  if (!response) {
+    throw new ApiError(204, 'Unexpected 204 response from update route endpoint')
+  }
+  return response
+}
+
+/**
+ * Delete a route
+ *
+ * @param routeId The route ID to delete
+ * @throws {ApiError} 404 if route not found
+ */
+export async function deleteRoute(routeId: string): Promise<void> {
+  await fetchAPI<void>(`/routes/${routeId}`, { method: 'DELETE' })
+}
