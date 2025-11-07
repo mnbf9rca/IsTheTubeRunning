@@ -14,9 +14,7 @@ import {
   DialogTitle,
 } from '../components/ui/dialog'
 import { RouteList } from '../components/routes/RouteList'
-import { RouteFormDialog, type RouteFormData } from '../components/routes/RouteFormDialog'
 import { useRoutes } from '../hooks/useRoutes'
-import type { RouteResponse } from '../lib/api'
 
 /**
  * Routes page for managing commute routes
@@ -29,72 +27,18 @@ import type { RouteResponse } from '../lib/api'
  */
 export function Routes() {
   const navigate = useNavigate()
-  const { routes, loading, error, createRoute, updateRoute, deleteRoute } = useRoutes()
+  const { routes, loading, error, deleteRoute } = useRoutes()
 
-  const [createDialogOpen, setCreateDialogOpen] = useState(false)
-  const [createError, setCreateError] = useState<string | undefined>(undefined)
-  const [editDialogOpen, setEditDialogOpen] = useState(false)
-  const [editingRoute, setEditingRoute] = useState<RouteResponse | undefined>()
-  const [editError, setEditError] = useState<string | undefined>(undefined)
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false)
   const [deletingRoute, setDeletingRoute] = useState<{ id: string; name: string } | null>(null)
   const [isDeleting, setIsDeleting] = useState(false)
   const [deletingId, setDeletingId] = useState<string | undefined>()
 
   /**
-   * Handle creating a new route
+   * Handle editing a route - navigate to route details page
    */
-  const handleCreate = async (data: RouteFormData) => {
-    try {
-      const result = await createRoute(data)
-      setCreateDialogOpen(false)
-      setCreateError(undefined)
-      toast.success('Route created', {
-        description: `${result.name} has been created. You can now add segments and schedules.`,
-      })
-    } catch (err: unknown) {
-      setCreateError(err instanceof Error ? err.message : 'Failed to create route.')
-    }
-  }
-
-  /**
-   * Handle editing a route
-   */
-  const handleEdit = async (routeId: string) => {
-    try {
-      // For now, we'll use a simple approach - in production you'd want to handle this better
-      // Since we only edit metadata in PR3a, we can work with the list item data
-      const routeFromList = routes?.find((r) => r.id === routeId)
-      if (routeFromList) {
-        setEditingRoute({
-          ...routeFromList,
-          segments: [],
-          schedules: [],
-        } as RouteResponse)
-        setEditDialogOpen(true)
-      }
-    } catch {
-      toast.error('Failed to load route details')
-    }
-  }
-
-  /**
-   * Handle submitting route edit
-   */
-  const handleEditSubmit = async (data: RouteFormData) => {
-    if (!editingRoute) return
-
-    try {
-      const result = await updateRoute(editingRoute.id, data)
-      setEditDialogOpen(false)
-      setEditingRoute(undefined)
-      setEditError(undefined)
-      toast.success('Route updated', {
-        description: `${result.name} has been updated.`,
-      })
-    } catch (err: unknown) {
-      setEditError(err instanceof Error ? err.message : 'Failed to update route.')
-    }
+  const handleEdit = (routeId: string) => {
+    navigate(`/routes/${routeId}`)
   }
 
   /**
@@ -147,7 +91,7 @@ export function Routes() {
             Manage your commute routes and receive disruption alerts
           </p>
         </div>
-        <Button onClick={() => setCreateDialogOpen(true)} disabled={loading}>
+        <Button onClick={() => navigate('/routes/new')} disabled={loading}>
           <Plus className="h-4 w-4 mr-2" aria-hidden="true" />
           Create Route
         </Button>
@@ -197,30 +141,6 @@ export function Routes() {
           />
         </CardContent>
       </Card>
-
-      {/* Create Route Dialog */}
-      <RouteFormDialog
-        open={createDialogOpen}
-        onClose={() => {
-          setCreateDialogOpen(false)
-          setCreateError(undefined)
-        }}
-        onSubmit={handleCreate}
-        error={createError}
-      />
-
-      {/* Edit Route Dialog */}
-      <RouteFormDialog
-        open={editDialogOpen}
-        onClose={() => {
-          setEditDialogOpen(false)
-          setEditingRoute(undefined)
-          setEditError(undefined)
-        }}
-        onSubmit={handleEditSubmit}
-        route={editingRoute}
-        error={editError}
-      />
 
       {/* Delete Confirmation Dialog */}
       <Dialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>

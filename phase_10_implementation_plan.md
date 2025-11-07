@@ -665,7 +665,7 @@ npm run test:watch
 - **Build**: Successful ✅
 
 ### PR3: Route Management (SPLIT)
-- **Status**: Split into PR3a (Complete ✅) and PR3b (Not Started)
+- **Status**: Split into PR3a (Complete ✅), PR3b (Complete ✅), and PR3c (In Progress 🚧)
 - **See**: `phase_10_pr3_implementation_plan.md` for detailed split plan
 
 #### PR3a: Routes Foundation
@@ -690,6 +690,32 @@ npm run test:watch
   - Validation on save (not real-time)
   - Sequential station selection on RouteDetails page (tabs UI)
   - Integrated segment and schedule management directly into RouteDetails
+
+#### PR3c: Route Builder UI Refactoring
+- **Status**: In Progress 🚧 (75-80% complete)
+- **Branch**: feature/phase-10-pr3c-route-builder-ui
+- **Started**: 2025-11-07
+- **Estimated Completion**: 2-3 hours remaining
+- **Tests**: Not yet run (major refactoring)
+- **Depends on**: PR3b merged to main
+- **Key Changes**:
+  - Removed tabs in favor of single-page sections
+  - User-friendly labels: "Your Journey", "When to Alert" (Active Times + Send Alerts To)
+  - Read-only view with "Edit" button on RouteDetails
+  - CreateRoute page as full page (not dialog)
+  - Integrated notification preferences management
+  - Duplicate route name validation
+- **Completed**:
+  - ✅ New CreateRoute page (482 lines)
+  - ✅ RouteDetails refactored (600 lines)
+  - ✅ SegmentDisplay & NotificationDisplay components
+  - ✅ Notification preference API integration
+- **Remaining**:
+  - ⚠️ Fix station selection bug (CRITICAL - user cannot select starting station)
+  - ⚠️ Update Routes.tsx button to navigate to /routes/new
+  - ⚠️ Update App.tsx routing
+  - ⚠️ Update tests
+  - ⚠️ Playwright end-to-end testing
 
 ### PR4: Notification Preferences
 - **Status**: Not Started

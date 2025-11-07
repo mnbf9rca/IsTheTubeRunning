@@ -695,6 +695,95 @@ export async function deleteSchedule(routeId: string, scheduleId: string): Promi
 }
 
 // ============================================================================
+// Notification Preference Types & API
+// ============================================================================
+
+/**
+ * Notification method enum
+ */
+export type NotificationMethod = 'email' | 'sms'
+
+/**
+ * Notification preference response
+ */
+export interface NotificationPreferenceResponse {
+  id: string
+  route_id: string
+  method: NotificationMethod
+  target_email_id: string | null
+  target_phone_id: string | null
+  created_at: string
+  updated_at: string
+}
+
+/**
+ * Request to create a notification preference
+ */
+export interface CreateNotificationPreferenceRequest {
+  method: NotificationMethod
+  target_email_id?: string
+  target_phone_id?: string
+}
+
+/**
+ * Get all notification preferences for a route
+ *
+ * @param routeId The route ID
+ * @returns Array of notification preferences
+ * @throws {ApiError} 404 if route not found
+ */
+export async function getNotificationPreferences(
+  routeId: string
+): Promise<NotificationPreferenceResponse[]> {
+  const response = await fetchAPI<NotificationPreferenceResponse[]>(
+    `/routes/${routeId}/notifications`
+  )
+  if (response === null) {
+    throw new ApiError(204, 'Unexpected 204 response from get notification preferences endpoint')
+  }
+  return response
+}
+
+/**
+ * Create a new notification preference for a route
+ *
+ * @param routeId The route ID
+ * @param data The notification preference data
+ * @returns The created notification preference
+ * @throws {ApiError} 400 if invalid data, 404 if route/contact not found, 409 if duplicate
+ */
+export async function createNotificationPreference(
+  routeId: string,
+  data: CreateNotificationPreferenceRequest
+): Promise<NotificationPreferenceResponse> {
+  const response = await fetchAPI<NotificationPreferenceResponse>(
+    `/routes/${routeId}/notifications`,
+    {
+      method: 'POST',
+      body: JSON.stringify(data),
+    }
+  )
+  if (response === null) {
+    throw new ApiError(204, 'Unexpected 204 response from create notification preference endpoint')
+  }
+  return response
+}
+
+/**
+ * Delete a notification preference
+ *
+ * @param routeId The route ID
+ * @param preferenceId The notification preference ID
+ * @throws {ApiError} 404 if preference not found
+ */
+export async function deleteNotificationPreference(
+  routeId: string,
+  preferenceId: string
+): Promise<void> {
+  await fetchAPI<void>(`/routes/${routeId}/notifications/${preferenceId}`, { method: 'DELETE' })
+}
+
+// ============================================================================
 // TfL Data Types & API
 // ============================================================================
 

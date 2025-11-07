@@ -15,6 +15,7 @@ import Dashboard from './pages/Dashboard'
 import { Contacts } from './pages/Contacts'
 import { Routes as RoutesPage } from './pages/Routes'
 import { RouteDetails } from './pages/RouteDetails'
+import { CreateRoute } from './pages/CreateRoute'
 import { ServiceUnavailable } from './pages/ServiceUnavailable'
 
 function AppRoutes() {
@@ -63,6 +64,14 @@ function AppRoutes() {
               element={
                 <ProtectedRoute>
                   <RoutesPage />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/routes/new"
+              element={
+                <ProtectedRoute>
+                  <CreateRoute />
                 </ProtectedRoute>
               }
             />

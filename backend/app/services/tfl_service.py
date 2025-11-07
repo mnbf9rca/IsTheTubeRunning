@@ -1102,6 +1102,15 @@ class TfLService:
             # If we reach here, everything succeeded
             await self.db.commit()
 
+            # Invalidate all station and line caches since we've rebuilt the graph
+            # This ensures subsequent API calls get fresh data from the database
+            await self.cache.delete("stations:all")
+            for line in lines:
+                await self.cache.delete(f"stations:line:{line.tfl_id}")
+            # Also clear lines cache in case metadata changed
+            await self.cache.delete("lines")
+            logger.info("invalidated_all_tfl_caches", lines_invalidated=len(lines))
+
             build_result = {
                 "lines_count": len(lines),
                 "stations_count": len(stations_set),

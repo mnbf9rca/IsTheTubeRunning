@@ -17,6 +17,16 @@ vi.mock('sonner', () => ({
   },
 }))
 
+// Mock react-router-dom navigate
+const mockNavigate = vi.fn()
+vi.mock('react-router-dom', async () => {
+  const actual = await vi.importActual('react-router-dom')
+  return {
+    ...actual,
+    useNavigate: () => mockNavigate,
+  }
+})
+
 import { useRoutes } from '../hooks/useRoutes'
 
 describe('Routes', () => {
@@ -46,6 +56,7 @@ describe('Routes', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     vi.mocked(useRoutes).mockReturnValue(mockUseRoutes)
+    mockNavigate.mockClear()
   })
 
   it('should render page header', () => {
@@ -62,16 +73,15 @@ describe('Routes', () => {
     expect(createButton).toBeInTheDocument()
   })
 
-  it('should open create dialog when create button is clicked', async () => {
+  it('should navigate to create route page when create button is clicked', async () => {
     const user = userEvent.setup()
     renderWithRouter(<Routes />)
 
     const createButton = screen.getByRole('button', { name: /create route/i })
     await user.click(createButton)
 
-    // Dialog should open with title
-    expect(screen.getByRole('dialog')).toBeInTheDocument()
-    expect(screen.getByRole('heading', { name: /create route/i })).toBeInTheDocument()
+    // Should navigate to /routes/new
+    expect(mockNavigate).toHaveBeenCalledWith('/routes/new')
   })
 
   it('should render loading state', () => {
