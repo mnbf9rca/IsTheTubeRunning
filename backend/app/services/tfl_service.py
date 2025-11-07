@@ -13,7 +13,7 @@ from aiocache.serializers import PickleSerializer
 from fastapi import HTTPException, status
 from pydantic_tfl_api import LineClient, StopPointClient
 from pydantic_tfl_api.core import ApiError, ResponseModel
-from sqlalchemy import delete, select
+from sqlalchemy import delete, func, select
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import aliased
@@ -1032,16 +1032,40 @@ class TfLService:
 
         Returns:
             Dictionary with build statistics (lines_count, stations_count, connections_count)
+
+        Raises:
+            HTTPException: 500 if graph building fails (old connections preserved via rollback)
+            HTTPException: 500 if no stations found after fetching (validation failure)
         """
         logger.info("building_station_graph_start")
 
         try:
-            # Clear existing connections
-            await self.db.execute(delete(StationConnection))
-            await self.db.commit()
-
             # Fetch all lines
             lines = await self.fetch_lines(use_cache=False)
+            logger.info("lines_fetched", lines_count=len(lines))
+
+            # Fetch stations for all lines BEFORE building connections
+            # This ensures stations exist in the database for connection creation
+            for line in lines:
+                logger.info("fetching_stations_for_line", line_tfl_id=line.tfl_id, line_name=line.name)
+                await self.fetch_stations(line_tfl_id=line.tfl_id, use_cache=False)
+
+            # Validate that stations were populated
+            station_count_result = await self.db.execute(select(func.count()).select_from(Station))
+            station_count = station_count_result.scalar_one()
+
+            if station_count == 0:
+                logger.error("no_stations_found_after_fetch")
+                raise HTTPException(
+                    status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                    detail="No stations found after fetching from TfL API. Cannot build graph.",
+                )
+
+            logger.info("stations_validated", station_count=station_count)
+
+            # Clear existing connections (within transaction - will rollback if building fails)
+            await self.db.execute(delete(StationConnection))
+            logger.info("existing_connections_cleared")
 
             stations_set: set[str] = set()
             connections_count = 0
@@ -1060,7 +1084,8 @@ class TfLService:
                         stations_set,
                     )
 
-            # Commit all connections
+            # Commit all changes (delete + new connections) atomically
+            # If we reach here, everything succeeded
             await self.db.commit()
 
             build_result = {
@@ -1072,6 +1097,10 @@ class TfLService:
             logger.info("building_station_graph_complete", **build_result)
             return build_result
 
+        except HTTPException:
+            # Re-raise HTTP exceptions (validation failures)
+            await self.db.rollback()
+            raise
         except Exception as e:
             logger.error("build_station_graph_failed", error=str(e), exc_info=e)
             await self.db.rollback()

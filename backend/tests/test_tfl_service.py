@@ -17,7 +17,7 @@ from app.models.tfl import (
 )
 from app.schemas.tfl import DisruptionResponse, RouteSegmentRequest, StationDisruptionResponse
 from app.services.tfl_service import TfLService
-from fastapi import HTTPException
+from fastapi import HTTPException, status
 from freezegun import freeze_time
 from pydantic_tfl_api.core import ApiError
 from pydantic_tfl_api.models import (
@@ -1537,47 +1537,32 @@ async def test_build_station_graph(
     tfl_service: TfLService,
     db_session: AsyncSession,
 ) -> None:
-    """Test building the station connection graph using route sequences."""
-    with freeze_time("2025-01-01 12:00:00"):
-        # First, create stations in the database (build_station_graph expects them to exist)
-        stations = [
-            Station(
-                tfl_id="940GZZLUKSX",
-                name="King's Cross",
-                latitude=51.5308,
-                longitude=-0.1238,
-                lines=["victoria"],
-                last_updated=datetime.now(UTC),
-            ),
-            Station(
-                tfl_id="940GZZLUOXC",
-                name="Oxford Circus",
-                latitude=51.5152,
-                longitude=-0.1419,
-                lines=["victoria"],
-                last_updated=datetime.now(UTC),
-            ),
-            Station(
-                tfl_id="940GZZLUVIC",
-                name="Victoria",
-                latitude=51.4965,
-                longitude=-0.1447,
-                lines=["victoria"],
-                last_updated=datetime.now(UTC),
-            ),
-        ]
-        for station in stations:
-            db_session.add(station)
-        await db_session.commit()
-        for station in stations:
-            await db_session.refresh(station)
+    """Test building the station connection graph using route sequences.
 
+    This test verifies that build_station_graph:
+    1. Fetches all lines
+    2. Fetches stations for each line (populates Station table)
+    3. Builds connections from route sequences
+    4. Returns correct statistics
+    """
+    with freeze_time("2025-01-01 12:00:00"):
         # Mock responses for fetch_lines (called first in build_station_graph)
         mock_lines = [
             create_mock_line(id="victoria", name="Victoria"),
         ]
         mock_lines_response = MockResponse(
             data=mock_lines,
+            shared_expires=datetime(2025, 1, 2, 12, 0, 0, tzinfo=UTC),
+        )
+
+        # Mock responses for fetch_stations (called for each line)
+        mock_stations = [
+            create_mock_place(id="940GZZLUKSX", common_name="King's Cross", lat=51.5308, lon=-0.1238),
+            create_mock_place(id="940GZZLUOXC", common_name="Oxford Circus", lat=51.5152, lon=-0.1419),
+            create_mock_place(id="940GZZLUVIC", common_name="Victoria", lat=51.4965, lon=-0.1447),
+        ]
+        mock_stations_response = MockResponse(
+            data=mock_stations,
             shared_expires=datetime(2025, 1, 2, 12, 0, 0, tzinfo=UTC),
         )
 
@@ -1605,8 +1590,8 @@ async def test_build_station_graph(
         mock_outbound_response = MockRouteResponse(content=mock_route_sequence)
 
         # Mock the event loop - cycle through responses
-        # Order: lines, inbound route, outbound route
-        responses = [mock_lines_response, mock_inbound_response, mock_outbound_response]
+        # Order: lines, stations (for victoria line), inbound route, outbound route
+        responses = [mock_lines_response, mock_stations_response, mock_inbound_response, mock_outbound_response]
         call_count = [0]
 
         async def mock_executor(*args: Any) -> Any:  # noqa: ANN401
@@ -1626,10 +1611,96 @@ async def test_build_station_graph(
         assert result["stations_count"] == 3
         assert result["connections_count"] == 4  # 2 connections forward + 2 reverse
 
+        # Verify stations were created in database
+        stations_result = await db_session.execute(select(Station))
+        stations = stations_result.scalars().all()
+        assert len(stations) == 3
+
         # Verify connections were created in database
         connections_result = await db_session.execute(select(StationConnection))
         connections = connections_result.scalars().all()
         assert len(connections) == 4
+
+
+@patch("asyncio.get_running_loop")
+async def test_build_station_graph_fails_without_stations(
+    mock_get_loop: MagicMock,
+    tfl_service: TfLService,
+    db_session: AsyncSession,
+) -> None:
+    """Test that build_station_graph fails fast when no stations are found after fetching."""
+    with freeze_time("2025-01-01 12:00:00"):
+        # Mock responses for fetch_lines
+        mock_lines = [
+            create_mock_line(id="victoria", name="Victoria"),
+        ]
+        mock_lines_response = MockResponse(
+            data=mock_lines,
+            shared_expires=datetime(2025, 1, 2, 12, 0, 0, tzinfo=UTC),
+        )
+
+        # Mock EMPTY station response (no stations returned from API)
+        mock_stations_response = MockResponse(
+            data=[],  # Empty list - no stations
+            shared_expires=datetime(2025, 1, 2, 12, 0, 0, tzinfo=UTC),
+        )
+
+        # Mock the event loop
+        responses = [mock_lines_response, mock_stations_response]
+        call_count = [0]
+
+        async def mock_executor(*args: Any) -> Any:  # noqa: ANN401
+            result = responses[call_count[0]]
+            call_count[0] += 1
+            return result
+
+        mock_loop = AsyncMock()
+        mock_loop.run_in_executor = AsyncMock(side_effect=mock_executor)
+        mock_get_loop.return_value = mock_loop
+
+        # Execute - should raise HTTPException with validation error
+        with pytest.raises(HTTPException) as exc_info:
+            await tfl_service.build_station_graph()
+
+        # Verify error details
+        assert exc_info.value.status_code == status.HTTP_500_INTERNAL_SERVER_ERROR
+        assert "No stations found" in exc_info.value.detail
+        assert "Cannot build graph" in exc_info.value.detail
+
+
+async def test_build_station_graph_rollback_on_error(
+    tfl_service: TfLService,
+) -> None:
+    """Test that build_station_graph properly handles errors and performs rollback.
+
+    This test verifies that if the graph build fails (e.g., due to an API error),
+    the error is caught, wrapped in an HTTPException, and the transaction is rolled back.
+    """
+    with freeze_time("2025-01-01 12:00:00"):
+        # Mock the fetch_lines method to raise an exception simulating a database/API failure
+        original_fetch_lines = tfl_service.fetch_lines
+        error_msg = "Simulated API error during fetch_lines"
+
+        async def mock_fetch_lines_with_error(*args: Any, **kwargs: Any) -> Any:  # noqa: ANN401
+            raise RuntimeError(error_msg)
+
+        tfl_service.fetch_lines = mock_fetch_lines_with_error  # type: ignore[method-assign]
+
+        try:
+            # Execute - should raise HTTPException
+            with pytest.raises(HTTPException) as exc_info:
+                await tfl_service.build_station_graph()
+
+            # Verify error was caught and wrapped in HTTPException
+            assert exc_info.value.status_code == status.HTTP_500_INTERNAL_SERVER_ERROR
+            assert "Failed to build station graph" in exc_info.value.detail
+
+            # The rollback is called automatically in the exception handler
+            # This ensures the database is in a consistent state
+
+        finally:
+            # Restore original method
+            tfl_service.fetch_lines = original_fetch_lines  # type: ignore[method-assign]
 
 
 # ==================== validate_route Tests ====================
