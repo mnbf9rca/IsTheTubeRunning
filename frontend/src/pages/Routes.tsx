@@ -30,8 +30,10 @@ export function Routes() {
   const { routes, loading, error, createRoute, updateRoute, deleteRoute } = useRoutes()
 
   const [createDialogOpen, setCreateDialogOpen] = useState(false)
+  const [createError, setCreateError] = useState<string | undefined>(undefined)
   const [editDialogOpen, setEditDialogOpen] = useState(false)
   const [editingRoute, setEditingRoute] = useState<RouteResponse | undefined>()
+  const [editError, setEditError] = useState<string | undefined>(undefined)
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false)
   const [deletingRoute, setDeletingRoute] = useState<{ id: string; name: string } | null>(null)
   const [isDeleting, setIsDeleting] = useState(false)
@@ -41,10 +43,16 @@ export function Routes() {
    * Handle creating a new route
    */
   const handleCreate = async (data: RouteFormData) => {
-    const result = await createRoute(data)
-    toast.success('Route created', {
-      description: `${result.name} has been created. You can now add segments and schedules.`,
-    })
+    try {
+      const result = await createRoute(data)
+      setCreateDialogOpen(false)
+      setCreateError(undefined)
+      toast.success('Route created', {
+        description: `${result.name} has been created. You can now add segments and schedules.`,
+      })
+    } catch (err: unknown) {
+      setCreateError(err instanceof Error ? err.message : 'Failed to create route.')
+    }
   }
 
   /**
@@ -74,10 +82,17 @@ export function Routes() {
   const handleEditSubmit = async (data: RouteFormData) => {
     if (!editingRoute) return
 
-    const result = await updateRoute(editingRoute.id, data)
-    toast.success('Route updated', {
-      description: `${result.name} has been updated.`,
-    })
+    try {
+      const result = await updateRoute(editingRoute.id, data)
+      setEditDialogOpen(false)
+      setEditingRoute(undefined)
+      setEditError(undefined)
+      toast.success('Route updated', {
+        description: `${result.name} has been updated.`,
+      })
+    } catch (err: unknown) {
+      setEditError(err instanceof Error ? err.message : 'Failed to update route.')
+    }
   }
 
   /**
@@ -176,8 +191,12 @@ export function Routes() {
       {/* Create Route Dialog */}
       <RouteFormDialog
         open={createDialogOpen}
-        onClose={() => setCreateDialogOpen(false)}
+        onClose={() => {
+          setCreateDialogOpen(false)
+          setCreateError(undefined)
+        }}
         onSubmit={handleCreate}
+        error={createError}
       />
 
       {/* Edit Route Dialog */}
@@ -186,9 +205,11 @@ export function Routes() {
         onClose={() => {
           setEditDialogOpen(false)
           setEditingRoute(undefined)
+          setEditError(undefined)
         }}
         onSubmit={handleEditSubmit}
         route={editingRoute}
+        error={editError}
       />
 
       {/* Delete Confirmation Dialog */}

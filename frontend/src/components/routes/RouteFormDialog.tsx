@@ -20,6 +20,7 @@ export interface RouteFormDialogProps {
   onClose: () => void
   onSubmit: (data: RouteFormData) => Promise<void>
   route?: RouteResponse // If provided, edit mode
+  error?: string // External error from parent (e.g., update/create failed)
 }
 
 export interface RouteFormData {
@@ -36,8 +37,15 @@ export interface RouteFormData {
  * @param onClose - Callback when dialog should close
  * @param onSubmit - Async callback to submit the form data (throws on error)
  * @param route - If provided, edit this route (otherwise create new)
+ * @param error - External error message from parent (e.g., update/create failed)
  */
-export function RouteFormDialog({ open, onClose, onSubmit, route }: RouteFormDialogProps) {
+export function RouteFormDialog({
+  open,
+  onClose,
+  onSubmit,
+  route,
+  error: externalError,
+}: RouteFormDialogProps) {
   const isEditMode = !!route
 
   const [name, setName] = useState('')
@@ -154,7 +162,7 @@ export function RouteFormDialog({ open, onClose, onSubmit, route }: RouteFormDia
                 disabled={isSubmitting}
                 autoFocus
                 maxLength={255}
-                aria-describedby={error ? 'route-error' : undefined}
+                aria-describedby={error || externalError ? 'route-error' : undefined}
               />
             </div>
 
@@ -185,9 +193,9 @@ export function RouteFormDialog({ open, onClose, onSubmit, route }: RouteFormDia
               />
             </div>
 
-            {error && (
+            {(error || externalError) && (
               <Alert variant="destructive">
-                <AlertDescription id="route-error">{error}</AlertDescription>
+                <AlertDescription id="route-error">{externalError || error}</AlertDescription>
               </Alert>
             )}
           </div>

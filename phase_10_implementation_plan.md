@@ -241,7 +241,7 @@ PR5 (Admin) → Independent after PR2.5
 - [ ] Users can add email addresses and phone numbers
 - [ ] Verification code flow works (send, resend, verify)
 - [ ] Rate limiting handled gracefully with user feedback
-- [ ] Primary contact can be set. Deferred until needed *YAGNI)
+- [ ] Primary contact can be set. Deferred until needed (YAGNI)
 - [ ] Contacts can be deleted
 - [ ] All tests passing (>80% coverage)
 - [ ] Mobile responsive
