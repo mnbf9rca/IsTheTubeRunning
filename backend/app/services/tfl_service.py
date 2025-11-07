@@ -1280,6 +1280,20 @@ class TfLService:
                 current_segment = segments[i]
                 next_segment = segments[i + 1]
 
+                # Intermediate segments must have a line_id (NULL only allowed for destination)
+                if current_segment.line_id is None:
+                    logger.warning(
+                        "route_validation_failed_null_line_id",
+                        segment_index=i,
+                        total_segments=len(segments),
+                    )
+                    return (
+                        False,
+                        f"Segment {i + 1} must have a line_id. "
+                        f"Only the final destination segment can have NULL line_id.",
+                        i,
+                    )
+
                 # Check if connection exists
                 is_connected = await self._check_connection(
                     from_station_id=current_segment.station_id,

@@ -135,7 +135,9 @@ class SegmentRequest(BaseModel):
 
     sequence: int = Field(..., ge=0, description="Order of this segment in the route (0-based)")
     station_id: UUID = Field(..., description="Station UUID from database")
-    line_id: UUID = Field(..., description="Line UUID from database")
+    line_id: UUID | None = Field(
+        None, description="Line UUID from database. NULL for destination segments (journey terminates)."
+    )
 
 
 class UpsertSegmentsRequest(BaseModel):
@@ -262,7 +264,7 @@ class SegmentResponse(BaseModel):
     id: UUID
     sequence: int
     station_id: UUID
-    line_id: UUID
+    line_id: UUID | None
 
 
 class ScheduleResponse(BaseModel):

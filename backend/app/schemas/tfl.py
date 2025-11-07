@@ -65,7 +65,7 @@ class RouteSegmentRequest(BaseModel):
     """Single segment in a route (station + line)."""
 
     station_id: UUID = Field(..., description="Station UUID from database")
-    line_id: UUID = Field(..., description="Line UUID from database")
+    line_id: UUID | None = Field(None, description="Line UUID from database. NULL for destination segments.")
 
 
 class RouteValidationRequest(BaseModel):

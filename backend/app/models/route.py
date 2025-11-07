@@ -98,10 +98,10 @@ class RouteSegment(BaseModel):
         ForeignKey("stations.id", ondelete="CASCADE"),
         nullable=False,
     )
-    line_id: Mapped[uuid.UUID] = mapped_column(
+    line_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True),
         ForeignKey("lines.id", ondelete="CASCADE"),
-        nullable=False,
+        nullable=True,
     )
 
     # Relationships

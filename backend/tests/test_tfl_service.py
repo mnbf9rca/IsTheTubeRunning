@@ -2220,6 +2220,125 @@ async def test_validate_route_with_too_many_segments(
     assert invalid_segment is None  # No specific segment is invalid
 
 
+async def test_validate_route_with_null_destination_line_id(
+    tfl_service: TfLService,
+    db_session: AsyncSession,
+) -> None:
+    """Test route validation with NULL line_id for destination segment (should be valid)."""
+    # Create test data
+    line = Line(tfl_id="victoria", name="Victoria", color="#0019A8", last_updated=datetime.now(UTC))
+    db_session.add(line)
+    await db_session.flush()
+
+    station1 = Station(
+        tfl_id="st1",
+        name="Station 1",
+        latitude=51.5,
+        longitude=-0.1,
+        lines=["victoria"],
+        last_updated=datetime.now(UTC),
+    )
+    station2 = Station(
+        tfl_id="st2",
+        name="Station 2",
+        latitude=51.5,
+        longitude=-0.1,
+        lines=["victoria"],
+        last_updated=datetime.now(UTC),
+    )
+    station3 = Station(
+        tfl_id="st3",
+        name="Station 3",
+        latitude=51.5,
+        longitude=-0.1,
+        lines=["victoria"],
+        last_updated=datetime.now(UTC),
+    )
+    db_session.add_all([station1, station2, station3])
+    await db_session.flush()
+
+    # Create connections: st1 -> st2 -> st3
+    conn1 = StationConnection(from_station_id=station1.id, to_station_id=station2.id, line_id=line.id)
+    conn2 = StationConnection(from_station_id=station2.id, to_station_id=station3.id, line_id=line.id)
+    db_session.add_all([conn1, conn2])
+    await db_session.commit()
+
+    # Create route segments with NULL line_id for destination
+    segments = [
+        RouteSegmentRequest(station_id=station1.id, line_id=line.id),
+        RouteSegmentRequest(station_id=station2.id, line_id=line.id),
+        RouteSegmentRequest(station_id=station3.id, line_id=None),  # Destination has NULL line_id
+    ]
+
+    # Execute
+    is_valid, message, invalid_segment = await tfl_service.validate_route(segments)
+
+    # Verify - should be valid
+    assert is_valid is True
+    assert "valid" in message.lower()
+    assert invalid_segment is None
+
+
+async def test_validate_route_with_null_intermediate_line_id(
+    tfl_service: TfLService,
+    db_session: AsyncSession,
+) -> None:
+    """Test route validation with NULL line_id for intermediate segment (should fail)."""
+    # Create test data
+    line = Line(tfl_id="victoria", name="Victoria", color="#0019A8", last_updated=datetime.now(UTC))
+    db_session.add(line)
+    await db_session.flush()
+
+    station1 = Station(
+        tfl_id="st1",
+        name="Station 1",
+        latitude=51.5,
+        longitude=-0.1,
+        lines=["victoria"],
+        last_updated=datetime.now(UTC),
+    )
+    station2 = Station(
+        tfl_id="st2",
+        name="Station 2",
+        latitude=51.5,
+        longitude=-0.1,
+        lines=["victoria"],
+        last_updated=datetime.now(UTC),
+    )
+    station3 = Station(
+        tfl_id="st3",
+        name="Station 3",
+        latitude=51.5,
+        longitude=-0.1,
+        lines=["victoria"],
+        last_updated=datetime.now(UTC),
+    )
+    db_session.add_all([station1, station2, station3])
+    await db_session.flush()
+
+    # Create connections: st1 -> st2 -> st3
+    conn1 = StationConnection(from_station_id=station1.id, to_station_id=station2.id, line_id=line.id)
+    conn2 = StationConnection(from_station_id=station2.id, to_station_id=station3.id, line_id=line.id)
+    db_session.add_all([conn1, conn2])
+    await db_session.commit()
+
+    # Create route segments with NULL line_id for intermediate segment
+    segments = [
+        RouteSegmentRequest(station_id=station1.id, line_id=line.id),
+        RouteSegmentRequest(station_id=station2.id, line_id=None),  # Intermediate has NULL line_id
+        RouteSegmentRequest(station_id=station3.id, line_id=line.id),
+    ]
+
+    # Execute
+    is_valid, message, invalid_segment = await tfl_service.validate_route(segments)
+
+    # Verify - should fail
+    assert is_valid is False
+    assert "must have a line_id" in message.lower()
+    assert "segment 2" in message.lower()  # Should mention the failing segment
+    assert invalid_segment == 1  # Second segment (index 1)
+
+
 # ==================== Helper Method Tests ====================
 
 
