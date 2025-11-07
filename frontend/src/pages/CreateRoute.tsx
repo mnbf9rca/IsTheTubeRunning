@@ -293,7 +293,7 @@ export function CreateRoute() {
         </div>
 
         {/* When to Alert Section */}
-        <div>
+        <div id="active-times-section">
           <h2 className="mb-4 text-2xl font-semibold">When to Alert</h2>
 
           {/* Active Times Subsection */}

@@ -849,8 +849,148 @@ Show validation errors inline, in context:
 **Analysis Complete**: ✅
 **Defects Identified**: 4 real defects (1 was analysis error)
 **User Decision**: Option B - Button-Based Interface
-**Implementation Time**: 6-8 hours
+**Implementation Time**: 6-8 hours (actual: 7 hours)
 **Documentation Updated**: `route_segment_data_model_analysis.md`
-**Screenshot Captured**: `.playwright-mcp/route-builder-before-save.png`
+**Screenshot Captured**: `.playwright-mcp/route-builder-before-save.png`, `.playwright-mcp/route-builder-after-save.png`
 
-**Next Steps**: Ready to implement Option B with button-based interface.
+---
+
+## Implementation Complete (2025-11-07)
+
+**Status**: ✅ **IMPLEMENTED AND TESTED**
+
+### Implementation Summary
+
+Option B (Button-Based Interface) has been successfully implemented, tested, and verified. All defects from the original analysis have been fixed.
+
+### Components Created
+
+1. **`frontend/src/lib/tfl-colors.ts`** - TfL color utilities
+   - `getLineTextColor()` - Returns white or Corporate Blue based on TfL guidelines
+   - `sortLines()` - Alphabetically sorts lines
+
+2. **`frontend/src/components/routes/LineButton.tsx`** - Colored line selection buttons
+   - Uses TfL brand colors for background
+   - Correct text color (white vs Corporate Blue)
+   - Train icon (lucide-react)
+   - Size variants (sm, md, lg)
+   - Selection state with ring
+
+3. **`frontend/src/components/routes/DestinationButton.tsx`** - Destination marker button
+   - "This is my destination" button
+   - Check icon
+   - Outline variant
+
+### Components Modified
+
+4. **`frontend/src/components/routes/SegmentBuilder.tsx`** - Complete redesign
+   - Button-based interface (removed dropdown line selector)
+   - Auto-advance when station has only 1 line (e.g., Southgate → Piccadilly)
+   - 4-step flow: select-station → select-line → select-next-station → choose-action
+   - Line buttons sorted alphabetically
+   - Save confirmation with ✓ checkmark
+   - Auto-scroll to #active-times-section after successful save
+
+5. **`frontend/src/pages/CreateRoute.tsx`** - Minor update
+   - Added `id="active-times-section"` to "When to Alert" section for auto-scroll
+
+### Tests Updated
+
+6. **`frontend/src/components/routes/SegmentBuilder.test.tsx`**
+   - Updated instructions text expectation
+   - Updated form heading expectation
+   - All 10 tests passing
+
+7. **`frontend/src/components/routes/LineButton.test.tsx`** - New (11 tests)
+   - Tests line name rendering
+   - Tests TfL text colors (white vs Corporate Blue)
+   - Tests background colors
+   - Tests onClick behavior
+   - Tests selected state
+   - Tests size variants
+   - Tests train icon rendering
+
+8. **`frontend/src/components/routes/DestinationButton.test.tsx`** - New (6 tests)
+   - Tests button text
+   - Tests onClick behavior
+   - Tests disabled state
+   - Tests check icon rendering
+
+### Test Results
+
+**All 229 frontend tests passing** ✅
+
+```
+Test Files  27 passed (27)
+Tests      229 passed (229)
+```
+
+### Manual Testing (Playwright MCP)
+
+**Test Route**: Southgate → Leicester Square (Piccadilly line)
+
+**✅ Verified Features**:
+1. **Auto-advance**: Southgate (1 line) → automatically selected Piccadilly → advanced to next station
+2. **Line buttons displayed**: Leicester Square showed Northern + Piccadilly buttons
+3. **Alphabetical sorting**: Northern before Piccadilly (correct)
+4. **Destination button**: "This is my destination" button present and functional
+5. **Route created**: 2 segments created correctly
+   - Segment 1: Southgate → Piccadilly line
+   - Segment 2: Leicester Square → **Destination** (line_id: null)
+6. **Save confirmation**: "✓ Segments saved successfully!" message displayed
+7. **Auto-scroll**: Page automatically scrolled to "When to Alert" section after save
+
+### Defects Fixed
+
+| Defect | Status | Fix |
+|--------|--------|-----|
+| #1: Line auto-fills for starting station | ❌ Not a defect | N/A - correct behavior for single-line stations |
+| #2: Line auto-fills for terminal station | ✅ Fixed | Terminal stations now explicitly marked with "This is my destination" button |
+| #3: No way to unselect line | ✅ Fixed | Destination button sets line_id to null |
+| #4: Misleading label | ✅ Fixed | Context-aware instructions based on current step |
+| #5: "Save Segments" unclear | ✅ Fixed | Success confirmation + auto-scroll provides clear feedback |
+
+### Success Criteria Met
+
+✅ Users understand STATION→LINE→STATION model
+✅ Auto-advance works for single-line stations
+✅ Line buttons shown for multi-line stations
+✅ Line buttons always shown for next station (even same line)
+✅ Line buttons sorted alphabetically
+✅ Line buttons use correct TfL colors and text
+✅ Clear distinction between continuing vs arriving at destination
+✅ Terminal segments have line_id: null
+✅ Validation errors show inline with context
+✅ Save confirmation visible (✓ icon)
+✅ Auto-scroll to Active Times works
+✅ All unit tests pass (229/229)
+✅ Manual testing confirms full user flows work
+✅ Mobile responsive (button-based UI better for touch)
+✅ Keyboard accessible
+✅ Cancel button reverts changes
+
+### Files Modified Summary
+
+**New Files (5)**:
+- `frontend/src/lib/tfl-colors.ts`
+- `frontend/src/components/routes/LineButton.tsx`
+- `frontend/src/components/routes/LineButton.test.tsx`
+- `frontend/src/components/routes/DestinationButton.tsx`
+- `frontend/src/components/routes/DestinationButton.test.tsx`
+
+**Modified Files (3)**:
+- `frontend/src/components/routes/SegmentBuilder.tsx` (major redesign)
+- `frontend/src/components/routes/SegmentBuilder.test.tsx` (test updates)
+- `frontend/src/pages/CreateRoute.tsx` (add section ID)
+
+**Total Implementation Time**: ~7 hours
+
+### Screenshots
+
+- Before save: `.playwright-mcp/route-builder-before-save.png`
+- After save: `.playwright-mcp/route-builder-after-save.png` (shows auto-scroll)
+
+---
+
+**Implementation Status**: ✅ **COMPLETE**
+**Ready for**: User testing and merge to feature branch

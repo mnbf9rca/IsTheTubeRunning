@@ -76,9 +76,7 @@ describe('SegmentBuilder', () => {
   it('should show instructions for adding stations', () => {
     render(<SegmentBuilder {...defaultProps} initialSegments={[]} />)
 
-    expect(
-      screen.getByText(/Select your starting station and line to begin your route/)
-    ).toBeInTheDocument()
+    expect(screen.getByText(/Select your starting station to begin your route/)).toBeInTheDocument()
   })
 
   it('should show route path heading', () => {
@@ -187,7 +185,8 @@ describe('SegmentBuilder', () => {
   it('should show add segment form', () => {
     render(<SegmentBuilder {...defaultProps} initialSegments={[]} />)
 
-    expect(screen.getByText('Add Start Station')).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: /Add Segment/i })).toBeInTheDocument()
+    expect(screen.getByText('Add Starting Station')).toBeInTheDocument()
+    // Note: No "Add Segment" button in new button-based UI
+    // Line buttons and destination button appear after station selection
   })
 })
