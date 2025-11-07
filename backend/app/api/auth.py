@@ -5,8 +5,11 @@ from uuid import UUID
 
 from fastapi import APIRouter, Depends
 from pydantic import BaseModel, ConfigDict
+from sqlalchemy import text
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.auth import get_current_user
+from app.core.database import get_db
 from app.models.user import User
 
 router = APIRouter(prefix="/auth", tags=["auth"])
@@ -25,6 +28,43 @@ class UserResponse(BaseModel):
     id: UUID
     created_at: datetime
     updated_at: datetime
+
+
+class AuthReadinessResponse(BaseModel):
+    """Auth system readiness check response."""
+
+    ready: bool
+    message: str | None = None
+
+
+@router.get("/ready", response_model=AuthReadinessResponse)
+async def auth_readiness_check(
+    db: AsyncSession = Depends(get_db),
+) -> AuthReadinessResponse:
+    """
+    Check if the authentication system is ready to accept logins.
+
+    This endpoint checks:
+    - Database connectivity
+    - Basic auth system health
+
+    Returns:
+        Readiness status with optional message explaining any issues.
+
+    Note: This endpoint does NOT require authentication, as it's used by
+    the frontend before the login flow begins.
+    """
+    try:
+        # Test database connectivity
+        await db.execute(text("SELECT 1"))
+
+        return AuthReadinessResponse(ready=True)
+
+    except Exception as e:
+        return AuthReadinessResponse(
+            ready=False,
+            message=f"Database connection failed: {e!s}",
+        )
 
 
 @router.get("/me", response_model=UserResponse)

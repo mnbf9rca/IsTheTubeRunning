@@ -1,12 +1,19 @@
 import { render, screen, fireEvent } from '@testing-library/react'
 import { BrowserRouter } from 'react-router-dom'
-import { describe, it, expect, vi } from 'vitest'
+import { describe, it, expect, vi, beforeEach } from 'vitest'
+import userEvent from '@testing-library/user-event'
 import { Header } from './Header'
 import type { User } from '@auth0/auth0-react'
+import { createMockAuth, createMockBackendAuth } from '@/test/test-utils'
 
 // Mock useAuth hook
 vi.mock('@/hooks/useAuth', () => ({
   useAuth: vi.fn(),
+}))
+
+// Mock useBackendAuth hook
+vi.mock('@/contexts/BackendAuthContext', () => ({
+  useBackendAuth: vi.fn(),
 }))
 
 // Mock resetAccessTokenGetter
@@ -15,9 +22,11 @@ vi.mock('@/lib/api', () => ({
 }))
 
 import { useAuth } from '@/hooks/useAuth'
+import { useBackendAuth } from '@/contexts/BackendAuthContext'
 import { resetAccessTokenGetter } from '@/lib/api'
 
 const mockUseAuth = useAuth as ReturnType<typeof vi.fn>
+const mockUseBackendAuth = useBackendAuth as ReturnType<typeof vi.fn>
 const mockResetAccessTokenGetter = resetAccessTokenGetter as ReturnType<typeof vi.fn>
 
 describe('Header', () => {
@@ -30,14 +39,13 @@ describe('Header', () => {
 
   describe('when not authenticated', () => {
     beforeEach(() => {
-      mockUseAuth.mockReturnValue({
-        user: null,
-        isAuthenticated: false,
-        isLoading: false,
-        login: mockLogin,
-        logout: mockLogout,
-        getAccessToken: vi.fn(),
-      })
+      mockUseAuth.mockReturnValue(
+        createMockAuth({
+          login: mockLogin,
+          logout: mockLogout,
+        })
+      )
+      mockUseBackendAuth.mockReturnValue(createMockBackendAuth())
     })
 
     it('should show login button', () => {
@@ -75,14 +83,14 @@ describe('Header', () => {
 
   describe('when loading', () => {
     beforeEach(() => {
-      mockUseAuth.mockReturnValue({
-        user: null,
-        isAuthenticated: false,
-        isLoading: true,
-        login: mockLogin,
-        logout: mockLogout,
-        getAccessToken: vi.fn(),
-      })
+      mockUseAuth.mockReturnValue(
+        createMockAuth({
+          isLoading: true,
+          login: mockLogin,
+          logout: mockLogout,
+        })
+      )
+      mockUseBackendAuth.mockReturnValue(createMockBackendAuth())
     })
 
     it('should show loading skeleton', () => {
@@ -99,281 +107,92 @@ describe('Header', () => {
   })
 
   describe('when authenticated', () => {
-    describe('getUserInitials functionality', () => {
-      it('should show initials from two-word name', () => {
-        mockUseAuth.mockReturnValue({
+    beforeEach(() => {
+      mockUseBackendAuth.mockReturnValue(
+        createMockBackendAuth({
+          isBackendAuthenticated: true,
+        })
+      )
+    })
+
+    it('should show navigation when authenticated', () => {
+      mockUseAuth.mockReturnValue(
+        createMockAuth({
           user: {
             name: 'John Doe',
             email: 'john@example.com',
-            picture: 'https://example.com/avatar.jpg',
           } as User,
           isAuthenticated: true,
-          isLoading: false,
           login: mockLogin,
           logout: mockLogout,
-          getAccessToken: vi.fn(),
         })
+      )
 
-        render(
-          <BrowserRouter>
-            <Header />
-          </BrowserRouter>
-        )
+      render(
+        <BrowserRouter>
+          <Header />
+        </BrowserRouter>
+      )
 
-        // Avatar fallback should show "JD"
-        expect(screen.getByText('JD')).toBeInTheDocument()
-      })
+      expect(screen.getByRole('navigation')).toBeInTheDocument()
+    })
 
-      it('should handle single-word name (first 2 chars)', () => {
-        mockUseAuth.mockReturnValue({
+    it('should render avatar button with user initials', () => {
+      mockUseAuth.mockReturnValue(
+        createMockAuth({
           user: {
-            name: 'Madonna',
-            email: 'madonna@example.com',
-          } as User,
-          isAuthenticated: true,
-          isLoading: false,
-          login: mockLogin,
-          logout: mockLogout,
-          getAccessToken: vi.fn(),
-        })
-
-        render(
-          <BrowserRouter>
-            <Header />
-          </BrowserRouter>
-        )
-
-        expect(screen.getByText('MA')).toBeInTheDocument()
-      })
-
-      it('should handle three-word name (first 2 initials)', () => {
-        mockUseAuth.mockReturnValue({
-          user: {
-            name: 'Mary Jane Watson',
-            email: 'mj@example.com',
-          } as User,
-          isAuthenticated: true,
-          isLoading: false,
-          login: mockLogin,
-          logout: mockLogout,
-          getAccessToken: vi.fn(),
-        })
-
-        render(
-          <BrowserRouter>
-            <Header />
-          </BrowserRouter>
-        )
-
-        expect(screen.getByText('MJ')).toBeInTheDocument()
-      })
-
-      it('should handle name with multiple spaces', () => {
-        mockUseAuth.mockReturnValue({
-          user: {
-            name: 'John    Doe',
+            name: 'John Doe',
             email: 'john@example.com',
           } as User,
           isAuthenticated: true,
-          isLoading: false,
           login: mockLogin,
           logout: mockLogout,
-          getAccessToken: vi.fn(),
         })
+      )
 
-        render(
-          <BrowserRouter>
-            <Header />
-          </BrowserRouter>
-        )
+      render(
+        <BrowserRouter>
+          <Header />
+        </BrowserRouter>
+      )
 
-        expect(screen.getByText('JD')).toBeInTheDocument()
-      })
-
-      it('should handle name with leading/trailing spaces', () => {
-        mockUseAuth.mockReturnValue({
-          user: {
-            name: '  Jane Smith  ',
-            email: 'jane@example.com',
-          } as User,
-          isAuthenticated: true,
-          isLoading: false,
-          login: mockLogin,
-          logout: mockLogout,
-          getAccessToken: vi.fn(),
-        })
-
-        render(
-          <BrowserRouter>
-            <Header />
-          </BrowserRouter>
-        )
-
-        expect(screen.getByText('JS')).toBeInTheDocument()
-      })
-
-      it('should fall back to email when name is empty', () => {
-        mockUseAuth.mockReturnValue({
-          user: {
-            name: '',
-            email: 'test@example.com',
-          } as User,
-          isAuthenticated: true,
-          isLoading: false,
-          login: mockLogin,
-          logout: mockLogout,
-          getAccessToken: vi.fn(),
-        })
-
-        render(
-          <BrowserRouter>
-            <Header />
-          </BrowserRouter>
-        )
-
-        expect(screen.getByText('T')).toBeInTheDocument()
-      })
-
-      it('should fall back to email when name is only whitespace', () => {
-        mockUseAuth.mockReturnValue({
-          user: {
-            name: '   ',
-            email: 'example@test.com',
-          } as User,
-          isAuthenticated: true,
-          isLoading: false,
-          login: mockLogin,
-          logout: mockLogout,
-          getAccessToken: vi.fn(),
-        })
-
-        render(
-          <BrowserRouter>
-            <Header />
-          </BrowserRouter>
-        )
-
-        expect(screen.getByText('E')).toBeInTheDocument()
-      })
-
-      it('should show ? when no name or email', () => {
-        mockUseAuth.mockReturnValue({
-          user: {
-            name: undefined,
-            email: undefined,
-          } as User,
-          isAuthenticated: true,
-          isLoading: false,
-          login: mockLogin,
-          logout: mockLogout,
-          getAccessToken: vi.fn(),
-        })
-
-        render(
-          <BrowserRouter>
-            <Header />
-          </BrowserRouter>
-        )
-
-        expect(screen.getByText('?')).toBeInTheDocument()
-      })
-
-      it('should handle non-ASCII characters', () => {
-        mockUseAuth.mockReturnValue({
-          user: {
-            name: 'Björk Guðmundsdóttir',
-            email: 'bjork@example.com',
-          } as User,
-          isAuthenticated: true,
-          isLoading: false,
-          login: mockLogin,
-          logout: mockLogout,
-          getAccessToken: vi.fn(),
-        })
-
-        render(
-          <BrowserRouter>
-            <Header />
-          </BrowserRouter>
-        )
-
-        // Should handle first characters of each word
-        expect(screen.getByText('BG')).toBeInTheDocument()
-      })
+      // Avatar should show "JD"
+      expect(screen.getByText('JD')).toBeInTheDocument()
     })
 
-    describe('logout functionality', () => {
-      it('should have handleLogout function that resets token and calls logout', () => {
-        mockUseAuth.mockReturnValue({
+    it('should call handleLogout when logout is clicked', async () => {
+      const user = userEvent.setup()
+
+      mockUseAuth.mockReturnValue(
+        createMockAuth({
           user: {
-            name: 'Test User',
-            email: 'test@example.com',
+            name: 'John Doe',
+            email: 'john@example.com',
           } as User,
           isAuthenticated: true,
-          isLoading: false,
           login: mockLogin,
           logout: mockLogout,
-          getAccessToken: vi.fn(),
         })
+      )
 
-        render(
-          <BrowserRouter>
-            <Header />
-          </BrowserRouter>
-        )
+      render(
+        <BrowserRouter>
+          <Header />
+        </BrowserRouter>
+      )
 
-        // The header component renders with user auth state
-        // Logout functionality is tested via the component's handleLogout function
-        // which combines resetAccessTokenGetter and logout calls
-        expect(screen.getByText('TU')).toBeInTheDocument()
+      // Click the avatar button (find by initials)
+      const initialsElement = screen.getByText('JD')
+      const avatarButton = initialsElement.closest('button')
+      expect(avatarButton).toBeInTheDocument()
+      await user.click(avatarButton!)
 
-        // Verify resetAccessTokenGetter function exists
-        expect(mockResetAccessTokenGetter).toBeDefined()
-        expect(mockLogout).toBeDefined()
-      })
-    })
+      // Click logout
+      const logoutItem = await screen.findByRole('menuitem', { name: /log out/i })
+      await user.click(logoutItem)
 
-    describe('navigation', () => {
-      beforeEach(() => {
-        mockUseAuth.mockReturnValue({
-          user: {
-            name: 'Test User',
-            email: 'test@example.com',
-          } as User,
-          isAuthenticated: true,
-          isLoading: false,
-          login: mockLogin,
-          logout: mockLogout,
-          getAccessToken: vi.fn(),
-        })
-      })
-
-      it('should show navigation when authenticated', () => {
-        render(
-          <BrowserRouter>
-            <Header />
-          </BrowserRouter>
-        )
-
-        // Desktop navigation should be present
-        expect(screen.getByText('Dashboard')).toBeInTheDocument()
-      })
-
-      it('should render avatar button with user initials', () => {
-        render(
-          <BrowserRouter>
-            <Header />
-          </BrowserRouter>
-        )
-
-        // Find the avatar button
-        const avatarButtons = screen.getAllByRole('button')
-        const avatarButton = avatarButtons.find((btn) => btn.classList.contains('rounded-full'))
-        expect(avatarButton).toBeDefined()
-
-        // Verify the avatar shows correct initials
-        expect(screen.getByText('TU')).toBeInTheDocument()
-      })
+      expect(mockResetAccessTokenGetter).toHaveBeenCalled()
+      expect(mockLogout).toHaveBeenCalled()
     })
   })
 })

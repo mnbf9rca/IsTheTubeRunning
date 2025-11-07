@@ -1,7 +1,8 @@
-import { render, screen } from '@testing-library/react'
-import { BrowserRouter } from 'react-router-dom'
-import { describe, it, expect, vi } from 'vitest'
+import { render, screen, waitFor } from '@testing-library/react'
+import { MemoryRouter, Routes, Route } from 'react-router-dom'
+import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { ProtectedRoute } from './ProtectedRoute'
+import { createMockAuth, createMockBackendAuth } from '@/test/test-utils'
 
 // Mock useAuth hook
 vi.mock('@/hooks/useAuth', () => ({
@@ -20,73 +21,101 @@ const mockUseAuth = useAuth as ReturnType<typeof vi.fn>
 const mockUseBackendAuth = useBackendAuth as ReturnType<typeof vi.fn>
 
 describe('ProtectedRoute', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+  })
+
   it('should render children when authenticated', () => {
-    mockUseAuth.mockReturnValue({
-      isAuthenticated: true,
-      isLoading: false,
-    })
-    mockUseBackendAuth.mockReturnValue({
-      isBackendAuthenticated: true,
-      isValidating: false,
-      user: { id: '1', created_at: '2024-01-01', updated_at: '2024-01-01' },
-      error: null,
-    })
+    mockUseAuth.mockReturnValue(
+      createMockAuth({
+        isAuthenticated: true,
+      })
+    )
+    mockUseBackendAuth.mockReturnValue(
+      createMockBackendAuth({
+        isBackendAuthenticated: true,
+        user: { id: '1', created_at: '2024-01-01', updated_at: '2024-01-01' },
+      })
+    )
 
     render(
-      <BrowserRouter>
-        <ProtectedRoute>
-          <div>Protected Content</div>
-        </ProtectedRoute>
-      </BrowserRouter>
+      <MemoryRouter initialEntries={['/protected']}>
+        <Routes>
+          <Route
+            path="/protected"
+            element={
+              <ProtectedRoute>
+                <div>Protected Content</div>
+              </ProtectedRoute>
+            }
+          />
+        </Routes>
+      </MemoryRouter>
     )
 
     expect(screen.getByText('Protected Content')).toBeInTheDocument()
   })
 
   it('should show loading state when loading', () => {
-    mockUseAuth.mockReturnValue({
-      isAuthenticated: true,
-      isLoading: false,
-    })
-    mockUseBackendAuth.mockReturnValue({
-      isBackendAuthenticated: false,
-      isValidating: true,
-      user: null,
-      error: null,
-    })
+    mockUseAuth.mockReturnValue(
+      createMockAuth({
+        isAuthenticated: true,
+      })
+    )
+    mockUseBackendAuth.mockReturnValue(
+      createMockBackendAuth({
+        isValidating: true,
+      })
+    )
 
     render(
-      <BrowserRouter>
-        <ProtectedRoute>
-          <div>Protected Content</div>
-        </ProtectedRoute>
-      </BrowserRouter>
+      <MemoryRouter initialEntries={['/protected']}>
+        <Routes>
+          <Route
+            path="/protected"
+            element={
+              <ProtectedRoute>
+                <div>Protected Content</div>
+              </ProtectedRoute>
+            }
+          />
+        </Routes>
+      </MemoryRouter>
     )
 
     expect(screen.getByText('Authenticating...')).toBeInTheDocument()
   })
 
-  it('should redirect to login when not authenticated', () => {
-    mockUseAuth.mockReturnValue({
-      isAuthenticated: false,
-      isLoading: false,
-    })
-    mockUseBackendAuth.mockReturnValue({
-      isBackendAuthenticated: false,
-      isValidating: false,
-      user: null,
-      error: null,
-    })
+  it('should redirect to login when not authenticated', async () => {
+    mockUseAuth.mockReturnValue(
+      createMockAuth({
+        isAuthenticated: false,
+      })
+    )
+    mockUseBackendAuth.mockReturnValue(createMockBackendAuth())
 
     render(
-      <BrowserRouter>
-        <ProtectedRoute>
-          <div>Protected Content</div>
-        </ProtectedRoute>
-      </BrowserRouter>
+      <MemoryRouter initialEntries={['/protected']}>
+        <Routes>
+          <Route path="/login" element={<div>Login Page</div>} />
+          <Route
+            path="/protected"
+            element={
+              <ProtectedRoute>
+                <div>Protected Content</div>
+              </ProtectedRoute>
+            }
+          />
+        </Routes>
+      </MemoryRouter>
     )
 
-    // Content should not be visible
+    // Should redirect to login page
+    await waitFor(() => {
+      expect(screen.getByText('Login Page')).toBeInTheDocument()
+    })
+
+    // Protected content should not be visible
     expect(screen.queryByText('Protected Content')).not.toBeInTheDocument()
   })
 })

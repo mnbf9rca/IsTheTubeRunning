@@ -12,11 +12,13 @@ import {
 } from '@/components/ui/dropdown-menu'
 import { Sheet, SheetContent, SheetTrigger } from '@/components/ui/sheet'
 import { useAuth } from '@/hooks/useAuth'
+import { useBackendAuth } from '@/contexts/BackendAuthContext'
 import { resetAccessTokenGetter } from '@/lib/api'
 import { Navigation } from './Navigation'
 
 export const Header = () => {
-  const { user, isAuthenticated, isLoading, login, logout } = useAuth()
+  const { user, isLoading, login, logout } = useAuth()
+  const { isBackendAuthenticated } = useBackendAuth()
 
   /**
    * Handle logout - cleans up auth state and resets API token getter
@@ -72,7 +74,7 @@ export const Header = () => {
         </Link>
 
         {/* Desktop Navigation */}
-        {isAuthenticated && (
+        {isBackendAuthenticated && (
           <div className="hidden md:flex flex-1">
             <Navigation />
           </div>
@@ -82,7 +84,7 @@ export const Header = () => {
         <div className="flex flex-1 items-center justify-end space-x-4">
           {isLoading ? (
             <div className="h-8 w-8 animate-pulse rounded-full bg-muted" />
-          ) : isAuthenticated && user ? (
+          ) : isBackendAuthenticated && user ? (
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
                 <Button variant="ghost" className="relative h-10 w-10 rounded-full">
@@ -115,7 +117,7 @@ export const Header = () => {
           )}
 
           {/* Mobile Menu */}
-          {isAuthenticated && (
+          {isBackendAuthenticated && (
             <Sheet>
               <SheetTrigger asChild>
                 <Button variant="ghost" size="icon" className="md:hidden">

@@ -1,5 +1,5 @@
 import type { ReactNode } from 'react'
-import { Navigate } from 'react-router-dom'
+import { Navigate, useLocation } from 'react-router-dom'
 import { useAuth } from '@/hooks/useAuth'
 import { useBackendAuth } from '@/contexts/BackendAuthContext'
 
@@ -10,6 +10,7 @@ interface ProtectedRouteProps {
 export const ProtectedRoute = ({ children }: ProtectedRouteProps) => {
   const { isLoading: auth0IsLoading } = useAuth()
   const { isBackendAuthenticated, isValidating } = useBackendAuth()
+  const location = useLocation()
 
   // Show loading while Auth0 or backend validation is in progress
   if (auth0IsLoading || isValidating) {
@@ -24,8 +25,9 @@ export const ProtectedRoute = ({ children }: ProtectedRouteProps) => {
   }
 
   // Only allow access if backend says user is authenticated
+  // Preserve the intended location so we can redirect back after login
   if (!isBackendAuthenticated) {
-    return <Navigate to="/login" replace />
+    return <Navigate to="/login" state={{ from: location.pathname }} replace />
   }
 
   return <>{children}</>

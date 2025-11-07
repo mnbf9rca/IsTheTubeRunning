@@ -2,14 +2,16 @@ import { render, screen } from '@testing-library/react'
 import { BrowserRouter } from 'react-router-dom'
 import { describe, it, expect, vi } from 'vitest'
 import Login from './Login'
+import { createMockAuth, createMockBackendAuth } from '@/test/test-utils'
 
 // Mock useAuth hook
 vi.mock('@/hooks/useAuth', () => ({
-  useAuth: vi.fn(() => ({
-    isAuthenticated: false,
-    isLoading: false,
-    login: vi.fn(),
-  })),
+  useAuth: vi.fn(() => createMockAuth()),
+}))
+
+// Mock useBackendAuth hook
+vi.mock('@/contexts/BackendAuthContext', () => ({
+  useBackendAuth: vi.fn(() => createMockBackendAuth()),
 }))
 
 describe('Login', () => {

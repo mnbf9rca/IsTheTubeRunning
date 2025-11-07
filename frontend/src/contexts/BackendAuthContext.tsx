@@ -1,4 +1,4 @@
-import { createContext, useContext, useState, useEffect, useCallback, useRef } from 'react'
+import { createContext, useState, useEffect, useCallback, useRef } from 'react'
 import type { ReactNode } from 'react'
 import { useAuth } from '@/hooks/useAuth'
 import { getCurrentUser, type UserResponse } from '@/lib/api'
@@ -10,17 +10,21 @@ interface BackendAuthContextType {
   error: Error | null
   validateWithBackend: () => Promise<void>
   clearAuth: () => void
+  forceLogout: () => Promise<void>
 }
 
 const BackendAuthContext = createContext<BackendAuthContextType | undefined>(undefined)
 
+// Export context for use in hooks
+export { BackendAuthContext }
+
 export function BackendAuthProvider({ children }: { children: ReactNode }) {
-  const { isAuthenticated: auth0IsAuthenticated, isLoading: auth0IsLoading } = useAuth()
+  const { isAuthenticated: auth0IsAuthenticated, isLoading: auth0IsLoading, logout } = useAuth()
   const [user, setUser] = useState<UserResponse | null>(null)
   const [isValidating, setIsValidating] = useState(false)
   const [error, setError] = useState<Error | null>(null)
 
-  // Use ref to track validation state and prevent duplicate/infinite calls
+  // Use ref to track validation state and prevent duplicate calls
   const validationRef = useRef({
     inProgress: false,
     hasAttempted: false,
@@ -57,30 +61,17 @@ export function BackendAuthProvider({ children }: { children: ReactNode }) {
   const clearAuth = useCallback(() => {
     setUser(null)
     setError(null)
-    validationRef.current.hasAttempted = false
     validationRef.current.inProgress = false
+    validationRef.current.hasAttempted = false
   }, [])
 
-  // Auto-validate when Auth0 authenticates
-  useEffect(() => {
-    // Only validate if:
-    // - Auth0 says authenticated
-    // - Not currently loading
-    // - No user yet
-    // - Haven't attempted validation yet (or retrying after clearAuth)
-    // - No existing error (don't retry on error)
-    if (
-      auth0IsAuthenticated &&
-      !auth0IsLoading &&
-      !user &&
-      !validationRef.current.hasAttempted &&
-      !error
-    ) {
-      validateWithBackend().catch(() => {
-        // Error already set in state
-      })
-    }
-  }, [auth0IsAuthenticated, auth0IsLoading, user, error, validateWithBackend])
+  const forceLogout = useCallback(async () => {
+    // Clear backend state first
+    clearAuth()
+
+    // Then logout from Auth0
+    await logout()
+  }, [logout, clearAuth])
 
   // Clear backend auth when Auth0 logs out
   useEffect(() => {
@@ -88,6 +79,30 @@ export function BackendAuthProvider({ children }: { children: ReactNode }) {
       clearAuth()
     }
   }, [auth0IsAuthenticated, auth0IsLoading, clearAuth])
+
+  // Automatic validation on Auth0 authentication (e.g., page refresh)
+  // This ensures that when a user refreshes the page with valid Auth0 tokens,
+  // we automatically validate with the backend
+  useEffect(() => {
+    // Only auto-validate if:
+    // 1. Auth0 is authenticated and not loading
+    // 2. We don't have a backend user yet
+    // 3. We're not currently validating
+    // 4. We haven't attempted validation yet (prevents retry loops on error)
+    if (
+      auth0IsAuthenticated &&
+      !auth0IsLoading &&
+      !user &&
+      !isValidating &&
+      !validationRef.current.hasAttempted
+    ) {
+      // Call validation but don't throw if it fails (just log)
+      validateWithBackend().catch((err) => {
+        console.error('Auto-validation failed:', err)
+        // Error is already set in state by validateWithBackend
+      })
+    }
+  }, [auth0IsAuthenticated, auth0IsLoading, user, isValidating, validateWithBackend])
 
   return (
     <BackendAuthContext.Provider
@@ -98,6 +113,7 @@ export function BackendAuthProvider({ children }: { children: ReactNode }) {
         error,
         validateWithBackend,
         clearAuth,
+        forceLogout,
       }}
     >
       {children}
@@ -105,10 +121,6 @@ export function BackendAuthProvider({ children }: { children: ReactNode }) {
   )
 }
 
-export function useBackendAuth() {
-  const context = useContext(BackendAuthContext)
-  if (context === undefined) {
-    throw new Error('useBackendAuth must be used within a BackendAuthProvider')
-  }
-  return context
-}
+// Re-export hook for backward compatibility
+// eslint-disable-next-line react-refresh/only-export-components
+export { useBackendAuth } from '@/hooks/useBackendAuth'
