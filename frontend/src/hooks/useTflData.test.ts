@@ -1,4 +1,4 @@
-import { renderHook, waitFor } from '@testing-library/react'
+import { renderHook, waitFor, act } from '@testing-library/react'
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { useTflData } from './useTflData'
 import { ApiError } from '../lib/api'
@@ -390,7 +390,9 @@ describe('useTflData', () => {
       expect(api.getNetworkGraph).toHaveBeenCalledTimes(1)
 
       // Manually refresh
-      await result.current.refresh()
+      await act(async () => {
+        await result.current.refresh()
+      })
 
       expect(api.getLines).toHaveBeenCalledTimes(2)
       expect(api.getStations).toHaveBeenCalledTimes(2)
