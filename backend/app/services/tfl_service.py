@@ -1532,7 +1532,7 @@ class TfLService:
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail=(
                     f"Line with TfL ID '{tfl_id}' not found. "
-                    "Please ensure TfL data is imported via fetch_lines endpoint."
+                    "Please ensure TfL data is imported via /admin/tfl/build-graph endpoint."
                 ),
             )
 
@@ -1556,15 +1556,31 @@ class TfLService:
         logger.info("validating_route", segments_count=len(segments))
 
         try:
-            # Validate each segment connection
+            # Bulk fetch all stations and lines to avoid redundant lookups
+            station_tfl_ids = {seg.station_tfl_id for seg in segments}
+            line_tfl_ids = {seg.line_tfl_id for seg in segments}
+
+            # Fetch all stations
+            stations_map = {}
+            for tfl_id in station_tfl_ids:
+                station = await self.get_station_by_tfl_id(tfl_id)
+                stations_map[tfl_id] = station
+
+            # Fetch all lines
+            lines_map = {}
+            for tfl_id in line_tfl_ids:
+                line = await self.get_line_by_tfl_id(tfl_id)
+                lines_map[tfl_id] = line
+
+            # Validate each segment connection using cached data
             for i in range(len(segments) - 1):
                 current_segment = segments[i]
                 next_segment = segments[i + 1]
 
-                # Translate TfL IDs to UUIDs and load station/line objects
-                from_station = await self.get_station_by_tfl_id(current_segment.station_tfl_id)
-                to_station = await self.get_station_by_tfl_id(next_segment.station_tfl_id)
-                line = await self.get_line_by_tfl_id(current_segment.line_tfl_id)
+                # Use cached station and line objects
+                from_station = stations_map[current_segment.station_tfl_id]
+                to_station = stations_map[next_segment.station_tfl_id]
+                line = lines_map[current_segment.line_tfl_id]
 
                 # Check if connection exists
                 is_connected = await self._check_connection(
