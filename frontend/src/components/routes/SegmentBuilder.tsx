@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { Save, X, AlertCircle, Check } from 'lucide-react'
+import { X, AlertCircle, Check } from 'lucide-react'
 import { Button } from '../ui/button'
 import { Alert, AlertDescription } from '../ui/alert'
 import { Label } from '../ui/label'
@@ -148,7 +148,7 @@ export function SegmentBuilder({
         setError('This station has no lines available')
       }
     }
-  }, [currentStation, step])
+  }, [currentStation, step, getCurrentStationLines])
 
   const handleStationSelect = (stationId: string | undefined) => {
     if (!stationId) {
@@ -211,7 +211,36 @@ export function SegmentBuilder({
       line_id: selectedLine.id,
     }
 
-    setLocalSegments([...localSegments, newSegment])
+    let updatedSegments = [...localSegments, newSegment]
+
+    // If user is switching to a different line, also add the nextStation segment
+    // This shows the station where the line change occurs
+    if (line.id !== selectedLine.id) {
+      // Check if nextStation is a duplicate
+      const isNextDuplicate = updatedSegments.some((seg) => seg.station_id === nextStation.id)
+      if (isNextDuplicate) {
+        setError(
+          `This station (${nextStation.name}) is already in your route. Routes cannot visit the same station twice.`
+        )
+        return
+      }
+
+      // Check max segments limit after adding both segments
+      if (updatedSegments.length >= MAX_ROUTE_SEGMENTS) {
+        setError(`Maximum ${MAX_ROUTE_SEGMENTS} segments allowed per route.`)
+        return
+      }
+
+      // Add nextStation with the line used to arrive at it
+      const nextSegment: SegmentRequest = {
+        sequence: updatedSegments.length,
+        station_id: nextStation.id,
+        line_id: selectedLine.id, // Line used to GET TO this station
+      }
+      updatedSegments = [...updatedSegments, nextSegment]
+    }
+
+    setLocalSegments(updatedSegments)
 
     // Set up for next segment
     setCurrentStation(nextStation)
@@ -221,7 +250,7 @@ export function SegmentBuilder({
     setError(null)
   }
 
-  const handleMarkAsDestination = () => {
+  const handleMarkAsDestination = async () => {
     if (!currentStation || !selectedLine || !nextStation) return
 
     // Check for duplicate stations
@@ -261,52 +290,30 @@ export function SegmentBuilder({
       line_id: null, // Destination has no outgoing line
     }
 
-    setLocalSegments([...localSegments, currentSegment, destinationSegment])
+    const finalSegments = [...localSegments, currentSegment, destinationSegment]
 
-    // Reset for potential new route
+    // Reset UI state
     setCurrentStation(null)
     setSelectedLine(null)
     setNextStation(null)
     setStep('select-station')
     setError(null)
-  }
 
-  const handleDeleteSegment = (sequence: number) => {
-    // Remove segment and resequence
-    const updatedSegments = localSegments
-      .filter((seg) => seg.sequence !== sequence)
-      .map((seg, index) => ({ ...seg, sequence: index }))
-
-    setLocalSegments(updatedSegments)
-
-    // Reset building state if we deleted segments
-    setCurrentStation(null)
-    setSelectedLine(null)
-    setNextStation(null)
-    setStep('select-station')
-    setError(null)
-  }
-
-  const handleSave = async () => {
-    if (localSegments.length < 2) {
-      setError('Route must have at least 2 segments')
-      return
-    }
-
+    // Auto-save the route
     try {
       setIsSaving(true)
-      setError(null)
-      setSaveSuccess(false)
+      setLocalSegments(finalSegments)
 
       // Validate route (backend checks connections)
-      const validation = await onValidate(localSegments)
+      const validation = await onValidate(finalSegments)
       if (!validation.valid) {
         setError(validation.message)
+        setIsSaving(false)
         return
       }
 
       // Save segments
-      await onSave(localSegments)
+      await onSave(finalSegments)
 
       // Show success confirmation
       setSaveSuccess(true)
@@ -319,11 +326,39 @@ export function SegmentBuilder({
         }
       }, 1000)
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to save segments')
+      setError(err instanceof Error ? err.message : 'Failed to save route')
       setSaveSuccess(false)
     } finally {
       setIsSaving(false)
     }
+  }
+
+  const handleDeleteSegment = (sequence: number) => {
+    // Prevent deletion of destination station (last segment with line_id === null)
+    const isDestination =
+      sequence === localSegments.length - 1 && localSegments[sequence].line_id === null
+
+    if (isDestination) {
+      setError(
+        'Cannot delete the destination station. Delete an earlier station to shorten your route.'
+      )
+      return
+    }
+
+    // When deleting intermediate station, delete it and all subsequent stations
+    // to avoid invalid routes (A->B->C, delete B would leave A->C which may be invalid)
+    const updatedSegments = localSegments
+      .filter((seg) => seg.sequence < sequence)
+      .map((seg, index) => ({ ...seg, sequence: index }))
+
+    setLocalSegments(updatedSegments)
+
+    // Reset building state
+    setCurrentStation(null)
+    setSelectedLine(null)
+    setNextStation(null)
+    setStep('select-station')
+    setError(null)
   }
 
   const handleCancel = () => {
@@ -344,15 +379,10 @@ export function SegmentBuilder({
   }
 
   const hasMaxSegments = localSegments.length >= MAX_ROUTE_SEGMENTS
-  const hasChanges =
-    JSON.stringify(localSegments) !==
-    JSON.stringify(
-      initialSegments.map((seg) => ({
-        sequence: seg.sequence,
-        station_id: seg.station_id,
-        line_id: seg.line_id,
-      }))
-    )
+
+  // Check if route is complete (has destination segment with line_id: null)
+  const isRouteComplete =
+    localSegments.length >= 2 && localSegments[localSegments.length - 1].line_id === null
 
   // Convert local segments to SegmentResponse format for display
   const displaySegments: SegmentResponse[] = localSegments.map((seg) => ({
@@ -386,13 +416,30 @@ export function SegmentBuilder({
   const currentStationLines = getCurrentStationLines()
   const nextStationLines = getNextStationLines()
 
+  // Get the current traveling line (for display purposes)
+  const currentTravelingLine = (() => {
+    if (selectedLine) return selectedLine
+    // Fallback: Get line from last segment when selectedLine is null (e.g., after Edit Route)
+    const lastSegment = localSegments[localSegments.length - 1]
+    if (lastSegment?.line_id) {
+      return lines.find((l) => l.id === lastSegment.line_id)
+    }
+    return null
+  })()
+
   // Get all available stations (for first segment, all stations; otherwise, stations on selected line)
   const availableStations = (() => {
     if (localSegments.length === 0 && step === 'select-station') {
-      return stations
+      // First station: show all stations alphabetically
+      return [...stations].sort((a, b) => a.name.localeCompare(b.name))
     }
-    if (step === 'select-next-station' && selectedLine) {
-      return stations.filter((s) => s.lines.includes(selectedLine.tfl_id))
+    if (step === 'select-next-station') {
+      if (currentTravelingLine) {
+        // Subsequent stations: filter by line and keep in route order
+        // TODO: Need station order data from backend to sort by route position
+        // For now, just filter by line (keeping data order which approximates route order)
+        return stations.filter((s) => s.lines.includes(currentTravelingLine.tfl_id))
+      }
     }
     return []
   })()
@@ -413,19 +460,28 @@ export function SegmentBuilder({
             segments={displaySegments}
             lines={lines}
             stations={stations}
+            isRouteComplete={isRouteComplete}
             onDeleteSegment={handleDeleteSegment}
           />
         </div>
       )}
 
       {/* Build Segment Form */}
-      {!hasMaxSegments && (
+      {!hasMaxSegments && !isRouteComplete && (
         <Card className="p-4">
           <h3 className="mb-4 text-sm font-medium">
             {localSegments.length === 0 ? 'Add Starting Station' : 'Continue Your Journey'}
           </h3>
 
           <div className="space-y-4">
+            {/* Show selected starting station when building route */}
+            {currentStation && (step === 'select-line' || step === 'select-next-station') && (
+              <div className="rounded-md bg-muted p-3">
+                <div className="text-sm font-medium text-muted-foreground">From:</div>
+                <div className="text-base font-semibold">{currentStation.name}</div>
+              </div>
+            )}
+
             {/* Step 1: Select Station (starting or next) */}
             {(step === 'select-station' || step === 'select-line') && (
               <div className="space-y-2">
@@ -460,7 +516,7 @@ export function SegmentBuilder({
             {step === 'select-next-station' && (
               <div className="space-y-2">
                 <Label htmlFor="next-station-select">
-                  Traveling on: {selectedLine?.name || 'Unknown'} line
+                  Traveling on: {currentTravelingLine?.name || 'Unknown'} line
                 </Label>
                 <Label htmlFor="next-station-select">To station:</Label>
                 <StationCombobox
@@ -510,17 +566,35 @@ export function SegmentBuilder({
         </Alert>
       )}
 
-      {/* Save/Cancel Buttons */}
-      <div className="flex gap-2">
-        <Button onClick={handleSave} disabled={isSaving || localSegments.length < 2 || !hasChanges}>
-          <Save className="mr-2 h-4 w-4" />
-          {isSaving ? 'Saving...' : 'Save Segments'}
+      {/* Edit Route Button (shown when route is complete) */}
+      {isRouteComplete && (
+        <Button
+          variant="outline"
+          onClick={() => {
+            // Remove the destination segment to allow editing
+            const updatedSegments = localSegments.slice(0, -1)
+            setLocalSegments(updatedSegments)
+            setSaveSuccess(false)
+            setError(null)
+            // Reset form state to allow continuing the journey
+            setCurrentStation(null)
+            setSelectedLine(null)
+            setNextStation(null)
+            setStep('select-next-station')
+          }}
+          disabled={isSaving}
+        >
+          Edit Route
         </Button>
+      )}
+
+      {/* Cancel Button (always shown during route building) */}
+      {!isRouteComplete && (
         <Button variant="outline" onClick={handleCancel} disabled={isSaving}>
           <X className="mr-2 h-4 w-4" />
           Cancel
         </Button>
-      </div>
+      )}
     </div>
   )
 }

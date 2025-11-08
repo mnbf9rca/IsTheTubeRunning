@@ -52,7 +52,8 @@ describe('LineButton', () => {
     const button = screen.getByRole('button', {
       name: /Travel on Piccadilly line/i,
     })
-    expect(button).toHaveStyle({ backgroundColor: '#0019A8' })
+    // Piccadilly line should have official TfL Piccadilly blue background
+    expect(button).toHaveStyle({ backgroundColor: '#003688' })
   })
 
   it('calls onClick when clicked', async () => {

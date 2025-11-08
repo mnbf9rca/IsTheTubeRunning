@@ -30,7 +30,7 @@ export interface SegmentCardProps {
   isLast: boolean
 
   /**
-   * Whether delete button should be disabled
+   * Whether delete button should be shown
    */
   canDelete: boolean
 
@@ -91,16 +91,17 @@ export function SegmentCard({
             )}
           </div>
         </div>
-        <Button
-          variant="ghost"
-          size="icon"
-          onClick={onDelete}
-          disabled={!canDelete}
-          aria-label={`Delete segment ${sequence + 1}`}
-          className="h-8 w-8"
-        >
-          <Trash2 className="h-4 w-4" />
-        </Button>
+        {canDelete && (
+          <Button
+            variant="ghost"
+            size="icon"
+            onClick={onDelete}
+            aria-label={`Delete segment ${sequence + 1}`}
+            className="h-8 w-8"
+          >
+            <Trash2 className="h-4 w-4" />
+          </Button>
+        )}
       </Card>
 
       {!isLast && (

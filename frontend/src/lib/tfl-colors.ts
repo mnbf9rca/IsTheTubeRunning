@@ -6,6 +6,9 @@
  * - Circle, Hammersmith & City, and Waterloo & City use Corporate Blue text
  *
  * Corporate Blue: PMS 072, RGB(0, 25, 168), #0019A8
+ *
+ * Official TfL Line Colors:
+ * https://tfl.gov.uk/corporate/about-tfl/how-we-work/corporate-and-social-responsibility/corporate-responsibility-and-sustainability-report
  */
 
 import type { LineResponse } from './api'
@@ -26,6 +29,30 @@ export const CORPORATE_BLUE = '#0019A8'
 export const WHITE = '#FFFFFF'
 
 /**
+ * Official TfL Line Colors (hex codes)
+ * Backend currently returns #000000 for all lines, so we override with correct colors
+ */
+const LINE_COLORS: Record<string, string> = {
+  bakerloo: '#B36305',
+  central: '#E32017',
+  circle: '#FFD300',
+  district: '#00782A',
+  'hammersmith-city': '#F3A9BB',
+  jubilee: '#A0A5A9',
+  metropolitan: '#9B0056',
+  northern: '#000000',
+  piccadilly: '#003688',
+  victoria: '#0098D4',
+  'waterloo-city': '#95CDBA',
+  // Elizabeth line (future)
+  elizabeth: '#7156A5',
+  // Other modes
+  overground: '#EE7C0E',
+  dlr: '#00A4A7',
+  tram: '#84B817',
+}
+
+/**
  * Get the correct text color for a TfL line following brand guidelines
  *
  * @param tflId - The TfL ID of the line (e.g., 'piccadilly', 'circle')
@@ -34,6 +61,18 @@ export const WHITE = '#FFFFFF'
 export function getLineTextColor(tflId: string): string {
   const normalizedId = tflId.toLowerCase()
   return LIGHT_LINES.includes(normalizedId) ? CORPORATE_BLUE : WHITE
+}
+
+/**
+ * Get the correct background color for a TfL line
+ * Overrides backend colors with official TfL brand colors
+ *
+ * @param tflId - The TfL ID of the line (e.g., 'piccadilly', 'northern')
+ * @returns Hex color code for line background
+ */
+export function getLineColor(tflId: string): string {
+  const normalizedId = tflId.toLowerCase()
+  return LINE_COLORS[normalizedId] || '#000000' // Fallback to black if not found
 }
 
 /**

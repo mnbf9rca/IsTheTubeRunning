@@ -1,6 +1,6 @@
 import { Train } from 'lucide-react'
 import { Button } from '@/components/ui/button'
-import { getLineTextColor } from '@/lib/tfl-colors'
+import { getLineTextColor, getLineColor } from '@/lib/tfl-colors'
 import type { LineResponse } from '@/lib/api'
 import { cn } from '@/lib/utils'
 
@@ -21,6 +21,7 @@ interface LineButtonProps {
  */
 export function LineButton({ line, selected = false, onClick, size = 'md' }: LineButtonProps) {
   const textColor = getLineTextColor(line.tfl_id)
+  const backgroundColor = getLineColor(line.tfl_id)
 
   // Size variants
   const sizeClasses = {
@@ -42,7 +43,7 @@ export function LineButton({ line, selected = false, onClick, size = 'md' }: Lin
         'hover:opacity-90'
       )}
       style={{
-        backgroundColor: line.color,
+        backgroundColor,
         color: textColor,
       }}
       aria-label={`Travel on ${line.name} line`}

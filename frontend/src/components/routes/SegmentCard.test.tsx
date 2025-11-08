@@ -56,17 +56,17 @@ describe('SegmentCard', () => {
     expect(onDelete).toHaveBeenCalledTimes(1)
   })
 
-  it('should disable delete button when canDelete is false', () => {
+  it('should hide delete button when canDelete is false', () => {
     render(<SegmentCard {...defaultProps} canDelete={false} />)
 
-    const deleteButton = screen.getByLabelText('Delete segment 1')
-    expect(deleteButton).toBeDisabled()
+    const deleteButton = screen.queryByLabelText('Delete segment 1')
+    expect(deleteButton).not.toBeInTheDocument()
   })
 
-  it('should enable delete button when canDelete is true', () => {
+  it('should show delete button when canDelete is true', () => {
     render(<SegmentCard {...defaultProps} canDelete={true} />)
 
     const deleteButton = screen.getByLabelText('Delete segment 1')
-    expect(deleteButton).not.toBeDisabled()
+    expect(deleteButton).toBeInTheDocument()
   })
 })

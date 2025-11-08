@@ -139,12 +139,13 @@ describe('SegmentList', () => {
     expect(onDeleteSegment).toHaveBeenCalledWith(1)
   })
 
-  it('should allow deletion when more than 2 segments', () => {
+  it('should allow deletion when route is not complete', () => {
     render(
       <SegmentList
         segments={mockSegments}
         lines={mockLines}
         stations={mockStations}
+        isRouteComplete={false}
         onDeleteSegment={vi.fn()}
       />
     )
@@ -155,7 +156,7 @@ describe('SegmentList', () => {
     })
   })
 
-  it('should disable deletion when only 2 segments', () => {
+  it('should hide delete buttons when route is complete', () => {
     const twoSegments = mockSegments.slice(0, 2)
 
     render(
@@ -163,14 +164,13 @@ describe('SegmentList', () => {
         segments={twoSegments}
         lines={mockLines}
         stations={mockStations}
+        isRouteComplete={true}
         onDeleteSegment={vi.fn()}
       />
     )
 
-    const deleteButtons = screen.getAllByLabelText(/Delete segment/)
-    deleteButtons.forEach((button) => {
-      expect(button).toBeDisabled()
-    })
+    const deleteButtons = screen.queryAllByLabelText(/Delete segment/)
+    expect(deleteButtons).toHaveLength(0)
   })
 
   it('should sort segments by sequence number', () => {

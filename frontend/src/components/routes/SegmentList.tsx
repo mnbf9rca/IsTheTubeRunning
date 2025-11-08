@@ -19,6 +19,12 @@ export interface SegmentListProps {
   stations: StationResponse[]
 
   /**
+   * Whether the route is complete (has destination)
+   * When true, delete buttons are disabled
+   */
+  isRouteComplete: boolean
+
+  /**
    * Callback when a segment is deleted
    */
   onDeleteSegment: (sequence: number) => void
@@ -38,7 +44,13 @@ export interface SegmentListProps {
  *   onDeleteSegment={handleDelete}
  * />
  */
-export function SegmentList({ segments, lines, stations, onDeleteSegment }: SegmentListProps) {
+export function SegmentList({
+  segments,
+  lines,
+  stations,
+  isRouteComplete,
+  onDeleteSegment,
+}: SegmentListProps) {
   if (segments.length === 0) {
     return (
       <div className="flex flex-col items-center justify-center rounded-lg border border-dashed p-12 text-center">
@@ -51,8 +63,9 @@ export function SegmentList({ segments, lines, stations, onDeleteSegment }: Segm
     )
   }
 
-  // Cannot delete if only 2 segments remain
-  const canDelete = segments.length > 2
+  // Can only delete when route is NOT complete (editing mode)
+  // User can delete down to 0 segments if they want
+  const canDelete = !isRouteComplete
 
   return (
     <div className="space-y-2">

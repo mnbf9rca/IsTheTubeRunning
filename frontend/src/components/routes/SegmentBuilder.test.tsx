@@ -85,25 +85,23 @@ describe('SegmentBuilder', () => {
     expect(screen.getByText('Route Path')).toBeInTheDocument()
   })
 
-  it('should have save and cancel buttons', () => {
-    render(<SegmentBuilder {...defaultProps} />)
+  it('should have cancel button when building route', () => {
+    render(<SegmentBuilder {...defaultProps} initialSegments={[]} />)
 
-    expect(screen.getByRole('button', { name: /Save Segments/i })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: /Cancel/i })).toBeInTheDocument()
   })
 
-  it('should disable save button when no changes', () => {
+  it('should not have save button (destination auto-saves)', () => {
     render(<SegmentBuilder {...defaultProps} />)
 
-    const saveButton = screen.getByRole('button', { name: /Save Segments/i })
-    expect(saveButton).toBeDisabled()
+    expect(screen.queryByRole('button', { name: /Save Segments/i })).not.toBeInTheDocument()
   })
 
   it('should call onCancel when cancel button clicked', async () => {
     const user = userEvent.setup()
     const onCancel = vi.fn()
 
-    render(<SegmentBuilder {...defaultProps} onCancel={onCancel} />)
+    render(<SegmentBuilder {...defaultProps} initialSegments={[]} onCancel={onCancel} />)
 
     const cancelButton = screen.getByRole('button', { name: /Cancel/i })
     await user.click(cancelButton)
@@ -111,8 +109,7 @@ describe('SegmentBuilder', () => {
     expect(onCancel).toHaveBeenCalledTimes(1)
   })
 
-  it('should disable save button when less than 2 segments', async () => {
-    const user = userEvent.setup()
+  it('should show cancel button during route building', async () => {
     const props = {
       ...defaultProps,
       initialSegments: [mockInitialSegments[0]],
@@ -120,66 +117,44 @@ describe('SegmentBuilder', () => {
 
     render(<SegmentBuilder {...props} />)
 
-    // Delete the only segment first
-    const deleteButton = screen.getByLabelText(/Delete segment/)
-    await user.click(deleteButton)
-
-    // Save button should be disabled (less than 2 segments)
-    const saveButton = screen.getByRole('button', { name: /Save Segments/i })
-    expect(saveButton).toBeDisabled()
+    // Cancel button should be present during building
+    expect(screen.getByRole('button', { name: /Cancel/i })).toBeInTheDocument()
   })
 
-  it('should enable save button when there are changes and at least 2 segments', async () => {
-    const user = userEvent.setup()
-    const onValidate = vi.fn(async () => ({ valid: true, message: 'Valid route' }))
-    const onSave = vi.fn(async () => {})
-
-    // Start with 3 segments so we can delete one and still have 2
-    const threeSegments: SegmentResponse[] = [
-      ...mockInitialSegments,
+  it('should show edit route button when route is complete', async () => {
+    // Route with destination (line_id: null)
+    const completeRoute: SegmentResponse[] = [
+      mockInitialSegments[0],
       {
-        id: 'segment-3',
-        sequence: 2,
+        id: 'segment-2',
+        sequence: 1,
         station_id: 'station-2',
-        line_id: 'line-1',
+        line_id: null, // Destination
       },
     ]
 
-    render(
-      <SegmentBuilder
-        {...defaultProps}
-        initialSegments={threeSegments}
-        onValidate={onValidate}
-        onSave={onSave}
-      />
-    )
+    render(<SegmentBuilder {...defaultProps} initialSegments={completeRoute} />)
 
-    // Delete a segment to create changes (3 -> 2 segments, still valid)
-    const deleteButtons = screen.getAllByLabelText(/Delete segment/)
-    await user.click(deleteButtons[2])
-
-    // Save button should be enabled (has changes AND >= 2 segments)
-    const saveButton = screen.getByRole('button', { name: /Save Segments/i })
-    expect(saveButton).not.toBeDisabled()
+    // Edit Route button should be present
+    expect(screen.getByRole('button', { name: /Edit Route/i })).toBeInTheDocument()
   })
 
-  it('should disable save button when only 1 segment remains after deletion', async () => {
-    const user = userEvent.setup()
-    const onValidate = vi.fn(async () => ({
-      valid: false,
-      message: 'Invalid connection between stations',
-      invalid_segment_index: 1,
-    }))
+  it('should hide continue journey card when route is complete', async () => {
+    // Route with destination (line_id: null)
+    const completeRoute: SegmentResponse[] = [
+      mockInitialSegments[0],
+      {
+        id: 'segment-2',
+        sequence: 1,
+        station_id: 'station-2',
+        line_id: null, // Destination
+      },
+    ]
 
-    render(<SegmentBuilder {...defaultProps} onValidate={onValidate} />)
+    render(<SegmentBuilder {...defaultProps} initialSegments={completeRoute} />)
 
-    // Delete a segment to make changes (2 segments -> 1 segment)
-    const deleteButtons = screen.getAllByLabelText(/Delete segment/)
-    await user.click(deleteButtons[1])
-
-    // Save button should be disabled (only 1 segment remaining)
-    const saveButton = screen.getByRole('button', { name: /Save Segments/i })
-    expect(saveButton).toBeDisabled()
+    // "Continue Your Journey" card should not be present
+    expect(screen.queryByText('Continue Your Journey')).not.toBeInTheDocument()
   })
 
   it('should show add segment form', () => {
