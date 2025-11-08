@@ -279,8 +279,8 @@ export function CreateRoute() {
               initialSegments={segments.map((seg, index) => ({
                 id: `temp-${index}`,
                 sequence: seg.sequence,
-                station_id: seg.station_id,
-                line_id: seg.line_id,
+                station_tfl_id: seg.station_tfl_id,
+                line_tfl_id: seg.line_tfl_id,
               }))}
               lines={tflData.lines || []}
               stations={tflData.stations || []}

@@ -56,20 +56,20 @@ describe('SegmentList', () => {
     {
       id: 'segment-1',
       sequence: 0,
-      station_id: 'station-1',
-      line_id: 'line-1',
+      station_tfl_id: '940GZZLUKSX',
+      line_tfl_id: 'northern',
     },
     {
       id: 'segment-2',
       sequence: 1,
-      station_id: 'station-2',
-      line_id: 'line-1',
+      station_tfl_id: '940GZZLUEUS',
+      line_tfl_id: 'northern',
     },
     {
       id: 'segment-3',
       sequence: 2,
-      station_id: 'station-3',
-      line_id: 'line-1',
+      station_tfl_id: '940GZZLUEMB',
+      line_tfl_id: 'northern',
     },
   ]
 

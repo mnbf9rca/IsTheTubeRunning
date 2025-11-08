@@ -9,7 +9,7 @@ interface DestinationButtonProps {
 /**
  * DestinationButton component for marking a station as the journey destination
  *
- * When clicked, adds the current station as the final segment with line_id: null
+ * When clicked, adds the current station as the final segment with line_tfl_id: null
  */
 export function DestinationButton({ onClick, disabled = false }: DestinationButtonProps) {
   return (

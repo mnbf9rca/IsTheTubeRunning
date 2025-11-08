@@ -49,8 +49,10 @@ export function SegmentDisplay({ segments, lines, stations }: SegmentDisplayProp
     <div className="space-y-2">
       {sortedSegments.map((segment, index) => {
         // Find line and station details
-        const line = segment.line_id ? lines.find((l) => l.id === segment.line_id) : null
-        const station = stations.find((s) => s.id === segment.station_id)
+        const line = segment.line_tfl_id
+          ? lines.find((l) => l.tfl_id === segment.line_tfl_id)
+          : null
+        const station = stations.find((s) => s.tfl_id === segment.station_tfl_id)
 
         if (!station) {
           // Skip if station not found (shouldn't happen)
@@ -58,7 +60,7 @@ export function SegmentDisplay({ segments, lines, stations }: SegmentDisplayProp
         }
 
         const isLast = index === sortedSegments.length - 1
-        const isDestination = !segment.line_id // NULL line_id means destination
+        const isDestination = !segment.line_tfl_id // NULL line_tfl_id means destination
 
         return (
           <div key={segment.id} className="flex items-center gap-2">

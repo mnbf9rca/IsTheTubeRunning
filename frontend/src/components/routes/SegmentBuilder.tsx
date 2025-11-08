@@ -99,8 +99,8 @@ export function SegmentBuilder({
   const [localSegments, setLocalSegments] = useState<SegmentRequest[]>(
     initialSegments.map((seg) => ({
       sequence: seg.sequence,
-      station_id: seg.station_id,
-      line_id: seg.line_id,
+      station_tfl_id: seg.station_tfl_id,
+      line_tfl_id: seg.line_tfl_id,
     }))
   )
 
@@ -190,7 +190,7 @@ export function SegmentBuilder({
     if (!currentStation || !selectedLine || !nextStation) return
 
     // Check for duplicate stations (acyclic enforcement)
-    const isDuplicate = localSegments.some((seg) => seg.station_id === currentStation.id)
+    const isDuplicate = localSegments.some((seg) => seg.station_tfl_id === currentStation.tfl_id)
     if (isDuplicate) {
       setError(
         `This station (${currentStation.name}) is already in your route. Routes cannot visit the same station twice.`
@@ -207,8 +207,8 @@ export function SegmentBuilder({
     // Add segment for current station with selected line
     const newSegment: SegmentRequest = {
       sequence: localSegments.length,
-      station_id: currentStation.id,
-      line_id: selectedLine.id,
+      station_tfl_id: currentStation.tfl_id,
+      line_tfl_id: selectedLine.tfl_id,
     }
 
     let updatedSegments = [...localSegments, newSegment]
@@ -217,7 +217,9 @@ export function SegmentBuilder({
     // This shows the station where the line change occurs
     if (line.id !== selectedLine.id) {
       // Check if nextStation is a duplicate
-      const isNextDuplicate = updatedSegments.some((seg) => seg.station_id === nextStation.id)
+      const isNextDuplicate = updatedSegments.some(
+        (seg) => seg.station_tfl_id === nextStation.tfl_id
+      )
       if (isNextDuplicate) {
         setError(
           `This station (${nextStation.name}) is already in your route. Routes cannot visit the same station twice.`
@@ -234,8 +236,8 @@ export function SegmentBuilder({
       // Add nextStation with the line used to arrive at it
       const nextSegment: SegmentRequest = {
         sequence: updatedSegments.length,
-        station_id: nextStation.id,
-        line_id: selectedLine.id, // Line used to GET TO this station
+        station_tfl_id: nextStation.tfl_id,
+        line_tfl_id: selectedLine.tfl_id, // Line used to GET TO this station
       }
       updatedSegments = [...updatedSegments, nextSegment]
     }
@@ -254,7 +256,9 @@ export function SegmentBuilder({
     if (!currentStation || !selectedLine || !nextStation) return
 
     // Check for duplicate stations
-    const isDuplicateCurrent = localSegments.some((seg) => seg.station_id === currentStation.id)
+    const isDuplicateCurrent = localSegments.some(
+      (seg) => seg.station_tfl_id === currentStation.tfl_id
+    )
     if (isDuplicateCurrent) {
       setError(
         `This station (${currentStation.name}) is already in your route. Routes cannot visit the same station twice.`
@@ -262,7 +266,7 @@ export function SegmentBuilder({
       return
     }
 
-    const isDuplicateNext = localSegments.some((seg) => seg.station_id === nextStation.id)
+    const isDuplicateNext = localSegments.some((seg) => seg.station_tfl_id === nextStation.tfl_id)
     if (isDuplicateNext) {
       setError(
         `This station (${nextStation.name}) is already in your route. Routes cannot visit the same station twice.`
@@ -279,15 +283,15 @@ export function SegmentBuilder({
     // Add segment for current station with selected line
     const currentSegment: SegmentRequest = {
       sequence: localSegments.length,
-      station_id: currentStation.id,
-      line_id: selectedLine.id,
+      station_tfl_id: currentStation.tfl_id,
+      line_tfl_id: selectedLine.tfl_id,
     }
 
-    // Add segment for destination with null line_id
+    // Add segment for destination with null line_tfl_id
     const destinationSegment: SegmentRequest = {
       sequence: localSegments.length + 1,
-      station_id: nextStation.id,
-      line_id: null, // Destination has no outgoing line
+      station_tfl_id: nextStation.tfl_id,
+      line_tfl_id: null, // Destination has no outgoing line
     }
 
     const finalSegments = [...localSegments, currentSegment, destinationSegment]
@@ -334,9 +338,9 @@ export function SegmentBuilder({
   }
 
   const handleDeleteSegment = (sequence: number) => {
-    // Prevent deletion of destination station (last segment with line_id === null)
+    // Prevent deletion of destination station (last segment with line_tfl_id === null)
     const isDestination =
-      sequence === localSegments.length - 1 && localSegments[sequence].line_id === null
+      sequence === localSegments.length - 1 && localSegments[sequence].line_tfl_id === null
 
     if (isDestination) {
       setError(
@@ -365,8 +369,8 @@ export function SegmentBuilder({
     setLocalSegments(
       initialSegments.map((seg) => ({
         sequence: seg.sequence,
-        station_id: seg.station_id,
-        line_id: seg.line_id,
+        station_tfl_id: seg.station_tfl_id,
+        line_tfl_id: seg.line_tfl_id,
       }))
     )
     setCurrentStation(null)
@@ -380,9 +384,9 @@ export function SegmentBuilder({
 
   const hasMaxSegments = localSegments.length >= MAX_ROUTE_SEGMENTS
 
-  // Check if route is complete (has destination segment with line_id: null)
+  // Check if route is complete (has destination segment with line_tfl_id: null)
   const isRouteComplete =
-    localSegments.length >= 2 && localSegments[localSegments.length - 1].line_id === null
+    localSegments.length >= 2 && localSegments[localSegments.length - 1].line_tfl_id === null
 
   // Convert local segments to SegmentResponse format for display
   const displaySegments: SegmentResponse[] = localSegments.map((seg) => ({
@@ -421,8 +425,8 @@ export function SegmentBuilder({
     if (selectedLine) return selectedLine
     // Fallback: Get line from last segment when selectedLine is null (e.g., after Edit Route)
     const lastSegment = localSegments[localSegments.length - 1]
-    if (lastSegment?.line_id) {
-      return lines.find((l) => l.id === lastSegment.line_id)
+    if (lastSegment?.line_tfl_id) {
+      return lines.find((l) => l.tfl_id === lastSegment.line_tfl_id)
     }
     return null
   })()

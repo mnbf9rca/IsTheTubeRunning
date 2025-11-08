@@ -73,8 +73,10 @@ export function SegmentList({
         .sort((a, b) => a.sequence - b.sequence)
         .map((segment, index) => {
           // Find line and station details
-          const line = segment.line_id ? lines.find((l) => l.id === segment.line_id) : null
-          const station = stations.find((s) => s.id === segment.station_id)
+          const line = segment.line_tfl_id
+            ? lines.find((l) => l.tfl_id === segment.line_tfl_id)
+            : null
+          const station = stations.find((s) => s.tfl_id === segment.station_tfl_id)
 
           if (!station) {
             // Skip if station not found (shouldn't happen)

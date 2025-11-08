@@ -106,8 +106,8 @@ export function RouteDetails() {
     setEditSegments(
       route.segments.map((seg) => ({
         sequence: seg.sequence,
-        station_id: seg.station_id,
-        line_id: seg.line_id,
+        station_tfl_id: seg.station_tfl_id,
+        line_tfl_id: seg.line_tfl_id,
       }))
     )
     setEditSchedules([...route.schedules])

@@ -40,14 +40,14 @@ describe('SegmentBuilder', () => {
     {
       id: 'segment-1',
       sequence: 0,
-      station_id: 'station-1',
-      line_id: 'line-1',
+      station_tfl_id: '940GZZLUKSX',
+      line_tfl_id: 'northern',
     },
     {
       id: 'segment-2',
       sequence: 1,
-      station_id: 'station-2',
-      line_id: 'line-1',
+      station_tfl_id: '940GZZLUEUS',
+      line_tfl_id: 'northern',
     },
   ]
 
@@ -122,14 +122,14 @@ describe('SegmentBuilder', () => {
   })
 
   it('should show edit route button when route is complete', async () => {
-    // Route with destination (line_id: null)
+    // Route with destination (line_tfl_id: null)
     const completeRoute: SegmentResponse[] = [
       mockInitialSegments[0],
       {
         id: 'segment-2',
         sequence: 1,
-        station_id: 'station-2',
-        line_id: null, // Destination
+        station_tfl_id: '940GZZLUEUS',
+        line_tfl_id: null, // Destination
       },
     ]
 
@@ -140,14 +140,14 @@ describe('SegmentBuilder', () => {
   })
 
   it('should hide continue journey card when route is complete', async () => {
-    // Route with destination (line_id: null)
+    // Route with destination (line_tfl_id: null)
     const completeRoute: SegmentResponse[] = [
       mockInitialSegments[0],
       {
         id: 'segment-2',
         sequence: 1,
-        station_id: 'station-2',
-        line_id: null, // Destination
+        station_tfl_id: '940GZZLUEUS',
+        line_tfl_id: null, // Destination
       },
     ]
 

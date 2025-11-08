@@ -395,8 +395,8 @@ export async function deleteContact(contactId: string): Promise<void> {
 export interface SegmentResponse {
   id: string
   sequence: number
-  station_id: string
-  line_id: string | null
+  station_tfl_id: string
+  line_tfl_id: string | null
 }
 
 /**
@@ -543,16 +543,16 @@ export async function deleteRoute(routeId: string): Promise<void> {
  */
 export interface SegmentRequest {
   sequence: number
-  station_id: string
-  line_id: string | null
+  station_tfl_id: string
+  line_tfl_id: string | null
 }
 
 /**
  * Request to update a single segment
  */
 export interface UpdateSegmentRequest {
-  station_id?: string
-  line_id?: string
+  station_tfl_id?: string
+  line_tfl_id?: string
 }
 
 /**
@@ -833,8 +833,8 @@ export type NetworkGraph = Record<string, NetworkConnection[]>
  * Route validation segment request
  */
 export interface RouteValidationSegment {
-  station_id: string
-  line_id: string | null
+  station_tfl_id: string
+  line_tfl_id: string | null
 }
 
 /**
