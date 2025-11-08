@@ -37,6 +37,11 @@ class Line(BaseModel):
         String(7),  # Hex color code e.g., #0019A8
         nullable=False,
     )
+    mode: Mapped[str] = mapped_column(
+        String(50),  # Transport mode: "tube", "overground", "dlr", "elizabeth-line", etc.
+        nullable=False,
+        default="tube",
+    )
     last_updated: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         nullable=False,

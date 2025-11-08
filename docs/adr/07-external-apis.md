@@ -118,3 +118,29 @@ Routes support multiple segments, each on a different line. Segments are ordered
 - Complex route validation (must check each segment and interchange)
 - More complex route builder UI (add/remove segments)
 - Database schema includes route segments table
+
+---
+
+## Multi-Mode Transport Support
+
+### Status
+Active
+
+### Context
+London has multiple transport modes beyond the Tube: Overground, DLR, Elizabeth Line, and Tram. Users need disruption information across all modes they use for their commutes, not just the Tube.
+
+### Decision
+Extend TfL API integration to support multiple transport modes. Methods `fetch_lines()`, `fetch_line_disruptions()`, and `fetch_station_disruptions()` now accept optional `modes` parameter (defaults to `["tube", "overground", "dlr", "elizabeth-line"]`). Each mode is queried separately via TfL API, and results are combined. Cache keys include mode list to prevent cache collision between different mode combinations. A new `fetch_available_modes()` method uses TfL's MetaModes API.
+
+### Consequences
+**Easier:**
+- Comprehensive disruption coverage across all London transport modes
+- Users get complete picture of their multi-mode commutes
+- Frontend can filter by transport mode
+- Extensible to future modes (Tram, Cable Car, etc.)
+
+**More Difficult:**
+- Multiple API calls per fetch operation (one per mode)
+- More complex cache key management (must include modes)
+- Increased test complexity (need to mock multiple mode responses)
+- Higher API rate limit usage (4x calls by default vs single Tube call)
