@@ -102,6 +102,7 @@ async def test_get_lines_success(
             tfl_id="victoria",
             name="Victoria",
             color="#0019A8",
+            mode="tube",
             last_updated=fixed_time,
         ),
         Line(
@@ -109,6 +110,7 @@ async def test_get_lines_success(
             tfl_id="northern",
             name="Northern",
             color="#000000",
+            mode="tube",
             last_updated=fixed_time,
         ),
     ]
@@ -287,7 +289,7 @@ async def test_validate_route_success(
 ) -> None:
     """Test successful route validation."""
     # Create test data for valid UUIDs
-    line = Line(tfl_id="victoria", name="Victoria", color="#0019A8", last_updated=datetime.now(UTC))
+    line = Line(tfl_id="victoria", name="Victoria", color="#0019A8", mode="tube", last_updated=datetime.now(UTC))
     station1 = Station(
         tfl_id="st1",
         name="Station 1",
@@ -338,7 +340,7 @@ async def test_validate_route_invalid(
 ) -> None:
     """Test route validation with invalid connection."""
     # Create test data
-    line = Line(tfl_id="victoria", name="Victoria", color="#0019A8", last_updated=datetime.now(UTC))
+    line = Line(tfl_id="victoria", name="Victoria", color="#0019A8", mode="tube", last_updated=datetime.now(UTC))
     station1 = Station(
         tfl_id="st1",
         name="Station 1",
@@ -387,7 +389,7 @@ async def test_validate_route_insufficient_segments(
 ) -> None:
     """Test route validation with too few segments."""
     # Create minimal test data
-    line = Line(tfl_id="victoria", name="Victoria", color="#0019A8", last_updated=datetime.now(UTC))
+    line = Line(tfl_id="victoria", name="Victoria", color="#0019A8", mode="tube", last_updated=datetime.now(UTC))
     station1 = Station(
         tfl_id="st1",
         name="Station 1",
