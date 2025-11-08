@@ -488,6 +488,121 @@ class TestRouteModels:
         with pytest.raises(IntegrityError):
             await db_session.commit()
 
+    @pytest.mark.asyncio
+    async def test_route_segment_line_tfl_id_with_line(self, db_session: AsyncSession) -> None:
+        """Test that line_tfl_id property returns the line's TfL ID when line exists."""
+        user = User(external_id=make_unique_external_id("auth0|line_tfl_id_test"), auth_provider="auth0")
+        line = Line(
+            tfl_id="victoria",
+            name="Victoria Line",
+            color="#0019A8",
+            last_updated=datetime.now(UTC),
+        )
+        station = Station(
+            tfl_id="940GZZLUVXL",
+            name="Vauxhall",
+            latitude=51.486,
+            longitude=-0.125,
+            lines=["victoria"],
+            last_updated=datetime.now(UTC),
+        )
+
+        db_session.add_all([user, line, station])
+        await db_session.flush()
+
+        route = Route(user=user, name="Test Route", active=True)
+        segment = RouteSegment(route=route, sequence=0, station_id=station.id, line_id=line.id)
+
+        db_session.add_all([route, segment])
+        await db_session.commit()
+        await db_session.refresh(segment, attribute_names=["station", "line"])
+
+        # Test the property returns the line's TfL ID
+        assert segment.line_tfl_id == "victoria"
+        assert segment.station_tfl_id == "940GZZLUVXL"
+
+    @pytest.mark.asyncio
+    async def test_route_segment_line_tfl_id_with_null_line(self, db_session: AsyncSession) -> None:
+        """Test that line_tfl_id property returns None when line_id is NULL (destination segment).
+
+        This is the critical test for issue #36 - ensures no AttributeError is raised
+        when accessing line_tfl_id on a segment with NULL line_id.
+        """
+        user = User(external_id=make_unique_external_id("auth0|null_line_test"), auth_provider="auth0")
+        station = Station(
+            tfl_id="940GZZLUVXL",
+            name="Vauxhall",
+            latitude=51.486,
+            longitude=-0.125,
+            lines=["victoria"],
+            last_updated=datetime.now(UTC),
+        )
+
+        db_session.add_all([user, station])
+        await db_session.flush()
+
+        route = Route(user=user, name="Test Route", active=True)
+        # Create a destination segment with NULL line_id
+        segment = RouteSegment(route=route, sequence=1, station_id=station.id, line_id=None)
+
+        db_session.add_all([route, segment])
+        await db_session.commit()
+        await db_session.refresh(segment, attribute_names=["station", "line"])
+
+        # This should NOT raise AttributeError (issue #36)
+        assert segment.line_tfl_id is None
+        assert segment.line is None
+        assert segment.station_tfl_id == "940GZZLUVXL"
+
+    @pytest.mark.asyncio
+    async def test_route_with_mixed_segments_null_and_non_null_lines(self, db_session: AsyncSession) -> None:
+        """Test a route with both regular segments (with lines) and a destination segment (without line)."""
+        user = User(external_id=make_unique_external_id("auth0|mixed_segments"), auth_provider="auth0")
+        line = Line(
+            tfl_id="victoria",
+            name="Victoria Line",
+            color="#0019A8",
+            last_updated=datetime.now(UTC),
+        )
+        station1 = Station(
+            tfl_id="940GZZLUVXL",
+            name="Vauxhall",
+            latitude=51.486,
+            longitude=-0.125,
+            lines=["victoria"],
+            last_updated=datetime.now(UTC),
+        )
+        station2 = Station(
+            tfl_id="940GZZLUPCO",
+            name="Pimlico",
+            latitude=51.489,
+            longitude=-0.133,
+            lines=["victoria"],
+            last_updated=datetime.now(UTC),
+        )
+
+        db_session.add_all([user, line, station1, station2])
+        await db_session.flush()
+
+        route = Route(user=user, name="Mixed Segments Route", active=True)
+        # Segment 0: Has a line (travel from Vauxhall on Victoria line)
+        segment_0 = RouteSegment(route=route, sequence=0, station_id=station1.id, line_id=line.id)
+        # Segment 1: Destination (arrive at Pimlico, no outgoing line)
+        segment_1 = RouteSegment(route=route, sequence=1, station_id=station2.id, line_id=None)
+
+        db_session.add_all([route, segment_0, segment_1])
+        await db_session.commit()
+        await db_session.refresh(segment_0, attribute_names=["station", "line"])
+        await db_session.refresh(segment_1, attribute_names=["station", "line"])
+
+        # First segment should have line_tfl_id
+        assert segment_0.line_tfl_id == "victoria"
+        assert segment_0.station_tfl_id == "940GZZLUVXL"
+
+        # Second segment (destination) should have None for line_tfl_id
+        assert segment_1.line_tfl_id is None
+        assert segment_1.station_tfl_id == "940GZZLUPCO"
+
 
 class TestNotificationModels:
     """Tests for notification models."""

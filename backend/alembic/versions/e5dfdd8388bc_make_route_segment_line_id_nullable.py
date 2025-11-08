@@ -1,8 +1,8 @@
 """make_route_segment_line_id_nullable
 
-Revision ID: 958e140c30a0
-Revises: f8838ec5262d
-Create Date: 2025-11-07 21:26:03.363770
+Revision ID: e5dfdd8388bc
+Revises: 941d95fee6c2
+Create Date: 2025-11-08 20:26:25.006982
 
 """
 
@@ -12,8 +12,8 @@ import sqlalchemy as sa
 from alembic import op
 
 # revision identifiers, used by Alembic.
-revision: str = "958e140c30a0"
-down_revision: str | Sequence[str] | None = "f8838ec5262d"
+revision: str = "e5dfdd8388bc"
+down_revision: str | Sequence[str] | None = "941d95fee6c2"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 

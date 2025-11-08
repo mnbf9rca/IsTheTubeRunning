@@ -1596,18 +1596,19 @@ class TfLService:
 
         try:
             # Bulk fetch all stations and lines to avoid redundant lookups
-            station_tfl_ids = {seg.station_tfl_id for seg in segments}
-            line_tfl_ids = {seg.line_tfl_id for seg in segments}
+            unique_station_ids = {seg.station_tfl_id for seg in segments}
+            # Filter out None values from line_tfl_ids (destination segments have no line)
+            unique_line_ids = {seg.line_tfl_id for seg in segments if seg.line_tfl_id is not None}
 
             # Fetch all stations
             stations_map = {}
-            for tfl_id in station_tfl_ids:
+            for tfl_id in unique_station_ids:
                 station = await self.get_station_by_tfl_id(tfl_id)
                 stations_map[tfl_id] = station
 
             # Fetch all lines
             lines_map = {}
-            for tfl_id in line_tfl_ids:
+            for tfl_id in unique_line_ids:
                 line = await self.get_line_by_tfl_id(tfl_id)
                 lines_map[tfl_id] = line
 
