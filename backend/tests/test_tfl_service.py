@@ -3387,7 +3387,7 @@ async def test_fetch_route_sequence_no_stop_points(
     tfl_service: TfLService,
     db_session: AsyncSession,
 ) -> None:
-    """Test _fetch_route_sequence returns empty list when no stopPointSequences (covers line 976)."""
+    """Test _fetch_route_sequence returns route data even when no stopPointSequences."""
     # Create line
     line = Line(tfl_id="victoria", name="Victoria", color="#000000", last_updated=datetime.now(UTC))
     db_session.add(line)
@@ -3406,10 +3406,11 @@ async def test_fetch_route_sequence_no_stop_points(
 
     # Execute
     tfl_service_instance = TfLService(db_session)
-    sequences = await tfl_service_instance._fetch_route_sequence(line.tfl_id, "inbound")
+    route_data = await tfl_service_instance._fetch_route_sequence(line.tfl_id, "inbound")
 
-    # Should return empty list
-    assert sequences == []
+    # Should return the route data object (not a list anymore)
+    assert route_data is not None
+    assert isinstance(route_data, MockRouteNoSequences)
 
 
 @patch("asyncio.get_running_loop")
@@ -3442,11 +3443,14 @@ async def test_process_route_sequence_empty_stop_points(
     # Execute
     stations_set: set[str] = set()
     pending_connections: set[tuple[uuid.UUID, uuid.UUID, uuid.UUID]] = set()
-    count = await tfl_service._process_route_sequence(line, "inbound", stations_set, pending_connections)
+    count, route_data = await tfl_service._process_route_sequence(line, "inbound", stations_set, pending_connections)
 
-    # Should skip sequence without stopPoint and return 0
+    # Should skip sequence without stopPoint and return 0 connections
     assert count == 0
     assert len(stations_set) == 0
+    # Should still return route data
+    assert route_data is not None
+    assert isinstance(route_data, MockRouteWithEmptySequence)
 
 
 # ==================== Phase 3: Error Propagation Tests ====================
