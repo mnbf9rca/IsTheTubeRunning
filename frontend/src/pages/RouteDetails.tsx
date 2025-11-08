@@ -75,6 +75,7 @@ export function RouteDetails() {
       setRoute(updated)
     } catch (err) {
       console.error('Failed to toggle active status:', err)
+      setError(err as ApiError)
     }
   }
 
