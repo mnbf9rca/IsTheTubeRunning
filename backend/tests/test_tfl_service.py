@@ -150,11 +150,30 @@ class MockStopPointSequence2:
         self.stopPoint = stopPoint
 
 
+class MockOrderedRoute:
+    """Mock TfL ordered route for route sequences."""
+
+    def __init__(
+        self,
+        name: str = "Route 1",
+        service_type: str = "Regular",
+        naptan_ids: list[str] | None = None,
+    ) -> None:
+        self.name = name
+        self.serviceType = service_type
+        self.naptanIds = naptan_ids if naptan_ids is not None else ["940GZZLUVIC", "940GZZLUGPK"]
+
+
 class MockRouteSequence:
     """Mock TfL route sequence response."""
 
-    def __init__(self, stopPointSequences: list[MockStopPointSequence2]) -> None:  # noqa: N803
-        self.stopPointSequences = stopPointSequences
+    def __init__(
+        self,
+        stopPointSequences: list[MockStopPointSequence2] | None = None,  # noqa: N803
+        orderedLineRoutes: list[MockOrderedRoute] | None = None,  # noqa: N803
+    ) -> None:
+        self.stopPointSequences = stopPointSequences or []
+        self.orderedLineRoutes = orderedLineRoutes
 
 
 # Removed MockStopPointSequence and MockRoute as they're not used in any tests
@@ -364,6 +383,81 @@ async def assert_api_failure(
         assert expected_error_message in exc_info.value.detail
 
 
+# ==================== fetch_available_modes Tests ====================
+
+
+async def test_fetch_available_modes_from_api(
+    tfl_service: TfLService,
+) -> None:
+    """Test fetching available modes from TfL API when cache is empty."""
+    with freeze_time("2025-01-01 12:00:00"):
+        # Setup mock data - list of mode strings
+        mock_modes = ["tube", "overground", "dlr", "elizabeth-line", "tram"]
+
+        # Execute with helper
+        modes = await assert_fetch_from_api(
+            tfl_service=tfl_service,
+            method_callable=lambda: tfl_service.fetch_available_modes(use_cache=False),
+            mock_data=mock_modes,
+            expected_count=5,
+            cache_key="modes:all",
+            expected_ttl=604800,  # 7 days (DEFAULT_METADATA_CACHE_TTL)
+            shared_expires=datetime(2025, 1, 8, 12, 0, 0, tzinfo=UTC),
+        )
+
+        # Verify content
+        assert modes == mock_modes
+        assert "tube" in modes
+        assert "elizabeth-line" in modes
+
+
+async def test_fetch_available_modes_cache_hit(
+    tfl_service: TfLService,
+) -> None:
+    """Test fetching modes from cache when available."""
+    # Setup cached modes
+    cached_modes = ["tube", "overground", "dlr"]
+
+    # Execute with helper
+    await assert_cache_hit(
+        tfl_service=tfl_service,
+        method_callable=lambda: tfl_service.fetch_available_modes(use_cache=True),
+        cache_key="modes:all",
+        cached_data=cached_modes,
+    )
+
+
+async def test_fetch_available_modes_cache_miss(
+    tfl_service: TfLService,
+) -> None:
+    """Test fetching modes from API when cache is enabled but empty."""
+    with freeze_time("2025-01-01 12:00:00"):
+        # Setup mock data
+        mock_modes = ["tube", "overground"]
+
+        # Execute with helper
+        modes = await assert_cache_miss(
+            tfl_service=tfl_service,
+            method_callable=lambda: tfl_service.fetch_available_modes(use_cache=True),
+            mock_data=mock_modes,
+            expected_count=2,
+            shared_expires=datetime(2025, 1, 8, 12, 0, 0, tzinfo=UTC),
+        )
+
+        # Verify content
+        assert modes == mock_modes
+
+
+async def test_fetch_available_modes_api_failure(
+    tfl_service: TfLService,
+) -> None:
+    """Test handling TfL API failure when fetching modes."""
+    await assert_api_failure(
+        method_callable=lambda: tfl_service.fetch_available_modes(use_cache=False),
+        expected_error_message="Failed to fetch transport modes",
+    )
+
+
 # ==================== fetch_lines Tests ====================
 
 
@@ -371,50 +465,76 @@ async def test_fetch_lines_from_api(
     tfl_service: TfLService,
     db_session: AsyncSession,
 ) -> None:
-    """Test fetching lines from TfL API when cache is empty."""
+    """Test fetching lines from TfL API with default modes when cache is empty."""
     with freeze_time("2025-01-01 12:00:00"):
-        # Setup mock data
-        mock_lines = [
+        # Setup mock data for each mode call
+        # Each mode will be called separately, so we need to mock multiple calls
+        mock_tube_lines = [
             create_mock_line(id="victoria", name="Victoria"),
             create_mock_line(id="northern", name="Northern"),
         ]
+        mock_overground_lines = [
+            create_mock_line(id="london-overground", name="London Overground"),
+        ]
+        mock_dlr_lines = [
+            create_mock_line(id="dlr", name="DLR"),
+        ]
+        mock_elizabeth_lines = [
+            create_mock_line(id="elizabeth", name="Elizabeth line"),
+        ]
 
-        # Execute with helper
-        lines = await assert_fetch_from_api(
-            tfl_service=tfl_service,
-            method_callable=lambda: tfl_service.fetch_lines(use_cache=False),
-            mock_data=mock_lines,
-            expected_count=2,
-            cache_key="lines:all",
-            expected_ttl=86400,  # 24 hours
-            shared_expires=datetime(2025, 1, 2, 12, 0, 0, tzinfo=UTC),
-        )
+        # We need to handle multiple mode calls
+        mock_responses = [
+            MockResponse(data=mock_tube_lines, shared_expires=datetime(2025, 1, 2, 12, 0, 0, tzinfo=UTC)),
+            MockResponse(data=mock_overground_lines, shared_expires=datetime(2025, 1, 2, 12, 0, 0, tzinfo=UTC)),
+            MockResponse(data=mock_dlr_lines, shared_expires=datetime(2025, 1, 2, 12, 0, 0, tzinfo=UTC)),
+            MockResponse(data=mock_elizabeth_lines, shared_expires=datetime(2025, 1, 2, 12, 0, 0, tzinfo=UTC)),
+        ]
 
-        # Verify specific attributes
-        assert lines[0].tfl_id == "victoria"
-        assert lines[0].name == "Victoria"
-        assert lines[0].color == "#000000"  # Default color
-        assert lines[1].tfl_id == "northern"
-        assert lines[1].name == "Northern"
-        assert lines[1].color == "#000000"  # Default color
+        with patch("asyncio.get_running_loop") as mock_get_loop:
+            mock_loop = AsyncMock()
+            # Return different responses for each mode call
+            mock_loop.run_in_executor = AsyncMock(side_effect=mock_responses)
+            mock_get_loop.return_value = mock_loop
+
+            # Execute - default modes: ["tube", "overground", "dlr", "elizabeth-line"]
+            lines = await tfl_service.fetch_lines(use_cache=False)
+
+            # Verify we got all lines from all modes
+            assert len(lines) == 5
+
+            # Verify specific attributes
+            assert lines[0].tfl_id == "victoria"
+            assert lines[0].name == "Victoria"
+            assert lines[0].color == "#000000"  # Default color
+            assert lines[0].mode == "tube"
+
+            assert lines[2].tfl_id == "london-overground"
+            assert lines[2].mode == "overground"
+
+            # Verify cache was set with correct key (modes sorted alphabetically)
+            expected_cache_key = "lines:modes:dlr,elizabeth-line,overground,tube"
+            tfl_service.cache.set.assert_called_once()
+            assert tfl_service.cache.set.call_args[0][0] == expected_cache_key
+            assert tfl_service.cache.set.call_args[1]["ttl"] == 86400  # 24 hours
 
 
 async def test_fetch_lines_cache_hit(
     tfl_service: TfLService,
     db_session: AsyncSession,
 ) -> None:
-    """Test fetching lines from cache when available."""
+    """Test fetching lines from cache when available (default modes)."""
     with freeze_time("2025-01-01 12:00:00"):
         # Setup cached lines
         cached_lines = [
-            Line(tfl_id="victoria", name="Victoria", color="#0019A8", last_updated=datetime.now(UTC)),
+            Line(tfl_id="victoria", name="Victoria", color="#0019A8", mode="tube", last_updated=datetime.now(UTC)),
         ]
 
-        # Execute with helper
+        # Execute with helper - default modes sorted: dlr,elizabeth-line,overground,tube
         await assert_cache_hit(
             tfl_service=tfl_service,
             method_callable=lambda: tfl_service.fetch_lines(use_cache=True),
-            cache_key="lines:all",
+            cache_key="lines:modes:dlr,elizabeth-line,overground,tube",
             cached_data=cached_lines,
         )
 
@@ -423,34 +543,166 @@ async def test_fetch_lines_cache_miss(
     tfl_service: TfLService,
     db_session: AsyncSession,
 ) -> None:
-    """Test fetching lines from API when cache is enabled but empty."""
+    """Test fetching lines from API when cache is enabled but empty (default modes)."""
     with freeze_time("2025-01-01 12:00:00"):
-        # Setup mock data
-        mock_lines = [
-            create_mock_line(id="victoria", name="Victoria"),
+        # Setup mock data for each mode
+        mock_tube = [create_mock_line(id="victoria", name="Victoria")]
+        mock_overground = [create_mock_line(id="overground", name="Overground")]
+        mock_dlr = [create_mock_line(id="dlr", name="DLR")]
+        mock_elizabeth = [create_mock_line(id="elizabeth", name="Elizabeth")]
+
+        mock_responses = [
+            MockResponse(data=mock_tube, shared_expires=datetime(2025, 1, 2, 12, 0, 0, tzinfo=UTC)),
+            MockResponse(data=mock_overground, shared_expires=datetime(2025, 1, 2, 12, 0, 0, tzinfo=UTC)),
+            MockResponse(data=mock_dlr, shared_expires=datetime(2025, 1, 2, 12, 0, 0, tzinfo=UTC)),
+            MockResponse(data=mock_elizabeth, shared_expires=datetime(2025, 1, 2, 12, 0, 0, tzinfo=UTC)),
         ]
 
-        # Execute with helper
-        lines = await assert_cache_miss(
-            tfl_service=tfl_service,
-            method_callable=lambda: tfl_service.fetch_lines(use_cache=True),
-            mock_data=mock_lines,
-            expected_count=1,
-            shared_expires=datetime(2025, 1, 2, 12, 0, 0, tzinfo=UTC),
-        )
+        with patch("asyncio.get_running_loop") as mock_get_loop:
+            mock_loop = AsyncMock()
+            mock_loop.run_in_executor = AsyncMock(side_effect=mock_responses)
+            mock_get_loop.return_value = mock_loop
 
-        # Verify specific attributes
-        assert lines[0].tfl_id == "victoria"
+            # Execute with cache enabled but empty
+            lines = await tfl_service.fetch_lines(use_cache=True)
+
+            # Verify we got all 4 lines (one from each mode)
+            assert len(lines) == 4
+            assert lines[0].tfl_id == "victoria"
+            assert lines[0].mode == "tube"
 
 
 async def test_fetch_lines_api_failure(
     tfl_service: TfLService,
 ) -> None:
-    """Test handling TfL API failure when fetching lines."""
+    """Test handling TfL API failure when fetching lines (default modes)."""
     await assert_api_failure(
         method_callable=lambda: tfl_service.fetch_lines(use_cache=False),
-        expected_error_message="Failed to fetch lines from TfL API",
+        expected_error_message="Failed to fetch lines from TfL API for modes",
     )
+
+
+async def test_fetch_lines_single_mode(
+    tfl_service: TfLService,
+    db_session: AsyncSession,
+) -> None:
+    """Test fetching lines for a single transport mode."""
+    with freeze_time("2025-01-01 12:00:00"):
+        # Setup mock data for tube only
+        mock_lines = [
+            create_mock_line(id="victoria", name="Victoria"),
+            create_mock_line(id="northern", name="Northern"),
+        ]
+
+        with patch("asyncio.get_running_loop") as mock_get_loop:
+            mock_response = MockResponse(
+                data=mock_lines,
+                shared_expires=datetime(2025, 1, 2, 12, 0, 0, tzinfo=UTC),
+            )
+
+            mock_loop = AsyncMock()
+            mock_loop.run_in_executor = AsyncMock(return_value=mock_response)
+            mock_get_loop.return_value = mock_loop
+
+            # Execute with single mode
+            lines = await tfl_service.fetch_lines(modes=["tube"], use_cache=False)
+
+            # Verify results
+            assert len(lines) == 2
+            assert lines[0].tfl_id == "victoria"
+            assert lines[0].mode == "tube"
+            assert lines[1].tfl_id == "northern"
+            assert lines[1].mode == "tube"
+
+            # Verify cache key is mode-specific
+            expected_cache_key = "lines:modes:tube"
+            tfl_service.cache.set.assert_called_once()
+            assert tfl_service.cache.set.call_args[0][0] == expected_cache_key
+
+
+async def test_fetch_lines_multiple_custom_modes(
+    tfl_service: TfLService,
+    db_session: AsyncSession,
+) -> None:
+    """Test fetching lines for multiple custom transport modes."""
+    with freeze_time("2025-01-01 12:00:00"):
+        # Setup mock data for overground and dlr
+        mock_overground = [create_mock_line(id="overground", name="Overground")]
+        mock_dlr = [create_mock_line(id="dlr", name="DLR")]
+
+        mock_responses = [
+            MockResponse(data=mock_overground, shared_expires=datetime(2025, 1, 2, 12, 0, 0, tzinfo=UTC)),
+            MockResponse(data=mock_dlr, shared_expires=datetime(2025, 1, 2, 12, 0, 0, tzinfo=UTC)),
+        ]
+
+        with patch("asyncio.get_running_loop") as mock_get_loop:
+            mock_loop = AsyncMock()
+            mock_loop.run_in_executor = AsyncMock(side_effect=mock_responses)
+            mock_get_loop.return_value = mock_loop
+
+            # Execute with custom modes
+            lines = await tfl_service.fetch_lines(modes=["overground", "dlr"], use_cache=False)
+
+            # Verify results
+            assert len(lines) == 2
+            assert lines[0].tfl_id == "overground"
+            assert lines[0].mode == "overground"
+            assert lines[1].tfl_id == "dlr"
+            assert lines[1].mode == "dlr"
+
+            # Verify cache key includes both modes (sorted)
+            expected_cache_key = "lines:modes:dlr,overground"
+            tfl_service.cache.set.assert_called_once()
+            assert tfl_service.cache.set.call_args[0][0] == expected_cache_key
+
+
+async def test_fetch_lines_empty_mode_list(
+    tfl_service: TfLService,
+    db_session: AsyncSession,
+) -> None:
+    """Test fetching lines with empty mode list returns no lines."""
+    with freeze_time("2025-01-01 12:00:00"):
+        # Execute with empty modes list
+        lines = await tfl_service.fetch_lines(modes=[], use_cache=False)
+
+        # Verify no lines returned
+        assert len(lines) == 0
+
+        # Verify cache still set (with empty result)
+        expected_cache_key = "lines:modes:"
+        tfl_service.cache.set.assert_called_once()
+        assert tfl_service.cache.set.call_args[0][0] == expected_cache_key
+
+
+@patch("asyncio.get_running_loop")
+async def test_fetch_lines_invalid_mode(
+    mock_get_loop: MagicMock,
+    tfl_service: TfLService,
+    db_session: AsyncSession,
+) -> None:
+    """Test fetching lines with an invalid/unknown mode returns no lines."""
+    with freeze_time("2025-01-01 12:00:00"):
+        # Setup mock response for invalid mode (empty array)
+        mock_empty_response = MockResponse(
+            data=[],  # TfL API returns empty array for invalid/unknown modes
+            shared_expires=datetime(2025, 1, 2, 12, 0, 0, tzinfo=UTC),
+        )
+
+        # Mock executor to return empty response
+        mock_loop = AsyncMock()
+        mock_loop.run_in_executor = AsyncMock(return_value=mock_empty_response)
+        mock_get_loop.return_value = mock_loop
+
+        # Execute with an invalid mode
+        lines = await tfl_service.fetch_lines(modes=["spaceship"], use_cache=False)
+
+        # Verify no lines returned
+        assert len(lines) == 0
+
+        # Verify cache set with the invalid mode in the key
+        expected_cache_key = "lines:modes:spaceship"
+        tfl_service.cache.set.assert_called_once()
+        assert tfl_service.cache.set.call_args[0][0] == expected_cache_key
 
 
 # ==================== fetch_stations Tests ====================
@@ -631,7 +883,7 @@ async def test_fetch_disruptions(
     mock_get_loop: MagicMock,
     tfl_service: TfLService,
 ) -> None:
-    """Test fetching line disruptions from TfL API."""
+    """Test fetching line disruptions from TfL API for a single mode."""
     with freeze_time("2025-01-01 12:00:00"):
         # Setup mock response with disruptions
         mock_disruptions = [
@@ -662,8 +914,8 @@ async def test_fetch_disruptions(
         mock_loop.run_in_executor = AsyncMock(return_value=mock_response)
         mock_get_loop.return_value = mock_loop
 
-        # Execute
-        disruptions = await tfl_service.fetch_line_disruptions(use_cache=False)
+        # Execute with explicit single mode
+        disruptions = await tfl_service.fetch_line_disruptions(modes=["tube"], use_cache=False)
 
         # Verify
         assert len(disruptions) == 2
@@ -707,8 +959,8 @@ async def test_fetch_disruptions_multiple_lines_per_disruption(
         mock_loop.run_in_executor = AsyncMock(return_value=mock_response)
         mock_get_loop.return_value = mock_loop
 
-        # Execute
-        disruptions = await tfl_service.fetch_line_disruptions(use_cache=False)
+        # Execute with single mode
+        disruptions = await tfl_service.fetch_line_disruptions(modes=["tube"], use_cache=False)
 
         # Verify - should create separate disruption response for each affected line
         assert len(disruptions) == 2
@@ -718,7 +970,7 @@ async def test_fetch_disruptions_multiple_lines_per_disruption(
 
 
 async def test_fetch_disruptions_cache_hit(tfl_service: TfLService) -> None:
-    """Test fetching line disruptions from cache when available."""
+    """Test fetching line disruptions from cache when available (default modes)."""
     # Setup cached disruptions
     cached_disruptions = [
         DisruptionResponse(
@@ -735,9 +987,10 @@ async def test_fetch_disruptions_cache_hit(tfl_service: TfLService) -> None:
     # Execute
     disruptions = await tfl_service.fetch_line_disruptions(use_cache=True)
 
-    # Verify cache was used
+    # Verify cache was used (default modes sorted: dlr,elizabeth-line,overground,tube)
     assert disruptions == cached_disruptions
-    tfl_service.cache.get.assert_called_once_with("line_disruptions:current")
+    expected_cache_key = "line_disruptions:modes:dlr,elizabeth-line,overground,tube"
+    tfl_service.cache.get.assert_called_once_with(expected_cache_key)
 
 
 @patch("asyncio.get_running_loop")
@@ -745,7 +998,7 @@ async def test_fetch_disruptions_cache_miss(
     mock_get_loop: MagicMock,
     tfl_service: TfLService,
 ) -> None:
-    """Test fetching line disruptions from API when cache is enabled but empty."""
+    """Test fetching line disruptions from API when cache is enabled but empty (single mode)."""
     with freeze_time("2025-01-01 12:00:00"):
         # Setup mock response
         mock_disruptions = [
@@ -771,8 +1024,8 @@ async def test_fetch_disruptions_cache_miss(
         # Cache returns None (miss)
         tfl_service.cache.get = AsyncMock(return_value=None)
 
-        # Execute with use_cache=True but cache is empty
-        disruptions = await tfl_service.fetch_line_disruptions(use_cache=True)
+        # Execute with use_cache=True but cache is empty, single mode
+        disruptions = await tfl_service.fetch_line_disruptions(modes=["tube"], use_cache=True)
 
         # Verify
         assert len(disruptions) == 1
@@ -832,8 +1085,8 @@ async def test_fetch_disruptions_without_affected_routes(
         mock_loop.run_in_executor = AsyncMock(return_value=mock_response)
         mock_get_loop.return_value = mock_loop
 
-        # Execute
-        disruptions = await tfl_service.fetch_line_disruptions(use_cache=False)
+        # Execute with single mode
+        disruptions = await tfl_service.fetch_line_disruptions(modes=["tube"], use_cache=False)
 
         # Verify - only disruption with affectedRoutes should be included
         assert len(disruptions) == 1
@@ -908,6 +1161,125 @@ def test_process_disruption_data_no_affected_routes(tfl_service: TfLService) -> 
 
     result = tfl_service._process_disruption_data([MockDisruption()])
     assert result == []
+
+
+@patch("asyncio.get_running_loop")
+async def test_fetch_disruptions_multiple_modes(
+    mock_get_loop: MagicMock,
+    tfl_service: TfLService,
+) -> None:
+    """Test fetching disruptions from multiple transport modes."""
+    with freeze_time("2025-01-01 12:00:00"):
+        # Setup mock responses for each mode
+        mock_tube_disruptions = [
+            create_mock_disruption(
+                category="RealTime",
+                category_description="Severe Delays",
+                category_description_detail=5,
+                description="Tube signal failure",
+                affected_routes=[create_mock_route_section(id="victoria", name="Victoria")],
+                created=datetime(2025, 1, 1, 11, 30, 0, tzinfo=UTC),
+            ),
+        ]
+        mock_overground_disruptions = [
+            create_mock_disruption(
+                category="PlannedWork",
+                category_description="Minor Delays",
+                category_description_detail=6,
+                description="Overground engineering works",
+                affected_routes=[create_mock_route_section(id="overground", name="Overground")],
+                created=datetime(2025, 1, 1, 10, 0, 0, tzinfo=UTC),
+            ),
+        ]
+
+        mock_responses = [
+            MockResponse(data=mock_tube_disruptions, shared_expires=datetime(2025, 1, 1, 12, 2, 0, tzinfo=UTC)),
+            MockResponse(data=mock_overground_disruptions, shared_expires=datetime(2025, 1, 1, 12, 2, 0, tzinfo=UTC)),
+        ]
+
+        # Mock the event loop and executor
+        mock_loop = AsyncMock()
+        mock_loop.run_in_executor = AsyncMock(side_effect=mock_responses)
+        mock_get_loop.return_value = mock_loop
+
+        # Execute with multiple modes
+        disruptions = await tfl_service.fetch_line_disruptions(modes=["tube", "overground"], use_cache=False)
+
+        # Verify we got disruptions from both modes
+        assert len(disruptions) == 2
+        line_ids = {d.line_id for d in disruptions}
+        assert "victoria" in line_ids
+        assert "overground" in line_ids
+
+        # Verify cache key includes both modes (sorted)
+        expected_cache_key = "line_disruptions:modes:overground,tube"
+        tfl_service.cache.set.assert_called_once()
+        assert tfl_service.cache.set.call_args[0][0] == expected_cache_key
+
+
+@patch("asyncio.get_running_loop")
+async def test_fetch_disruptions_default_modes(
+    mock_get_loop: MagicMock,
+    tfl_service: TfLService,
+) -> None:
+    """Test fetching disruptions with default modes (tube, overground, dlr, elizabeth-line)."""
+    with freeze_time("2025-01-01 12:00:00"):
+        # Setup mock responses for all default modes
+        mock_tube = [
+            create_mock_disruption(
+                category="RealTime",
+                category_description="Severe Delays",
+                category_description_detail=5,
+                description="Tube disruption",
+                affected_routes=[create_mock_route_section(id="victoria", name="Victoria")],
+            ),
+        ]
+        mock_overground = [
+            create_mock_disruption(
+                category="PlannedWork",
+                category_description="Part Closure",
+                category_description_detail=7,
+                description="Overground works",
+                affected_routes=[create_mock_route_section(id="overground", name="Overground")],
+            ),
+        ]
+        mock_dlr: list[Any] = []  # No disruptions on DLR
+        mock_elizabeth = [
+            create_mock_disruption(
+                category="RealTime",
+                category_description="Minor Delays",
+                category_description_detail=6,
+                description="Elizabeth line minor delays",
+                affected_routes=[create_mock_route_section(id="elizabeth", name="Elizabeth line")],
+            ),
+        ]
+
+        mock_responses = [
+            MockResponse(data=mock_tube, shared_expires=datetime(2025, 1, 1, 12, 2, 0, tzinfo=UTC)),
+            MockResponse(data=mock_overground, shared_expires=datetime(2025, 1, 1, 12, 2, 0, tzinfo=UTC)),
+            MockResponse(data=mock_dlr, shared_expires=datetime(2025, 1, 1, 12, 2, 0, tzinfo=UTC)),
+            MockResponse(data=mock_elizabeth, shared_expires=datetime(2025, 1, 1, 12, 2, 0, tzinfo=UTC)),
+        ]
+
+        # Mock the event loop and executor
+        mock_loop = AsyncMock()
+        mock_loop.run_in_executor = AsyncMock(side_effect=mock_responses)
+        mock_get_loop.return_value = mock_loop
+
+        # Execute with default modes (None)
+        disruptions = await tfl_service.fetch_line_disruptions(use_cache=False)
+
+        # Verify we got disruptions from all modes that have them
+        assert len(disruptions) == 3  # victoria, overground, elizabeth
+        line_ids = {d.line_id for d in disruptions}
+        assert "victoria" in line_ids
+        assert "overground" in line_ids
+        assert "elizabeth" in line_ids
+
+        # Verify cache key uses default modes (sorted)
+        expected_cache_key = "line_disruptions:modes:dlr,elizabeth-line,overground,tube"
+        tfl_service.cache.set.assert_called_once()
+        assert tfl_service.cache.set.call_args[0][0] == expected_cache_key
 
 
 # ==================== fetch_severity_codes Tests ====================
@@ -1231,7 +1603,7 @@ async def test_fetch_station_disruptions(
         mock_get_loop.return_value = mock_loop
 
         # Execute
-        disruptions = await tfl_service.fetch_station_disruptions(use_cache=False)
+        disruptions = await tfl_service.fetch_station_disruptions(modes=["tube"], use_cache=False)
 
         # Verify
         assert len(disruptions) == 2
@@ -1265,11 +1637,11 @@ async def test_fetch_station_disruptions_cache_hit(tfl_service: TfLService) -> N
     tfl_service.cache.get = AsyncMock(return_value=cached_disruptions)
 
     # Execute
-    disruptions = await tfl_service.fetch_station_disruptions(use_cache=True)
+    disruptions = await tfl_service.fetch_station_disruptions(modes=["tube"], use_cache=True)
 
     # Verify cache was used
     assert disruptions == cached_disruptions
-    tfl_service.cache.get.assert_called_once_with("station_disruptions:current")
+    tfl_service.cache.get.assert_called_once_with("station_disruptions:modes:tube")
 
 
 @patch("asyncio.get_running_loop")
@@ -1320,7 +1692,7 @@ async def test_fetch_station_disruptions_cache_miss(
         tfl_service.cache.get = AsyncMock(return_value=None)
 
         # Execute with use_cache=True but cache is empty
-        disruptions = await tfl_service.fetch_station_disruptions(use_cache=True)
+        disruptions = await tfl_service.fetch_station_disruptions(modes=["tube"], use_cache=True)
 
         # Verify
         assert len(disruptions) == 1
@@ -1350,6 +1722,99 @@ async def test_fetch_station_disruptions_api_failure(
 
     assert exc_info.value.status_code == 503
     assert "Failed to fetch station disruptions from TfL API" in exc_info.value.detail
+
+
+@patch("asyncio.get_running_loop")
+async def test_fetch_station_disruptions_multiple_modes(
+    mock_get_loop: MagicMock,
+    tfl_service: TfLService,
+    db_session: AsyncSession,
+) -> None:
+    """Test fetching station disruptions with multiple modes."""
+    with freeze_time("2025-01-01 12:00:00"):
+        # Create test stations in database
+        station_kx = Station(
+            tfl_id="940GZZLUKSX",
+            name="King's Cross",
+            latitude=51.5308,
+            longitude=-0.1238,
+            lines=["victoria", "overground"],
+            last_updated=datetime.now(UTC),
+        )
+        station_stfd = Station(
+            tfl_id="910GSTFD",
+            name="Stratford",
+            latitude=51.5416,
+            longitude=-0.0042,
+            lines=["dlr"],
+            last_updated=datetime.now(UTC),
+        )
+        db_session.add_all([station_kx, station_stfd])
+        await db_session.commit()
+        await db_session.refresh(station_kx)
+        await db_session.refresh(station_stfd)
+
+        # Setup mock responses for tube and dlr modes
+        mock_tube_disruptions = [
+            MockStationDisruption(
+                id="disruption-tube-1",
+                category="RealTime",
+                categoryDescription="Lift Closure",
+                description="Lift out of service at King's Cross",
+                affectedStops=[
+                    create_mock_stop_point(id="940GZZLUKSX", common_name="King's Cross"),
+                ],
+                created=datetime(2025, 1, 1, 11, 30, 0, tzinfo=UTC),
+            ),
+        ]
+        mock_dlr_disruptions = [
+            MockStationDisruption(
+                id="disruption-dlr-1",
+                category="RealTime",
+                categoryDescription="Platform Closure",
+                description="Platform 2 closed at Stratford",
+                affectedStops=[
+                    create_mock_stop_point(id="910GSTFD", common_name="Stratford"),
+                ],
+                created=datetime(2025, 1, 1, 11, 45, 0, tzinfo=UTC),
+            ),
+        ]
+
+        mock_tube_response = MockResponse(
+            data=mock_tube_disruptions,
+            shared_expires=datetime(2025, 1, 1, 12, 2, 0, tzinfo=UTC),
+        )
+        mock_dlr_response = MockResponse(
+            data=mock_dlr_disruptions,
+            shared_expires=datetime(2025, 1, 1, 12, 2, 0, tzinfo=UTC),
+        )
+
+        # Mock executor to return different responses for each mode
+        call_count = [0]
+
+        async def mock_executor(*args: Any) -> Any:  # noqa: ANN401
+            result = [mock_tube_response, mock_dlr_response][call_count[0]]
+            call_count[0] += 1
+            return result
+
+        mock_loop = AsyncMock()
+        mock_loop.run_in_executor = AsyncMock(side_effect=mock_executor)
+        mock_get_loop.return_value = mock_loop
+
+        # Execute with multiple modes
+        disruptions = await tfl_service.fetch_station_disruptions(modes=["tube", "dlr"], use_cache=False)
+
+        # Verify disruptions from both modes were returned
+        assert len(disruptions) == 2
+
+        # Verify cache key includes both modes (sorted)
+        expected_cache_key = "station_disruptions:modes:dlr,tube"
+        tfl_service.cache.set.assert_called_once()
+        assert tfl_service.cache.set.call_args[0][0] == expected_cache_key
+
+        # Verify disruptions contain data from both modes
+        station_ids = {d.station_tfl_id for d in disruptions}
+        assert station_ids == {"940GZZLUKSX", "910GSTFD"}
 
 
 @patch("asyncio.get_running_loop")
@@ -1520,7 +1985,7 @@ async def test_fetch_station_disruptions_uses_helpers(
 
     # Test fetch
     tfl_service = TfLService(db_session)
-    results = await tfl_service.fetch_station_disruptions(use_cache=False)
+    results = await tfl_service.fetch_station_disruptions(modes=["tube"], use_cache=False)
 
     # Verify helpers were used (result should contain the disruption)
     assert len(results) == 1
@@ -1547,11 +2012,16 @@ async def test_build_station_graph(
     """
     with freeze_time("2025-01-01 12:00:00"):
         # Mock responses for fetch_lines (called first in build_station_graph)
-        mock_lines = [
+        # Only return lines for tube mode, empty for others to keep test simple
+        mock_tube_lines = [
             create_mock_line(id="victoria", name="Victoria"),
         ]
-        mock_lines_response = MockResponse(
-            data=mock_lines,
+        mock_tube_response = MockResponse(
+            data=mock_tube_lines,
+            shared_expires=datetime(2025, 1, 2, 12, 0, 0, tzinfo=UTC),
+        )
+        mock_empty_response = MockResponse(
+            data=[],  # No lines for other modes
             shared_expires=datetime(2025, 1, 2, 12, 0, 0, tzinfo=UTC),
         )
 
@@ -1590,8 +2060,17 @@ async def test_build_station_graph(
         mock_outbound_response = MockRouteResponse(content=mock_route_sequence)
 
         # Mock the event loop - cycle through responses
-        # Order: lines, stations (for victoria line), inbound route, outbound route
-        responses = [mock_lines_response, mock_stations_response, mock_inbound_response, mock_outbound_response]
+        # Order: 4x lines (tube/overground/dlr/elizabeth-line), stations (victoria line),
+        # inbound route, outbound route
+        responses = [
+            mock_tube_response,  # tube lines (has 1 line)
+            mock_empty_response,  # overground lines (empty)
+            mock_empty_response,  # dlr lines (empty)
+            mock_empty_response,  # elizabeth lines (empty)
+            mock_stations_response,
+            mock_inbound_response,
+            mock_outbound_response,
+        ]
         call_count = [0]
 
         async def mock_executor(*args: Any) -> Any:  # noqa: ANN401
@@ -1645,8 +2124,14 @@ async def test_build_station_graph_fails_without_stations(
             shared_expires=datetime(2025, 1, 2, 12, 0, 0, tzinfo=UTC),
         )
 
-        # Mock the event loop
-        responses = [mock_lines_response, mock_stations_response]
+        # Mock the event loop - need 4 responses for each mode
+        responses = [
+            mock_lines_response,  # tube (has 1 line)
+            MockResponse(data=[], shared_expires=datetime(2025, 1, 2, 12, 0, 0, tzinfo=UTC)),  # overground (empty)
+            MockResponse(data=[], shared_expires=datetime(2025, 1, 2, 12, 0, 0, tzinfo=UTC)),  # dlr (empty)
+            MockResponse(data=[], shared_expires=datetime(2025, 1, 2, 12, 0, 0, tzinfo=UTC)),  # elizabeth (empty)
+            mock_stations_response,
+        ]
         call_count = [0]
 
         async def mock_executor(*args: Any) -> Any:  # noqa: ANN401
@@ -1785,8 +2270,16 @@ async def test_build_station_graph_no_duplicate_connections(
         mock_inbound_response = MockRouteResponse(content=mock_inbound_sequence)
         mock_outbound_response = MockRouteResponse(content=mock_outbound_sequence)
 
-        # Mock the event loop
-        responses = [mock_lines_response, mock_stations_response, mock_inbound_response, mock_outbound_response]
+        # Mock the event loop - need 4x lines, then stations, then routes
+        responses = [
+            mock_lines_response,  # tube (has 1 line)
+            MockResponse(data=[], shared_expires=datetime(2025, 1, 2, 12, 0, 0, tzinfo=UTC)),  # overground (empty)
+            MockResponse(data=[], shared_expires=datetime(2025, 1, 2, 12, 0, 0, tzinfo=UTC)),  # dlr (empty)
+            MockResponse(data=[], shared_expires=datetime(2025, 1, 2, 12, 0, 0, tzinfo=UTC)),  # elizabeth (empty)
+            mock_stations_response,
+            mock_inbound_response,
+            mock_outbound_response,
+        ]
         call_count = [0]
 
         async def mock_executor(*args: Any) -> Any:  # noqa: ANN401
@@ -1819,6 +2312,149 @@ async def test_build_station_graph_no_duplicate_connections(
             key = (str(conn.from_station_id), str(conn.to_station_id), str(conn.line_id))
             assert key not in connection_keys, f"Duplicate connection found: {key}"
             connection_keys.add(key)
+
+
+@patch("asyncio.get_running_loop")
+async def test_build_station_graph_multiple_modes(
+    mock_get_loop: MagicMock,
+    tfl_service: TfLService,
+    db_session: AsyncSession,
+) -> None:
+    """Test build_station_graph with lines from multiple transport modes."""
+    with freeze_time("2025-01-01 12:00:00"):
+        # Define local MockRouteResponse for this test
+        class MockRouteResponse:
+            def __init__(self, content: MockRouteSequence) -> None:
+                self.content = content
+
+        # Mock responses for fetch_lines - tube and DLR
+        mock_tube_lines = [
+            create_mock_line(id="victoria", name="Victoria"),
+        ]
+        mock_dlr_lines = [
+            create_mock_line(id="dlr", name="DLR"),
+        ]
+        mock_tube_response = MockResponse(
+            data=mock_tube_lines,
+            shared_expires=datetime(2025, 1, 2, 12, 0, 0, tzinfo=UTC),
+        )
+        mock_dlr_response = MockResponse(
+            data=mock_dlr_lines,
+            shared_expires=datetime(2025, 1, 2, 12, 0, 0, tzinfo=UTC),
+        )
+        mock_empty_response = MockResponse(
+            data=[],
+            shared_expires=datetime(2025, 1, 2, 12, 0, 0, tzinfo=UTC),
+        )
+
+        # Mock stations for Victoria line
+        mock_victoria_stations = [
+            create_mock_place(id="940GZZLUKSX", common_name="King's Cross", lat=51.5308, lon=-0.1238),
+            create_mock_place(id="940GZZLUOXC", common_name="Oxford Circus", lat=51.5152, lon=-0.1419),
+        ]
+        mock_victoria_stations_response = MockResponse(
+            data=mock_victoria_stations,
+            shared_expires=datetime(2025, 1, 2, 12, 0, 0, tzinfo=UTC),
+        )
+
+        # Mock stations for DLR line
+        mock_dlr_stations = [
+            create_mock_place(id="910GSTFD", common_name="Stratford", lat=51.5416, lon=-0.0042),
+            create_mock_place(id="910GCANNING", common_name="Canning Town", lat=51.5145, lon=0.0082),
+        ]
+        mock_dlr_stations_response = MockResponse(
+            data=mock_dlr_stations,
+            shared_expires=datetime(2025, 1, 2, 12, 0, 0, tzinfo=UTC),
+        )
+
+        # Mock route sequences for Victoria line
+        victoria_inbound_stops = [
+            MockStopPoint2(id="940GZZLUKSX", name="King's Cross"),
+            MockStopPoint2(id="940GZZLUOXC", name="Oxford Circus"),
+        ]
+        mock_victoria_inbound = MockRouteResponse(
+            content=MockRouteSequence(stopPointSequences=[MockStopPointSequence2(stopPoint=victoria_inbound_stops)])
+        )
+        victoria_outbound_stops = [
+            MockStopPoint2(id="940GZZLUOXC", name="Oxford Circus"),
+            MockStopPoint2(id="940GZZLUKSX", name="King's Cross"),
+        ]
+        mock_victoria_outbound = MockRouteResponse(
+            content=MockRouteSequence(stopPointSequences=[MockStopPointSequence2(stopPoint=victoria_outbound_stops)])
+        )
+
+        # Mock route sequences for DLR line
+        dlr_inbound_stops = [
+            MockStopPoint2(id="910GSTFD", name="Stratford"),
+            MockStopPoint2(id="910GCANNING", name="Canning Town"),
+        ]
+        mock_dlr_inbound = MockRouteResponse(
+            content=MockRouteSequence(stopPointSequences=[MockStopPointSequence2(stopPoint=dlr_inbound_stops)])
+        )
+        dlr_outbound_stops = [
+            MockStopPoint2(id="910GCANNING", name="Canning Town"),
+            MockStopPoint2(id="910GSTFD", name="Stratford"),
+        ]
+        mock_dlr_outbound = MockRouteResponse(
+            content=MockRouteSequence(stopPointSequences=[MockStopPointSequence2(stopPoint=dlr_outbound_stops)])
+        )
+
+        # Setup responses in order - build_station_graph calls:
+        # 1. fetch_lines (4 calls - one per mode)
+        # 2. fetch_stations for ALL lines FIRST (2 calls - victoria, dlr)
+        # 3. fetch routes for each line (4 calls - vic in/out, dlr in/out)
+        responses = [
+            # fetch_lines calls (4 total - tube, overground, dlr, elizabeth-line)
+            mock_tube_response,  # 0: tube lines (has victoria)
+            mock_empty_response,  # 1: overground lines (empty)
+            mock_dlr_response,  # 2: dlr lines (has dlr)
+            mock_empty_response,  # 3: elizabeth lines (empty)
+            # fetch_stations for ALL lines (2 calls)
+            mock_victoria_stations_response,  # 4: victoria stations
+            mock_dlr_stations_response,  # 5: dlr stations
+            # fetch routes for Victoria line (2 calls)
+            mock_victoria_inbound,  # 6: victoria inbound route
+            mock_victoria_outbound,  # 7: victoria outbound route
+            # fetch routes for DLR line (2 calls)
+            mock_dlr_inbound,  # 8: dlr inbound route
+            mock_dlr_outbound,  # 9: dlr outbound route
+        ]
+        call_count = [0]
+
+        async def mock_executor(*args: Any) -> Any:  # noqa: ANN401
+            result = responses[call_count[0]]
+            call_count[0] += 1
+            return result
+
+        mock_loop = AsyncMock()
+        mock_loop.run_in_executor = AsyncMock(side_effect=mock_executor)
+        mock_get_loop.return_value = mock_loop
+
+        # Execute
+        result = await tfl_service.build_station_graph()
+
+        # Verify result includes lines from multiple modes
+        assert result["lines_count"] == 2  # Victoria (tube) + DLR
+        assert result["stations_count"] == 4  # 2 from Victoria + 2 from DLR
+        assert result["connections_count"] == 4  # 2 from Victoria + 2 from DLR (bidirectional)
+
+        # Verify lines were created with correct modes
+        lines_result = await db_session.execute(select(Line))
+        lines = lines_result.scalars().all()
+        assert len(lines) == 2
+
+        line_modes = {line.tfl_id: line.mode for line in lines}
+        assert line_modes["victoria"] == "tube"
+        assert line_modes["dlr"] == "dlr"
+
+        # Verify stations from both modes were created
+        stations_result = await db_session.execute(select(Station))
+        stations = stations_result.scalars().all()
+        assert len(stations) == 4
+
+        station_ids = {s.tfl_id for s in stations}
+        assert "940GZZLUKSX" in station_ids  # Victoria line station
+        assert "910GSTFD" in station_ids  # DLR station
 
 
 # ==================== validate_route Tests ====================
@@ -1869,9 +2505,9 @@ async def test_validate_route_success(
 
     # Create route segments
     segments = [
-        RouteSegmentRequest(station_id=station1.id, line_id=line.id),
-        RouteSegmentRequest(station_id=station2.id, line_id=line.id),
-        RouteSegmentRequest(station_id=station3.id, line_id=line.id),
+        RouteSegmentRequest(station_tfl_id=station1.tfl_id, line_tfl_id=line.tfl_id),
+        RouteSegmentRequest(station_tfl_id=station2.tfl_id, line_tfl_id=line.tfl_id),
+        RouteSegmentRequest(station_tfl_id=station3.tfl_id, line_tfl_id=line.tfl_id),
     ]
 
     # Execute
@@ -1941,8 +2577,8 @@ async def test_validate_route_multiple_paths(
     # During BFS from A to D, we'll explore both paths (A->B->D and A->C->D)
     # When processing C's connections after B's, D will already be visited
     segments = [
-        RouteSegmentRequest(station_id=station_a.id, line_id=line.id),
-        RouteSegmentRequest(station_id=station_d.id, line_id=line.id),
+        RouteSegmentRequest(station_tfl_id=station_a.tfl_id, line_tfl_id=line.tfl_id),
+        RouteSegmentRequest(station_tfl_id=station_d.tfl_id, line_tfl_id=line.tfl_id),
     ]
 
     # Execute
@@ -1987,8 +2623,8 @@ async def test_validate_route_invalid_connection(
 
     # Create route segments
     segments = [
-        RouteSegmentRequest(station_id=station1.id, line_id=line.id),
-        RouteSegmentRequest(station_id=station2.id, line_id=line.id),
+        RouteSegmentRequest(station_tfl_id=station1.tfl_id, line_tfl_id=line.tfl_id),
+        RouteSegmentRequest(station_tfl_id=station2.tfl_id, line_tfl_id=line.tfl_id),
     ]
 
     # Execute
@@ -2019,7 +2655,7 @@ async def test_validate_route_too_few_segments(
     await db_session.commit()
 
     # Only one segment
-    segments = [RouteSegmentRequest(station_id=station1.id, line_id=line.id)]
+    segments = [RouteSegmentRequest(station_tfl_id=station1.tfl_id, line_tfl_id=line.tfl_id)]
 
     # Execute
     is_valid, message, _invalid_segment = await tfl_service.validate_route(segments)
@@ -2047,21 +2683,20 @@ async def test_validate_route_with_nonexistent_station_or_line(
     db_session.add_all([line, station1])
     await db_session.commit()
 
-    # Use non-existent station and line IDs
-    fake_station_id = uuid.uuid4()
-    fake_line_id = uuid.uuid4()
+    # Use non-existent station TfL ID
+    fake_station_id = "fake_station"
     segments = [
-        RouteSegmentRequest(station_id=station1.id, line_id=line.id),
-        RouteSegmentRequest(station_id=fake_station_id, line_id=fake_line_id),
+        RouteSegmentRequest(station_tfl_id=station1.tfl_id, line_tfl_id=line.tfl_id),
+        RouteSegmentRequest(station_tfl_id=fake_station_id, line_tfl_id=line.tfl_id),
     ]
 
-    # Execute
-    is_valid, message, invalid_segment = await tfl_service.validate_route(segments)
+    # Execute - should raise 404 for non-existent station
+    with pytest.raises(HTTPException) as exc_info:
+        await tfl_service.validate_route(segments)
 
-    # Verify - should fail because connection doesn't exist
-    assert is_valid is False
-    assert "no connection" in message.lower()
-    assert invalid_segment == 0
+    # Verify - should fail with 404
+    assert exc_info.value.status_code == 404
+    assert "fake_station" in str(exc_info.value.detail).lower()
 
 
 async def test_validate_route_with_deleted_stations(
@@ -2104,8 +2739,8 @@ async def test_validate_route_with_deleted_stations(
 
     # Create route segments
     segments = [
-        RouteSegmentRequest(station_id=station1.id, line_id=line.id),
-        RouteSegmentRequest(station_id=station2.id, line_id=line.id),
+        RouteSegmentRequest(station_tfl_id=station1.tfl_id, line_tfl_id=line.tfl_id),
+        RouteSegmentRequest(station_tfl_id=station2.tfl_id, line_tfl_id=line.tfl_id),
     ]
 
     # Execute - current implementation doesn't filter by deleted_at,
@@ -2972,7 +3607,7 @@ async def test_fetch_route_sequence_no_stop_points(
     tfl_service: TfLService,
     db_session: AsyncSession,
 ) -> None:
-    """Test _fetch_route_sequence returns empty list when no stopPointSequences (covers line 976)."""
+    """Test _fetch_route_sequence returns route data even when no stopPointSequences."""
     # Create line
     line = Line(tfl_id="victoria", name="Victoria", color="#000000", last_updated=datetime.now(UTC))
     db_session.add(line)
@@ -2991,10 +3626,11 @@ async def test_fetch_route_sequence_no_stop_points(
 
     # Execute
     tfl_service_instance = TfLService(db_session)
-    sequences = await tfl_service_instance._fetch_route_sequence(line.tfl_id, "inbound")
+    route_data = await tfl_service_instance._fetch_route_sequence(line.tfl_id, "inbound")
 
-    # Should return empty list
-    assert sequences == []
+    # Should return the route data object (not a list anymore)
+    assert route_data is not None
+    assert isinstance(route_data, MockRouteNoSequences)
 
 
 @patch("asyncio.get_running_loop")
@@ -3027,11 +3663,14 @@ async def test_process_route_sequence_empty_stop_points(
     # Execute
     stations_set: set[str] = set()
     pending_connections: set[tuple[uuid.UUID, uuid.UUID, uuid.UUID]] = set()
-    count = await tfl_service._process_route_sequence(line, "inbound", stations_set, pending_connections)
+    count, route_data = await tfl_service._process_route_sequence(line, "inbound", stations_set, pending_connections)
 
-    # Should skip sequence without stopPoint and return 0
+    # Should skip sequence without stopPoint and return 0 connections
     assert count == 0
     assert len(stations_set) == 0
+    # Should still return route data
+    assert route_data is not None
+    assert isinstance(route_data, MockRouteWithEmptySequence)
 
 
 # ==================== Phase 3: Error Propagation Tests ====================
@@ -3141,3 +3780,663 @@ async def test_fetch_stations_api_error_handling(
 
     assert exc_info.value.status_code == 503
     assert "Failed to fetch stations from TfL API" in exc_info.value.detail
+
+
+# ==================== Route Sequences Tests ====================
+# Note: MockOrderedRoute and MockRouteSequence are defined at the top of this file
+
+
+# ==================== _store_line_routes Tests ====================
+
+
+async def test_store_line_routes_regular_service(db_session: AsyncSession) -> None:
+    """Test storing line routes with Regular service type."""
+    # Setup
+    line = Line(
+        tfl_id="victoria",
+        name="Victoria",
+        color="#0019A8",
+        mode="tube",
+        last_updated=datetime.now(UTC),
+    )
+    db_session.add(line)
+    await db_session.commit()
+
+    # Create mock route data
+    inbound_routes = [
+        MockOrderedRoute(
+            name="Walthamstow Central → Brixton",
+            service_type="Regular",
+            naptan_ids=["940GZZLUWAC", "940GZZLUVIC", "940GZZLUBXN"],
+        )
+    ]
+    outbound_routes = [
+        MockOrderedRoute(
+            name="Brixton → Walthamstow Central",
+            service_type="Regular",
+            naptan_ids=["940GZZLUBXN", "940GZZLUVIC", "940GZZLUWAC"],
+        )
+    ]
+    inbound_data = MockRouteSequence(orderedLineRoutes=inbound_routes)
+    outbound_data = MockRouteSequence(orderedLineRoutes=outbound_routes)
+
+    # Execute
+    tfl_service = TfLService(db_session)
+    tfl_service._store_line_routes(line, inbound_data, outbound_data)
+
+    # Verify
+    assert line.routes is not None
+    assert "routes" in line.routes
+    routes = line.routes["routes"]
+    assert len(routes) == 2
+
+    # Check inbound route
+    inbound = routes[0]
+    assert inbound["name"] == "Walthamstow Central → Brixton"
+    assert inbound["service_type"] == "Regular"
+    assert inbound["direction"] == "inbound"
+    assert inbound["stations"] == ["940GZZLUWAC", "940GZZLUVIC", "940GZZLUBXN"]
+
+    # Check outbound route
+    outbound = routes[1]
+    assert outbound["name"] == "Brixton → Walthamstow Central"
+    assert outbound["service_type"] == "Regular"
+    assert outbound["direction"] == "outbound"
+    assert outbound["stations"] == ["940GZZLUBXN", "940GZZLUVIC", "940GZZLUWAC"]
+
+
+async def test_store_line_routes_skip_night_service(db_session: AsyncSession) -> None:
+    """Test that Night service routes are skipped (not Regular)."""
+    # Setup
+    line = Line(
+        tfl_id="victoria",
+        name="Victoria",
+        color="#0019A8",
+        mode="tube",
+        last_updated=datetime.now(UTC),
+    )
+    db_session.add(line)
+    await db_session.commit()
+
+    # Create mixed service type routes
+    inbound_routes = [
+        MockOrderedRoute(
+            name="Regular Route",
+            service_type="Regular",
+            naptan_ids=["940GZZLUVIC", "940GZZLUGPK"],
+        ),
+        MockOrderedRoute(
+            name="Night Route",
+            service_type="Night",
+            naptan_ids=["940GZZLUVIC", "940GZZLUGPK"],
+        ),
+    ]
+    inbound_data = MockRouteSequence(orderedLineRoutes=inbound_routes)
+
+    # Execute
+    tfl_service = TfLService(db_session)
+    tfl_service._store_line_routes(line, inbound_data, None)
+
+    # Verify - only Regular service should be stored
+    assert line.routes is not None
+    routes = line.routes["routes"]
+    assert len(routes) == 1
+    assert routes[0]["name"] == "Regular Route"
+    assert routes[0]["service_type"] == "Regular"
+
+
+async def test_store_line_routes_none_data(db_session: AsyncSession) -> None:
+    """Test storing line routes when both inbound and outbound data are None."""
+    # Setup
+    line = Line(
+        tfl_id="victoria",
+        name="Victoria",
+        color="#0019A8",
+        mode="tube",
+        last_updated=datetime.now(UTC),
+    )
+    db_session.add(line)
+    await db_session.commit()
+
+    # Execute with None data
+    tfl_service = TfLService(db_session)
+    tfl_service._store_line_routes(line, None, None)
+
+    # Verify - routes should not be set
+    assert line.routes is None
+
+
+async def test_store_line_routes_empty_ordered_routes(db_session: AsyncSession) -> None:
+    """Test storing line routes when orderedLineRoutes is empty."""
+    # Setup
+    line = Line(
+        tfl_id="victoria",
+        name="Victoria",
+        color="#0019A8",
+        mode="tube",
+        last_updated=datetime.now(UTC),
+    )
+    db_session.add(line)
+    await db_session.commit()
+
+    # Create route data with empty orderedLineRoutes
+    inbound_data = MockRouteSequence(orderedLineRoutes=[])
+
+    # Execute
+    tfl_service = TfLService(db_session)
+    tfl_service._store_line_routes(line, inbound_data, None)
+
+    # Verify - routes should not be set
+    assert line.routes is None
+
+
+async def test_store_line_routes_no_naptan_ids(db_session: AsyncSession) -> None:
+    """Test storing line routes when route has no naptanIds."""
+    # Setup
+    line = Line(
+        tfl_id="victoria",
+        name="Victoria",
+        color="#0019A8",
+        mode="tube",
+        last_updated=datetime.now(UTC),
+    )
+    db_session.add(line)
+    await db_session.commit()
+
+    # Create route with empty naptanIds
+    inbound_routes = [
+        MockOrderedRoute(
+            name="Empty Route",
+            service_type="Regular",
+            naptan_ids=[],
+        )
+    ]
+    inbound_data = MockRouteSequence(orderedLineRoutes=inbound_routes)
+
+    # Execute
+    tfl_service = TfLService(db_session)
+    tfl_service._store_line_routes(line, inbound_data, None)
+
+    # Verify - routes should not be set (route was skipped)
+    assert line.routes is None
+
+
+async def test_store_line_routes_no_ordered_routes_attr(db_session: AsyncSession) -> None:
+    """Test storing line routes when data has no orderedLineRoutes attribute."""
+    # Setup
+    line = Line(
+        tfl_id="victoria",
+        name="Victoria",
+        color="#0019A8",
+        mode="tube",
+        last_updated=datetime.now(UTC),
+    )
+    db_session.add(line)
+    await db_session.commit()
+
+    # Create mock data without orderedLineRoutes attribute
+    class MockDataWithoutRoutes:
+        pass
+
+    inbound_data = MockDataWithoutRoutes()
+
+    # Execute
+    tfl_service = TfLService(db_session)
+    tfl_service._store_line_routes(line, inbound_data, None)
+
+    # Verify - routes should not be set
+    assert line.routes is None
+
+
+async def test_store_line_routes_only_inbound(db_session: AsyncSession) -> None:
+    """Test storing line routes with only inbound data."""
+    # Setup
+    line = Line(
+        tfl_id="victoria",
+        name="Victoria",
+        color="#0019A8",
+        mode="tube",
+        last_updated=datetime.now(UTC),
+    )
+    db_session.add(line)
+    await db_session.commit()
+
+    # Create only inbound routes
+    inbound_routes = [
+        MockOrderedRoute(
+            name="Inbound Route",
+            service_type="Regular",
+            naptan_ids=["940GZZLUVIC", "940GZZLUGPK"],
+        )
+    ]
+    inbound_data = MockRouteSequence(orderedLineRoutes=inbound_routes)
+
+    # Execute
+    tfl_service = TfLService(db_session)
+    tfl_service._store_line_routes(line, inbound_data, None)
+
+    # Verify
+    assert line.routes is not None
+    routes = line.routes["routes"]
+    assert len(routes) == 1
+    assert routes[0]["direction"] == "inbound"
+
+
+async def test_store_line_routes_only_outbound(db_session: AsyncSession) -> None:
+    """Test storing line routes with only outbound data."""
+    # Setup
+    line = Line(
+        tfl_id="victoria",
+        name="Victoria",
+        color="#0019A8",
+        mode="tube",
+        last_updated=datetime.now(UTC),
+    )
+    db_session.add(line)
+    await db_session.commit()
+
+    # Create only outbound routes
+    outbound_routes = [
+        MockOrderedRoute(
+            name="Outbound Route",
+            service_type="Regular",
+            naptan_ids=["940GZZLUGPK", "940GZZLUVIC"],
+        )
+    ]
+    outbound_data = MockRouteSequence(orderedLineRoutes=outbound_routes)
+
+    # Execute
+    tfl_service = TfLService(db_session)
+    tfl_service._store_line_routes(line, None, outbound_data)
+
+    # Verify
+    assert line.routes is not None
+    routes = line.routes["routes"]
+    assert len(routes) == 1
+    assert routes[0]["direction"] == "outbound"
+
+
+# ==================== get_line_routes Tests ====================
+
+
+async def test_get_line_routes_success(db_session: AsyncSession) -> None:
+    """Test successful retrieval of line routes."""
+    # Setup - create line with routes
+    line = Line(
+        tfl_id="victoria",
+        name="Victoria",
+        color="#0019A8",
+        mode="tube",
+        last_updated=datetime.now(UTC),
+        routes={
+            "routes": [
+                {
+                    "name": "Route 1",
+                    "service_type": "Regular",
+                    "direction": "inbound",
+                    "stations": ["940GZZLUVIC", "940GZZLUGPK"],
+                }
+            ]
+        },
+    )
+    db_session.add(line)
+    await db_session.commit()
+
+    # Execute
+    tfl_service = TfLService(db_session)
+    result = await tfl_service.get_line_routes("victoria")
+
+    # Verify
+    assert result is not None
+    assert result["line_tfl_id"] == "victoria"
+    assert len(result["routes"]) == 1
+    assert result["routes"][0]["name"] == "Route 1"
+    assert result["routes"][0]["service_type"] == "Regular"
+    assert result["routes"][0]["direction"] == "inbound"
+    assert result["routes"][0]["stations"] == ["940GZZLUVIC", "940GZZLUGPK"]
+
+
+async def test_get_line_routes_line_not_found(db_session: AsyncSession) -> None:
+    """Test get_line_routes when line does not exist."""
+    # Execute
+    tfl_service = TfLService(db_session)
+
+    # Verify - should raise 404
+    with pytest.raises(HTTPException) as exc_info:
+        await tfl_service.get_line_routes("nonexistent-line")
+
+    assert exc_info.value.status_code == status.HTTP_404_NOT_FOUND
+    assert "Line 'nonexistent-line' not found" in exc_info.value.detail
+
+
+async def test_get_line_routes_not_built(db_session: AsyncSession) -> None:
+    """Test get_line_routes when routes have not been built yet."""
+    # Setup - create line without routes
+    line = Line(
+        tfl_id="victoria",
+        name="Victoria",
+        color="#0019A8",
+        mode="tube",
+        last_updated=datetime.now(UTC),
+    )
+    db_session.add(line)
+    await db_session.commit()
+
+    # Execute
+    tfl_service = TfLService(db_session)
+
+    # Verify - should raise 503
+    with pytest.raises(HTTPException) as exc_info:
+        await tfl_service.get_line_routes("victoria")
+
+    assert exc_info.value.status_code == status.HTTP_503_SERVICE_UNAVAILABLE
+    assert "Route data has not been built yet" in exc_info.value.detail
+
+
+async def test_get_line_routes_empty_routes(db_session: AsyncSession) -> None:
+    """Test get_line_routes when routes field exists but is empty."""
+    # Setup - create line with empty routes
+    line = Line(
+        tfl_id="victoria",
+        name="Victoria",
+        color="#0019A8",
+        mode="tube",
+        last_updated=datetime.now(UTC),
+        routes={},
+    )
+    db_session.add(line)
+    await db_session.commit()
+
+    # Execute
+    tfl_service = TfLService(db_session)
+    result = await tfl_service.get_line_routes("victoria")
+
+    # Verify - should return empty routes list
+    assert result is not None
+    assert result["line_tfl_id"] == "victoria"
+    assert result["routes"] == []
+
+
+@patch("app.services.tfl_service.logger")
+async def test_get_line_routes_database_error(
+    mock_logger: MagicMock,
+    db_session: AsyncSession,
+) -> None:
+    """Test get_line_routes when database error occurs."""
+    # Setup - create service with a session that will fail
+    tfl_service = TfLService(db_session)
+
+    # Mock the database execute to raise an exception (not HTTPException)
+    with patch.object(
+        db_session,
+        "execute",
+        side_effect=Exception("Database connection error"),
+    ):
+        # Verify - should raise 500
+        with pytest.raises(HTTPException) as exc_info:
+            await tfl_service.get_line_routes("victoria")
+
+        assert exc_info.value.status_code == status.HTTP_500_INTERNAL_SERVER_ERROR
+        assert "Failed to fetch routes for line 'victoria'" in exc_info.value.detail
+
+
+# ==================== get_station_routes Tests ====================
+
+
+async def test_get_station_routes_success(db_session: AsyncSession) -> None:
+    """Test successful retrieval of station routes."""
+    # Setup - create station with lines and routes
+    station = Station(
+        tfl_id="940GZZLUVIC",
+        name="Victoria",
+        latitude=51.4965,
+        longitude=-0.1447,
+        lines=["victoria", "district"],
+        last_updated=datetime.now(UTC),
+    )
+    line1 = Line(
+        tfl_id="victoria",
+        name="Victoria",
+        color="#0019A8",
+        mode="tube",
+        last_updated=datetime.now(UTC),
+        routes={
+            "routes": [
+                {
+                    "name": "Route 1",
+                    "service_type": "Regular",
+                    "direction": "inbound",
+                    "stations": ["940GZZLUVIC", "940GZZLUGPK"],
+                }
+            ]
+        },
+    )
+    line2 = Line(
+        tfl_id="district",
+        name="District",
+        color="#00782A",
+        mode="tube",
+        last_updated=datetime.now(UTC),
+        routes={
+            "routes": [
+                {
+                    "name": "Route 2",
+                    "service_type": "Regular",
+                    "direction": "outbound",
+                    "stations": ["940GZZLUVIC", "940GZZLUERC"],
+                }
+            ]
+        },
+    )
+    db_session.add_all([station, line1, line2])
+    await db_session.commit()
+
+    # Execute
+    tfl_service = TfLService(db_session)
+    result = await tfl_service.get_station_routes("940GZZLUVIC")
+
+    # Verify
+    assert result is not None
+    assert result["station_tfl_id"] == "940GZZLUVIC"
+    assert result["station_name"] == "Victoria"
+    assert len(result["routes"]) == 2
+
+    # Find routes by line
+    victoria_route = next(r for r in result["routes"] if r["line_tfl_id"] == "victoria")
+    district_route = next(r for r in result["routes"] if r["line_tfl_id"] == "district")
+
+    # Verify Victoria route
+    assert victoria_route["line_name"] == "Victoria"
+    assert victoria_route["route_name"] == "Route 1"
+    assert victoria_route["service_type"] == "Regular"
+    assert victoria_route["direction"] == "inbound"
+
+    # Verify District route
+    assert district_route["line_name"] == "District"
+    assert district_route["route_name"] == "Route 2"
+    assert district_route["service_type"] == "Regular"
+    assert district_route["direction"] == "outbound"
+
+
+async def test_get_station_routes_station_not_found(db_session: AsyncSession) -> None:
+    """Test get_station_routes when station does not exist."""
+    # Execute
+    tfl_service = TfLService(db_session)
+
+    # Verify - should raise 404
+    with pytest.raises(HTTPException) as exc_info:
+        await tfl_service.get_station_routes("940GZZLUNONEXISTENT")
+
+    assert exc_info.value.status_code == status.HTTP_404_NOT_FOUND
+    assert "Station '940GZZLUNONEXISTENT' not found" in exc_info.value.detail
+
+
+async def test_get_station_routes_no_lines(db_session: AsyncSession) -> None:
+    """Test get_station_routes when station has no lines."""
+    # Setup - create station with empty lines array
+    station = Station(
+        tfl_id="940GZZLUVIC",
+        name="Victoria",
+        latitude=51.4965,
+        longitude=-0.1447,
+        lines=[],
+        last_updated=datetime.now(UTC),
+    )
+    db_session.add(station)
+    await db_session.commit()
+
+    # Execute
+    tfl_service = TfLService(db_session)
+    result = await tfl_service.get_station_routes("940GZZLUVIC")
+
+    # Verify - should return empty routes
+    assert result is not None
+    assert result["station_tfl_id"] == "940GZZLUVIC"
+    assert result["station_name"] == "Victoria"
+    assert result["routes"] == []
+
+
+async def test_get_station_routes_not_built(db_session: AsyncSession) -> None:
+    """Test get_station_routes when routes have not been built yet."""
+    # Setup - create station and line without routes
+    station = Station(
+        tfl_id="940GZZLUVIC",
+        name="Victoria",
+        latitude=51.4965,
+        longitude=-0.1447,
+        lines=["victoria"],
+        last_updated=datetime.now(UTC),
+    )
+    line = Line(
+        tfl_id="victoria",
+        name="Victoria",
+        color="#0019A8",
+        mode="tube",
+        last_updated=datetime.now(UTC),
+    )
+    db_session.add_all([station, line])
+    await db_session.commit()
+
+    # Execute
+    tfl_service = TfLService(db_session)
+
+    # Verify - should raise 503
+    with pytest.raises(HTTPException) as exc_info:
+        await tfl_service.get_station_routes("940GZZLUVIC")
+
+    assert exc_info.value.status_code == status.HTTP_503_SERVICE_UNAVAILABLE
+    assert "Route data has not been built yet" in exc_info.value.detail
+
+
+async def test_get_station_routes_station_not_on_route(db_session: AsyncSession) -> None:
+    """Test get_station_routes when station is on line but not on any route variant."""
+    # Setup - create station and line, but station not in route stations
+    station = Station(
+        tfl_id="940GZZLUVIC",
+        name="Victoria",
+        latitude=51.4965,
+        longitude=-0.1447,
+        lines=["victoria"],
+        last_updated=datetime.now(UTC),
+    )
+    line = Line(
+        tfl_id="victoria",
+        name="Victoria",
+        color="#0019A8",
+        mode="tube",
+        last_updated=datetime.now(UTC),
+        routes={
+            "routes": [
+                {
+                    "name": "Route 1",
+                    "service_type": "Regular",
+                    "direction": "inbound",
+                    "stations": ["940GZZLUGPK", "940GZZLUKSX"],  # Victoria not included
+                }
+            ]
+        },
+    )
+    db_session.add_all([station, line])
+    await db_session.commit()
+
+    # Execute
+    tfl_service = TfLService(db_session)
+
+    # Verify - should raise 503 (routes exist but station not on any)
+    with pytest.raises(HTTPException) as exc_info:
+        await tfl_service.get_station_routes("940GZZLUVIC")
+
+    assert exc_info.value.status_code == status.HTTP_503_SERVICE_UNAVAILABLE
+    assert "Route data has not been built yet" in exc_info.value.detail
+
+
+async def test_get_station_routes_multiple_routes_same_line(db_session: AsyncSession) -> None:
+    """Test get_station_routes when station is on multiple route variants of same line."""
+    # Setup - create station with multiple routes on same line
+    station = Station(
+        tfl_id="940GZZLUVIC",
+        name="Victoria",
+        latitude=51.4965,
+        longitude=-0.1447,
+        lines=["northern"],
+        last_updated=datetime.now(UTC),
+    )
+    line = Line(
+        tfl_id="northern",
+        name="Northern",
+        color="#000000",
+        mode="tube",
+        last_updated=datetime.now(UTC),
+        routes={
+            "routes": [
+                {
+                    "name": "Edgware → Morden via Bank",
+                    "service_type": "Regular",
+                    "direction": "inbound",
+                    "stations": ["940GZZLUEDG", "940GZZLUVIC", "940GZZLUMSN"],
+                },
+                {
+                    "name": "High Barnet → Morden via Bank",
+                    "service_type": "Regular",
+                    "direction": "inbound",
+                    "stations": ["940GZZLUHBT", "940GZZLUVIC", "940GZZLUMSN"],
+                },
+            ]
+        },
+    )
+    db_session.add_all([station, line])
+    await db_session.commit()
+
+    # Execute
+    tfl_service = TfLService(db_session)
+    result = await tfl_service.get_station_routes("940GZZLUVIC")
+
+    # Verify - should return both routes
+    assert result is not None
+    assert len(result["routes"]) == 2
+    route_names = [r["route_name"] for r in result["routes"]]
+    assert "Edgware → Morden via Bank" in route_names
+    assert "High Barnet → Morden via Bank" in route_names
+
+
+@patch("app.services.tfl_service.logger")
+async def test_get_station_routes_database_error(
+    mock_logger: MagicMock,
+    db_session: AsyncSession,
+) -> None:
+    """Test get_station_routes when database error occurs."""
+    # Setup - create service with a session that will fail
+    tfl_service = TfLService(db_session)
+
+    # Mock the database execute to raise an exception (not HTTPException)
+    with patch.object(
+        db_session,
+        "execute",
+        side_effect=Exception("Database connection error"),
+    ):
+        # Verify - should raise 500
+        with pytest.raises(HTTPException) as exc_info:
+            await tfl_service.get_station_routes("940GZZLUVIC")
+
+        assert exc_info.value.status_code == status.HTTP_500_INTERNAL_SERVER_ERROR
+        assert "Failed to fetch routes for station '940GZZLUVIC'" in exc_info.value.detail

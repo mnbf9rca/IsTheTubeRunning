@@ -622,13 +622,13 @@ class TestRoutesAPI:
                 "segments": [
                     {
                         "sequence": 0,
-                        "station_id": str(test_station1.id),
-                        "line_id": str(test_line.id),
+                        "station_tfl_id": test_station1.tfl_id,
+                        "line_tfl_id": test_line.tfl_id,
                     },
                     {
                         "sequence": 1,
-                        "station_id": str(test_station2.id),
-                        "line_id": str(test_line.id),
+                        "station_tfl_id": test_station2.tfl_id,
+                        "line_tfl_id": test_line.tfl_id,
                     },
                 ]
             },
@@ -672,13 +672,13 @@ class TestRoutesAPI:
                 "segments": [
                     {
                         "sequence": 0,
-                        "station_id": str(test_station1.id),
-                        "line_id": str(test_line.id),
+                        "station_tfl_id": test_station1.tfl_id,
+                        "line_tfl_id": test_line.tfl_id,
                     },
                     {
                         "sequence": 1,
-                        "station_id": str(test_station2.id),
-                        "line_id": str(test_line.id),
+                        "station_tfl_id": test_station2.tfl_id,
+                        "line_tfl_id": test_line.tfl_id,
                     },
                 ]
             },
@@ -758,13 +758,13 @@ class TestRoutesAPI:
 
         response = await async_client.patch(
             f"/api/v1/routes/{route.id}/segments/0",
-            json={"station_id": str(test_station2.id)},
+            json={"station_tfl_id": test_station2.tfl_id},
             headers=auth_headers_for_user,
         )
 
         assert response.status_code == status.HTTP_200_OK
         data = response.json()
-        assert data["station_id"] == str(test_station2.id)
+        assert data["station_tfl_id"] == test_station2.tfl_id
 
     @pytest.mark.asyncio
     async def test_delete_segment(
@@ -1086,7 +1086,7 @@ class TestRoutesAPI:
         # Try to update segment that doesn't exist
         response = await async_client.patch(
             f"/api/v1/routes/{route.id}/segments/0",
-            json={"station_id": str(test_station1.id)},
+            json={"station_tfl_id": test_station1.tfl_id},
             headers=auth_headers_for_user,
         )
 
@@ -1235,14 +1235,14 @@ class TestRoutesAPI:
 
         response = await async_client.patch(
             f"/api/v1/routes/{route.id}/segments/0",
-            json={"line_id": str(line2.id)},  # Update only line_id
+            json={"line_tfl_id": line2.tfl_id},  # Update only line_tfl_id
             headers=auth_headers_for_user,
         )
 
         assert response.status_code == status.HTTP_200_OK
         data = response.json()
-        assert data["line_id"] == str(line2.id)
-        assert data["station_id"] == str(test_station1.id)  # Unchanged
+        assert data["line_tfl_id"] == line2.tfl_id
+        assert data["station_tfl_id"] == test_station1.tfl_id  # Unchanged
 
     @pytest.mark.asyncio
     async def test_update_schedule_start_time(
@@ -1310,13 +1310,13 @@ class TestRoutesAPI:
                 "segments": [
                     {
                         "sequence": 0,
-                        "station_id": str(test_station1.id),
-                        "line_id": str(test_line.id),
+                        "station_tfl_id": test_station1.tfl_id,
+                        "line_tfl_id": test_line.tfl_id,
                     },
                     {
                         "sequence": 1,
-                        "station_id": str(test_station2.id),
-                        "line_id": str(test_line.id),
+                        "station_tfl_id": test_station2.tfl_id,
+                        "line_tfl_id": test_line.tfl_id,
                     },
                 ]
             },
@@ -1363,7 +1363,7 @@ class TestRoutesAPI:
 
         response = await async_client.patch(
             f"/api/v1/routes/{route.id}/segments/0",
-            json={"station_id": str(test_station2.id)},
+            json={"station_tfl_id": test_station2.tfl_id},
             headers=auth_headers_for_user,
         )
 
@@ -1433,13 +1433,13 @@ class TestRoutesAPI:
                 "segments": [
                     {
                         "sequence": 0,
-                        "station_id": str(test_station1.id),
-                        "line_id": str(test_line.id),
+                        "station_tfl_id": test_station1.tfl_id,
+                        "line_tfl_id": test_line.tfl_id,
                     },
                     {
                         "sequence": 1,
-                        "station_id": str(test_station2.id),
-                        "line_id": str(test_line.id),
+                        "station_tfl_id": test_station2.tfl_id,
+                        "line_tfl_id": test_line.tfl_id,
                     },
                 ]
             },
@@ -1480,13 +1480,13 @@ class TestRoutesAPI:
                 "segments": [
                     {
                         "sequence": 0,
-                        "station_id": str(test_station1.id),
-                        "line_id": str(test_line.id),
+                        "station_tfl_id": test_station1.tfl_id,
+                        "line_tfl_id": test_line.tfl_id,
                     },
                     {
                         "sequence": 1,
-                        "station_id": str(test_station2.id),
-                        "line_id": str(test_line.id),
+                        "station_tfl_id": test_station2.tfl_id,
+                        "line_tfl_id": test_line.tfl_id,
                     },
                 ]
             },
@@ -1532,7 +1532,7 @@ class TestRoutesAPI:
 
         response = await async_client.patch(
             f"/api/v1/routes/{route.id}/segments/0",
-            json={"station_id": str(test_station2.id)},
+            json={"station_tfl_id": test_station2.tfl_id},
             headers=auth_headers_for_user,
         )
 

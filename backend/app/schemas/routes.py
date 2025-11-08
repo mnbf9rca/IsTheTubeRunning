@@ -134,10 +134,8 @@ class SegmentRequest(BaseModel):
     """Single segment in a route (station + line + sequence)."""
 
     sequence: int = Field(..., ge=0, description="Order of this segment in the route (0-based)")
-    station_id: UUID = Field(..., description="Station UUID from database")
-    line_id: UUID | None = Field(
-        None, description="Line UUID from database. NULL for destination segments (journey terminates)."
-    )
+    station_tfl_id: str = Field(..., description="TfL station ID (e.g., '940GZZLUOXC')")
+    line_tfl_id: str = Field(..., description="TfL line ID (e.g., 'victoria', 'northern')")
 
 
 class UpsertSegmentsRequest(BaseModel):
@@ -177,8 +175,8 @@ class UpsertSegmentsRequest(BaseModel):
 class UpdateSegmentRequest(BaseModel):
     """Request to update a single segment."""
 
-    station_id: UUID | None = None
-    line_id: UUID | None = None
+    station_tfl_id: str | None = None
+    line_tfl_id: str | None = None
 
 
 class CreateScheduleRequest(BaseModel):
@@ -263,8 +261,8 @@ class SegmentResponse(BaseModel):
 
     id: UUID
     sequence: int
-    station_id: UUID
-    line_id: UUID | None
+    station_tfl_id: str
+    line_tfl_id: str
 
 
 class ScheduleResponse(BaseModel):

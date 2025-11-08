@@ -2,7 +2,6 @@
 
 import uuid
 from datetime import time
-from typing import TYPE_CHECKING
 
 from sqlalchemy import (
     JSON,
@@ -20,10 +19,9 @@ from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.models.base import BaseModel
-
-if TYPE_CHECKING:
-    from app.models.notification import NotificationPreference
-    from app.models.user import User
+from app.models.notification import NotificationPreference
+from app.models.tfl import Line, Station
+from app.models.user import User
 
 
 class Route(BaseModel):
@@ -106,12 +104,24 @@ class RouteSegment(BaseModel):
 
     # Relationships
     route: Mapped[Route] = relationship(back_populates="segments")
+    station: Mapped["Station"] = relationship()
+    line: Mapped["Line"] = relationship()
 
     # Ensure unique sequence per route
     __table_args__ = (
         UniqueConstraint("route_id", "sequence", name="uq_route_segment_sequence"),
         Index("ix_route_segments_route_sequence", "route_id", "sequence"),
     )
+
+    @property
+    def station_tfl_id(self) -> str:
+        """Get TfL ID from related station."""
+        return self.station.tfl_id
+
+    @property
+    def line_tfl_id(self) -> str:
+        """Get TfL ID from related line."""
+        return self.line.tfl_id
 
     def __repr__(self) -> str:
         """String representation of the route segment."""

@@ -17,6 +17,7 @@ class LineResponse(BaseModel):
     tfl_id: str
     name: str
     color: str  # Hex color code (e.g., #0019A8)
+    mode: str  # Transport mode: "tube", "overground", "dlr", "elizabeth-line", etc.
     last_updated: datetime
 
 
@@ -58,14 +59,57 @@ class StationDisruptionResponse(BaseModel):
     created_at_source: datetime  # When disruption was created at source
 
 
+class RouteVariant(BaseModel):
+    """Schema for a single route variant (ordered station sequence)."""
+
+    name: str = Field(..., description="Route name (e.g., 'Edgware → Morden via Bank')")
+    service_type: str = Field(..., description="Service type (e.g., 'Regular', 'Night')")
+    direction: str = Field(..., description="Direction: 'inbound' or 'outbound'")
+    stations: list[str] = Field(
+        ...,
+        description="Ordered list of TfL station IDs on this route variant",
+    )
+
+
+class LineRouteResponse(BaseModel):
+    """Response schema for line route variants."""
+
+    line_tfl_id: str = Field(..., description="TfL line ID (e.g., 'victoria')")
+    routes: list[RouteVariant] = Field(
+        ...,
+        description="List of route variants for this line",
+    )
+
+
+class StationRouteInfo(BaseModel):
+    """Schema for route information for a station."""
+
+    line_tfl_id: str = Field(..., description="TfL line ID")
+    line_name: str = Field(..., description="Line name")
+    route_name: str = Field(..., description="Route variant name")
+    service_type: str = Field(..., description="Service type")
+    direction: str = Field(..., description="Direction")
+
+
+class StationRouteResponse(BaseModel):
+    """Response schema for routes passing through a station."""
+
+    station_tfl_id: str = Field(..., description="TfL station ID")
+    station_name: str = Field(..., description="Station name")
+    routes: list[StationRouteInfo] = Field(
+        ...,
+        description="Routes passing through this station",
+    )
+
+
 # ==================== Request Schemas ====================
 
 
 class RouteSegmentRequest(BaseModel):
     """Single segment in a route (station + line)."""
 
-    station_id: UUID = Field(..., description="Station UUID from database")
-    line_id: UUID | None = Field(None, description="Line UUID from database. NULL for destination segments.")
+    station_tfl_id: str = Field(..., description="TfL station ID (e.g., '940GZZLUOXC')")
+    line_tfl_id: str = Field(..., description="TfL line ID (e.g., 'victoria', 'northern')")
 
 
 class RouteValidationRequest(BaseModel):

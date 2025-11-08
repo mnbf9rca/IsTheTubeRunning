@@ -41,7 +41,7 @@ DEFAULT_METADATA_CACHE_TTL = 604800  # 7 days
 # TfL API constants
 TFL_GOOD_SERVICE_SEVERITY = 10  # Status severity value for "Good Service"
 MIN_ROUTE_SEGMENTS = 2  # Minimum number of segments required for route validation
-MAX_ROUTE_SEGMENTS = 20  # Maximum number of segments allowed per route
+DEFAULT_MODES = ["tube", "overground", "dlr", "elizabeth-line"]  # Default transport modes to fetch
 
 
 class TfLService:
@@ -128,84 +128,180 @@ class TfLService:
 
         return 0  # Return 0 to indicate no TTL found
 
-    async def fetch_lines(self, use_cache: bool = True) -> list[Line]:
+    def _build_modes_cache_key(self, prefix: str, modes: list[str]) -> str:
         """
-        Fetch all tube lines from TfL API or database cache.
+        Build a cache key for multi-mode endpoints.
+
+        Args:
+            prefix: Cache key prefix (e.g., "lines", "line_disruptions")
+            modes: List of transport modes
+
+        Returns:
+            Formatted cache key with sorted modes
+        """
+        sorted_modes = ",".join(sorted(modes))
+        return f"{prefix}:modes:{sorted_modes}"
+
+    async def fetch_available_modes(self, use_cache: bool = True) -> list[str]:
+        """
+        Fetch all available transport modes from TfL API.
+
+        Uses the MetaModes endpoint to dynamically discover all transport modes
+        available in the TfL network (e.g., tube, overground, dlr, elizabeth-line).
 
         Args:
             use_cache: Whether to use Redis cache (default: True)
 
         Returns:
-            List of Line objects from database
+            List of mode strings (e.g., ["tube", "overground", "dlr"])
         """
-        cache_key = "lines:all"
+        cache_key = "modes:all"
 
         # Try cache first
         if use_cache:
-            cached_lines: list[Line] | None = await self.cache.get(cache_key)
-            if cached_lines is not None:
-                logger.debug("lines_cache_hit", count=len(cached_lines))
-                return cached_lines
+            cached_modes: list[str] | None = await self.cache.get(cache_key)
+            if cached_modes is not None:
+                logger.debug("modes_cache_hit", count=len(cached_modes))
+                return cached_modes
 
-        logger.info("fetching_lines_from_tfl_api")
+        logger.info("fetching_modes_from_tfl_api")
 
         try:
             # Fetch from TfL API (synchronous call wrapped in executor)
             loop = asyncio.get_running_loop()
             response = await loop.run_in_executor(
                 None,
-                self.line_client.GetByModeByPathModes,
-                "tube",
+                self.line_client.MetaModes,
             )
 
             # Check for API error
             self._handle_api_error(response)
 
-            # Extract cache TTL from response
-            # Type narrowing: _handle_api_error raises if response is ApiError, so it's safe here
-            ttl = self._extract_cache_ttl(response) or DEFAULT_LINES_CACHE_TTL  # type: ignore[arg-type]
+            # Extract modes from response
+            # response.content.root is a list of mode strings
+            modes: list[str] = list(response.content.root)  # type: ignore[union-attr,arg-type]
 
+            # Use default cache TTL for metadata (7 days)
+            # Modes don't change frequently
+            ttl = DEFAULT_METADATA_CACHE_TTL
+
+            # Cache the results
+            await self.cache.set(cache_key, modes, ttl=ttl)
+
+            logger.info("modes_fetched_and_cached", count=len(modes), ttl=ttl, modes=modes)
+            return modes
+
+        except Exception as e:
+            logger.error("failed_to_fetch_modes", error=str(e))
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail=f"Failed to fetch transport modes: {e!s}",
+            ) from e
+
+    async def fetch_lines(
+        self,
+        modes: list[str] | None = None,
+        use_cache: bool = True,
+    ) -> list[Line]:
+        """
+        Fetch lines from TfL API for specified transport modes.
+
+        Args:
+            modes: List of transport modes to fetch (e.g., ["tube", "overground", "dlr"]).
+                   If None, defaults to ["tube", "overground", "dlr", "elizabeth-line"].
+            use_cache: Whether to use Redis cache (default: True)
+
+        Returns:
+            List of Line objects from database
+        """
+        # Default to major transport modes if not specified
+        if modes is None:
+            modes = DEFAULT_MODES
+
+        cache_key = self._build_modes_cache_key("lines", modes)
+
+        # Try cache first
+        if use_cache:
+            cached_lines: list[Line] | None = await self.cache.get(cache_key)
+            if cached_lines is not None:
+                logger.debug("lines_cache_hit", count=len(cached_lines), modes=modes)
+                return cached_lines
+
+        logger.info("fetching_lines_from_tfl_api", modes=modes)
+
+        try:
             # Clear existing lines from database
             await self.db.execute(delete(Line))
 
-            # Process and store lines
-            lines = []
-            # response.content is a LineArray (RootModel), access via .root
-            line_data_list = response.content.root  # type: ignore[union-attr]
+            # Fetch lines for each mode
+            all_lines = []
+            ttl = DEFAULT_LINES_CACHE_TTL
 
-            # TfL API doesn't provide color in GetByModeByPathModes response
-            # Use a default color (can be updated later via different endpoint if needed)
-            color = "#000000"  # Default black
+            loop = asyncio.get_running_loop()
 
-            for line_data in line_data_list:
-                line = Line(
-                    tfl_id=line_data.id,
-                    name=line_data.name,
-                    color=color,
-                    last_updated=datetime.now(UTC),
+            for mode in modes:
+                logger.debug("fetching_lines_for_mode", mode=mode)
+
+                # Fetch from TfL API (synchronous call wrapped in executor)
+                response = await loop.run_in_executor(
+                    None,
+                    self.line_client.GetByModeByPathModes,
+                    mode,
                 )
-                self.db.add(line)
-                lines.append(line)
+
+                # Check for API error
+                self._handle_api_error(response)
+
+                # Extract cache TTL from response (use minimum TTL across all modes)
+                mode_ttl = self._extract_cache_ttl(response) or DEFAULT_LINES_CACHE_TTL  # type: ignore[arg-type]
+                ttl = min(ttl, mode_ttl)
+
+                # Process lines for this mode
+                # response.content is a LineArray (RootModel), access via .root
+                line_data_list = response.content.root  # type: ignore[union-attr]
+
+                # TfL API doesn't provide color in GetByModeByPathModes response
+                # Use a default color (can be updated later via different endpoint if needed)
+                color = "#000000"  # Default black
+
+                for line_data in line_data_list:
+                    line = Line(
+                        tfl_id=line_data.id,
+                        name=line_data.name,
+                        color=color,
+                        mode=mode,
+                        last_updated=datetime.now(UTC),
+                    )
+                    self.db.add(line)
+                    all_lines.append(line)
+
+                logger.debug("mode_lines_processed", mode=mode, count=len(line_data_list))
 
             await self.db.commit()
 
             # Refresh to get database IDs
-            for line in lines:
+            for line in all_lines:
                 await self.db.refresh(line)
 
             # Cache the results
-            await self.cache.set(cache_key, lines, ttl=ttl)
+            await self.cache.set(cache_key, all_lines, ttl=ttl)
 
-            logger.info("lines_fetched_and_cached", count=len(lines), ttl=ttl)
-            return lines
+            logger.info(
+                "lines_fetched_and_cached",
+                count=len(all_lines),
+                modes=modes,
+                ttl=ttl,
+            )
+            return all_lines
 
         except HTTPException:
             raise
         except Exception as e:
-            logger.error("fetch_lines_failed", error=str(e), exc_info=e)
+            logger.error("fetch_lines_failed", error=str(e), modes=modes, exc_info=e)
+            await self.db.rollback()
             raise HTTPException(
                 status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                detail="Failed to fetch lines from TfL API.",
+                detail=f"Failed to fetch lines from TfL API for modes: {modes}",
             ) from e
 
     async def fetch_severity_codes(self, use_cache: bool = True) -> list[SeverityCode]:
@@ -597,64 +693,88 @@ class TfLService:
 
         return disruptions
 
-    async def fetch_line_disruptions(self, use_cache: bool = True) -> list[DisruptionResponse]:
+    async def fetch_line_disruptions(
+        self,
+        modes: list[str] | None = None,
+        use_cache: bool = True,
+    ) -> list[DisruptionResponse]:
         """
-        Fetch current line-level disruptions from TfL API.
+        Fetch current line-level disruptions from TfL API for specified modes.
 
         Uses the DisruptionByMode endpoint to get detailed disruption information
-        for tube lines.
+        for all specified transport modes.
 
         Args:
+            modes: List of transport modes to fetch disruptions for.
+                   If None, defaults to ["tube", "overground", "dlr", "elizabeth-line"].
             use_cache: Whether to use Redis cache (default: True)
 
         Returns:
             List of disruption responses
         """
-        cache_key = "line_disruptions:current"
+        # Default to major transport modes if not specified
+        if modes is None:
+            modes = DEFAULT_MODES
+
+        cache_key = self._build_modes_cache_key("line_disruptions", modes)
 
         # Try cache first
         if use_cache:
             cached_disruptions: list[DisruptionResponse] | None = await self.cache.get(cache_key)
             if cached_disruptions is not None:
-                logger.debug("line_disruptions_cache_hit", count=len(cached_disruptions))
+                logger.debug("line_disruptions_cache_hit", count=len(cached_disruptions), modes=modes)
                 return cached_disruptions
 
-        logger.info("fetching_line_disruptions_from_tfl_api")
+        logger.info("fetching_line_disruptions_from_tfl_api", modes=modes)
 
         try:
-            # Fetch line disruptions for tube
+            all_disruptions = []
+            ttl = DEFAULT_DISRUPTIONS_CACHE_TTL
             loop = asyncio.get_running_loop()
-            response = await loop.run_in_executor(
-                None,
-                self.line_client.DisruptionByModeByPathModes,
-                "tube",
-            )
 
-            # Check for API error
-            self._handle_api_error(response)
+            # Fetch disruptions for each mode
+            for mode in modes:
+                logger.debug("fetching_disruptions_for_mode", mode=mode)
 
-            # Extract cache TTL from response
-            # Type narrowing: _handle_api_error raises if response is ApiError, so it's safe here
-            ttl = self._extract_cache_ttl(response) or DEFAULT_DISRUPTIONS_CACHE_TTL  # type: ignore[arg-type]
+                response = await loop.run_in_executor(
+                    None,
+                    self.line_client.DisruptionByModeByPathModes,
+                    mode,
+                )
 
-            # Process disruptions using helper method
-            # response.content is a RootModel array of disruptions, access via .root
-            disruption_data_list = response.content.root  # type: ignore[union-attr]
-            disruptions = self._process_disruption_data(disruption_data_list)
+                # Check for API error
+                self._handle_api_error(response)
+
+                # Extract cache TTL from response (use minimum TTL across all modes)
+                mode_ttl = self._extract_cache_ttl(response) or DEFAULT_DISRUPTIONS_CACHE_TTL  # type: ignore[arg-type]
+                ttl = min(ttl, mode_ttl)
+
+                # Process disruptions using helper method
+                # response.content is a RootModel array of disruptions, access via .root
+                disruption_data_list = response.content.root  # type: ignore[union-attr]
+                mode_disruptions = self._process_disruption_data(disruption_data_list)
+                all_disruptions.extend(mode_disruptions)
+
+                logger.debug("mode_disruptions_processed", mode=mode, count=len(mode_disruptions))
 
             # Cache the results
-            await self.cache.set(cache_key, disruptions, ttl=ttl)
+            await self.cache.set(cache_key, all_disruptions, ttl=ttl)
 
-            logger.info("line_disruptions_fetched_and_cached", count=len(disruptions), ttl=ttl)
-            return disruptions
+            logger.info(
+                "line_disruptions_fetched_and_cached",
+                count=len(all_disruptions),
+                modes=modes,
+                ttl=ttl,
+            )
+            return all_disruptions
 
         except HTTPException:
             raise
         except Exception as e:
-            logger.error("fetch_line_disruptions_failed", error=str(e), exc_info=e)
+            logger.error("fetch_line_disruptions_failed", error=str(e), modes=modes, exc_info=e)
             raise HTTPException(
                 status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                detail="Failed to fetch line disruptions from TfL API.",
+                detail=f"Failed to fetch line disruptions from TfL API for modes: {modes}",
             ) from e
 
     async def _create_station_disruption(
@@ -702,96 +822,155 @@ class TfLService:
             created_at_source=created_at_source,
         )
 
-    async def fetch_station_disruptions(self, use_cache: bool = True) -> list[StationDisruptionResponse]:
+    async def _lookup_station_for_disruption(self, stop: Any) -> Station | None:  # noqa: ANN401
         """
-        Fetch current station-level disruptions from TfL API.
+        Look up station in database for a disruption stop.
+
+        Args:
+            stop: Stop point data object from TfL API
+
+        Returns:
+            Station object or None if not found or invalid
+        """
+        stop_tfl_id = self._get_stop_ids(stop)
+
+        if not stop_tfl_id:
+            logger.warning("station_disruption_missing_tfl_id", stop_data=str(stop))
+            return None
+
+        result = await self.db.execute(select(Station).where(Station.tfl_id == stop_tfl_id))
+        station = result.scalar_one_or_none()
+
+        if not station:
+            logger.debug(
+                "station_not_found_for_disruption",
+                stop_tfl_id=stop_tfl_id,
+            )
+            return None
+
+        return station
+
+    async def _process_station_disruption_data(
+        self,
+        disruption_data_list: list[Any],
+    ) -> list[StationDisruptionResponse]:
+        """
+        Process disruption data for a single mode.
+
+        Args:
+            disruption_data_list: List of raw disruption data from TfL API
+
+        Returns:
+            List of station disruption responses
+        """
+        mode_disruptions: list[StationDisruptionResponse] = []
+
+        for disruption_data in disruption_data_list:
+            # Extract affected stops from disruption
+            if hasattr(disruption_data, "affectedStops") and disruption_data.affectedStops:
+                for stop in disruption_data.affectedStops:
+                    # Look up station in database by TfL ID
+                    station = await self._lookup_station_for_disruption(stop)
+
+                    if not station:
+                        continue
+
+                    # Create disruption using helper method
+                    disruption_response = await self._create_station_disruption(station, disruption_data)
+                    mode_disruptions.append(disruption_response)
+
+        return mode_disruptions
+
+    async def fetch_station_disruptions(
+        self,
+        modes: list[str] | None = None,
+        use_cache: bool = True,
+    ) -> list[StationDisruptionResponse]:
+        """
+        Fetch current station-level disruptions from TfL API for specified modes.
 
         Uses the StopPoint DisruptionByMode endpoint to get disruptions affecting
         specific stations, including route blocked stops.
 
         Args:
+            modes: List of transport modes to fetch disruptions for.
+                   If None, defaults to ["tube", "overground", "dlr", "elizabeth-line"].
             use_cache: Whether to use Redis cache (default: True)
 
         Returns:
             List of station disruption responses
         """
-        cache_key = "station_disruptions:current"
+        # Default to major transport modes if not specified
+        if modes is None:
+            modes = DEFAULT_MODES
+
+        cache_key = self._build_modes_cache_key("station_disruptions", modes)
 
         # Try cache first
         if use_cache:
             cached_disruptions: list[StationDisruptionResponse] | None = await self.cache.get(cache_key)
             if cached_disruptions is not None:
-                logger.debug("station_disruptions_cache_hit", count=len(cached_disruptions))
+                logger.debug("station_disruptions_cache_hit", count=len(cached_disruptions), modes=modes)
                 return cached_disruptions
 
-        logger.info("fetching_station_disruptions_from_tfl_api")
+        logger.info("fetching_station_disruptions_from_tfl_api", modes=modes)
 
         try:
-            # Fetch station disruptions for tube
-            loop = asyncio.get_running_loop()
-            response = await loop.run_in_executor(
-                None,
-                self.stoppoint_client.DisruptionByModeByPathModesQueryIncludeRouteBlockedStops,
-                "tube",
-                True,  # includeRouteBlockedStops=True to get all station-level issues
-            )
-
-            # Check for API error
-            self._handle_api_error(response)
-
-            # Extract cache TTL from response
-            ttl = self._extract_cache_ttl(response) or DEFAULT_DISRUPTIONS_CACHE_TTL  # type: ignore[arg-type]
-
-            # Process station disruptions
-            disruptions: list[StationDisruptionResponse] = []
-
             # Clear existing station disruptions within the same transaction to minimize the gap
             await self.db.execute(delete(StationDisruption))
-            # response.content is a RootModel array of disruptions, access via .root
-            disruption_data_list = response.content.root  # type: ignore[union-attr]
 
-            for disruption_data in disruption_data_list:
-                # Extract affected stops from disruption
-                if hasattr(disruption_data, "affectedStops") and disruption_data.affectedStops:
-                    for stop in disruption_data.affectedStops:
-                        # Look up station in database by TfL ID
-                        stop_tfl_id = self._get_stop_ids(stop)
+            all_disruptions: list[StationDisruptionResponse] = []
+            ttl = DEFAULT_DISRUPTIONS_CACHE_TTL
+            loop = asyncio.get_running_loop()
 
-                        if not stop_tfl_id:
-                            logger.warning("station_disruption_missing_tfl_id", stop_data=str(stop))
-                            continue
+            # Fetch station disruptions for each mode
+            for mode in modes:
+                logger.debug("fetching_station_disruptions_for_mode", mode=mode)
 
-                        result = await self.db.execute(select(Station).where(Station.tfl_id == stop_tfl_id))
-                        station = result.scalar_one_or_none()
+                response = await loop.run_in_executor(
+                    None,
+                    self.stoppoint_client.DisruptionByModeByPathModesQueryIncludeRouteBlockedStops,
+                    mode,
+                    True,  # includeRouteBlockedStops=True to get all station-level issues
+                )
 
-                        if not station:
-                            logger.debug(
-                                "station_not_found_for_disruption",
-                                stop_tfl_id=stop_tfl_id,
-                            )
-                            continue
+                # Check for API error
+                self._handle_api_error(response)
 
-                        # Create disruption using helper method
-                        disruption_response = await self._create_station_disruption(station, disruption_data)
-                        disruptions.append(disruption_response)
+                # Extract cache TTL from response (use minimum TTL across all modes)
+                mode_ttl = self._extract_cache_ttl(response) or DEFAULT_DISRUPTIONS_CACHE_TTL  # type: ignore[arg-type]
+                ttl = min(ttl, mode_ttl)
+
+                # Process station disruptions using helper method
+                # response.content is a RootModel array of disruptions, access via .root
+                disruption_data_list = response.content.root  # type: ignore[union-attr]
+                mode_disruptions = await self._process_station_disruption_data(disruption_data_list)
+                all_disruptions.extend(mode_disruptions)
+
+                logger.debug("mode_station_disruptions_processed", mode=mode)
 
             # Commit database changes
             await self.db.commit()
 
             # Cache the results
-            await self.cache.set(cache_key, disruptions, ttl=ttl)
+            await self.cache.set(cache_key, all_disruptions, ttl=ttl)
 
-            logger.info("station_disruptions_fetched_and_cached", count=len(disruptions), ttl=ttl)
-            return disruptions
+            logger.info(
+                "station_disruptions_fetched_and_cached",
+                count=len(all_disruptions),
+                modes=modes,
+                ttl=ttl,
+            )
+            return all_disruptions
 
         except HTTPException:
             raise
         except Exception as e:
-            logger.error("fetch_station_disruptions_failed", error=str(e), exc_info=e)
+            logger.error("fetch_station_disruptions_failed", error=str(e), modes=modes, exc_info=e)
             await self.db.rollback()
             raise HTTPException(
                 status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                detail="Failed to fetch station disruptions from TfL API.",
+                detail=f"Failed to fetch station disruptions from TfL API for modes: {modes}",
             ) from e
 
     def _get_stop_ids(self, stop: Any) -> str | None:  # noqa: ANN401
@@ -946,7 +1125,7 @@ class TfLService:
         self,
         line_tfl_id: str,
         direction: str,
-    ) -> list[Any]:
+    ) -> Any:  # noqa: ANN401
         """
         Fetch route sequence for a line and direction from TfL API.
 
@@ -955,7 +1134,7 @@ class TfLService:
             direction: "inbound" or "outbound"
 
         Returns:
-            List of stop point sequences
+            RouteSequence object containing stopPointSequences and orderedLineRoutes
 
         Raises:
             Exception: If API call fails
@@ -973,14 +1152,8 @@ class TfLService:
         # Check for API error
         self._handle_api_error(response)
 
-        # Extract route sequence data
-        route_data = response.content  # type: ignore[union-attr]
-
-        # Return stop point sequences or empty list
-        if hasattr(route_data, "stopPointSequences") and route_data.stopPointSequences:
-            return list(route_data.stopPointSequences)
-
-        return []
+        # Return full route sequence data (contains both stopPointSequences and orderedLineRoutes)
+        return response.content  # type: ignore[union-attr]
 
     async def _process_route_sequence(
         self,
@@ -988,7 +1161,7 @@ class TfLService:
         direction: str,
         stations_set: set[str],
         pending_connections: set[tuple[uuid.UUID, uuid.UUID, uuid.UUID]],
-    ) -> int:
+    ) -> tuple[int, Any]:
         """
         Process route sequence for a line and direction.
 
@@ -999,29 +1172,35 @@ class TfLService:
             pending_connections: Set to track pending connections (from_id, to_id, line_id)
 
         Returns:
-            Number of connections created
+            Tuple of (connections_count, route_data)
+                - connections_count: Number of connections created
+                - route_data: Full RouteSequence object (contains orderedLineRoutes)
         """
         try:
-            sequences = await self._fetch_route_sequence(line.tfl_id, direction)
+            route_data = await self._fetch_route_sequence(line.tfl_id, direction)
             connections_count = 0
 
-            for sequence in sequences:
-                if not hasattr(sequence, "stopPoint") or not sequence.stopPoint:
-                    continue
+            # Extract stopPointSequences for connection building
+            if hasattr(route_data, "stopPointSequences") and route_data.stopPointSequences:
+                sequences = list(route_data.stopPointSequences)
 
-                stop_points = sequence.stopPoint
+                for sequence in sequences:
+                    if not hasattr(sequence, "stopPoint") or not sequence.stopPoint:
+                        continue
 
-                # Process consecutive station pairs
-                for i in range(len(stop_points) - 1):
-                    connections_count += await self._process_station_pair(
-                        stop_points[i],
-                        stop_points[i + 1],
-                        line,
-                        stations_set,
-                        pending_connections,
-                    )
+                    stop_points = sequence.stopPoint
 
-            return connections_count
+                    # Process consecutive station pairs
+                    for i in range(len(stop_points) - 1):
+                        connections_count += await self._process_station_pair(
+                            stop_points[i],
+                            stop_points[i + 1],
+                            line,
+                            stations_set,
+                            pending_connections,
+                        )
+
+            return connections_count, route_data
 
         except Exception as e:
             logger.warning(
@@ -1030,7 +1209,87 @@ class TfLService:
                 direction=direction,
                 error=str(e),
             )
-            return 0
+            return 0, None
+
+    def _store_line_routes(
+        self,
+        line: Line,
+        inbound_route_data: Any | None,  # noqa: ANN401
+        outbound_route_data: Any | None,  # noqa: ANN401
+    ) -> None:
+        """
+        Extract and store route variants from RouteSequence data.
+
+        Filters to only "Regular" service types and stores ordered station lists
+        for each route variant in the Line.routes JSON field.
+
+        Args:
+            line: Line object to update
+            inbound_route_data: RouteSequence data for inbound direction (may be None)
+            outbound_route_data: RouteSequence data for outbound direction (may be None)
+        """
+        routes = []
+
+        # Process both directions
+        for direction, route_data in [
+            ("inbound", inbound_route_data),
+            ("outbound", outbound_route_data),
+        ]:
+            if not route_data or not hasattr(route_data, "orderedLineRoutes"):
+                continue
+
+            ordered_routes = route_data.orderedLineRoutes
+            if not ordered_routes:
+                continue
+
+            # Filter and transform routes
+            for ordered_route in ordered_routes:
+                # Only store "Regular" service types (defer Night services for MVP)
+                service_type = getattr(ordered_route, "serviceType", None)
+                if service_type != "Regular":
+                    logger.debug(
+                        "skipping_non_regular_service",
+                        line_tfl_id=line.tfl_id,
+                        service_type=service_type,
+                        route_name=getattr(ordered_route, "name", "Unknown"),
+                    )
+                    continue
+
+                # Extract route data
+                route_name = getattr(ordered_route, "name", f"Unknown {direction} route")
+                naptan_ids = getattr(ordered_route, "naptanIds", [])
+
+                if not naptan_ids:
+                    logger.debug(
+                        "skipping_route_without_stations",
+                        line_tfl_id=line.tfl_id,
+                        route_name=route_name,
+                    )
+                    continue
+
+                # Store route variant
+                routes.append(
+                    {
+                        "name": route_name,
+                        "service_type": service_type,
+                        "direction": direction,
+                        "stations": naptan_ids,
+                    }
+                )
+
+        # Update line's routes field (stored as JSON in database)
+        if routes:
+            line.routes = {"routes": routes}
+            logger.info(
+                "stored_line_routes",
+                line_tfl_id=line.tfl_id,
+                routes_count=len(routes),
+            )
+        else:
+            logger.warning(
+                "no_regular_routes_found",
+                line_tfl_id=line.tfl_id,
+            )
 
     async def build_station_graph(self) -> dict[str, int]:
         """
@@ -1088,16 +1347,29 @@ class TfLService:
             for line in lines:
                 logger.info("processing_line_for_graph", line_name=line.name, line_tfl_id=line.tfl_id)
 
-                # Process both directions
+                # Process both directions and collect route data
                 # Note: Duplicate connections are prevented by pending_connections set
                 # Even if inbound and outbound routes overlap, we won't create duplicates
+                inbound_route_data = None
+                outbound_route_data = None
+
                 for direction in ["inbound", "outbound"]:
-                    connections_count += await self._process_route_sequence(
+                    conn_count, route_data = await self._process_route_sequence(
                         line,
                         direction,
                         stations_set,
                         pending_connections,
                     )
+                    connections_count += conn_count
+
+                    # Store route data for later processing
+                    if direction == "inbound":
+                        inbound_route_data = route_data
+                    else:
+                        outbound_route_data = route_data
+
+                # Extract and store route sequences for this line
+                self._store_line_routes(line, inbound_route_data, outbound_route_data)
 
             # Commit all changes (delete + new connections) atomically
             # If we reach here, everything succeeded
@@ -1219,6 +1491,62 @@ class TfLService:
                 detail="Failed to fetch network graph.",
             ) from e
 
+    async def get_station_by_tfl_id(self, tfl_id: str) -> Station:
+        """
+        Get station from database by TfL ID.
+
+        Args:
+            tfl_id: TfL station ID (e.g., '940GZZLUOXC' for Oxford Circus)
+
+        Returns:
+            Station object from database
+
+        Raises:
+            HTTPException(404): If station not found in database
+        """
+        result = await self.db.execute(select(Station).where(Station.tfl_id == tfl_id))
+        station = result.scalar_one_or_none()
+
+        if station is None:
+            logger.warning("station_not_found_by_tfl_id", tfl_id=tfl_id)
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=(
+                    f"Station with TfL ID '{tfl_id}' not found. "
+                    "Please ensure TfL data is imported via /admin/tfl/build-graph endpoint."
+                ),
+            )
+
+        return station
+
+    async def get_line_by_tfl_id(self, tfl_id: str) -> Line:
+        """
+        Get line from database by TfL ID.
+
+        Args:
+            tfl_id: TfL line ID (e.g., 'victoria', 'northern', 'central')
+
+        Returns:
+            Line object from database
+
+        Raises:
+            HTTPException(404): If line not found in database
+        """
+        result = await self.db.execute(select(Line).where(Line.tfl_id == tfl_id))
+        line = result.scalar_one_or_none()
+
+        if line is None:
+            logger.warning("line_not_found_by_tfl_id", tfl_id=tfl_id)
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=(
+                    f"Line with TfL ID '{tfl_id}' not found. "
+                    "Please ensure TfL data is imported via /admin/tfl/build-graph endpoint."
+                ),
+            )
+
+        return line
+
     async def validate_route(self, segments: list[RouteSegmentRequest]) -> tuple[bool, str, int | None]:
         """
         Validate a route by checking if connections exist between segments.
@@ -1236,30 +1564,22 @@ class TfLService:
         if len(segments) < MIN_ROUTE_SEGMENTS:
             return False, f"Route must have at least {MIN_ROUTE_SEGMENTS} segments (start and end).", None
 
-        # Check maximum segments
-        if len(segments) > MAX_ROUTE_SEGMENTS:
-            return (
-                False,
-                f"Route cannot have more than {MAX_ROUTE_SEGMENTS} segments. Current: {len(segments)}.",
-                None,
-            )
-
         # Check for duplicate stations (enforce acyclic routes)
-        station_ids = [segment.station_id for segment in segments]
-        unique_stations = set(station_ids)
+        station_tfl_ids = [segment.station_tfl_id for segment in segments]
+        unique_stations = set(station_tfl_ids)
 
-        if len(unique_stations) != len(station_ids):
+        if len(unique_stations) != len(station_tfl_ids):
             # Find the duplicate station
-            seen: set[uuid.UUID] = set()
-            for idx, station_id in enumerate(station_ids):
-                if station_id in seen:
+            seen: set[str] = set()
+            for idx, station_tfl_id in enumerate(station_tfl_ids):
+                if station_tfl_id in seen:
                     # Get station name for error message
-                    station = await self.db.get(Station, station_id)
+                    station = await self.get_station_by_tfl_id(station_tfl_id)
                     station_name = station.name if station else "Unknown"
 
                     logger.warning(
                         "route_validation_failed_duplicate_station",
-                        station_id=str(station_id),
+                        station_tfl_id=station_tfl_id,
                         station_name=station_name,
                         segment_index=idx,
                     )
@@ -1270,55 +1590,57 @@ class TfLService:
                         f"Duplicate found at segment {idx + 1}.",
                         idx,
                     )
-                seen.add(station_id)
+                seen.add(station_tfl_id)
 
         logger.info("validating_route", segments_count=len(segments))
 
         try:
-            # Validate each segment connection
+            # Bulk fetch all stations and lines to avoid redundant lookups
+            station_tfl_ids = {seg.station_tfl_id for seg in segments}
+            line_tfl_ids = {seg.line_tfl_id for seg in segments}
+
+            # Fetch all stations
+            stations_map = {}
+            for tfl_id in station_tfl_ids:
+                station = await self.get_station_by_tfl_id(tfl_id)
+                stations_map[tfl_id] = station
+
+            # Fetch all lines
+            lines_map = {}
+            for tfl_id in line_tfl_ids:
+                line = await self.get_line_by_tfl_id(tfl_id)
+                lines_map[tfl_id] = line
+
+            # Validate each segment connection using cached data
             for i in range(len(segments) - 1):
                 current_segment = segments[i]
                 next_segment = segments[i + 1]
 
-                # Intermediate segments must have a line_id (NULL only allowed for destination)
-                if current_segment.line_id is None:
-                    logger.warning(
-                        "route_validation_failed_null_line_id",
-                        segment_index=i,
-                        total_segments=len(segments),
-                    )
-                    return (
-                        False,
-                        f"Segment {i + 1} must have a line_id. "
-                        f"Only the final destination segment can have NULL line_id.",
-                        i,
-                    )
+                # Use cached station and line objects
+                from_station = stations_map[current_segment.station_tfl_id]
+                to_station = stations_map[next_segment.station_tfl_id]
+                line = lines_map[current_segment.line_tfl_id]
 
                 # Check if connection exists
                 is_connected = await self._check_connection(
-                    from_station_id=current_segment.station_id,
-                    to_station_id=next_segment.station_id,
-                    line_id=current_segment.line_id,
+                    from_station_id=from_station.id,
+                    to_station_id=to_station.id,
+                    line_id=line.id,
                 )
 
                 if not is_connected:
-                    # Get station names for helpful error message
-                    from_station = await self.db.get(Station, current_segment.station_id)
-                    to_station = await self.db.get(Station, next_segment.station_id)
-                    line = await self.db.get(Line, current_segment.line_id)
-
                     message = (
-                        f"No connection found between '{from_station.name if from_station else 'Unknown'}' "
-                        f"and '{to_station.name if to_station else 'Unknown'}' "
-                        f"on {line.name if line else 'Unknown'} line."
+                        f"No connection found between '{from_station.name}' "
+                        f"and '{to_station.name}' "
+                        f"on {line.name} line."
                     )
 
                     logger.warning(
                         "route_validation_failed",
                         segment_index=i,
-                        from_station_id=str(current_segment.station_id),
-                        to_station_id=str(next_segment.station_id),
-                        line_id=str(current_segment.line_id),
+                        from_station_tfl_id=current_segment.station_tfl_id,
+                        to_station_tfl_id=next_segment.station_tfl_id,
+                        line_tfl_id=current_segment.line_tfl_id,
                     )
 
                     return False, message, i
@@ -1326,6 +1648,9 @@ class TfLService:
             logger.info("route_validation_successful", segments_count=len(segments))
             return True, "Route is valid.", None
 
+        except HTTPException:
+            # Re-raise HTTP exceptions (e.g., 404 from get_station_by_tfl_id)
+            raise
         except Exception as e:
             logger.error("validate_route_failed", error=str(e), exc_info=e)
             raise HTTPException(
@@ -1379,3 +1704,134 @@ class TfLService:
 
         # No path found
         return False
+
+    async def get_line_routes(self, line_tfl_id: str) -> dict[str, Any] | None:
+        """
+        Get route variants for a specific line.
+
+        Args:
+            line_tfl_id: TfL line ID (e.g., "victoria", "elizabeth-line")
+
+        Returns:
+            Line routes data (line_tfl_id and list of route variants) or None if not found
+
+        Raises:
+            HTTPException: 404 if line not found, 503 if routes haven't been built yet
+        """
+        logger.info("fetching_line_routes", line_tfl_id=line_tfl_id)
+
+        try:
+            # Look up line by TfL ID
+            result = await self.db.execute(select(Line).where(Line.tfl_id == line_tfl_id))
+            line = result.scalar_one_or_none()
+
+            if not line:
+                raise HTTPException(
+                    status_code=status.HTTP_404_NOT_FOUND,
+                    detail=f"Line '{line_tfl_id}' not found.",
+                )
+
+            # Check if routes have been built (None means not built, {} means no routes found)
+            if line.routes is None:
+                raise HTTPException(
+                    status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                    detail="Route data has not been built yet. Please contact administrator.",
+                )
+
+            # Return line routes data
+            return {
+                "line_tfl_id": line.tfl_id,
+                "routes": line.routes.get("routes", []),
+            }
+
+        except HTTPException:
+            raise
+        except Exception as e:
+            logger.error("get_line_routes_failed", line_tfl_id=line_tfl_id, error=str(e), exc_info=e)
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail=f"Failed to fetch routes for line '{line_tfl_id}'.",
+            ) from e
+
+    async def get_station_routes(self, station_tfl_id: str) -> dict[str, Any] | None:
+        """
+        Get all routes passing through a specific station.
+
+        Args:
+            station_tfl_id: TfL station ID (e.g., "940GZZLUVIC")
+
+        Returns:
+            Station routes data (station_tfl_id, station_name, and list of routes)
+            or None if not found
+
+        Raises:
+            HTTPException: 404 if station not found, 503 if routes haven't been built yet
+        """
+        logger.info("fetching_station_routes", station_tfl_id=station_tfl_id)
+
+        try:
+            # Look up station by TfL ID
+            result = await self.db.execute(select(Station).where(Station.tfl_id == station_tfl_id))
+            station = result.scalar_one_or_none()
+
+            if not station:
+                raise HTTPException(
+                    status_code=status.HTTP_404_NOT_FOUND,
+                    detail=f"Station '{station_tfl_id}' not found.",
+                )
+
+            # Get all lines that serve this station
+            line_tfl_ids = station.lines
+            if not line_tfl_ids:
+                # Station exists but has no lines (shouldn't happen, but handle gracefully)
+                return {
+                    "station_tfl_id": station.tfl_id,
+                    "station_name": station.name,
+                    "routes": [],
+                }
+
+            # Fetch all lines that serve this station
+            lines_result = await self.db.execute(select(Line).where(Line.tfl_id.in_(line_tfl_ids)))
+            lines: list[Line] = list(lines_result.scalars().all())
+
+            # Collect routes that pass through this station
+            station_routes: list[dict[str, str]] = []
+            for line in lines:
+                if line.routes is None:
+                    continue
+
+                routes = line.routes.get("routes", [])
+                station_routes.extend(
+                    {
+                        "line_tfl_id": line.tfl_id,
+                        "line_name": line.name,
+                        "route_name": route.get("name", "Unknown"),
+                        "service_type": route.get("service_type", "Unknown"),
+                        "direction": route.get("direction", "Unknown"),
+                    }
+                    for route in routes
+                    if station_tfl_id in route.get("stations", [])
+                )
+
+            # Check if any routes were found
+            if not station_routes and lines:
+                # Lines exist but no routes built yet
+                raise HTTPException(
+                    status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                    detail="Route data has not been built yet. Please contact administrator.",
+                )
+
+            return {
+                "station_tfl_id": station.tfl_id,
+                "station_name": station.name,
+                "routes": station_routes,
+            }
+
+        except HTTPException:
+            raise
+        except Exception as e:
+            logger.error("get_station_routes_failed", station_tfl_id=station_tfl_id, error=str(e), exc_info=e)
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail=f"Failed to fetch routes for station '{station_tfl_id}'.",
+            ) from e

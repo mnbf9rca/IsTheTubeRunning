@@ -102,6 +102,7 @@ async def test_get_lines_success(
             tfl_id="victoria",
             name="Victoria",
             color="#0019A8",
+            mode="tube",
             last_updated=fixed_time,
         ),
         Line(
@@ -109,6 +110,7 @@ async def test_get_lines_success(
             tfl_id="northern",
             name="Northern",
             color="#000000",
+            mode="tube",
             last_updated=fixed_time,
         ),
     ]
@@ -287,7 +289,7 @@ async def test_validate_route_success(
 ) -> None:
     """Test successful route validation."""
     # Create test data for valid UUIDs
-    line = Line(tfl_id="victoria", name="Victoria", color="#0019A8", last_updated=datetime.now(UTC))
+    line = Line(tfl_id="victoria", name="Victoria", color="#0019A8", mode="tube", last_updated=datetime.now(UTC))
     station1 = Station(
         tfl_id="st1",
         name="Station 1",
@@ -313,8 +315,8 @@ async def test_validate_route_success(
     # Execute
     request_data = {
         "segments": [
-            {"station_id": str(station1.id), "line_id": str(line.id)},
-            {"station_id": str(station2.id), "line_id": str(line.id)},
+            {"station_tfl_id": station1.tfl_id, "line_tfl_id": line.tfl_id},
+            {"station_tfl_id": station2.tfl_id, "line_tfl_id": line.tfl_id},
         ]
     }
     response = await async_client_with_auth.post(
@@ -338,7 +340,7 @@ async def test_validate_route_invalid(
 ) -> None:
     """Test route validation with invalid connection."""
     # Create test data
-    line = Line(tfl_id="victoria", name="Victoria", color="#0019A8", last_updated=datetime.now(UTC))
+    line = Line(tfl_id="victoria", name="Victoria", color="#0019A8", mode="tube", last_updated=datetime.now(UTC))
     station1 = Station(
         tfl_id="st1",
         name="Station 1",
@@ -364,8 +366,8 @@ async def test_validate_route_invalid(
     # Execute
     request_data = {
         "segments": [
-            {"station_id": str(station1.id), "line_id": str(line.id)},
-            {"station_id": str(station2.id), "line_id": str(line.id)},
+            {"station_tfl_id": station1.tfl_id, "line_tfl_id": line.tfl_id},
+            {"station_tfl_id": station2.tfl_id, "line_tfl_id": line.tfl_id},
         ]
     }
     response = await async_client_with_auth.post(
@@ -387,7 +389,7 @@ async def test_validate_route_insufficient_segments(
 ) -> None:
     """Test route validation with too few segments."""
     # Create minimal test data
-    line = Line(tfl_id="victoria", name="Victoria", color="#0019A8", last_updated=datetime.now(UTC))
+    line = Line(tfl_id="victoria", name="Victoria", color="#0019A8", mode="tube", last_updated=datetime.now(UTC))
     station1 = Station(
         tfl_id="st1",
         name="Station 1",
@@ -400,7 +402,7 @@ async def test_validate_route_insufficient_segments(
     await db_session.commit()
 
     # Execute with only one segment
-    request_data = {"segments": [{"station_id": str(station1.id), "line_id": str(line.id)}]}
+    request_data = {"segments": [{"station_tfl_id": station1.tfl_id, "line_tfl_id": line.tfl_id}]}
     response = await async_client_with_auth.post(
         build_api_url("/tfl/validate-route"),
         json=request_data,
@@ -550,3 +552,354 @@ async def test_get_network_graph_unexpected_error(
 # Note: Full integration tests removed per YAGNI principle
 # Route validation is thoroughly tested at service layer (5 tests)
 # API layer is tested with mocked services above
+
+
+# ==================== GET /tfl/lines/{line_id}/routes Tests ====================
+
+
+@patch("app.services.tfl_service.TfLService.get_line_routes")
+async def test_get_line_routes_success(
+    mock_get_line_routes: AsyncMock,
+    async_client_with_auth: AsyncClient,
+) -> None:
+    """Test successful retrieval of line route variants."""
+    # Mock successful route retrieval
+    mock_get_line_routes.return_value = {
+        "line_tfl_id": "victoria",
+        "routes": [
+            {
+                "name": "Walthamstow Central → Brixton",
+                "service_type": "Regular",
+                "direction": "inbound",
+                "stations": ["940GZZLUWAC", "940GZZLUVIC", "940GZZLUBXN"],
+            },
+            {
+                "name": "Brixton → Walthamstow Central",
+                "service_type": "Regular",
+                "direction": "outbound",
+                "stations": ["940GZZLUBXN", "940GZZLUVIC", "940GZZLUWAC"],
+            },
+        ],
+    }
+
+    # Execute
+    response = await async_client_with_auth.get(build_api_url("/tfl/lines/victoria/routes"))
+
+    # Verify
+    assert response.status_code == 200
+    data = response.json()
+    assert data["line_tfl_id"] == "victoria"
+    assert len(data["routes"]) == 2
+    assert data["routes"][0]["name"] == "Walthamstow Central → Brixton"
+    assert data["routes"][0]["direction"] == "inbound"
+    assert data["routes"][0]["stations"] == ["940GZZLUWAC", "940GZZLUVIC", "940GZZLUBXN"]
+    assert data["routes"][1]["name"] == "Brixton → Walthamstow Central"
+    assert data["routes"][1]["direction"] == "outbound"
+
+    # Verify service was called with correct line_id
+    mock_get_line_routes.assert_called_once_with("victoria")
+
+
+@patch("app.services.tfl_service.TfLService.get_line_routes")
+async def test_get_line_routes_line_not_found(
+    mock_get_line_routes: AsyncMock,
+    async_client_with_auth: AsyncClient,
+) -> None:
+    """Test get_line_routes endpoint when line does not exist."""
+    # Mock 404 error
+    mock_get_line_routes.side_effect = HTTPException(
+        status_code=404,
+        detail="Line 'nonexistent' not found.",
+    )
+
+    # Execute
+    response = await async_client_with_auth.get(build_api_url("/tfl/lines/nonexistent/routes"))
+
+    # Verify
+    assert response.status_code == 404
+    assert "Line 'nonexistent' not found" in response.json()["detail"]
+
+
+@patch("app.services.tfl_service.TfLService.get_line_routes")
+async def test_get_line_routes_routes_not_built(
+    mock_get_line_routes: AsyncMock,
+    async_client_with_auth: AsyncClient,
+) -> None:
+    """Test get_line_routes endpoint when routes haven't been built yet."""
+    # Mock 503 error
+    mock_get_line_routes.side_effect = HTTPException(
+        status_code=503,
+        detail="Route data has not been built yet. Please contact administrator.",
+    )
+
+    # Execute
+    response = await async_client_with_auth.get(build_api_url("/tfl/lines/victoria/routes"))
+
+    # Verify
+    assert response.status_code == 503
+    assert "Route data has not been built yet" in response.json()["detail"]
+
+
+@patch("app.services.tfl_service.TfLService.get_line_routes")
+async def test_get_line_routes_empty_routes(
+    mock_get_line_routes: AsyncMock,
+    async_client_with_auth: AsyncClient,
+) -> None:
+    """Test get_line_routes endpoint when line has no routes."""
+    # Mock empty routes
+    mock_get_line_routes.return_value = {
+        "line_tfl_id": "victoria",
+        "routes": [],
+    }
+
+    # Execute
+    response = await async_client_with_auth.get(build_api_url("/tfl/lines/victoria/routes"))
+
+    # Verify
+    assert response.status_code == 200
+    data = response.json()
+    assert data["line_tfl_id"] == "victoria"
+    assert data["routes"] == []
+
+
+async def test_get_line_routes_unauthenticated(
+    async_client_with_auth: AsyncClient,
+) -> None:
+    """Test that unauthenticated requests to get_line_routes are rejected."""
+    # Create client without auth headers
+    async with AsyncClient(
+        transport=ASGITransport(app=app),
+        base_url="http://test",
+    ) as client:
+        response = await client.get(build_api_url("/tfl/lines/victoria/routes"))
+
+    assert response.status_code == 403
+
+
+@patch("app.services.tfl_service.TfLService.get_line_routes")
+async def test_get_line_routes_server_error(
+    mock_get_line_routes: AsyncMock,
+    async_client_with_auth: AsyncClient,
+) -> None:
+    """Test get_line_routes endpoint when server error occurs."""
+    # Mock 500 error
+    mock_get_line_routes.side_effect = HTTPException(
+        status_code=500,
+        detail="Failed to fetch routes for line 'victoria'.",
+    )
+
+    # Execute
+    response = await async_client_with_auth.get(build_api_url("/tfl/lines/victoria/routes"))
+
+    # Verify
+    assert response.status_code == 500
+    assert "Failed to fetch routes" in response.json()["detail"]
+
+
+# ==================== GET /tfl/stations/{station_tfl_id}/routes Tests ====================
+
+
+@patch("app.services.tfl_service.TfLService.get_station_routes")
+async def test_get_station_routes_success(
+    mock_get_station_routes: AsyncMock,
+    async_client_with_auth: AsyncClient,
+) -> None:
+    """Test successful retrieval of routes passing through a station."""
+    # Mock successful station routes retrieval
+    mock_get_station_routes.return_value = {
+        "station_tfl_id": "940GZZLUVIC",
+        "station_name": "Victoria",
+        "routes": [
+            {
+                "line_tfl_id": "victoria",
+                "line_name": "Victoria",
+                "route_name": "Walthamstow Central → Brixton",
+                "service_type": "Regular",
+                "direction": "inbound",
+            },
+            {
+                "line_tfl_id": "district",
+                "line_name": "District",
+                "route_name": "Upminster → Ealing Broadway",
+                "service_type": "Regular",
+                "direction": "inbound",
+            },
+        ],
+    }
+
+    # Execute
+    response = await async_client_with_auth.get(build_api_url("/tfl/stations/940GZZLUVIC/routes"))
+
+    # Verify
+    assert response.status_code == 200
+    data = response.json()
+    assert data["station_tfl_id"] == "940GZZLUVIC"
+    assert data["station_name"] == "Victoria"
+    assert len(data["routes"]) == 2
+
+    # Verify first route
+    assert data["routes"][0]["line_tfl_id"] == "victoria"
+    assert data["routes"][0]["line_name"] == "Victoria"
+    assert data["routes"][0]["route_name"] == "Walthamstow Central → Brixton"
+    assert data["routes"][0]["service_type"] == "Regular"
+    assert data["routes"][0]["direction"] == "inbound"
+
+    # Verify second route
+    assert data["routes"][1]["line_tfl_id"] == "district"
+    assert data["routes"][1]["line_name"] == "District"
+
+    # Verify service was called with correct station_tfl_id
+    mock_get_station_routes.assert_called_once_with("940GZZLUVIC")
+
+
+@patch("app.services.tfl_service.TfLService.get_station_routes")
+async def test_get_station_routes_station_not_found(
+    mock_get_station_routes: AsyncMock,
+    async_client_with_auth: AsyncClient,
+) -> None:
+    """Test get_station_routes endpoint when station does not exist."""
+    # Mock 404 error
+    mock_get_station_routes.side_effect = HTTPException(
+        status_code=404,
+        detail="Station '940GZZLUNONEXISTENT' not found.",
+    )
+
+    # Execute
+    response = await async_client_with_auth.get(build_api_url("/tfl/stations/940GZZLUNONEXISTENT/routes"))
+
+    # Verify
+    assert response.status_code == 404
+    assert "Station '940GZZLUNONEXISTENT' not found" in response.json()["detail"]
+
+
+@patch("app.services.tfl_service.TfLService.get_station_routes")
+async def test_get_station_routes_routes_not_built(
+    mock_get_station_routes: AsyncMock,
+    async_client_with_auth: AsyncClient,
+) -> None:
+    """Test get_station_routes endpoint when routes haven't been built yet."""
+    # Mock 503 error
+    mock_get_station_routes.side_effect = HTTPException(
+        status_code=503,
+        detail="Route data has not been built yet. Please contact administrator.",
+    )
+
+    # Execute
+    response = await async_client_with_auth.get(build_api_url("/tfl/stations/940GZZLUVIC/routes"))
+
+    # Verify
+    assert response.status_code == 503
+    assert "Route data has not been built yet" in response.json()["detail"]
+
+
+@patch("app.services.tfl_service.TfLService.get_station_routes")
+async def test_get_station_routes_no_lines(
+    mock_get_station_routes: AsyncMock,
+    async_client_with_auth: AsyncClient,
+) -> None:
+    """Test get_station_routes endpoint when station has no lines."""
+    # Mock empty routes (station exists but no lines)
+    mock_get_station_routes.return_value = {
+        "station_tfl_id": "940GZZLUVIC",
+        "station_name": "Victoria",
+        "routes": [],
+    }
+
+    # Execute
+    response = await async_client_with_auth.get(build_api_url("/tfl/stations/940GZZLUVIC/routes"))
+
+    # Verify
+    assert response.status_code == 200
+    data = response.json()
+    assert data["station_tfl_id"] == "940GZZLUVIC"
+    assert data["station_name"] == "Victoria"
+    assert data["routes"] == []
+
+
+async def test_get_station_routes_unauthenticated(
+    async_client_with_auth: AsyncClient,
+) -> None:
+    """Test that unauthenticated requests to get_station_routes are rejected."""
+    # Create client without auth headers
+    async with AsyncClient(
+        transport=ASGITransport(app=app),
+        base_url="http://test",
+    ) as client:
+        response = await client.get(build_api_url("/tfl/stations/940GZZLUVIC/routes"))
+
+    assert response.status_code == 403
+
+
+@patch("app.services.tfl_service.TfLService.get_station_routes")
+async def test_get_station_routes_server_error(
+    mock_get_station_routes: AsyncMock,
+    async_client_with_auth: AsyncClient,
+) -> None:
+    """Test get_station_routes endpoint when server error occurs."""
+    # Mock 500 error
+    mock_get_station_routes.side_effect = HTTPException(
+        status_code=500,
+        detail="Failed to fetch routes for station '940GZZLUVIC'.",
+    )
+
+    # Execute
+    response = await async_client_with_auth.get(build_api_url("/tfl/stations/940GZZLUVIC/routes"))
+
+    # Verify
+    assert response.status_code == 500
+    assert "Failed to fetch routes" in response.json()["detail"]
+
+
+@patch("app.services.tfl_service.TfLService.get_station_routes")
+async def test_get_station_routes_multiple_routes_same_line(
+    mock_get_station_routes: AsyncMock,
+    async_client_with_auth: AsyncClient,
+) -> None:
+    """Test get_station_routes when station is on multiple route variants of same line."""
+    # Mock multiple routes on same line (like Northern line branches)
+    mock_get_station_routes.return_value = {
+        "station_tfl_id": "940GZZLUCTN",
+        "station_name": "Camden Town",
+        "routes": [
+            {
+                "line_tfl_id": "northern",
+                "line_name": "Northern",
+                "route_name": "Edgware → Morden via Bank",
+                "service_type": "Regular",
+                "direction": "inbound",
+            },
+            {
+                "line_tfl_id": "northern",
+                "line_name": "Northern",
+                "route_name": "High Barnet → Morden via Bank",
+                "service_type": "Regular",
+                "direction": "inbound",
+            },
+            {
+                "line_tfl_id": "northern",
+                "line_name": "Northern",
+                "route_name": "Morden → Edgware via Bank",
+                "service_type": "Regular",
+                "direction": "outbound",
+            },
+        ],
+    }
+
+    # Execute
+    response = await async_client_with_auth.get(build_api_url("/tfl/stations/940GZZLUCTN/routes"))
+
+    # Verify
+    assert response.status_code == 200
+    data = response.json()
+    assert data["station_tfl_id"] == "940GZZLUCTN"
+    assert data["station_name"] == "Camden Town"
+    assert len(data["routes"]) == 3
+
+    # Verify all routes are for Northern line
+    assert all(route["line_tfl_id"] == "northern" for route in data["routes"])
+
+    # Verify route names
+    route_names = [route["route_name"] for route in data["routes"]]
+    assert "Edgware → Morden via Bank" in route_names
+    assert "High Barnet → Morden via Bank" in route_names
+    assert "Morden → Edgware via Bank" in route_names
