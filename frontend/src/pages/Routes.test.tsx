@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/react'
+import { renderWithRouter, screen } from '@/test/test-utils'
 import { userEvent } from '@testing-library/user-event'
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { Routes } from './Routes'
@@ -16,6 +16,16 @@ vi.mock('sonner', () => ({
     error: vi.fn(),
   },
 }))
+
+// Mock react-router-dom navigate
+const mockNavigate = vi.fn()
+vi.mock('react-router-dom', async () => {
+  const actual = await vi.importActual('react-router-dom')
+  return {
+    ...actual,
+    useNavigate: () => mockNavigate,
+  }
+})
 
 import { useRoutes } from '../hooks/useRoutes'
 
@@ -46,32 +56,32 @@ describe('Routes', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     vi.mocked(useRoutes).mockReturnValue(mockUseRoutes)
+    mockNavigate.mockClear()
   })
 
   it('should render page header', () => {
-    render(<Routes />)
+    renderWithRouter(<Routes />)
 
     expect(screen.getByRole('heading', { name: /routes/i })).toBeInTheDocument()
     expect(screen.getByText(/manage your commute routes/i)).toBeInTheDocument()
   })
 
   it('should render create route button', () => {
-    render(<Routes />)
+    renderWithRouter(<Routes />)
 
     const createButton = screen.getByRole('button', { name: /create route/i })
     expect(createButton).toBeInTheDocument()
   })
 
-  it('should open create dialog when create button is clicked', async () => {
+  it('should navigate to create route page when create button is clicked', async () => {
     const user = userEvent.setup()
-    render(<Routes />)
+    renderWithRouter(<Routes />)
 
     const createButton = screen.getByRole('button', { name: /create route/i })
     await user.click(createButton)
 
-    // Dialog should open with title
-    expect(screen.getByRole('dialog')).toBeInTheDocument()
-    expect(screen.getByRole('heading', { name: /create route/i })).toBeInTheDocument()
+    // Should navigate to /routes/new
+    expect(mockNavigate).toHaveBeenCalledWith('/routes/new')
   })
 
   it('should render loading state', () => {
@@ -81,7 +91,7 @@ describe('Routes', () => {
       routes: null,
     })
 
-    render(<Routes />)
+    renderWithRouter(<Routes />)
 
     expect(screen.getByText(/loading routes/i)).toBeInTheDocument()
   })
@@ -93,7 +103,7 @@ describe('Routes', () => {
       error: mockError,
     })
 
-    render(<Routes />)
+    renderWithRouter(<Routes />)
 
     expect(screen.getByText(/error/i)).toBeInTheDocument()
     expect(screen.getByText(/failed to load routes/i)).toBeInTheDocument()
@@ -106,13 +116,13 @@ describe('Routes', () => {
       error: mockError,
     })
 
-    render(<Routes />)
+    renderWithRouter(<Routes />)
 
     expect(screen.getByText(/your session has expired/i)).toBeInTheDocument()
   })
 
   it('should render routes list', () => {
-    render(<Routes />)
+    renderWithRouter(<Routes />)
 
     expect(screen.getByText('Home to Work')).toBeInTheDocument()
     expect(screen.getByText(/you have 1 route/i)).toBeInTheDocument()
@@ -124,7 +134,7 @@ describe('Routes', () => {
       routes: [...mockRoutes, { ...mockRoutes[0], id: 'route-2', name: 'Route 2' }],
     })
 
-    render(<Routes />)
+    renderWithRouter(<Routes />)
 
     expect(screen.getByText(/you have 2 routes/i)).toBeInTheDocument()
   })
@@ -135,7 +145,7 @@ describe('Routes', () => {
       loading: true,
     })
 
-    render(<Routes />)
+    renderWithRouter(<Routes />)
 
     const createButton = screen.getByRole('button', { name: /create route/i })
     expect(createButton).toBeDisabled()
@@ -143,7 +153,7 @@ describe('Routes', () => {
 
   it('should open delete confirmation dialog when delete is clicked', async () => {
     const user = userEvent.setup()
-    render(<Routes />)
+    renderWithRouter(<Routes />)
 
     // Click delete button on route card
     const deleteButton = screen.getByRole('button', { name: /delete route home to work/i })

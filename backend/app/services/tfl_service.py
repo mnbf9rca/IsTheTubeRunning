@@ -41,6 +41,7 @@ DEFAULT_METADATA_CACHE_TTL = 604800  # 7 days
 # TfL API constants
 TFL_GOOD_SERVICE_SEVERITY = 10  # Status severity value for "Good Service"
 MIN_ROUTE_SEGMENTS = 2  # Minimum number of segments required for route validation
+MAX_ROUTE_SEGMENTS = 20  # Maximum number of segments allowed for route validation
 DEFAULT_MODES = ["tube", "overground", "dlr", "elizabeth-line"]  # Default transport modes to fetch
 
 
@@ -1375,6 +1376,15 @@ class TfLService:
             # If we reach here, everything succeeded
             await self.db.commit()
 
+            # Invalidate all station and line caches since we've rebuilt the graph
+            # This ensures subsequent API calls get fresh data from the database
+            await self.cache.delete("stations:all")
+            for line in lines:
+                await self.cache.delete(f"stations:line:{line.tfl_id}")
+            # Also clear lines cache in case metadata changed
+            await self.cache.delete("lines")
+            logger.info("invalidated_all_tfl_caches", lines_invalidated=len(lines))
+
             build_result = {
                 "lines_count": len(lines),
                 "stations_count": len(stations_set),
@@ -1538,11 +1548,14 @@ class TfLService:
 
         return line
 
-    async def validate_route(self, segments: list[RouteSegmentRequest]) -> tuple[bool, str, int | None]:
+    async def validate_route(  # noqa: PLR0912
+        self, segments: list[RouteSegmentRequest]
+    ) -> tuple[bool, str, int | None]:
         """
         Validate a route by checking if connections exist between segments.
 
         Uses BFS to check if a path exists between consecutive stations on the specified line.
+        Also enforces acyclic routes (no duplicate stations) and maximum segment limits.
 
         Args:
             segments: List of route segments (station + line pairs)
@@ -1550,25 +1563,80 @@ class TfLService:
         Returns:
             Tuple of (is_valid, message, invalid_segment_index)
         """
+        # Check minimum segments
         if len(segments) < MIN_ROUTE_SEGMENTS:
             return False, f"Route must have at least {MIN_ROUTE_SEGMENTS} segments (start and end).", None
+
+        # Check maximum segments
+        if len(segments) > MAX_ROUTE_SEGMENTS:
+            return (
+                False,
+                f"Route cannot have more than {MAX_ROUTE_SEGMENTS} segments. "
+                f"Current route has {len(segments)} segments.",
+                None,
+            )
+
+        # Check for duplicate stations (enforce acyclic routes)
+        station_tfl_ids = [segment.station_tfl_id for segment in segments]
+        unique_stations = set(station_tfl_ids)
+
+        if len(unique_stations) != len(station_tfl_ids):
+            # Find the duplicate station
+            seen: set[str] = set()
+            for idx, station_tfl_id in enumerate(station_tfl_ids):
+                if station_tfl_id in seen:
+                    # Get station name for error message
+                    station = await self.get_station_by_tfl_id(station_tfl_id)
+                    station_name = station.name if station else "Unknown"
+
+                    logger.warning(
+                        "route_validation_failed_duplicate_station",
+                        station_tfl_id=station_tfl_id,
+                        station_name=station_name,
+                        segment_index=idx,
+                    )
+
+                    return (
+                        False,
+                        f"Route cannot visit the same station ('{station_name}') more than once. "
+                        f"Duplicate found at segment {idx + 1}.",
+                        idx,
+                    )
+                seen.add(station_tfl_id)
+
+        # Validate that only the final segment can have NULL line_tfl_id
+        # All intermediate segments (0 to len-2) must have a line to travel on
+        for i in range(len(segments) - 1):
+            if segments[i].line_tfl_id is None:
+                logger.warning(
+                    "route_validation_failed_null_intermediate_line",
+                    segment_index=i,
+                    station_tfl_id=segments[i].station_tfl_id,
+                )
+                return (
+                    False,
+                    f"Segment {i} must have a line_tfl_id. "
+                    "Only the final segment (destination) can have NULL line_tfl_id.",
+                    i,
+                )
 
         logger.info("validating_route", segments_count=len(segments))
 
         try:
             # Bulk fetch all stations and lines to avoid redundant lookups
-            station_tfl_ids = {seg.station_tfl_id for seg in segments}
-            line_tfl_ids = {seg.line_tfl_id for seg in segments}
+            unique_station_ids = {seg.station_tfl_id for seg in segments}
+            # Filter out None values from line_tfl_ids (destination segments have no line)
+            unique_line_ids = {seg.line_tfl_id for seg in segments if seg.line_tfl_id is not None}
 
             # Fetch all stations
             stations_map = {}
-            for tfl_id in station_tfl_ids:
+            for tfl_id in unique_station_ids:
                 station = await self.get_station_by_tfl_id(tfl_id)
                 stations_map[tfl_id] = station
 
             # Fetch all lines
             lines_map = {}
-            for tfl_id in line_tfl_ids:
+            for tfl_id in unique_line_ids:
                 line = await self.get_line_by_tfl_id(tfl_id)
                 lines_map[tfl_id] = line
 
@@ -1580,6 +1648,8 @@ class TfLService:
                 # Use cached station and line objects
                 from_station = stations_map[current_segment.station_tfl_id]
                 to_station = stations_map[next_segment.station_tfl_id]
+                # We already validated that intermediate segments have non-null line_tfl_id
+                assert current_segment.line_tfl_id is not None  # For type checker
                 line = lines_map[current_segment.line_tfl_id]
 
                 # Check if connection exists

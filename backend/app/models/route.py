@@ -96,10 +96,10 @@ class RouteSegment(BaseModel):
         ForeignKey("stations.id", ondelete="CASCADE"),
         nullable=False,
     )
-    line_id: Mapped[uuid.UUID] = mapped_column(
+    line_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True),
         ForeignKey("lines.id", ondelete="CASCADE"),
-        nullable=False,
+        nullable=True,
     )
 
     # Relationships
@@ -119,9 +119,9 @@ class RouteSegment(BaseModel):
         return self.station.tfl_id
 
     @property
-    def line_tfl_id(self) -> str:
-        """Get TfL ID from related line."""
-        return self.line.tfl_id
+    def line_tfl_id(self) -> str | None:
+        """Get TfL ID from related line. Returns None if line_id is NULL (destination segment)."""
+        return self.line.tfl_id if self.line else None
 
     def __repr__(self) -> str:
         """String representation of the route segment."""

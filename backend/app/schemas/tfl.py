@@ -109,7 +109,10 @@ class RouteSegmentRequest(BaseModel):
     """Single segment in a route (station + line)."""
 
     station_tfl_id: str = Field(..., description="TfL station ID (e.g., '940GZZLUOXC')")
-    line_tfl_id: str = Field(..., description="TfL line ID (e.g., 'victoria', 'northern')")
+    line_tfl_id: str | None = Field(
+        None,
+        description="TfL line ID (e.g., 'victoria', 'northern'). NULL means destination segment (no onward travel).",
+    )
 
 
 class RouteValidationRequest(BaseModel):

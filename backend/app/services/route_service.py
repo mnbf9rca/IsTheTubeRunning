@@ -224,14 +224,15 @@ class RouteService:
             for seg in segments:
                 # Look up station and line by TfL ID
                 station = await self.tfl_service.get_station_by_tfl_id(seg.station_tfl_id)
-                line = await self.tfl_service.get_line_by_tfl_id(seg.line_tfl_id)
+                # Line is optional for destination segments (NULL line_tfl_id)
+                line = await self.tfl_service.get_line_by_tfl_id(seg.line_tfl_id) if seg.line_tfl_id else None
 
                 new_segments.append(
                     RouteSegment(
                         route_id=route_id,
                         sequence=seg.sequence,
                         station_id=station.id,
-                        line_id=line.id,
+                        line_id=line.id if line else None,
                     )
                 )
 
@@ -550,19 +551,27 @@ class RouteService:
         segment_requests = []
         for seg in sorted_segments:
             station = stations_map.get(seg.station_id)
-            line = lines_map.get(seg.line_id)
+            # line_id can be None for destination segments
+            line = lines_map.get(seg.line_id) if seg.line_id is not None else None
 
-            if station is None or line is None:
+            if station is None:
                 raise HTTPException(
                     status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                    detail="Invalid route segment data - station or line not found.",
+                    detail="Invalid route segment data - station not found.",
+                )
+
+            # Line can be None for destination segments, so only check non-destination segments
+            if seg.line_id is not None and line is None:
+                raise HTTPException(
+                    status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                    detail="Invalid route segment data - line not found.",
                 )
 
             segment_requests.append(
                 SegmentRequest(
                     sequence=seg.sequence,
                     station_tfl_id=station.tfl_id,
-                    line_tfl_id=line.tfl_id,
+                    line_tfl_id=line.tfl_id if line is not None else None,
                 )
             )
 

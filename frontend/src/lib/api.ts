@@ -395,8 +395,8 @@ export async function deleteContact(contactId: string): Promise<void> {
 export interface SegmentResponse {
   id: string
   sequence: number
-  station_id: string
-  line_id: string
+  station_tfl_id: string
+  line_tfl_id: string | null
 }
 
 /**
@@ -532,4 +532,385 @@ export async function updateRoute(
  */
 export async function deleteRoute(routeId: string): Promise<void> {
   await fetchAPI<void>(`/routes/${routeId}`, { method: 'DELETE' })
+}
+
+// ============================================================================
+// Segment Management Types & API
+// ============================================================================
+
+/**
+ * Request to create or update a segment
+ */
+export interface SegmentRequest {
+  sequence: number
+  station_tfl_id: string
+  line_tfl_id: string | null
+}
+
+/**
+ * Request to update a single segment
+ */
+export interface UpdateSegmentRequest {
+  station_tfl_id?: string
+  line_tfl_id?: string
+}
+
+/**
+ * Replace all segments for a route (batch upsert)
+ *
+ * @param routeId The route ID to update
+ * @param segments Array of segments (min 2 required, consecutive sequences starting from 0)
+ * @returns The updated list of segments
+ * @throws {ApiError} 400 if validation fails (min 2 segments, invalid sequences)
+ */
+export async function upsertSegments(
+  routeId: string,
+  segments: SegmentRequest[]
+): Promise<SegmentResponse[]> {
+  const response = await fetchAPI<SegmentResponse[]>(`/routes/${routeId}/segments`, {
+    method: 'PUT',
+    body: JSON.stringify({ segments }),
+  })
+  if (!response) {
+    throw new ApiError(204, 'Unexpected 204 response from upsert segments endpoint')
+  }
+  return response
+}
+
+/**
+ * Update a single segment
+ *
+ * @param routeId The route ID
+ * @param sequence The sequence number of the segment to update
+ * @param data Partial segment data to update
+ * @returns The updated segment
+ * @throws {ApiError} 404 if route or segment not found, 400 if validation fails
+ */
+export async function updateSegment(
+  routeId: string,
+  sequence: number,
+  data: UpdateSegmentRequest
+): Promise<SegmentResponse> {
+  const response = await fetchAPI<SegmentResponse>(`/routes/${routeId}/segments/${sequence}`, {
+    method: 'PATCH',
+    body: JSON.stringify(data),
+  })
+  if (!response) {
+    throw new ApiError(204, 'Unexpected 204 response from update segment endpoint')
+  }
+  return response
+}
+
+/**
+ * Delete a segment
+ *
+ * Deletes the segment and resequences remaining segments automatically.
+ * Cannot delete if fewer than 2 segments would remain.
+ *
+ * @param routeId The route ID
+ * @param sequence The sequence number of the segment to delete
+ * @throws {ApiError} 404 if route or segment not found, 400 if <2 segments would remain
+ */
+export async function deleteSegment(routeId: string, sequence: number): Promise<void> {
+  await fetchAPI<void>(`/routes/${routeId}/segments/${sequence}`, { method: 'DELETE' })
+}
+
+// ============================================================================
+// Schedule Management Types & API
+// ============================================================================
+
+/**
+ * Request to create a new schedule
+ */
+export interface CreateScheduleRequest {
+  days_of_week: string[] // ['MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT', 'SUN']
+  start_time: string // HH:MM:SS format
+  end_time: string // HH:MM:SS format
+}
+
+/**
+ * Request to update a schedule (all fields optional)
+ */
+export interface UpdateScheduleRequest {
+  days_of_week?: string[]
+  start_time?: string
+  end_time?: string
+}
+
+/**
+ * Create a new schedule for a route
+ *
+ * @param routeId The route ID
+ * @param data Schedule creation data
+ * @returns The created schedule
+ * @throws {ApiError} 400 if validation fails (invalid days, end_time <= start_time)
+ */
+export async function createSchedule(
+  routeId: string,
+  data: CreateScheduleRequest
+): Promise<ScheduleResponse> {
+  const response = await fetchAPI<ScheduleResponse>(`/routes/${routeId}/schedules`, {
+    method: 'POST',
+    body: JSON.stringify(data),
+  })
+  if (!response) {
+    throw new ApiError(204, 'Unexpected 204 response from create schedule endpoint')
+  }
+  return response
+}
+
+/**
+ * Update an existing schedule
+ *
+ * @param routeId The route ID
+ * @param scheduleId The schedule ID to update
+ * @param data Partial schedule data to update
+ * @returns The updated schedule
+ * @throws {ApiError} 404 if route or schedule not found, 400 if validation fails
+ */
+export async function updateSchedule(
+  routeId: string,
+  scheduleId: string,
+  data: UpdateScheduleRequest
+): Promise<ScheduleResponse> {
+  const response = await fetchAPI<ScheduleResponse>(`/routes/${routeId}/schedules/${scheduleId}`, {
+    method: 'PATCH',
+    body: JSON.stringify(data),
+  })
+  if (!response) {
+    throw new ApiError(204, 'Unexpected 204 response from update schedule endpoint')
+  }
+  return response
+}
+
+/**
+ * Delete a schedule
+ *
+ * @param routeId The route ID
+ * @param scheduleId The schedule ID to delete
+ * @throws {ApiError} 404 if route or schedule not found
+ */
+export async function deleteSchedule(routeId: string, scheduleId: string): Promise<void> {
+  await fetchAPI<void>(`/routes/${routeId}/schedules/${scheduleId}`, { method: 'DELETE' })
+}
+
+// ============================================================================
+// Notification Preference Types & API
+// ============================================================================
+
+/**
+ * Notification method enum
+ */
+export type NotificationMethod = 'email' | 'sms'
+
+/**
+ * Notification preference response
+ */
+export interface NotificationPreferenceResponse {
+  id: string
+  route_id: string
+  method: NotificationMethod
+  target_email_id: string | null
+  target_phone_id: string | null
+  created_at: string
+  updated_at: string
+}
+
+/**
+ * Request to create a notification preference
+ */
+export interface CreateNotificationPreferenceRequest {
+  method: NotificationMethod
+  target_email_id?: string
+  target_phone_id?: string
+}
+
+/**
+ * Get all notification preferences for a route
+ *
+ * @param routeId The route ID
+ * @returns Array of notification preferences
+ * @throws {ApiError} 404 if route not found
+ */
+export async function getNotificationPreferences(
+  routeId: string
+): Promise<NotificationPreferenceResponse[]> {
+  const response = await fetchAPI<NotificationPreferenceResponse[]>(
+    `/routes/${routeId}/notifications`
+  )
+  if (response === null) {
+    throw new ApiError(204, 'Unexpected 204 response from get notification preferences endpoint')
+  }
+  return response
+}
+
+/**
+ * Create a new notification preference for a route
+ *
+ * @param routeId The route ID
+ * @param data The notification preference data
+ * @returns The created notification preference
+ * @throws {ApiError} 400 if invalid data, 404 if route/contact not found, 409 if duplicate
+ */
+export async function createNotificationPreference(
+  routeId: string,
+  data: CreateNotificationPreferenceRequest
+): Promise<NotificationPreferenceResponse> {
+  const response = await fetchAPI<NotificationPreferenceResponse>(
+    `/routes/${routeId}/notifications`,
+    {
+      method: 'POST',
+      body: JSON.stringify(data),
+    }
+  )
+  if (response === null) {
+    throw new ApiError(204, 'Unexpected 204 response from create notification preference endpoint')
+  }
+  return response
+}
+
+/**
+ * Delete a notification preference
+ *
+ * @param routeId The route ID
+ * @param preferenceId The notification preference ID
+ * @throws {ApiError} 404 if preference not found
+ */
+export async function deleteNotificationPreference(
+  routeId: string,
+  preferenceId: string
+): Promise<void> {
+  await fetchAPI<void>(`/routes/${routeId}/notifications/${preferenceId}`, { method: 'DELETE' })
+}
+
+// ============================================================================
+// TfL Data Types & API
+// ============================================================================
+
+/**
+ * TfL line information
+ */
+export interface LineResponse {
+  id: string
+  tfl_id: string
+  name: string
+  color: string
+  last_updated: string
+}
+
+/**
+ * TfL station information
+ */
+export interface StationResponse {
+  id: string
+  tfl_id: string
+  name: string
+  latitude: number
+  longitude: number
+  lines: string[] // Array of line TfL IDs
+  last_updated: string
+}
+
+/**
+ * Network connection information
+ */
+export interface NetworkConnection {
+  station_id: string
+  station_tfl_id: string
+  station_name: string
+  line_id: string
+  line_tfl_id: string
+  line_name: string
+}
+
+/**
+ * Network graph adjacency list
+ * Maps station TfL ID to array of connected stations
+ */
+export type NetworkGraph = Record<string, NetworkConnection[]>
+
+/**
+ * Route validation segment request
+ */
+export interface RouteValidationSegment {
+  station_tfl_id: string
+  line_tfl_id: string | null
+}
+
+/**
+ * Route validation response
+ */
+export interface RouteValidationResponse {
+  valid: boolean
+  message: string
+  invalid_segment_index?: number
+}
+
+/**
+ * Get all TfL tube lines
+ *
+ * @returns Array of lines (cached 24 hours on backend)
+ * @throws {ApiError} If the request fails
+ */
+export async function getLines(): Promise<LineResponse[]> {
+  const response = await fetchAPI<LineResponse[]>('/tfl/lines')
+  if (!response) {
+    throw new ApiError(204, 'Unexpected 204 response from lines endpoint')
+  }
+  return response
+}
+
+/**
+ * Get all TfL stations, optionally filtered by line
+ *
+ * @param lineId Optional line ID to filter stations
+ * @returns Array of stations (cached 24 hours on backend)
+ * @throws {ApiError} If the request fails
+ */
+export async function getStations(lineId?: string): Promise<StationResponse[]> {
+  const endpoint = lineId ? `/tfl/stations?line_id=${lineId}` : '/tfl/stations'
+  const response = await fetchAPI<StationResponse[]>(endpoint)
+  if (!response) {
+    throw new ApiError(204, 'Unexpected 204 response from stations endpoint')
+  }
+  return response
+}
+
+/**
+ * Get the station connection network graph
+ *
+ * Returns an adjacency list mapping each station to its connected stations.
+ * Used for constraining route building to valid connections.
+ *
+ * @returns Network graph adjacency list
+ * @throws {ApiError} If the request fails or graph not built yet
+ */
+export async function getNetworkGraph(): Promise<NetworkGraph> {
+  const response = await fetchAPI<NetworkGraph>('/tfl/network-graph')
+  if (!response) {
+    throw new ApiError(204, 'Unexpected 204 response from network-graph endpoint')
+  }
+  return response
+}
+
+/**
+ * Validate a route's segment sequence
+ *
+ * Checks if the segments form a valid path through the network graph.
+ *
+ * @param segments Array of segments to validate (min 2)
+ * @returns Validation result with error details if invalid
+ * @throws {ApiError} If the request fails
+ */
+export async function validateRoute(
+  segments: RouteValidationSegment[]
+): Promise<RouteValidationResponse> {
+  const response = await fetchAPI<RouteValidationResponse>('/tfl/validate-route', {
+    method: 'POST',
+    body: JSON.stringify({ segments }),
+  })
+  if (!response) {
+    throw new ApiError(204, 'Unexpected 204 response from validate-route endpoint')
+  }
+  return response
 }
