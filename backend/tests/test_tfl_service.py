@@ -655,6 +655,37 @@ async def test_fetch_lines_empty_mode_list(
         assert tfl_service.cache.set.call_args[0][0] == expected_cache_key
 
 
+@patch("asyncio.get_running_loop")
+async def test_fetch_lines_invalid_mode(
+    mock_get_loop: MagicMock,
+    tfl_service: TfLService,
+    db_session: AsyncSession,
+) -> None:
+    """Test fetching lines with an invalid/unknown mode returns no lines."""
+    with freeze_time("2025-01-01 12:00:00"):
+        # Setup mock response for invalid mode (empty array)
+        mock_empty_response = MockResponse(
+            data=[],  # TfL API returns empty array for invalid/unknown modes
+            shared_expires=datetime(2025, 1, 2, 12, 0, 0, tzinfo=UTC),
+        )
+
+        # Mock executor to return empty response
+        mock_loop = AsyncMock()
+        mock_loop.run_in_executor = AsyncMock(return_value=mock_empty_response)
+        mock_get_loop.return_value = mock_loop
+
+        # Execute with an invalid mode
+        lines = await tfl_service.fetch_lines(modes=["spaceship"], use_cache=False)
+
+        # Verify no lines returned
+        assert len(lines) == 0
+
+        # Verify cache set with the invalid mode in the key
+        expected_cache_key = "lines:modes:spaceship"
+        tfl_service.cache.set.assert_called_once()
+        assert tfl_service.cache.set.call_args[0][0] == expected_cache_key
+
+
 # ==================== fetch_stations Tests ====================
 
 
@@ -1193,7 +1224,7 @@ async def test_fetch_disruptions_default_modes(
                 affected_routes=[create_mock_route_section(id="overground", name="Overground")],
             ),
         ]
-        mock_dlr = []  # No disruptions on DLR
+        mock_dlr: list[Any] = []  # No disruptions on DLR
         mock_elizabeth = [
             create_mock_disruption(
                 category="RealTime",
@@ -1672,6 +1703,99 @@ async def test_fetch_station_disruptions_api_failure(
 
     assert exc_info.value.status_code == 503
     assert "Failed to fetch station disruptions from TfL API" in exc_info.value.detail
+
+
+@patch("asyncio.get_running_loop")
+async def test_fetch_station_disruptions_multiple_modes(
+    mock_get_loop: MagicMock,
+    tfl_service: TfLService,
+    db_session: AsyncSession,
+) -> None:
+    """Test fetching station disruptions with multiple modes."""
+    with freeze_time("2025-01-01 12:00:00"):
+        # Create test stations in database
+        station_kx = Station(
+            tfl_id="940GZZLUKSX",
+            name="King's Cross",
+            latitude=51.5308,
+            longitude=-0.1238,
+            lines=["victoria", "overground"],
+            last_updated=datetime.now(UTC),
+        )
+        station_stfd = Station(
+            tfl_id="910GSTFD",
+            name="Stratford",
+            latitude=51.5416,
+            longitude=-0.0042,
+            lines=["dlr"],
+            last_updated=datetime.now(UTC),
+        )
+        db_session.add_all([station_kx, station_stfd])
+        await db_session.commit()
+        await db_session.refresh(station_kx)
+        await db_session.refresh(station_stfd)
+
+        # Setup mock responses for tube and dlr modes
+        mock_tube_disruptions = [
+            MockStationDisruption(
+                id="disruption-tube-1",
+                category="RealTime",
+                categoryDescription="Lift Closure",
+                description="Lift out of service at King's Cross",
+                affectedStops=[
+                    create_mock_stop_point(id="940GZZLUKSX", common_name="King's Cross"),
+                ],
+                created=datetime(2025, 1, 1, 11, 30, 0, tzinfo=UTC),
+            ),
+        ]
+        mock_dlr_disruptions = [
+            MockStationDisruption(
+                id="disruption-dlr-1",
+                category="RealTime",
+                categoryDescription="Platform Closure",
+                description="Platform 2 closed at Stratford",
+                affectedStops=[
+                    create_mock_stop_point(id="910GSTFD", common_name="Stratford"),
+                ],
+                created=datetime(2025, 1, 1, 11, 45, 0, tzinfo=UTC),
+            ),
+        ]
+
+        mock_tube_response = MockResponse(
+            data=mock_tube_disruptions,
+            shared_expires=datetime(2025, 1, 1, 12, 2, 0, tzinfo=UTC),
+        )
+        mock_dlr_response = MockResponse(
+            data=mock_dlr_disruptions,
+            shared_expires=datetime(2025, 1, 1, 12, 2, 0, tzinfo=UTC),
+        )
+
+        # Mock executor to return different responses for each mode
+        call_count = [0]
+
+        async def mock_executor(*args: Any) -> Any:  # noqa: ANN401
+            result = [mock_tube_response, mock_dlr_response][call_count[0]]
+            call_count[0] += 1
+            return result
+
+        mock_loop = AsyncMock()
+        mock_loop.run_in_executor = AsyncMock(side_effect=mock_executor)
+        mock_get_loop.return_value = mock_loop
+
+        # Execute with multiple modes
+        disruptions = await tfl_service.fetch_station_disruptions(modes=["tube", "dlr"], use_cache=False)
+
+        # Verify disruptions from both modes were returned
+        assert len(disruptions) == 2
+
+        # Verify cache key includes both modes (sorted)
+        expected_cache_key = "station_disruptions:modes:dlr,tube"
+        tfl_service.cache.set.assert_called_once()
+        assert tfl_service.cache.set.call_args[0][0] == expected_cache_key
+
+        # Verify disruptions contain data from both modes
+        station_ids = {d.station_tfl_id for d in disruptions}
+        assert station_ids == {"940GZZLUKSX", "910GSTFD"}
 
 
 @patch("asyncio.get_running_loop")
@@ -2169,6 +2293,149 @@ async def test_build_station_graph_no_duplicate_connections(
             key = (str(conn.from_station_id), str(conn.to_station_id), str(conn.line_id))
             assert key not in connection_keys, f"Duplicate connection found: {key}"
             connection_keys.add(key)
+
+
+@patch("asyncio.get_running_loop")
+async def test_build_station_graph_multiple_modes(
+    mock_get_loop: MagicMock,
+    tfl_service: TfLService,
+    db_session: AsyncSession,
+) -> None:
+    """Test build_station_graph with lines from multiple transport modes."""
+    with freeze_time("2025-01-01 12:00:00"):
+        # Define local MockRouteResponse for this test
+        class MockRouteResponse:
+            def __init__(self, content: MockRouteSequence) -> None:
+                self.content = content
+
+        # Mock responses for fetch_lines - tube and DLR
+        mock_tube_lines = [
+            create_mock_line(id="victoria", name="Victoria"),
+        ]
+        mock_dlr_lines = [
+            create_mock_line(id="dlr", name="DLR"),
+        ]
+        mock_tube_response = MockResponse(
+            data=mock_tube_lines,
+            shared_expires=datetime(2025, 1, 2, 12, 0, 0, tzinfo=UTC),
+        )
+        mock_dlr_response = MockResponse(
+            data=mock_dlr_lines,
+            shared_expires=datetime(2025, 1, 2, 12, 0, 0, tzinfo=UTC),
+        )
+        mock_empty_response = MockResponse(
+            data=[],
+            shared_expires=datetime(2025, 1, 2, 12, 0, 0, tzinfo=UTC),
+        )
+
+        # Mock stations for Victoria line
+        mock_victoria_stations = [
+            create_mock_place(id="940GZZLUKSX", common_name="King's Cross", lat=51.5308, lon=-0.1238),
+            create_mock_place(id="940GZZLUOXC", common_name="Oxford Circus", lat=51.5152, lon=-0.1419),
+        ]
+        mock_victoria_stations_response = MockResponse(
+            data=mock_victoria_stations,
+            shared_expires=datetime(2025, 1, 2, 12, 0, 0, tzinfo=UTC),
+        )
+
+        # Mock stations for DLR line
+        mock_dlr_stations = [
+            create_mock_place(id="910GSTFD", common_name="Stratford", lat=51.5416, lon=-0.0042),
+            create_mock_place(id="910GCANNING", common_name="Canning Town", lat=51.5145, lon=0.0082),
+        ]
+        mock_dlr_stations_response = MockResponse(
+            data=mock_dlr_stations,
+            shared_expires=datetime(2025, 1, 2, 12, 0, 0, tzinfo=UTC),
+        )
+
+        # Mock route sequences for Victoria line
+        victoria_inbound_stops = [
+            MockStopPoint2(id="940GZZLUKSX", name="King's Cross"),
+            MockStopPoint2(id="940GZZLUOXC", name="Oxford Circus"),
+        ]
+        mock_victoria_inbound = MockRouteResponse(
+            content=MockRouteSequence(stopPointSequences=[MockStopPointSequence2(stopPoint=victoria_inbound_stops)])
+        )
+        victoria_outbound_stops = [
+            MockStopPoint2(id="940GZZLUOXC", name="Oxford Circus"),
+            MockStopPoint2(id="940GZZLUKSX", name="King's Cross"),
+        ]
+        mock_victoria_outbound = MockRouteResponse(
+            content=MockRouteSequence(stopPointSequences=[MockStopPointSequence2(stopPoint=victoria_outbound_stops)])
+        )
+
+        # Mock route sequences for DLR line
+        dlr_inbound_stops = [
+            MockStopPoint2(id="910GSTFD", name="Stratford"),
+            MockStopPoint2(id="910GCANNING", name="Canning Town"),
+        ]
+        mock_dlr_inbound = MockRouteResponse(
+            content=MockRouteSequence(stopPointSequences=[MockStopPointSequence2(stopPoint=dlr_inbound_stops)])
+        )
+        dlr_outbound_stops = [
+            MockStopPoint2(id="910GCANNING", name="Canning Town"),
+            MockStopPoint2(id="910GSTFD", name="Stratford"),
+        ]
+        mock_dlr_outbound = MockRouteResponse(
+            content=MockRouteSequence(stopPointSequences=[MockStopPointSequence2(stopPoint=dlr_outbound_stops)])
+        )
+
+        # Setup responses in order - build_station_graph calls:
+        # 1. fetch_lines (4 calls - one per mode)
+        # 2. fetch_stations for ALL lines FIRST (2 calls - victoria, dlr)
+        # 3. fetch routes for each line (4 calls - vic in/out, dlr in/out)
+        responses = [
+            # fetch_lines calls (4 total - tube, overground, dlr, elizabeth-line)
+            mock_tube_response,  # 0: tube lines (has victoria)
+            mock_empty_response,  # 1: overground lines (empty)
+            mock_dlr_response,  # 2: dlr lines (has dlr)
+            mock_empty_response,  # 3: elizabeth lines (empty)
+            # fetch_stations for ALL lines (2 calls)
+            mock_victoria_stations_response,  # 4: victoria stations
+            mock_dlr_stations_response,  # 5: dlr stations
+            # fetch routes for Victoria line (2 calls)
+            mock_victoria_inbound,  # 6: victoria inbound route
+            mock_victoria_outbound,  # 7: victoria outbound route
+            # fetch routes for DLR line (2 calls)
+            mock_dlr_inbound,  # 8: dlr inbound route
+            mock_dlr_outbound,  # 9: dlr outbound route
+        ]
+        call_count = [0]
+
+        async def mock_executor(*args: Any) -> Any:  # noqa: ANN401
+            result = responses[call_count[0]]
+            call_count[0] += 1
+            return result
+
+        mock_loop = AsyncMock()
+        mock_loop.run_in_executor = AsyncMock(side_effect=mock_executor)
+        mock_get_loop.return_value = mock_loop
+
+        # Execute
+        result = await tfl_service.build_station_graph()
+
+        # Verify result includes lines from multiple modes
+        assert result["lines_count"] == 2  # Victoria (tube) + DLR
+        assert result["stations_count"] == 4  # 2 from Victoria + 2 from DLR
+        assert result["connections_count"] == 4  # 2 from Victoria + 2 from DLR (bidirectional)
+
+        # Verify lines were created with correct modes
+        lines_result = await db_session.execute(select(Line))
+        lines = lines_result.scalars().all()
+        assert len(lines) == 2
+
+        line_modes = {line.tfl_id: line.mode for line in lines}
+        assert line_modes["victoria"] == "tube"
+        assert line_modes["dlr"] == "dlr"
+
+        # Verify stations from both modes were created
+        stations_result = await db_session.execute(select(Station))
+        stations = stations_result.scalars().all()
+        assert len(stations) == 4
+
+        station_ids = {s.tfl_id for s in stations}
+        assert "940GZZLUKSX" in station_ids  # Victoria line station
+        assert "910GSTFD" in station_ids  # DLR station
 
 
 # ==================== validate_route Tests ====================

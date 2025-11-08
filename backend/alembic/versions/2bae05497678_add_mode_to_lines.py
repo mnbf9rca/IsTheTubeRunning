@@ -27,7 +27,7 @@ def upgrade() -> None:
             "mode",
             sa.String(length=50),
             nullable=False,
-            server_default="tube",
+            server_default=sa.text("'tube'"),
         ),
     )
 

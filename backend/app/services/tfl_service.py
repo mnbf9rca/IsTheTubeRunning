@@ -41,6 +41,7 @@ DEFAULT_METADATA_CACHE_TTL = 604800  # 7 days
 # TfL API constants
 TFL_GOOD_SERVICE_SEVERITY = 10  # Status severity value for "Good Service"
 MIN_ROUTE_SEGMENTS = 2  # Minimum number of segments required for route validation
+DEFAULT_MODES = ["tube", "overground", "dlr", "elizabeth-line"]  # Default transport modes to fetch
 
 
 class TfLService:
@@ -127,6 +128,20 @@ class TfLService:
 
         return 0  # Return 0 to indicate no TTL found
 
+    def _build_modes_cache_key(self, prefix: str, modes: list[str]) -> str:
+        """
+        Build a cache key for multi-mode endpoints.
+
+        Args:
+            prefix: Cache key prefix (e.g., "lines", "line_disruptions")
+            modes: List of transport modes
+
+        Returns:
+            Formatted cache key with sorted modes
+        """
+        sorted_modes = ",".join(sorted(modes))
+        return f"{prefix}:modes:{sorted_modes}"
+
     async def fetch_available_modes(self, use_cache: bool = True) -> list[str]:
         """
         Fetch all available transport modes from TfL API.
@@ -201,9 +216,9 @@ class TfLService:
         """
         # Default to major transport modes if not specified
         if modes is None:
-            modes = ["tube", "overground", "dlr", "elizabeth-line"]
+            modes = DEFAULT_MODES
 
-        cache_key = f"lines:modes:{','.join(sorted(modes))}"
+        cache_key = self._build_modes_cache_key("lines", modes)
 
         # Try cache first
         if use_cache:
@@ -283,6 +298,7 @@ class TfLService:
             raise
         except Exception as e:
             logger.error("fetch_lines_failed", error=str(e), modes=modes, exc_info=e)
+            await self.db.rollback()
             raise HTTPException(
                 status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
                 detail=f"Failed to fetch lines from TfL API for modes: {modes}",
@@ -698,9 +714,9 @@ class TfLService:
         """
         # Default to major transport modes if not specified
         if modes is None:
-            modes = ["tube", "overground", "dlr", "elizabeth-line"]
+            modes = DEFAULT_MODES
 
-        cache_key = f"line_disruptions:modes:{','.join(sorted(modes))}"
+        cache_key = self._build_modes_cache_key("line_disruptions", modes)
 
         # Try cache first
         if use_cache:
@@ -806,6 +822,65 @@ class TfLService:
             created_at_source=created_at_source,
         )
 
+    async def _lookup_station_for_disruption(self, stop: Any) -> Station | None:  # noqa: ANN401
+        """
+        Look up station in database for a disruption stop.
+
+        Args:
+            stop: Stop point data object from TfL API
+
+        Returns:
+            Station object or None if not found or invalid
+        """
+        stop_tfl_id = self._get_stop_ids(stop)
+
+        if not stop_tfl_id:
+            logger.warning("station_disruption_missing_tfl_id", stop_data=str(stop))
+            return None
+
+        result = await self.db.execute(select(Station).where(Station.tfl_id == stop_tfl_id))
+        station = result.scalar_one_or_none()
+
+        if not station:
+            logger.debug(
+                "station_not_found_for_disruption",
+                stop_tfl_id=stop_tfl_id,
+            )
+            return None
+
+        return station
+
+    async def _process_station_disruption_data(
+        self,
+        disruption_data_list: list[Any],
+    ) -> list[StationDisruptionResponse]:
+        """
+        Process disruption data for a single mode.
+
+        Args:
+            disruption_data_list: List of raw disruption data from TfL API
+
+        Returns:
+            List of station disruption responses
+        """
+        mode_disruptions: list[StationDisruptionResponse] = []
+
+        for disruption_data in disruption_data_list:
+            # Extract affected stops from disruption
+            if hasattr(disruption_data, "affectedStops") and disruption_data.affectedStops:
+                for stop in disruption_data.affectedStops:
+                    # Look up station in database by TfL ID
+                    station = await self._lookup_station_for_disruption(stop)
+
+                    if not station:
+                        continue
+
+                    # Create disruption using helper method
+                    disruption_response = await self._create_station_disruption(station, disruption_data)
+                    mode_disruptions.append(disruption_response)
+
+        return mode_disruptions
+
     async def fetch_station_disruptions(
         self,
         modes: list[str] | None = None,
@@ -827,9 +902,9 @@ class TfLService:
         """
         # Default to major transport modes if not specified
         if modes is None:
-            modes = ["tube", "overground", "dlr", "elizabeth-line"]
+            modes = DEFAULT_MODES
 
-        cache_key = f"station_disruptions:modes:{','.join(sorted(modes))}"
+        cache_key = self._build_modes_cache_key("station_disruptions", modes)
 
         # Try cache first
         if use_cache:
@@ -866,34 +941,11 @@ class TfLService:
                 mode_ttl = self._extract_cache_ttl(response) or DEFAULT_DISRUPTIONS_CACHE_TTL  # type: ignore[arg-type]
                 ttl = min(ttl, mode_ttl)
 
-                # Process station disruptions
+                # Process station disruptions using helper method
                 # response.content is a RootModel array of disruptions, access via .root
                 disruption_data_list = response.content.root  # type: ignore[union-attr]
-
-                for disruption_data in disruption_data_list:
-                    # Extract affected stops from disruption
-                    if hasattr(disruption_data, "affectedStops") and disruption_data.affectedStops:
-                        for stop in disruption_data.affectedStops:
-                            # Look up station in database by TfL ID
-                            stop_tfl_id = self._get_stop_ids(stop)
-
-                            if not stop_tfl_id:
-                                logger.warning("station_disruption_missing_tfl_id", stop_data=str(stop))
-                                continue
-
-                            result = await self.db.execute(select(Station).where(Station.tfl_id == stop_tfl_id))
-                            station = result.scalar_one_or_none()
-
-                            if not station:
-                                logger.debug(
-                                    "station_not_found_for_disruption",
-                                    stop_tfl_id=stop_tfl_id,
-                                )
-                                continue
-
-                            # Create disruption using helper method
-                            disruption_response = await self._create_station_disruption(station, disruption_data)
-                            all_disruptions.append(disruption_response)
+                mode_disruptions = await self._process_station_disruption_data(disruption_data_list)
+                all_disruptions.extend(mode_disruptions)
 
                 logger.debug("mode_station_disruptions_processed", mode=mode)
 
