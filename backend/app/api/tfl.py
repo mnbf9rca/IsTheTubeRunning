@@ -11,10 +11,12 @@ from app.models.user import User
 from app.schemas.tfl import (
     DisruptionResponse,
     LineResponse,
+    LineRouteResponse,
     RouteValidationRequest,
     RouteValidationResponse,
     StationDisruptionResponse,
     StationResponse,
+    StationRouteResponse,
 )
 from app.services.tfl_service import TfLService
 
@@ -334,3 +336,74 @@ async def get_stop_types(
         }
         for st in stop_types
     ]
+
+
+@router.get("/lines/{line_id}/routes", response_model=LineRouteResponse)
+async def get_line_routes(
+    line_id: str,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> LineRouteResponse:
+    """
+    Get route variants for a specific line.
+
+    Returns ordered station sequences for each route variant on the line.
+    This enables the frontend to show users only reachable stations on specific routes.
+
+    **Example**: For the Northern line, this returns separate routes for:
+    - Edgware → Morden via Bank
+    - High Barnet → Morden via Bank
+    - Edgware → Morden via Charing Cross
+    - etc.
+
+    **Note**: Route data must be built first using POST /admin/tfl/build-graph.
+    Only "Regular" service routes are returned (Night services excluded for MVP).
+
+    Args:
+        line_id: TfL line ID (e.g., "victoria", "northern", "elizabeth-line")
+        current_user: Authenticated user
+        db: Database session
+
+    Returns:
+        Line route variants with ordered station lists
+
+    Raises:
+        HTTPException: 404 if line not found, 503 if routes not built yet
+    """
+    tfl_service = TfLService(db)
+    route_data = await tfl_service.get_line_routes(line_id)
+    return LineRouteResponse(**route_data)  # type: ignore[arg-type]
+
+
+@router.get("/stations/{station_tfl_id}/routes", response_model=StationRouteResponse)
+async def get_station_routes(
+    station_tfl_id: str,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> StationRouteResponse:
+    """
+    Get all routes passing through a specific station.
+
+    Returns information about which line route variants serve this station.
+
+    **Example**: For Camden Town station, this returns routes from both:
+    - Northern line (Edgware branch and High Barnet branch)
+    - Including which direction each route travels
+
+    **Note**: Route data must be built first using POST /admin/tfl/build-graph.
+    Only "Regular" service routes are returned (Night services excluded for MVP).
+
+    Args:
+        station_tfl_id: TfL station ID (e.g., "940GZZLUCTN" for Camden Town)
+        current_user: Authenticated user
+        db: Database session
+
+    Returns:
+        Station route information showing all routes passing through this station
+
+    Raises:
+        HTTPException: 404 if station not found, 503 if routes not built yet
+    """
+    tfl_service = TfLService(db)
+    route_data = await tfl_service.get_station_routes(station_tfl_id)
+    return StationRouteResponse(**route_data)  # type: ignore[arg-type]
