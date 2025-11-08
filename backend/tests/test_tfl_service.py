@@ -150,11 +150,30 @@ class MockStopPointSequence2:
         self.stopPoint = stopPoint
 
 
+class MockOrderedRoute:
+    """Mock TfL ordered route for route sequences."""
+
+    def __init__(
+        self,
+        name: str = "Route 1",
+        service_type: str = "Regular",
+        naptan_ids: list[str] | None = None,
+    ) -> None:
+        self.name = name
+        self.serviceType = service_type
+        self.naptanIds = naptan_ids if naptan_ids is not None else ["940GZZLUVIC", "940GZZLUGPK"]
+
+
 class MockRouteSequence:
     """Mock TfL route sequence response."""
 
-    def __init__(self, stopPointSequences: list[MockStopPointSequence2]) -> None:  # noqa: N803
-        self.stopPointSequences = stopPointSequences
+    def __init__(
+        self,
+        stopPointSequences: list[MockStopPointSequence2] | None = None,  # noqa: N803
+        orderedLineRoutes: list[MockOrderedRoute] | None = None,  # noqa: N803
+    ) -> None:
+        self.stopPointSequences = stopPointSequences or []
+        self.orderedLineRoutes = orderedLineRoutes
 
 
 # Removed MockStopPointSequence and MockRoute as they're not used in any tests
@@ -3537,3 +3556,688 @@ async def test_fetch_stations_api_error_handling(
 
     assert exc_info.value.status_code == 503
     assert "Failed to fetch stations from TfL API" in exc_info.value.detail
+
+
+# ==================== Route Sequences Tests ====================
+
+
+class MockOrderedRoute:
+    """Mock for orderedLineRoutes data from TfL API."""
+
+    def __init__(
+        self,
+        name: str = "Route 1",
+        service_type: str = "Regular",
+        naptan_ids: list[str] | None = None,
+    ) -> None:
+        self.name = name
+        self.serviceType = service_type
+        self.naptanIds = naptan_ids if naptan_ids is not None else ["940GZZLUVIC", "940GZZLUGPK"]
+
+
+class MockRouteSequenceData:
+    """Mock for RouteSequence data from TfL API."""
+
+    def __init__(
+        self,
+        ordered_routes: list[MockOrderedRoute] | None = None,
+        stop_point_sequences: list[Any] | None = None,
+    ) -> None:
+        self.orderedLineRoutes = ordered_routes
+        self.stopPointSequences = stop_point_sequences
+
+
+# ==================== _store_line_routes Tests ====================
+
+
+async def test_store_line_routes_regular_service(db_session: AsyncSession) -> None:
+    """Test storing line routes with Regular service type."""
+    # Setup
+    line = Line(
+        tfl_id="victoria",
+        name="Victoria",
+        color="#0019A8",
+        mode="tube",
+        last_updated=datetime.now(UTC),
+    )
+    db_session.add(line)
+    await db_session.commit()
+
+    # Create mock route data
+    inbound_routes = [
+        MockOrderedRoute(
+            name="Walthamstow Central → Brixton",
+            service_type="Regular",
+            naptan_ids=["940GZZLUWAC", "940GZZLUVIC", "940GZZLUBXN"],
+        )
+    ]
+    outbound_routes = [
+        MockOrderedRoute(
+            name="Brixton → Walthamstow Central",
+            service_type="Regular",
+            naptan_ids=["940GZZLUBXN", "940GZZLUVIC", "940GZZLUWAC"],
+        )
+    ]
+    inbound_data = MockRouteSequenceData(ordered_routes=inbound_routes)
+    outbound_data = MockRouteSequenceData(ordered_routes=outbound_routes)
+
+    # Execute
+    tfl_service = TfLService(db_session)
+    tfl_service._store_line_routes(line, inbound_data, outbound_data)
+
+    # Verify
+    assert line.routes is not None
+    assert "routes" in line.routes
+    routes = line.routes["routes"]
+    assert len(routes) == 2
+
+    # Check inbound route
+    inbound = routes[0]
+    assert inbound["name"] == "Walthamstow Central → Brixton"
+    assert inbound["service_type"] == "Regular"
+    assert inbound["direction"] == "inbound"
+    assert inbound["stations"] == ["940GZZLUWAC", "940GZZLUVIC", "940GZZLUBXN"]
+
+    # Check outbound route
+    outbound = routes[1]
+    assert outbound["name"] == "Brixton → Walthamstow Central"
+    assert outbound["service_type"] == "Regular"
+    assert outbound["direction"] == "outbound"
+    assert outbound["stations"] == ["940GZZLUBXN", "940GZZLUVIC", "940GZZLUWAC"]
+
+
+async def test_store_line_routes_skip_night_service(db_session: AsyncSession) -> None:
+    """Test that Night service routes are skipped (not Regular)."""
+    # Setup
+    line = Line(
+        tfl_id="victoria",
+        name="Victoria",
+        color="#0019A8",
+        mode="tube",
+        last_updated=datetime.now(UTC),
+    )
+    db_session.add(line)
+    await db_session.commit()
+
+    # Create mixed service type routes
+    inbound_routes = [
+        MockOrderedRoute(
+            name="Regular Route",
+            service_type="Regular",
+            naptan_ids=["940GZZLUVIC", "940GZZLUGPK"],
+        ),
+        MockOrderedRoute(
+            name="Night Route",
+            service_type="Night",
+            naptan_ids=["940GZZLUVIC", "940GZZLUGPK"],
+        ),
+    ]
+    inbound_data = MockRouteSequenceData(ordered_routes=inbound_routes)
+
+    # Execute
+    tfl_service = TfLService(db_session)
+    tfl_service._store_line_routes(line, inbound_data, None)
+
+    # Verify - only Regular service should be stored
+    assert line.routes is not None
+    routes = line.routes["routes"]
+    assert len(routes) == 1
+    assert routes[0]["name"] == "Regular Route"
+    assert routes[0]["service_type"] == "Regular"
+
+
+async def test_store_line_routes_none_data(db_session: AsyncSession) -> None:
+    """Test storing line routes when both inbound and outbound data are None."""
+    # Setup
+    line = Line(
+        tfl_id="victoria",
+        name="Victoria",
+        color="#0019A8",
+        mode="tube",
+        last_updated=datetime.now(UTC),
+    )
+    db_session.add(line)
+    await db_session.commit()
+
+    # Execute with None data
+    tfl_service = TfLService(db_session)
+    tfl_service._store_line_routes(line, None, None)
+
+    # Verify - routes should not be set
+    assert line.routes is None
+
+
+async def test_store_line_routes_empty_ordered_routes(db_session: AsyncSession) -> None:
+    """Test storing line routes when orderedLineRoutes is empty."""
+    # Setup
+    line = Line(
+        tfl_id="victoria",
+        name="Victoria",
+        color="#0019A8",
+        mode="tube",
+        last_updated=datetime.now(UTC),
+    )
+    db_session.add(line)
+    await db_session.commit()
+
+    # Create route data with empty orderedLineRoutes
+    inbound_data = MockRouteSequenceData(ordered_routes=[])
+
+    # Execute
+    tfl_service = TfLService(db_session)
+    tfl_service._store_line_routes(line, inbound_data, None)
+
+    # Verify - routes should not be set
+    assert line.routes is None
+
+
+async def test_store_line_routes_no_naptan_ids(db_session: AsyncSession) -> None:
+    """Test storing line routes when route has no naptanIds."""
+    # Setup
+    line = Line(
+        tfl_id="victoria",
+        name="Victoria",
+        color="#0019A8",
+        mode="tube",
+        last_updated=datetime.now(UTC),
+    )
+    db_session.add(line)
+    await db_session.commit()
+
+    # Create route with empty naptanIds
+    inbound_routes = [
+        MockOrderedRoute(
+            name="Empty Route",
+            service_type="Regular",
+            naptan_ids=[],
+        )
+    ]
+    inbound_data = MockRouteSequenceData(ordered_routes=inbound_routes)
+
+    # Execute
+    tfl_service = TfLService(db_session)
+    tfl_service._store_line_routes(line, inbound_data, None)
+
+    # Verify - routes should not be set (route was skipped)
+    assert line.routes is None
+
+
+async def test_store_line_routes_no_ordered_routes_attr(db_session: AsyncSession) -> None:
+    """Test storing line routes when data has no orderedLineRoutes attribute."""
+    # Setup
+    line = Line(
+        tfl_id="victoria",
+        name="Victoria",
+        color="#0019A8",
+        mode="tube",
+        last_updated=datetime.now(UTC),
+    )
+    db_session.add(line)
+    await db_session.commit()
+
+    # Create mock data without orderedLineRoutes attribute
+    class MockDataWithoutRoutes:
+        pass
+
+    inbound_data = MockDataWithoutRoutes()
+
+    # Execute
+    tfl_service = TfLService(db_session)
+    tfl_service._store_line_routes(line, inbound_data, None)
+
+    # Verify - routes should not be set
+    assert line.routes is None
+
+
+async def test_store_line_routes_only_inbound(db_session: AsyncSession) -> None:
+    """Test storing line routes with only inbound data."""
+    # Setup
+    line = Line(
+        tfl_id="victoria",
+        name="Victoria",
+        color="#0019A8",
+        mode="tube",
+        last_updated=datetime.now(UTC),
+    )
+    db_session.add(line)
+    await db_session.commit()
+
+    # Create only inbound routes
+    inbound_routes = [
+        MockOrderedRoute(
+            name="Inbound Route",
+            service_type="Regular",
+            naptan_ids=["940GZZLUVIC", "940GZZLUGPK"],
+        )
+    ]
+    inbound_data = MockRouteSequenceData(ordered_routes=inbound_routes)
+
+    # Execute
+    tfl_service = TfLService(db_session)
+    tfl_service._store_line_routes(line, inbound_data, None)
+
+    # Verify
+    assert line.routes is not None
+    routes = line.routes["routes"]
+    assert len(routes) == 1
+    assert routes[0]["direction"] == "inbound"
+
+
+async def test_store_line_routes_only_outbound(db_session: AsyncSession) -> None:
+    """Test storing line routes with only outbound data."""
+    # Setup
+    line = Line(
+        tfl_id="victoria",
+        name="Victoria",
+        color="#0019A8",
+        mode="tube",
+        last_updated=datetime.now(UTC),
+    )
+    db_session.add(line)
+    await db_session.commit()
+
+    # Create only outbound routes
+    outbound_routes = [
+        MockOrderedRoute(
+            name="Outbound Route",
+            service_type="Regular",
+            naptan_ids=["940GZZLUGPK", "940GZZLUVIC"],
+        )
+    ]
+    outbound_data = MockRouteSequenceData(ordered_routes=outbound_routes)
+
+    # Execute
+    tfl_service = TfLService(db_session)
+    tfl_service._store_line_routes(line, None, outbound_data)
+
+    # Verify
+    assert line.routes is not None
+    routes = line.routes["routes"]
+    assert len(routes) == 1
+    assert routes[0]["direction"] == "outbound"
+
+
+# ==================== get_line_routes Tests ====================
+
+
+async def test_get_line_routes_success(db_session: AsyncSession) -> None:
+    """Test successful retrieval of line routes."""
+    # Setup - create line with routes
+    line = Line(
+        tfl_id="victoria",
+        name="Victoria",
+        color="#0019A8",
+        mode="tube",
+        last_updated=datetime.now(UTC),
+        routes={
+            "routes": [
+                {
+                    "name": "Route 1",
+                    "service_type": "Regular",
+                    "direction": "inbound",
+                    "stations": ["940GZZLUVIC", "940GZZLUGPK"],
+                }
+            ]
+        },
+    )
+    db_session.add(line)
+    await db_session.commit()
+
+    # Execute
+    tfl_service = TfLService(db_session)
+    result = await tfl_service.get_line_routes("victoria")
+
+    # Verify
+    assert result is not None
+    assert result["line_tfl_id"] == "victoria"
+    assert len(result["routes"]) == 1
+    assert result["routes"][0]["name"] == "Route 1"
+    assert result["routes"][0]["service_type"] == "Regular"
+    assert result["routes"][0]["direction"] == "inbound"
+    assert result["routes"][0]["stations"] == ["940GZZLUVIC", "940GZZLUGPK"]
+
+
+async def test_get_line_routes_line_not_found(db_session: AsyncSession) -> None:
+    """Test get_line_routes when line does not exist."""
+    # Execute
+    tfl_service = TfLService(db_session)
+
+    # Verify - should raise 404
+    with pytest.raises(HTTPException) as exc_info:
+        await tfl_service.get_line_routes("nonexistent-line")
+
+    assert exc_info.value.status_code == status.HTTP_404_NOT_FOUND
+    assert "Line 'nonexistent-line' not found" in exc_info.value.detail
+
+
+async def test_get_line_routes_not_built(db_session: AsyncSession) -> None:
+    """Test get_line_routes when routes have not been built yet."""
+    # Setup - create line without routes
+    line = Line(
+        tfl_id="victoria",
+        name="Victoria",
+        color="#0019A8",
+        mode="tube",
+        last_updated=datetime.now(UTC),
+    )
+    db_session.add(line)
+    await db_session.commit()
+
+    # Execute
+    tfl_service = TfLService(db_session)
+
+    # Verify - should raise 503
+    with pytest.raises(HTTPException) as exc_info:
+        await tfl_service.get_line_routes("victoria")
+
+    assert exc_info.value.status_code == status.HTTP_503_SERVICE_UNAVAILABLE
+    assert "Route data has not been built yet" in exc_info.value.detail
+
+
+async def test_get_line_routes_empty_routes(db_session: AsyncSession) -> None:
+    """Test get_line_routes when routes field exists but is empty."""
+    # Setup - create line with empty routes
+    line = Line(
+        tfl_id="victoria",
+        name="Victoria",
+        color="#0019A8",
+        mode="tube",
+        last_updated=datetime.now(UTC),
+        routes={},
+    )
+    db_session.add(line)
+    await db_session.commit()
+
+    # Execute
+    tfl_service = TfLService(db_session)
+    result = await tfl_service.get_line_routes("victoria")
+
+    # Verify - should return empty routes list
+    assert result is not None
+    assert result["line_tfl_id"] == "victoria"
+    assert result["routes"] == []
+
+
+@patch("app.services.tfl_service.logger")
+async def test_get_line_routes_database_error(
+    mock_logger: MagicMock,
+    db_session: AsyncSession,
+) -> None:
+    """Test get_line_routes when database error occurs."""
+    # Setup - create service with a session that will fail
+    tfl_service = TfLService(db_session)
+
+    # Mock the database execute to raise an exception (not HTTPException)
+    with patch.object(
+        db_session,
+        "execute",
+        side_effect=Exception("Database connection error"),
+    ):
+        # Verify - should raise 500
+        with pytest.raises(HTTPException) as exc_info:
+            await tfl_service.get_line_routes("victoria")
+
+        assert exc_info.value.status_code == status.HTTP_500_INTERNAL_SERVER_ERROR
+        assert "Failed to fetch routes for line 'victoria'" in exc_info.value.detail
+
+
+# ==================== get_station_routes Tests ====================
+
+
+async def test_get_station_routes_success(db_session: AsyncSession) -> None:
+    """Test successful retrieval of station routes."""
+    # Setup - create station with lines and routes
+    station = Station(
+        tfl_id="940GZZLUVIC",
+        name="Victoria",
+        latitude=51.4965,
+        longitude=-0.1447,
+        lines=["victoria", "district"],
+        last_updated=datetime.now(UTC),
+    )
+    line1 = Line(
+        tfl_id="victoria",
+        name="Victoria",
+        color="#0019A8",
+        mode="tube",
+        last_updated=datetime.now(UTC),
+        routes={
+            "routes": [
+                {
+                    "name": "Route 1",
+                    "service_type": "Regular",
+                    "direction": "inbound",
+                    "stations": ["940GZZLUVIC", "940GZZLUGPK"],
+                }
+            ]
+        },
+    )
+    line2 = Line(
+        tfl_id="district",
+        name="District",
+        color="#00782A",
+        mode="tube",
+        last_updated=datetime.now(UTC),
+        routes={
+            "routes": [
+                {
+                    "name": "Route 2",
+                    "service_type": "Regular",
+                    "direction": "outbound",
+                    "stations": ["940GZZLUVIC", "940GZZLUERC"],
+                }
+            ]
+        },
+    )
+    db_session.add_all([station, line1, line2])
+    await db_session.commit()
+
+    # Execute
+    tfl_service = TfLService(db_session)
+    result = await tfl_service.get_station_routes("940GZZLUVIC")
+
+    # Verify
+    assert result is not None
+    assert result["station_tfl_id"] == "940GZZLUVIC"
+    assert result["station_name"] == "Victoria"
+    assert len(result["routes"]) == 2
+
+    # Find routes by line
+    victoria_route = next(r for r in result["routes"] if r["line_tfl_id"] == "victoria")
+    district_route = next(r for r in result["routes"] if r["line_tfl_id"] == "district")
+
+    # Verify Victoria route
+    assert victoria_route["line_name"] == "Victoria"
+    assert victoria_route["route_name"] == "Route 1"
+    assert victoria_route["service_type"] == "Regular"
+    assert victoria_route["direction"] == "inbound"
+
+    # Verify District route
+    assert district_route["line_name"] == "District"
+    assert district_route["route_name"] == "Route 2"
+    assert district_route["service_type"] == "Regular"
+    assert district_route["direction"] == "outbound"
+
+
+async def test_get_station_routes_station_not_found(db_session: AsyncSession) -> None:
+    """Test get_station_routes when station does not exist."""
+    # Execute
+    tfl_service = TfLService(db_session)
+
+    # Verify - should raise 404
+    with pytest.raises(HTTPException) as exc_info:
+        await tfl_service.get_station_routes("940GZZLUNONEXISTENT")
+
+    assert exc_info.value.status_code == status.HTTP_404_NOT_FOUND
+    assert "Station '940GZZLUNONEXISTENT' not found" in exc_info.value.detail
+
+
+async def test_get_station_routes_no_lines(db_session: AsyncSession) -> None:
+    """Test get_station_routes when station has no lines."""
+    # Setup - create station with empty lines array
+    station = Station(
+        tfl_id="940GZZLUVIC",
+        name="Victoria",
+        latitude=51.4965,
+        longitude=-0.1447,
+        lines=[],
+        last_updated=datetime.now(UTC),
+    )
+    db_session.add(station)
+    await db_session.commit()
+
+    # Execute
+    tfl_service = TfLService(db_session)
+    result = await tfl_service.get_station_routes("940GZZLUVIC")
+
+    # Verify - should return empty routes
+    assert result is not None
+    assert result["station_tfl_id"] == "940GZZLUVIC"
+    assert result["station_name"] == "Victoria"
+    assert result["routes"] == []
+
+
+async def test_get_station_routes_not_built(db_session: AsyncSession) -> None:
+    """Test get_station_routes when routes have not been built yet."""
+    # Setup - create station and line without routes
+    station = Station(
+        tfl_id="940GZZLUVIC",
+        name="Victoria",
+        latitude=51.4965,
+        longitude=-0.1447,
+        lines=["victoria"],
+        last_updated=datetime.now(UTC),
+    )
+    line = Line(
+        tfl_id="victoria",
+        name="Victoria",
+        color="#0019A8",
+        mode="tube",
+        last_updated=datetime.now(UTC),
+    )
+    db_session.add_all([station, line])
+    await db_session.commit()
+
+    # Execute
+    tfl_service = TfLService(db_session)
+
+    # Verify - should raise 503
+    with pytest.raises(HTTPException) as exc_info:
+        await tfl_service.get_station_routes("940GZZLUVIC")
+
+    assert exc_info.value.status_code == status.HTTP_503_SERVICE_UNAVAILABLE
+    assert "Route data has not been built yet" in exc_info.value.detail
+
+
+async def test_get_station_routes_station_not_on_route(db_session: AsyncSession) -> None:
+    """Test get_station_routes when station is on line but not on any route variant."""
+    # Setup - create station and line, but station not in route stations
+    station = Station(
+        tfl_id="940GZZLUVIC",
+        name="Victoria",
+        latitude=51.4965,
+        longitude=-0.1447,
+        lines=["victoria"],
+        last_updated=datetime.now(UTC),
+    )
+    line = Line(
+        tfl_id="victoria",
+        name="Victoria",
+        color="#0019A8",
+        mode="tube",
+        last_updated=datetime.now(UTC),
+        routes={
+            "routes": [
+                {
+                    "name": "Route 1",
+                    "service_type": "Regular",
+                    "direction": "inbound",
+                    "stations": ["940GZZLUGPK", "940GZZLUKSX"],  # Victoria not included
+                }
+            ]
+        },
+    )
+    db_session.add_all([station, line])
+    await db_session.commit()
+
+    # Execute
+    tfl_service = TfLService(db_session)
+
+    # Verify - should raise 503 (routes exist but station not on any)
+    with pytest.raises(HTTPException) as exc_info:
+        await tfl_service.get_station_routes("940GZZLUVIC")
+
+    assert exc_info.value.status_code == status.HTTP_503_SERVICE_UNAVAILABLE
+    assert "Route data has not been built yet" in exc_info.value.detail
+
+
+async def test_get_station_routes_multiple_routes_same_line(db_session: AsyncSession) -> None:
+    """Test get_station_routes when station is on multiple route variants of same line."""
+    # Setup - create station with multiple routes on same line
+    station = Station(
+        tfl_id="940GZZLUVIC",
+        name="Victoria",
+        latitude=51.4965,
+        longitude=-0.1447,
+        lines=["northern"],
+        last_updated=datetime.now(UTC),
+    )
+    line = Line(
+        tfl_id="northern",
+        name="Northern",
+        color="#000000",
+        mode="tube",
+        last_updated=datetime.now(UTC),
+        routes={
+            "routes": [
+                {
+                    "name": "Edgware → Morden via Bank",
+                    "service_type": "Regular",
+                    "direction": "inbound",
+                    "stations": ["940GZZLUEDG", "940GZZLUVIC", "940GZZLUMSN"],
+                },
+                {
+                    "name": "High Barnet → Morden via Bank",
+                    "service_type": "Regular",
+                    "direction": "inbound",
+                    "stations": ["940GZZLUHBT", "940GZZLUVIC", "940GZZLUMSN"],
+                },
+            ]
+        },
+    )
+    db_session.add_all([station, line])
+    await db_session.commit()
+
+    # Execute
+    tfl_service = TfLService(db_session)
+    result = await tfl_service.get_station_routes("940GZZLUVIC")
+
+    # Verify - should return both routes
+    assert result is not None
+    assert len(result["routes"]) == 2
+    route_names = [r["route_name"] for r in result["routes"]]
+    assert "Edgware → Morden via Bank" in route_names
+    assert "High Barnet → Morden via Bank" in route_names
+
+
+@patch("app.services.tfl_service.logger")
+async def test_get_station_routes_database_error(
+    mock_logger: MagicMock,
+    db_session: AsyncSession,
+) -> None:
+    """Test get_station_routes when database error occurs."""
+    # Setup - create service with a session that will fail
+    tfl_service = TfLService(db_session)
+
+    # Mock the database execute to raise an exception (not HTTPException)
+    with patch.object(
+        db_session,
+        "execute",
+        side_effect=Exception("Database connection error"),
+    ):
+        # Verify - should raise 500
+        with pytest.raises(HTTPException) as exc_info:
+            await tfl_service.get_station_routes("940GZZLUVIC")
+
+        assert exc_info.value.status_code == status.HTTP_500_INTERNAL_SERVER_ERROR
+        assert "Failed to fetch routes for station '940GZZLUVIC'" in exc_info.value.detail

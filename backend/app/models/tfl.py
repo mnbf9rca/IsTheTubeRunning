@@ -2,6 +2,7 @@
 
 import uuid
 from datetime import datetime
+from typing import Any
 
 from sqlalchemy import (
     JSON,
@@ -41,6 +42,11 @@ class Line(BaseModel):
         String(50),  # Transport mode: "tube", "overground", "dlr", "elizabeth-line", etc.
         nullable=False,
         default="tube",
+    )
+    routes: Mapped[dict[str, Any] | None] = mapped_column(
+        JSON,  # Stores ordered route sequences (station lists for each route variant)
+        nullable=True,
+        default=None,
     )
     last_updated: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),

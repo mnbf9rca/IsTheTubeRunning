@@ -1125,7 +1125,7 @@ class TfLService:
         self,
         line_tfl_id: str,
         direction: str,
-    ) -> list[Any]:
+    ) -> Any:  # noqa: ANN401
         """
         Fetch route sequence for a line and direction from TfL API.
 
@@ -1134,7 +1134,7 @@ class TfLService:
             direction: "inbound" or "outbound"
 
         Returns:
-            List of stop point sequences
+            RouteSequence object containing stopPointSequences and orderedLineRoutes
 
         Raises:
             Exception: If API call fails
@@ -1152,14 +1152,8 @@ class TfLService:
         # Check for API error
         self._handle_api_error(response)
 
-        # Extract route sequence data
-        route_data = response.content  # type: ignore[union-attr]
-
-        # Return stop point sequences or empty list
-        if hasattr(route_data, "stopPointSequences") and route_data.stopPointSequences:
-            return list(route_data.stopPointSequences)
-
-        return []
+        # Return full route sequence data (contains both stopPointSequences and orderedLineRoutes)
+        return response.content  # type: ignore[union-attr]
 
     async def _process_route_sequence(
         self,
@@ -1167,7 +1161,7 @@ class TfLService:
         direction: str,
         stations_set: set[str],
         pending_connections: set[tuple[uuid.UUID, uuid.UUID, uuid.UUID]],
-    ) -> int:
+    ) -> tuple[int, Any]:
         """
         Process route sequence for a line and direction.
 
@@ -1178,29 +1172,35 @@ class TfLService:
             pending_connections: Set to track pending connections (from_id, to_id, line_id)
 
         Returns:
-            Number of connections created
+            Tuple of (connections_count, route_data)
+                - connections_count: Number of connections created
+                - route_data: Full RouteSequence object (contains orderedLineRoutes)
         """
         try:
-            sequences = await self._fetch_route_sequence(line.tfl_id, direction)
+            route_data = await self._fetch_route_sequence(line.tfl_id, direction)
             connections_count = 0
 
-            for sequence in sequences:
-                if not hasattr(sequence, "stopPoint") or not sequence.stopPoint:
-                    continue
+            # Extract stopPointSequences for connection building
+            if hasattr(route_data, "stopPointSequences") and route_data.stopPointSequences:
+                sequences = list(route_data.stopPointSequences)
 
-                stop_points = sequence.stopPoint
+                for sequence in sequences:
+                    if not hasattr(sequence, "stopPoint") or not sequence.stopPoint:
+                        continue
 
-                # Process consecutive station pairs
-                for i in range(len(stop_points) - 1):
-                    connections_count += await self._process_station_pair(
-                        stop_points[i],
-                        stop_points[i + 1],
-                        line,
-                        stations_set,
-                        pending_connections,
-                    )
+                    stop_points = sequence.stopPoint
 
-            return connections_count
+                    # Process consecutive station pairs
+                    for i in range(len(stop_points) - 1):
+                        connections_count += await self._process_station_pair(
+                            stop_points[i],
+                            stop_points[i + 1],
+                            line,
+                            stations_set,
+                            pending_connections,
+                        )
+
+            return connections_count, route_data
 
         except Exception as e:
             logger.warning(
@@ -1209,7 +1209,87 @@ class TfLService:
                 direction=direction,
                 error=str(e),
             )
-            return 0
+            return 0, None
+
+    def _store_line_routes(
+        self,
+        line: Line,
+        inbound_route_data: Any | None,  # noqa: ANN401
+        outbound_route_data: Any | None,  # noqa: ANN401
+    ) -> None:
+        """
+        Extract and store route variants from RouteSequence data.
+
+        Filters to only "Regular" service types and stores ordered station lists
+        for each route variant in the Line.routes JSON field.
+
+        Args:
+            line: Line object to update
+            inbound_route_data: RouteSequence data for inbound direction (may be None)
+            outbound_route_data: RouteSequence data for outbound direction (may be None)
+        """
+        routes = []
+
+        # Process both directions
+        for direction, route_data in [
+            ("inbound", inbound_route_data),
+            ("outbound", outbound_route_data),
+        ]:
+            if not route_data or not hasattr(route_data, "orderedLineRoutes"):
+                continue
+
+            ordered_routes = route_data.orderedLineRoutes
+            if not ordered_routes:
+                continue
+
+            # Filter and transform routes
+            for ordered_route in ordered_routes:
+                # Only store "Regular" service types (defer Night services for MVP)
+                service_type = getattr(ordered_route, "serviceType", None)
+                if service_type != "Regular":
+                    logger.debug(
+                        "skipping_non_regular_service",
+                        line_tfl_id=line.tfl_id,
+                        service_type=service_type,
+                        route_name=getattr(ordered_route, "name", "Unknown"),
+                    )
+                    continue
+
+                # Extract route data
+                route_name = getattr(ordered_route, "name", f"Unknown {direction} route")
+                naptan_ids = getattr(ordered_route, "naptanIds", [])
+
+                if not naptan_ids:
+                    logger.debug(
+                        "skipping_route_without_stations",
+                        line_tfl_id=line.tfl_id,
+                        route_name=route_name,
+                    )
+                    continue
+
+                # Store route variant
+                routes.append(
+                    {
+                        "name": route_name,
+                        "service_type": service_type,
+                        "direction": direction,
+                        "stations": naptan_ids,
+                    }
+                )
+
+        # Update line's routes field (stored as JSON in database)
+        if routes:
+            line.routes = {"routes": routes}
+            logger.info(
+                "stored_line_routes",
+                line_tfl_id=line.tfl_id,
+                routes_count=len(routes),
+            )
+        else:
+            logger.warning(
+                "no_regular_routes_found",
+                line_tfl_id=line.tfl_id,
+            )
 
     async def build_station_graph(self) -> dict[str, int]:
         """
@@ -1267,16 +1347,29 @@ class TfLService:
             for line in lines:
                 logger.info("processing_line_for_graph", line_name=line.name, line_tfl_id=line.tfl_id)
 
-                # Process both directions
+                # Process both directions and collect route data
                 # Note: Duplicate connections are prevented by pending_connections set
                 # Even if inbound and outbound routes overlap, we won't create duplicates
+                inbound_route_data = None
+                outbound_route_data = None
+
                 for direction in ["inbound", "outbound"]:
-                    connections_count += await self._process_route_sequence(
+                    conn_count, route_data = await self._process_route_sequence(
                         line,
                         direction,
                         stations_set,
                         pending_connections,
                     )
+                    connections_count += conn_count
+
+                    # Store route data for later processing
+                    if direction == "inbound":
+                        inbound_route_data = route_data
+                    else:
+                        outbound_route_data = route_data
+
+                # Extract and store route sequences for this line
+                self._store_line_routes(line, inbound_route_data, outbound_route_data)
 
             # Commit all changes (delete + new connections) atomically
             # If we reach here, everything succeeded
@@ -1497,3 +1590,135 @@ class TfLService:
 
         # No path found
         return False
+
+    async def get_line_routes(self, line_tfl_id: str) -> dict[str, Any] | None:
+        """
+        Get route variants for a specific line.
+
+        Args:
+            line_tfl_id: TfL line ID (e.g., "victoria", "elizabeth-line")
+
+        Returns:
+            Line routes data (line_tfl_id and list of route variants) or None if not found
+
+        Raises:
+            HTTPException: 404 if line not found, 503 if routes haven't been built yet
+        """
+        logger.info("fetching_line_routes", line_tfl_id=line_tfl_id)
+
+        try:
+            # Look up line by TfL ID
+            result = await self.db.execute(select(Line).where(Line.tfl_id == line_tfl_id))
+            line = result.scalar_one_or_none()
+
+            if not line:
+                raise HTTPException(
+                    status_code=status.HTTP_404_NOT_FOUND,
+                    detail=f"Line '{line_tfl_id}' not found.",
+                )
+
+            # Check if routes have been built (None means not built, {} means no routes found)
+            if line.routes is None:
+                raise HTTPException(
+                    status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                    detail="Route data has not been built yet. Please contact administrator.",
+                )
+
+            # Return line routes data
+            return {
+                "line_tfl_id": line.tfl_id,
+                "routes": line.routes.get("routes", []),
+            }
+
+        except HTTPException:
+            raise
+        except Exception as e:
+            logger.error("get_line_routes_failed", line_tfl_id=line_tfl_id, error=str(e), exc_info=e)
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail=f"Failed to fetch routes for line '{line_tfl_id}'.",
+            ) from e
+
+    async def get_station_routes(self, station_tfl_id: str) -> dict[str, Any] | None:
+        """
+        Get all routes passing through a specific station.
+
+        Args:
+            station_tfl_id: TfL station ID (e.g., "940GZZLUVIC")
+
+        Returns:
+            Station routes data (station_tfl_id, station_name, and list of routes)
+            or None if not found
+
+        Raises:
+            HTTPException: 404 if station not found, 503 if routes haven't been built yet
+        """
+        logger.info("fetching_station_routes", station_tfl_id=station_tfl_id)
+
+        try:
+            # Look up station by TfL ID
+            result = await self.db.execute(select(Station).where(Station.tfl_id == station_tfl_id))
+            station = result.scalar_one_or_none()
+
+            if not station:
+                raise HTTPException(
+                    status_code=status.HTTP_404_NOT_FOUND,
+                    detail=f"Station '{station_tfl_id}' not found.",
+                )
+
+            # Get all lines that serve this station
+            line_tfl_ids = station.lines
+            if not line_tfl_ids:
+                # Station exists but has no lines (shouldn't happen, but handle gracefully)
+                return {
+                    "station_tfl_id": station.tfl_id,
+                    "station_name": station.name,
+                    "routes": [],
+                }
+
+            # Fetch all lines that serve this station
+            lines_result = await self.db.execute(select(Line).where(Line.tfl_id.in_(line_tfl_ids)))
+            lines: list[Line] = list(lines_result.scalars().all())
+
+            # Collect routes that pass through this station
+            station_routes: list[dict[str, str]] = []
+            for line in lines:
+                if line.routes is None:
+                    continue
+
+                routes = line.routes.get("routes", [])
+                for route in routes:
+                    # Check if this station is on this route
+                    if station_tfl_id in route.get("stations", []):
+                        station_routes.append(
+                            {
+                                "line_tfl_id": line.tfl_id,
+                                "line_name": line.name,
+                                "route_name": route.get("name", "Unknown"),
+                                "service_type": route.get("service_type", "Unknown"),
+                                "direction": route.get("direction", "Unknown"),
+                            }
+                        )
+
+            # Check if any routes were found
+            if not station_routes and lines:
+                # Lines exist but no routes built yet
+                raise HTTPException(
+                    status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                    detail="Route data has not been built yet. Please contact administrator.",
+                )
+
+            return {
+                "station_tfl_id": station.tfl_id,
+                "station_name": station.name,
+                "routes": station_routes,
+            }
+
+        except HTTPException:
+            raise
+        except Exception as e:
+            logger.error("get_station_routes_failed", station_tfl_id=station_tfl_id, error=str(e), exc_info=e)
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail=f"Failed to fetch routes for station '{station_tfl_id}'.",
+            ) from e
