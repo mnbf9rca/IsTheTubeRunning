@@ -1482,6 +1482,62 @@ class TfLService:
                 detail="Failed to fetch network graph.",
             ) from e
 
+    async def get_station_by_tfl_id(self, tfl_id: str) -> Station:
+        """
+        Get station from database by TfL ID.
+
+        Args:
+            tfl_id: TfL station ID (e.g., '940GZZLUOXC' for Oxford Circus)
+
+        Returns:
+            Station object from database
+
+        Raises:
+            HTTPException(404): If station not found in database
+        """
+        result = await self.db.execute(select(Station).where(Station.tfl_id == tfl_id))
+        station = result.scalar_one_or_none()
+
+        if station is None:
+            logger.warning("station_not_found_by_tfl_id", tfl_id=tfl_id)
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=(
+                    f"Station with TfL ID '{tfl_id}' not found. "
+                    "Please ensure TfL data is imported via /admin/tfl/build-graph endpoint."
+                ),
+            )
+
+        return station
+
+    async def get_line_by_tfl_id(self, tfl_id: str) -> Line:
+        """
+        Get line from database by TfL ID.
+
+        Args:
+            tfl_id: TfL line ID (e.g., 'victoria', 'northern', 'central')
+
+        Returns:
+            Line object from database
+
+        Raises:
+            HTTPException(404): If line not found in database
+        """
+        result = await self.db.execute(select(Line).where(Line.tfl_id == tfl_id))
+        line = result.scalar_one_or_none()
+
+        if line is None:
+            logger.warning("line_not_found_by_tfl_id", tfl_id=tfl_id)
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=(
+                    f"Line with TfL ID '{tfl_id}' not found. "
+                    "Please ensure TfL data is imported via /admin/tfl/build-graph endpoint."
+                ),
+            )
+
+        return line
+
     async def validate_route(self, segments: list[RouteSegmentRequest]) -> tuple[bool, str, int | None]:
         """
         Validate a route by checking if connections exist between segments.
@@ -1500,36 +1556,52 @@ class TfLService:
         logger.info("validating_route", segments_count=len(segments))
 
         try:
-            # Validate each segment connection
+            # Bulk fetch all stations and lines to avoid redundant lookups
+            station_tfl_ids = {seg.station_tfl_id for seg in segments}
+            line_tfl_ids = {seg.line_tfl_id for seg in segments}
+
+            # Fetch all stations
+            stations_map = {}
+            for tfl_id in station_tfl_ids:
+                station = await self.get_station_by_tfl_id(tfl_id)
+                stations_map[tfl_id] = station
+
+            # Fetch all lines
+            lines_map = {}
+            for tfl_id in line_tfl_ids:
+                line = await self.get_line_by_tfl_id(tfl_id)
+                lines_map[tfl_id] = line
+
+            # Validate each segment connection using cached data
             for i in range(len(segments) - 1):
                 current_segment = segments[i]
                 next_segment = segments[i + 1]
 
+                # Use cached station and line objects
+                from_station = stations_map[current_segment.station_tfl_id]
+                to_station = stations_map[next_segment.station_tfl_id]
+                line = lines_map[current_segment.line_tfl_id]
+
                 # Check if connection exists
                 is_connected = await self._check_connection(
-                    from_station_id=current_segment.station_id,
-                    to_station_id=next_segment.station_id,
-                    line_id=current_segment.line_id,
+                    from_station_id=from_station.id,
+                    to_station_id=to_station.id,
+                    line_id=line.id,
                 )
 
                 if not is_connected:
-                    # Get station names for helpful error message
-                    from_station = await self.db.get(Station, current_segment.station_id)
-                    to_station = await self.db.get(Station, next_segment.station_id)
-                    line = await self.db.get(Line, current_segment.line_id)
-
                     message = (
-                        f"No connection found between '{from_station.name if from_station else 'Unknown'}' "
-                        f"and '{to_station.name if to_station else 'Unknown'}' "
-                        f"on {line.name if line else 'Unknown'} line."
+                        f"No connection found between '{from_station.name}' "
+                        f"and '{to_station.name}' "
+                        f"on {line.name} line."
                     )
 
                     logger.warning(
                         "route_validation_failed",
                         segment_index=i,
-                        from_station_id=str(current_segment.station_id),
-                        to_station_id=str(next_segment.station_id),
-                        line_id=str(current_segment.line_id),
+                        from_station_tfl_id=current_segment.station_tfl_id,
+                        to_station_tfl_id=next_segment.station_tfl_id,
+                        line_tfl_id=current_segment.line_tfl_id,
                     )
 
                     return False, message, i
@@ -1537,6 +1609,9 @@ class TfLService:
             logger.info("route_validation_successful", segments_count=len(segments))
             return True, "Route is valid.", None
 
+        except HTTPException:
+            # Re-raise HTTP exceptions (e.g., 404 from get_station_by_tfl_id)
+            raise
         except Exception as e:
             logger.error("validate_route_failed", error=str(e), exc_info=e)
             raise HTTPException(

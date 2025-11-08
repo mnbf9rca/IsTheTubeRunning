@@ -9,6 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.models.route import Route, RouteSchedule, RouteSegment
+from app.models.tfl import Line, Station
 from app.schemas.routes import (
     CreateRouteRequest,
     CreateScheduleRequest,
@@ -65,7 +66,8 @@ class RouteService:
 
         if load_relationships:
             query = query.options(
-                selectinload(Route.segments),
+                selectinload(Route.segments).selectinload(RouteSegment.station),
+                selectinload(Route.segments).selectinload(RouteSegment.line),
                 selectinload(Route.schedules),
             )
 
@@ -93,7 +95,8 @@ class RouteService:
             select(Route)
             .where(Route.user_id == user_id)
             .options(
-                selectinload(Route.segments),
+                selectinload(Route.segments).selectinload(RouteSegment.station),
+                selectinload(Route.segments).selectinload(RouteSegment.line),
                 selectinload(Route.schedules),
             )
             .order_by(Route.created_at.desc())
@@ -216,25 +219,33 @@ class RouteService:
             # Delete existing segments
             await self.db.execute(sql_delete(RouteSegment).where(RouteSegment.route_id == route_id))
 
-            # Create new segments
-            new_segments = [
-                RouteSegment(
-                    route_id=route_id,
-                    sequence=seg.sequence,
-                    station_id=seg.station_id,
-                    line_id=seg.line_id,
+            # Create new segments - translate TfL IDs to UUIDs
+            new_segments = []
+            for seg in segments:
+                # Look up station and line by TfL ID
+                station = await self.tfl_service.get_station_by_tfl_id(seg.station_tfl_id)
+                line = await self.tfl_service.get_line_by_tfl_id(seg.line_tfl_id)
+
+                new_segments.append(
+                    RouteSegment(
+                        route_id=route_id,
+                        sequence=seg.sequence,
+                        station_id=station.id,
+                        line_id=line.id,
+                    )
                 )
-                for seg in segments
-            ]
 
             self.db.add_all(new_segments)
             await self.db.commit()
 
-            # Reload to get IDs
-            for segment in new_segments:
-                await self.db.refresh(segment)
-
-            return new_segments
+            # Reload with relationships to support station_tfl_id and line_tfl_id properties
+            result = await self.db.execute(
+                select(RouteSegment)
+                .where(RouteSegment.route_id == route_id)
+                .options(selectinload(RouteSegment.station), selectinload(RouteSegment.line))
+                .order_by(RouteSegment.sequence)
+            )
+            return list(result.scalars().all())
         except Exception:
             await self.db.rollback()
             raise
@@ -272,17 +283,21 @@ class RouteService:
                 detail=f"Segment with sequence {sequence} not found.",
             )
 
-        # Update fields
-        if request.station_id is not None:
-            segment.station_id = request.station_id
-        if request.line_id is not None:
-            segment.line_id = request.line_id
+        # Update fields - translate TfL IDs to UUIDs
+        if request.station_tfl_id is not None:
+            station = await self.tfl_service.get_station_by_tfl_id(request.station_tfl_id)
+            segment.station_id = station.id
+        if request.line_tfl_id is not None:
+            line = await self.tfl_service.get_line_by_tfl_id(request.line_tfl_id)
+            segment.line_id = line.id
 
         # Validate the entire route with the update
         await self._validate_route_segments(route.segments)
 
         await self.db.commit()
-        await self.db.refresh(segment)
+
+        # Expire the segment to ensure fresh data is loaded
+        await self.db.refresh(segment, ["station", "line"])
 
         return segment
 
@@ -489,8 +504,10 @@ class RouteService:
         Raises:
             HTTPException: 400 if validation fails
         """
-        # Convert to TfL validation format
-        tfl_segments = [RouteSegmentRequest(station_id=seg.station_id, line_id=seg.line_id) for seg in segments]
+        # Convert to TfL validation format (both use TfL IDs now)
+        tfl_segments = [
+            RouteSegmentRequest(station_tfl_id=seg.station_tfl_id, line_tfl_id=seg.line_tfl_id) for seg in segments
+        ]
 
         # Validate using TfL service
         valid, message, invalid_index = await self.tfl_service.validate_route(tfl_segments)
@@ -515,14 +532,38 @@ class RouteService:
         Raises:
             HTTPException: 400 if validation fails
         """
-        # Convert to validation format
-        segment_requests = [
-            SegmentRequest(
-                sequence=seg.sequence,
-                station_id=seg.station_id,
-                line_id=seg.line_id,
+        # Convert to validation format - translate UUIDs to TfL IDs
+        # Bulk fetch all stations and lines to avoid N+1 query problem
+        sorted_segments = sorted(segments, key=lambda s: s.sequence)
+        station_ids = {seg.station_id for seg in sorted_segments}
+        line_ids = {seg.line_id for seg in sorted_segments}
+
+        # Bulk fetch stations
+        stations_result = await self.db.execute(select(Station).where(Station.id.in_(station_ids)))
+        stations_map = {s.id: s for s in stations_result.scalars().all()}
+
+        # Bulk fetch lines
+        lines_result = await self.db.execute(select(Line).where(Line.id.in_(line_ids)))
+        lines_map = {line.id: line for line in lines_result.scalars().all()}
+
+        # Build segment requests using cached data
+        segment_requests = []
+        for seg in sorted_segments:
+            station = stations_map.get(seg.station_id)
+            line = lines_map.get(seg.line_id)
+
+            if station is None or line is None:
+                raise HTTPException(
+                    status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                    detail="Invalid route segment data - station or line not found.",
+                )
+
+            segment_requests.append(
+                SegmentRequest(
+                    sequence=seg.sequence,
+                    station_tfl_id=station.tfl_id,
+                    line_tfl_id=line.tfl_id,
+                )
             )
-            for seg in sorted(segments, key=lambda s: s.sequence)
-        ]
 
         await self._validate_segments(segment_requests)

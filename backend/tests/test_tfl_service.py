@@ -2505,9 +2505,9 @@ async def test_validate_route_success(
 
     # Create route segments
     segments = [
-        RouteSegmentRequest(station_id=station1.id, line_id=line.id),
-        RouteSegmentRequest(station_id=station2.id, line_id=line.id),
-        RouteSegmentRequest(station_id=station3.id, line_id=line.id),
+        RouteSegmentRequest(station_tfl_id=station1.tfl_id, line_tfl_id=line.tfl_id),
+        RouteSegmentRequest(station_tfl_id=station2.tfl_id, line_tfl_id=line.tfl_id),
+        RouteSegmentRequest(station_tfl_id=station3.tfl_id, line_tfl_id=line.tfl_id),
     ]
 
     # Execute
@@ -2577,8 +2577,8 @@ async def test_validate_route_multiple_paths(
     # During BFS from A to D, we'll explore both paths (A->B->D and A->C->D)
     # When processing C's connections after B's, D will already be visited
     segments = [
-        RouteSegmentRequest(station_id=station_a.id, line_id=line.id),
-        RouteSegmentRequest(station_id=station_d.id, line_id=line.id),
+        RouteSegmentRequest(station_tfl_id=station_a.tfl_id, line_tfl_id=line.tfl_id),
+        RouteSegmentRequest(station_tfl_id=station_d.tfl_id, line_tfl_id=line.tfl_id),
     ]
 
     # Execute
@@ -2623,8 +2623,8 @@ async def test_validate_route_invalid_connection(
 
     # Create route segments
     segments = [
-        RouteSegmentRequest(station_id=station1.id, line_id=line.id),
-        RouteSegmentRequest(station_id=station2.id, line_id=line.id),
+        RouteSegmentRequest(station_tfl_id=station1.tfl_id, line_tfl_id=line.tfl_id),
+        RouteSegmentRequest(station_tfl_id=station2.tfl_id, line_tfl_id=line.tfl_id),
     ]
 
     # Execute
@@ -2655,7 +2655,7 @@ async def test_validate_route_too_few_segments(
     await db_session.commit()
 
     # Only one segment
-    segments = [RouteSegmentRequest(station_id=station1.id, line_id=line.id)]
+    segments = [RouteSegmentRequest(station_tfl_id=station1.tfl_id, line_tfl_id=line.tfl_id)]
 
     # Execute
     is_valid, message, _invalid_segment = await tfl_service.validate_route(segments)
@@ -2683,21 +2683,20 @@ async def test_validate_route_with_nonexistent_station_or_line(
     db_session.add_all([line, station1])
     await db_session.commit()
 
-    # Use non-existent station and line IDs
-    fake_station_id = uuid.uuid4()
-    fake_line_id = uuid.uuid4()
+    # Use non-existent station TfL ID
+    fake_station_id = "fake_station"
     segments = [
-        RouteSegmentRequest(station_id=station1.id, line_id=line.id),
-        RouteSegmentRequest(station_id=fake_station_id, line_id=fake_line_id),
+        RouteSegmentRequest(station_tfl_id=station1.tfl_id, line_tfl_id=line.tfl_id),
+        RouteSegmentRequest(station_tfl_id=fake_station_id, line_tfl_id=line.tfl_id),
     ]
 
-    # Execute
-    is_valid, message, invalid_segment = await tfl_service.validate_route(segments)
+    # Execute - should raise 404 for non-existent station
+    with pytest.raises(HTTPException) as exc_info:
+        await tfl_service.validate_route(segments)
 
-    # Verify - should fail because connection doesn't exist
-    assert is_valid is False
-    assert "no connection" in message.lower()
-    assert invalid_segment == 0
+    # Verify - should fail with 404
+    assert exc_info.value.status_code == 404
+    assert "fake_station" in str(exc_info.value.detail).lower()
 
 
 async def test_validate_route_with_deleted_stations(
@@ -2740,8 +2739,8 @@ async def test_validate_route_with_deleted_stations(
 
     # Create route segments
     segments = [
-        RouteSegmentRequest(station_id=station1.id, line_id=line.id),
-        RouteSegmentRequest(station_id=station2.id, line_id=line.id),
+        RouteSegmentRequest(station_tfl_id=station1.tfl_id, line_tfl_id=line.tfl_id),
+        RouteSegmentRequest(station_tfl_id=station2.tfl_id, line_tfl_id=line.tfl_id),
     ]
 
     # Execute - current implementation doesn't filter by deleted_at,

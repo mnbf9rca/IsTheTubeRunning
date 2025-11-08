@@ -108,8 +108,8 @@ class StationRouteResponse(BaseModel):
 class RouteSegmentRequest(BaseModel):
     """Single segment in a route (station + line)."""
 
-    station_id: UUID = Field(..., description="Station UUID from database")
-    line_id: UUID = Field(..., description="Line UUID from database")
+    station_tfl_id: str = Field(..., description="TfL station ID (e.g., '940GZZLUOXC')")
+    line_tfl_id: str = Field(..., description="TfL line ID (e.g., 'victoria', 'northern')")
 
 
 class RouteValidationRequest(BaseModel):
