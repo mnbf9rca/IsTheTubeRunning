@@ -3563,32 +3563,7 @@ async def test_fetch_stations_api_error_handling(
 
 
 # ==================== Route Sequences Tests ====================
-
-
-class MockOrderedRoute:
-    """Mock for orderedLineRoutes data from TfL API."""
-
-    def __init__(
-        self,
-        name: str = "Route 1",
-        service_type: str = "Regular",
-        naptan_ids: list[str] | None = None,
-    ) -> None:
-        self.name = name
-        self.serviceType = service_type
-        self.naptanIds = naptan_ids if naptan_ids is not None else ["940GZZLUVIC", "940GZZLUGPK"]
-
-
-class MockRouteSequenceData:
-    """Mock for RouteSequence data from TfL API."""
-
-    def __init__(
-        self,
-        ordered_routes: list[MockOrderedRoute] | None = None,
-        stop_point_sequences: list[Any] | None = None,
-    ) -> None:
-        self.orderedLineRoutes = ordered_routes
-        self.stopPointSequences = stop_point_sequences
+# Note: MockOrderedRoute and MockRouteSequence are defined at the top of this file
 
 
 # ==================== _store_line_routes Tests ====================
@@ -3622,8 +3597,8 @@ async def test_store_line_routes_regular_service(db_session: AsyncSession) -> No
             naptan_ids=["940GZZLUBXN", "940GZZLUVIC", "940GZZLUWAC"],
         )
     ]
-    inbound_data = MockRouteSequenceData(ordered_routes=inbound_routes)
-    outbound_data = MockRouteSequenceData(ordered_routes=outbound_routes)
+    inbound_data = MockRouteSequence(orderedLineRoutes=inbound_routes)
+    outbound_data = MockRouteSequence(orderedLineRoutes=outbound_routes)
 
     # Execute
     tfl_service = TfLService(db_session)
@@ -3676,7 +3651,7 @@ async def test_store_line_routes_skip_night_service(db_session: AsyncSession) ->
             naptan_ids=["940GZZLUVIC", "940GZZLUGPK"],
         ),
     ]
-    inbound_data = MockRouteSequenceData(ordered_routes=inbound_routes)
+    inbound_data = MockRouteSequence(orderedLineRoutes=inbound_routes)
 
     # Execute
     tfl_service = TfLService(db_session)
@@ -3725,7 +3700,7 @@ async def test_store_line_routes_empty_ordered_routes(db_session: AsyncSession) 
     await db_session.commit()
 
     # Create route data with empty orderedLineRoutes
-    inbound_data = MockRouteSequenceData(ordered_routes=[])
+    inbound_data = MockRouteSequence(orderedLineRoutes=[])
 
     # Execute
     tfl_service = TfLService(db_session)
@@ -3756,7 +3731,7 @@ async def test_store_line_routes_no_naptan_ids(db_session: AsyncSession) -> None
             naptan_ids=[],
         )
     ]
-    inbound_data = MockRouteSequenceData(ordered_routes=inbound_routes)
+    inbound_data = MockRouteSequence(orderedLineRoutes=inbound_routes)
 
     # Execute
     tfl_service = TfLService(db_session)
@@ -3814,7 +3789,7 @@ async def test_store_line_routes_only_inbound(db_session: AsyncSession) -> None:
             naptan_ids=["940GZZLUVIC", "940GZZLUGPK"],
         )
     ]
-    inbound_data = MockRouteSequenceData(ordered_routes=inbound_routes)
+    inbound_data = MockRouteSequence(orderedLineRoutes=inbound_routes)
 
     # Execute
     tfl_service = TfLService(db_session)
@@ -3848,7 +3823,7 @@ async def test_store_line_routes_only_outbound(db_session: AsyncSession) -> None
             naptan_ids=["940GZZLUGPK", "940GZZLUVIC"],
         )
     ]
-    outbound_data = MockRouteSequenceData(ordered_routes=outbound_routes)
+    outbound_data = MockRouteSequence(orderedLineRoutes=outbound_routes)
 
     # Execute
     tfl_service = TfLService(db_session)

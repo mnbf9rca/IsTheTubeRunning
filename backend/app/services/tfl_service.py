@@ -1687,18 +1687,17 @@ class TfLService:
                     continue
 
                 routes = line.routes.get("routes", [])
-                for route in routes:
-                    # Check if this station is on this route
-                    if station_tfl_id in route.get("stations", []):
-                        station_routes.append(
-                            {
-                                "line_tfl_id": line.tfl_id,
-                                "line_name": line.name,
-                                "route_name": route.get("name", "Unknown"),
-                                "service_type": route.get("service_type", "Unknown"),
-                                "direction": route.get("direction", "Unknown"),
-                            }
-                        )
+                station_routes.extend(
+                    {
+                        "line_tfl_id": line.tfl_id,
+                        "line_name": line.name,
+                        "route_name": route.get("name", "Unknown"),
+                        "service_type": route.get("service_type", "Unknown"),
+                        "direction": route.get("direction", "Unknown"),
+                    }
+                    for route in routes
+                    if station_tfl_id in route.get("stations", [])
+                )
 
             # Check if any routes were found
             if not station_routes and lines:
