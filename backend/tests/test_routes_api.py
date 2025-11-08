@@ -64,6 +64,22 @@ class TestRoutesAPI:
         return station
 
     @pytest.fixture
+    async def test_station3(self, db_session: AsyncSession) -> Station:
+        """Create a third test station."""
+        station = Station(
+            tfl_id="940GZZLUTCR",
+            name="Tottenham Court Road",
+            latitude=51.516,
+            longitude=-0.130,
+            lines=["central", "northern"],
+            last_updated=datetime.now(UTC),
+        )
+        db_session.add(station)
+        await db_session.commit()
+        await db_session.refresh(station)
+        return station
+
+    @pytest.fixture
     async def test_line(self, db_session: AsyncSession) -> Line:
         """Create a test line."""
         line = Line(
@@ -847,6 +863,60 @@ class TestRoutesAPI:
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert "at least 2 segments" in response.json()["detail"]
+
+    @pytest.mark.asyncio
+    @patch("app.services.route_service.RouteService._validate_segments")
+    async def test_upsert_segments_with_null_destination_line(
+        self,
+        mock_validate: AsyncMock,
+        async_client: AsyncClient,
+        auth_headers_for_user: dict[str, str],
+        test_user: User,
+        test_station1: Station,
+        test_station2: Station,
+        test_station3: Station,
+        test_line: Line,
+        db_session: AsyncSession,
+    ) -> None:
+        """Test creating segments with NULL line_tfl_id for destination (valid case)."""
+        # Mock validation to pass
+        mock_validate.return_value = None
+
+        route = Route(user_id=test_user.id, name="Test Route", active=True)
+        db_session.add(route)
+        await db_session.commit()
+        await db_session.refresh(route)
+
+        response = await async_client.put(
+            f"/api/v1/routes/{route.id}/segments",
+            json={
+                "segments": [
+                    {
+                        "sequence": 0,
+                        "station_tfl_id": test_station1.tfl_id,
+                        "line_tfl_id": test_line.tfl_id,
+                    },
+                    {
+                        "sequence": 1,
+                        "station_tfl_id": test_station2.tfl_id,
+                        "line_tfl_id": test_line.tfl_id,
+                    },
+                    {
+                        "sequence": 2,
+                        "station_tfl_id": test_station3.tfl_id,
+                        "line_tfl_id": None,  # Destination has NULL line_tfl_id
+                    },
+                ]
+            },
+            headers=auth_headers_for_user,
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        data = response.json()
+        assert len(data) == 3
+        assert data[0]["line_tfl_id"] == test_line.tfl_id
+        assert data[1]["line_tfl_id"] == test_line.tfl_id
+        assert data[2]["line_tfl_id"] is None  # Destination has no line
 
     # ==================== Schedule Tests ====================
 

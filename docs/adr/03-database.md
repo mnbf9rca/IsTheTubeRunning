@@ -139,3 +139,38 @@ Backend validation enforces this rule. Frontend automatically sets the last segm
 - Need NULL checks in validation and display logic
 - Slightly more complex queries (must handle NULL case)
 - Nullable fields require careful handling in TypeScript (but type system helps)
+
+### Implementation Details
+
+**Database:**
+- Migration `e5dfdd8388bc` makes `route_segments.line_id` nullable (UUID column)
+- Database constraint: `line_id uuid NULL`
+
+**Model Property:**
+- `RouteSegment.line_tfl_id` property returns `str | None`
+- Returns `self.line.tfl_id if self.line else None` to handle NULL line_id gracefully
+
+**API Schemas (Updated 2025-11-08):**
+- `SegmentRequest.line_tfl_id: str | None` - accepts NULL for destination segments
+- `SegmentResponse.line_tfl_id: str | None` - returns NULL when line_id is NULL
+- `RouteSegmentRequest.line_tfl_id: str | None` - validation schema accepts NULL
+- Field descriptions document: "NULL means destination segment (no onward travel)"
+
+**Validation Rules:**
+- Minimum 2 segments required (origin --line--> destination)
+- Segments 0 to len-2 (all except last) MUST have non-null line_tfl_id
+- Segment len-1 (final segment) MAY have NULL line_tfl_id (optional)
+- Validation error message: "Segment {i} must have a line_tfl_id. Only the final segment (destination) can have NULL line_tfl_id."
+- Implemented in `TfLService.validate_route()` (backend/app/services/tfl_service.py)
+
+**Service Layer Translation:**
+- `RouteService.upsert_segments()` conditionally fetches line only if line_tfl_id is not None
+- `line = await self.tfl_service.get_line_by_tfl_id(seg.line_tfl_id) if seg.line_tfl_id else None`
+- Sets `line_id=line.id if line else None` when creating RouteSegment instances
+- `RouteService._validate_route_segments()` already handles nullable line_tfl_id correctly
+
+**Test Coverage:**
+- `test_validate_route_with_null_destination_line_id` - validates NULL on final segment (valid)
+- `test_validate_route_with_null_intermediate_line_id` - validates NULL on intermediate segment (invalid)
+- `test_upsert_segments_with_null_destination_line` - API integration test with NULL destination
+- All tests achieve 100% coverage on nullable line_tfl_id logic

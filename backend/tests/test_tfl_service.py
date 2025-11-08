@@ -2790,9 +2790,9 @@ async def test_validate_route_with_duplicate_stations(
 
     # Create route with duplicate station (st1 appears twice)
     segments = [
-        RouteSegmentRequest(station_id=station1.id, line_id=line.id),
-        RouteSegmentRequest(station_id=station2.id, line_id=line.id),
-        RouteSegmentRequest(station_id=station1.id, line_id=line.id),  # Duplicate!
+        RouteSegmentRequest(station_tfl_id="st1", line_tfl_id="victoria"),
+        RouteSegmentRequest(station_tfl_id="st2", line_tfl_id="victoria"),
+        RouteSegmentRequest(station_tfl_id="st1", line_tfl_id="victoria"),  # Duplicate!
     ]
 
     # Execute
@@ -2843,7 +2843,7 @@ async def test_validate_route_with_too_many_segments(
     await db_session.commit()
 
     # Create route segments with 21 stations (exceeds limit of 20)
-    segments = [RouteSegmentRequest(station_id=station.id, line_id=line.id) for station in stations[:21]]
+    segments = [RouteSegmentRequest(station_tfl_id=station.tfl_id, line_tfl_id="victoria") for station in stations[:21]]
 
     # Execute
     is_valid, message, invalid_segment = await tfl_service.validate_route(segments)
@@ -2898,11 +2898,11 @@ async def test_validate_route_with_null_destination_line_id(
     db_session.add_all([conn1, conn2])
     await db_session.commit()
 
-    # Create route segments with NULL line_id for destination
+    # Create route segments with NULL line_tfl_id for destination
     segments = [
-        RouteSegmentRequest(station_id=station1.id, line_id=line.id),
-        RouteSegmentRequest(station_id=station2.id, line_id=line.id),
-        RouteSegmentRequest(station_id=station3.id, line_id=None),  # Destination has NULL line_id
+        RouteSegmentRequest(station_tfl_id="st1", line_tfl_id="victoria"),
+        RouteSegmentRequest(station_tfl_id="st2", line_tfl_id="victoria"),
+        RouteSegmentRequest(station_tfl_id="st3", line_tfl_id=None),  # Destination has NULL line_tfl_id
     ]
 
     # Execute
@@ -2957,11 +2957,11 @@ async def test_validate_route_with_null_intermediate_line_id(
     db_session.add_all([conn1, conn2])
     await db_session.commit()
 
-    # Create route segments with NULL line_id for intermediate segment
+    # Create route segments with NULL line_tfl_id for intermediate segment
     segments = [
-        RouteSegmentRequest(station_id=station1.id, line_id=line.id),
-        RouteSegmentRequest(station_id=station2.id, line_id=None),  # Intermediate has NULL line_id
-        RouteSegmentRequest(station_id=station3.id, line_id=line.id),
+        RouteSegmentRequest(station_tfl_id="st1", line_tfl_id="victoria"),
+        RouteSegmentRequest(station_tfl_id="st2", line_tfl_id=None),  # Intermediate has NULL line_tfl_id
+        RouteSegmentRequest(station_tfl_id="st3", line_tfl_id="victoria"),
     ]
 
     # Execute
@@ -2969,8 +2969,8 @@ async def test_validate_route_with_null_intermediate_line_id(
 
     # Verify - should fail
     assert is_valid is False
-    assert "must have a line_id" in message.lower()
-    assert "segment 2" in message.lower()  # Should mention the failing segment
+    assert "must have a line_tfl_id" in message.lower()
+    assert "segment 1" in message.lower()  # Should mention the failing segment
     assert invalid_segment == 1  # Second segment (index 1)
 
 

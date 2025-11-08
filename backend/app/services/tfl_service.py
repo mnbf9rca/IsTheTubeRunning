@@ -41,6 +41,7 @@ DEFAULT_METADATA_CACHE_TTL = 604800  # 7 days
 # TfL API constants
 TFL_GOOD_SERVICE_SEVERITY = 10  # Status severity value for "Good Service"
 MIN_ROUTE_SEGMENTS = 2  # Minimum number of segments required for route validation
+MAX_ROUTE_SEGMENTS = 20  # Maximum number of segments allowed for route validation
 DEFAULT_MODES = ["tube", "overground", "dlr", "elizabeth-line"]  # Default transport modes to fetch
 
 
@@ -1547,7 +1548,9 @@ class TfLService:
 
         return line
 
-    async def validate_route(self, segments: list[RouteSegmentRequest]) -> tuple[bool, str, int | None]:
+    async def validate_route(  # noqa: PLR0912
+        self, segments: list[RouteSegmentRequest]
+    ) -> tuple[bool, str, int | None]:
         """
         Validate a route by checking if connections exist between segments.
 
@@ -1563,6 +1566,15 @@ class TfLService:
         # Check minimum segments
         if len(segments) < MIN_ROUTE_SEGMENTS:
             return False, f"Route must have at least {MIN_ROUTE_SEGMENTS} segments (start and end).", None
+
+        # Check maximum segments
+        if len(segments) > MAX_ROUTE_SEGMENTS:
+            return (
+                False,
+                f"Route cannot have more than {MAX_ROUTE_SEGMENTS} segments. "
+                f"Current route has {len(segments)} segments.",
+                None,
+            )
 
         # Check for duplicate stations (enforce acyclic routes)
         station_tfl_ids = [segment.station_tfl_id for segment in segments]
@@ -1592,6 +1604,22 @@ class TfLService:
                     )
                 seen.add(station_tfl_id)
 
+        # Validate that only the final segment can have NULL line_tfl_id
+        # All intermediate segments (0 to len-2) must have a line to travel on
+        for i in range(len(segments) - 1):
+            if segments[i].line_tfl_id is None:
+                logger.warning(
+                    "route_validation_failed_null_intermediate_line",
+                    segment_index=i,
+                    station_tfl_id=segments[i].station_tfl_id,
+                )
+                return (
+                    False,
+                    f"Segment {i} must have a line_tfl_id. "
+                    "Only the final segment (destination) can have NULL line_tfl_id.",
+                    i,
+                )
+
         logger.info("validating_route", segments_count=len(segments))
 
         try:
@@ -1620,6 +1648,8 @@ class TfLService:
                 # Use cached station and line objects
                 from_station = stations_map[current_segment.station_tfl_id]
                 to_station = stations_map[next_segment.station_tfl_id]
+                # We already validated that intermediate segments have non-null line_tfl_id
+                assert current_segment.line_tfl_id is not None  # For type checker
                 line = lines_map[current_segment.line_tfl_id]
 
                 # Check if connection exists

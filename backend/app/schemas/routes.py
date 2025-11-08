@@ -135,7 +135,9 @@ class SegmentRequest(BaseModel):
 
     sequence: int = Field(..., ge=0, description="Order of this segment in the route (0-based)")
     station_tfl_id: str = Field(..., description="TfL station ID (e.g., '940GZZLUOXC')")
-    line_tfl_id: str = Field(..., description="TfL line ID (e.g., 'victoria', 'northern')")
+    line_tfl_id: str | None = Field(
+        None, description="TfL line ID (e.g., 'victoria', 'northern'). NULL for destination segment (no onward travel)."
+    )
 
 
 class UpsertSegmentsRequest(BaseModel):
@@ -262,7 +264,7 @@ class SegmentResponse(BaseModel):
     id: UUID
     sequence: int
     station_tfl_id: str
-    line_tfl_id: str
+    line_tfl_id: str | None
 
 
 class ScheduleResponse(BaseModel):
