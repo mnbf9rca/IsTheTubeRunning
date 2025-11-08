@@ -315,8 +315,8 @@ async def test_validate_route_success(
     # Execute
     request_data = {
         "segments": [
-            {"station_id": str(station1.id), "line_id": str(line.id)},
-            {"station_id": str(station2.id), "line_id": str(line.id)},
+            {"station_tfl_id": station1.tfl_id, "line_tfl_id": line.tfl_id},
+            {"station_tfl_id": station2.tfl_id, "line_tfl_id": line.tfl_id},
         ]
     }
     response = await async_client_with_auth.post(
@@ -366,8 +366,8 @@ async def test_validate_route_invalid(
     # Execute
     request_data = {
         "segments": [
-            {"station_id": str(station1.id), "line_id": str(line.id)},
-            {"station_id": str(station2.id), "line_id": str(line.id)},
+            {"station_tfl_id": station1.tfl_id, "line_tfl_id": line.tfl_id},
+            {"station_tfl_id": station2.tfl_id, "line_tfl_id": line.tfl_id},
         ]
     }
     response = await async_client_with_auth.post(
@@ -402,7 +402,7 @@ async def test_validate_route_insufficient_segments(
     await db_session.commit()
 
     # Execute with only one segment
-    request_data = {"segments": [{"station_id": str(station1.id), "line_id": str(line.id)}]}
+    request_data = {"segments": [{"station_tfl_id": station1.tfl_id, "line_tfl_id": line.tfl_id}]}
     response = await async_client_with_auth.post(
         build_api_url("/tfl/validate-route"),
         json=request_data,

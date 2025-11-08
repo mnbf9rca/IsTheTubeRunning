@@ -55,8 +55,8 @@ class TestRouteServiceUpsertSegments:
 
         # Create segments
         segments = [
-            SegmentRequest(sequence=0, station_id=station1.id, line_id=line.id),
-            SegmentRequest(sequence=1, station_id=station2.id, line_id=line.id),
+            SegmentRequest(sequence=0, station_tfl_id=station1.tfl_id, line_tfl_id=line.tfl_id),
+            SegmentRequest(sequence=1, station_tfl_id=station2.tfl_id, line_tfl_id=line.tfl_id),
         ]
 
         # Mock validation to pass, commit to fail, and rollback to verify it's called
