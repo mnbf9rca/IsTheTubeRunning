@@ -2022,7 +2022,10 @@ class TfLService:
         hub_stations = hub_map.get(station.hub_naptan_code, [])
 
         # Return a copy to prevent unintended modifications to hub_map by callers
-        return list(hub_stations or [station])
+        # Use explicit if-else instead of `or` operator because empty list is falsy:
+        # - hub_stations or [station] would incorrectly return [station] for empty list
+        # - We want to return [] if hub code exists but has no stations in map
+        return list(hub_stations) if hub_stations else [station]
 
     async def _check_any_hub_connection(
         self,
@@ -2055,7 +2058,7 @@ class TfLService:
             User specifies: Bush Hill Park → Seven Sisters Rail (Victoria line)
             - Seven Sisters Rail not on Victoria line
             - Seven Sisters Tube IS on Victoria line (same hub='HUBSVS')
-            - Returns: (True, from_station, seven_sisters_tube)
+            - Returns: (True, bush_hill_park, seven_sisters_tube)
         """
         # Get all hub-equivalent stations for both endpoints from pre-fetched map
         from_stations = self._get_hub_equivalent_stations(from_station, hub_map)
