@@ -650,12 +650,34 @@ class TfLService:
         # - Database queries are fast (local DB, indexed tfl_id)
         # Bulk fetching could be considered if performance monitoring indicates a problem.
         for stop_point in stop_points:
+            # Filter stations by mode - only keep stations with at least one mode in DEFAULT_MODES
+            modes = getattr(stop_point, "modes", []) or []  # Handle None case
+            if not any(mode in DEFAULT_MODES for mode in modes):
+                logger.debug(
+                    "station_filtered_by_mode",
+                    station_id=stop_point.id,
+                    station_name=stop_point.commonName,
+                    modes=modes,
+                    reason="no_overlap_with_default_modes",
+                )
+                continue
+
             # Check if station exists in DB
             result = await self.db.execute(select(Station).where(Station.tfl_id == stop_point.id))
             station = result.scalar_one_or_none()
 
             # Extract hub fields once
             hub_code, hub_name = self._extract_hub_fields(stop_point)
+
+            # Log hub detection
+            if hub_code:
+                logger.debug(
+                    "hub_detected",
+                    station_id=stop_point.id,
+                    station_name=stop_point.commonName,
+                    hub_code=hub_code,
+                    hub_name=hub_name,
+                )
 
             if station:
                 # Update existing station

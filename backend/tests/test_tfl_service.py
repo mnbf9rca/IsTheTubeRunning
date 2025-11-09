@@ -57,8 +57,17 @@ def create_mock_place(
     lon: float = -0.1,
     **kwargs: Any,  # noqa: ANN401
 ) -> TflPlace:
-    """Factory for TfL Place mocks (stations) using actual pydantic model."""
-    return TflPlace(id=id, commonName=common_name, lat=lat, lon=lon, **kwargs)
+    """Factory for TfL Place mocks (stations) using actual pydantic model.
+
+    Note: Automatically sets a 'modes' attribute to ['tube'] to match DEFAULT_MODES,
+    ensuring the mock station passes mode filtering. Override by passing modes=['...'] or
+    set manually with object.__setattr__(place, 'modes', [...]) for custom modes.
+    """
+    place = TflPlace(id=id, commonName=common_name, lat=lat, lon=lon, **kwargs)
+    # Set default modes attribute unless explicitly provided
+    if not hasattr(place, "modes"):
+        object.__setattr__(place, "modes", ["tube"])
+    return place
 
 
 def create_mock_route_section(
@@ -75,7 +84,13 @@ def create_mock_stop_point(
     common_name: str = "Victoria",
     **kwargs: Any,  # noqa: ANN401
 ) -> TflStopPoint:
-    """Factory for TfL StopPoint mocks using actual pydantic model."""
+    """Factory for TfL StopPoint mocks using actual pydantic model.
+
+    Note: Automatically sets 'modes' to ['tube'] to match DEFAULT_MODES unless explicitly provided in kwargs.
+    """
+    # Set default modes if not provided in kwargs (StopPoint has modes as a proper field)
+    if "modes" not in kwargs:
+        kwargs["modes"] = ["tube"]
     return TflStopPoint(id=id, commonName=common_name, **kwargs)
 
 
@@ -994,6 +1009,79 @@ def test_update_existing_station_hub_name_change_only(tfl_service: TfLService) -
         assert station.hub_naptan_code == "HUBKGX"
         assert station.hub_common_name == "King's Cross St. Pancras Hub"
         assert station.last_updated == datetime(2025, 1, 1, 12, 0, 0, tzinfo=UTC)
+
+
+async def test_fetch_stations_filters_non_matching_modes(
+    tfl_service: TfLService,
+    db_session: AsyncSession,
+) -> None:
+    """Test that stations without modes matching DEFAULT_MODES are filtered out."""
+    # Create mock stop points - use object.__setattr__ to bypass Pydantic validation
+    bus_stop_a = create_mock_place(id="490001234A", common_name="Bus Stop A", lat=51.5, lon=-0.1)
+    object.__setattr__(bus_stop_a, "modes", ["bus"])
+
+    bus_stop_b = create_mock_place(id="490001234B", common_name="Bus Stop B", lat=51.5, lon=-0.1)
+    object.__setattr__(bus_stop_b, "modes", ["bus", "coach"])
+
+    tube_station = create_mock_place(id="940GZZLUVIC", common_name="Victoria Underground Station", lat=51.5, lon=-0.1)
+    object.__setattr__(tube_station, "modes", ["tube"])
+
+    mock_stops = [bus_stop_a, bus_stop_b, tube_station]
+    mock_response = MagicMock()
+    mock_response.content.root = mock_stops
+
+    with patch.object(
+        tfl_service.line_client,
+        "StopPointsByPathIdQueryTflOperatedNationalRailStationsOnly",
+        return_value=mock_response,
+    ):
+        stations, _ = await tfl_service._fetch_stations_from_api("victoria")
+
+    # Should only get the tube station, bus stops filtered out
+    assert len(stations) == 1
+    assert stations[0].tfl_id == "940GZZLUVIC"
+    assert stations[0].name == "Victoria Underground Station"
+
+
+async def test_fetch_stations_includes_stations_with_mode_overlap(
+    tfl_service: TfLService,
+    db_session: AsyncSession,
+) -> None:
+    """Test that stations with at least one mode in DEFAULT_MODES are included."""
+    # Create mock stop points with mixed modes
+    bhp_station = create_mock_place(id="910GBHILLPK", common_name="Bush Hill Park Rail Station", lat=51.5, lon=-0.1)
+    object.__setattr__(bhp_station, "modes", ["bus", "overground"])
+
+    livst_station = create_mock_place(
+        id="910GLIVST", common_name="London Liverpool Street Rail Station", lat=51.5, lon=-0.1
+    )
+    object.__setattr__(livst_station, "modes", ["elizabeth-line", "national-rail", "overground"])
+
+    dlr_station = create_mock_place(id="940GZZLUDLR", common_name="DLR Station", lat=51.5, lon=-0.1)
+    object.__setattr__(dlr_station, "modes", ["dlr"])
+
+    mock_stops = [bhp_station, livst_station, dlr_station]
+    mock_response = MagicMock()
+    mock_response.content.root = mock_stops
+
+    with patch.object(
+        tfl_service.line_client,
+        "StopPointsByPathIdQueryTflOperatedNationalRailStationsOnly",
+        return_value=mock_response,
+    ):
+        stations, _ = await tfl_service._fetch_stations_from_api("overground")
+
+    # All three stations should be included
+    assert len(stations) == 3
+    station_ids = {s.tfl_id for s in stations}
+    assert station_ids == {"910GBHILLPK", "910GLIVST", "940GZZLUDLR"}
+
+
+# NOTE: Logging tests for mode filtering and hub detection are not included.
+# The logging functionality exists in the code (using structlog for debug logging),
+# but structlog doesn't integrate easily with pytest's caplog. For this hobby project,
+# we verify the core functionality (filtering behavior and hub field extraction)
+# which is sufficient. The logging can be manually verified during development.
 
 
 # -------------------- Integration Tests --------------------
