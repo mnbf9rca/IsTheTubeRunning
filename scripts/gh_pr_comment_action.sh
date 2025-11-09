@@ -27,13 +27,19 @@
 
 set -euo pipefail
 
-# Output functions for structured logging
+# Early dependency check - jq is required for safe JSON construction
+if ! command -v jq &> /dev/null; then
+    echo '{"status":"error","message":"jq is required but not installed"}' >&2
+    exit 1
+fi
+
+# Output functions for structured logging (using jq for safe JSON construction)
 log_error() {
-    echo "{\"status\":\"error\",\"message\":\"$1\"}" >&2
+    jq -nc --arg msg "$1" '{status: "error", message: $msg}' >&2
 }
 
 log_success() {
-    echo "{\"status\":\"success\",\"message\":\"$1\",\"data\":$2}"
+    jq -nc --arg msg "$1" --argjson data "$2" '{status: "success", message: $msg, data: $data}'
 }
 
 # Get owner and repo from git remote
@@ -65,14 +71,6 @@ check_gh_auth() {
 
     if ! gh auth status > /dev/null 2>&1; then
         log_error "GitHub CLI not authenticated. Run 'gh auth login'"
-        exit 1
-    fi
-}
-
-# Check if jq is installed
-check_jq() {
-    if ! command -v jq &> /dev/null; then
-        log_error "jq is required but not installed"
         exit 1
     fi
 }
@@ -138,8 +136,8 @@ get_thread_id_from_comment() {
     echo "$thread_id"
 }
 
-# Post a reply to a review comment
-action_respond() {
+# Internal function to post a reply without output (returns comment ID on stdout)
+_post_reply() {
     local pr_number="$1"
     local comment_id="$2"
     local response_text="$3"
@@ -167,7 +165,7 @@ action_respond() {
         exit 1
     fi
 
-    # Extract new comment ID
+    # Extract and return new comment ID
     local new_comment_id
     new_comment_id=$(echo "$response" | jq -r '.id // empty')
 
@@ -176,7 +174,23 @@ action_respond() {
         exit 1
     fi
 
-    log_success "Reply posted successfully" "{\"comment_id\":\"$new_comment_id\"}"
+    echo "$new_comment_id"
+}
+
+# Post a reply to a review comment
+action_respond() {
+    local pr_number="$1"
+    local comment_id="$2"
+    local response_text="$3"
+
+    # Call internal function to post reply
+    local new_comment_id
+    new_comment_id=$(_post_reply "$pr_number" "$comment_id" "$response_text")
+
+    # Output success with safely constructed JSON
+    local data_json
+    data_json=$(jq -n --arg cid "$new_comment_id" '{comment_id: $cid}')
+    log_success "Reply posted successfully" "$data_json"
 }
 
 # Resolve a review thread
@@ -199,8 +213,8 @@ action_resolve() {
         exit 1
     fi
 
-    # Post the response comment using comment ID
-    action_respond "$pr_number" "$comment_id" "$response_text"
+    # Post the response comment using comment ID (suppress output, we'll output once at the end)
+    _post_reply "$pr_number" "$comment_id" "$response_text" > /dev/null
 
     local mutation='mutation($threadId: ID!) {
   resolveReviewThread(input: {threadId: $threadId}) {
@@ -236,7 +250,10 @@ action_resolve() {
     is_resolved=$(echo "$response" | jq -r '.data.resolveReviewThread.thread.isResolved // false')
 
     if [[ "$is_resolved" == "true" ]]; then
-        log_success "Thread resolved successfully" "{\"thread_id\":\"$thread_id\",\"is_resolved\":true}"
+        # Use jq to safely construct JSON output
+        local data_json
+        data_json=$(jq -n --arg tid "$thread_id" '{thread_id: $tid, is_resolved: true}')
+        log_success "Thread resolved successfully" "$data_json"
     else
         log_error "Thread resolution failed"
         exit 1
@@ -338,7 +355,6 @@ main() {
 
     # Check prerequisites
     check_gh_auth
-    check_jq
     get_repo_info
 
     # Execute action
