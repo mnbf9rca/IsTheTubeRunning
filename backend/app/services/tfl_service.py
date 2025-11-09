@@ -2021,7 +2021,8 @@ class TfLService:
         # Look up hub equivalents from pre-fetched map
         hub_stations = hub_map.get(station.hub_naptan_code, [])
 
-        return hub_stations if hub_stations else [station]
+        # Return a copy to prevent unintended modifications to hub_map by callers
+        return list(hub_stations or [station])
 
     async def _check_any_hub_connection(
         self,
