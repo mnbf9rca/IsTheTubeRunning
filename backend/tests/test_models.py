@@ -269,6 +269,53 @@ class TestTfLModels:
         assert "victoria" in saved_station.lines
 
     @pytest.mark.asyncio
+    async def test_create_station_with_hub_fields(self, db_session: AsyncSession) -> None:
+        """Test creating a TfL station with hub NaPTAN code fields."""
+        station = Station(
+            tfl_id="910GSEVNSIS",
+            name="Seven Sisters Rail",
+            latitude=51.5823,
+            longitude=-0.0751,
+            lines=["weaver"],
+            last_updated=datetime.now(UTC),
+            hub_naptan_code="HUBSVS",
+            hub_common_name="Seven Sisters",
+        )
+
+        db_session.add(station)
+        await db_session.commit()
+
+        result = await db_session.execute(select(Station).where(Station.tfl_id == "910GSEVNSIS"))
+        saved_station = result.scalar_one()
+
+        assert saved_station.name == "Seven Sisters Rail"
+        assert saved_station.hub_naptan_code == "HUBSVS"
+        assert saved_station.hub_common_name == "Seven Sisters"
+
+    @pytest.mark.asyncio
+    async def test_create_station_without_hub_fields(self, db_session: AsyncSession) -> None:
+        """Test creating a TfL station without hub fields (nullable)."""
+        station = Station(
+            tfl_id="940GZZLUWBN",
+            name="Wimbledon",
+            latitude=51.4214,
+            longitude=-0.2064,
+            lines=["district"],
+            last_updated=datetime.now(UTC),
+            # hub_naptan_code and hub_common_name are None (not all stations are hubs)
+        )
+
+        db_session.add(station)
+        await db_session.commit()
+
+        result = await db_session.execute(select(Station).where(Station.tfl_id == "940GZZLUWBN"))
+        saved_station = result.scalar_one()
+
+        assert saved_station.name == "Wimbledon"
+        assert saved_station.hub_naptan_code is None
+        assert saved_station.hub_common_name is None
+
+    @pytest.mark.asyncio
     async def test_station_connection(self, db_session: AsyncSession) -> None:
         """Test station connection graph."""
         line = Line(

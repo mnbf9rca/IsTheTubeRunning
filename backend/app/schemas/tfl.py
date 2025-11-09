@@ -50,6 +50,8 @@ class StationResponse(BaseModel):
     longitude: float
     lines: list[str]  # List of line TfL IDs (e.g., ["victoria", "northern"])
     last_updated: datetime
+    hub_naptan_code: str | None  # TfL hub NaPTAN code (e.g., 'HUBSVS' for Seven Sisters)
+    hub_common_name: str | None  # Hub common name (e.g., 'Seven Sisters')
 
 
 class DisruptionResponse(BaseModel):
