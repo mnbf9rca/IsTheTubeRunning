@@ -708,6 +708,201 @@ async def test_fetch_lines_invalid_mode(
 # ==================== fetch_stations Tests ====================
 
 
+# -------------------- Unit Tests for Helper Methods --------------------
+
+
+def test_extract_hub_fields_with_hub_code(tfl_service: TfLService) -> None:
+    """Test _extract_hub_fields extracts hub code and common name when hubNaptanCode is present."""
+    # Create mock stop point with hub code
+    stop_point = create_mock_stop_point(
+        id="910GSEVNSIS",
+        common_name="Seven Sisters Rail Station",
+        hubNaptanCode="HUBSVS",
+    )
+
+    # Extract hub fields
+    hub_code, hub_name = tfl_service._extract_hub_fields(stop_point)
+
+    # Verify extraction
+    assert hub_code == "HUBSVS"
+    assert hub_name == "Seven Sisters Rail Station"
+
+
+def test_extract_hub_fields_without_hub_code(tfl_service: TfLService) -> None:
+    """Test _extract_hub_fields returns None for both fields when hubNaptanCode is absent."""
+    # Create mock place without hub code (Place objects don't have hubNaptanCode)
+    stop_point = create_mock_place(
+        id="940GZZLUWBN",
+        common_name="Wimbledon",
+        lat=51.4214,
+        lon=-0.2064,
+    )
+
+    # Extract hub fields
+    hub_code, hub_name = tfl_service._extract_hub_fields(stop_point)
+
+    # Verify both are None
+    assert hub_code is None
+    assert hub_name is None
+
+
+def test_update_existing_station_adds_new_line(tfl_service: TfLService) -> None:
+    """Test _update_existing_station adds a new line to station's lines array."""
+    with freeze_time("2025-01-01 12:00:00"):
+        # Create station with only victoria line
+        station = Station(
+            tfl_id="940GZZLUKSX",
+            name="King's Cross",
+            latitude=51.5308,
+            longitude=-0.1238,
+            lines=["victoria"],
+            last_updated=datetime(2024, 12, 1, 0, 0, 0, tzinfo=UTC),
+            hub_naptan_code=None,
+            hub_common_name=None,
+        )
+
+        # Update with northern line and hub fields
+        tfl_service._update_existing_station(
+            station=station,
+            line_tfl_id="northern",
+            hub_code="HUBKGX",
+            hub_name="King's Cross",
+        )
+
+        # Verify northern was added
+        assert "victoria" in station.lines
+        assert "northern" in station.lines
+        assert len(station.lines) == 2
+        # Verify timestamp updated
+        assert station.last_updated == datetime(2025, 1, 1, 12, 0, 0, tzinfo=UTC)
+        # Verify hub fields updated
+        assert station.hub_naptan_code == "HUBKGX"
+        assert station.hub_common_name == "King's Cross"
+
+
+def test_update_existing_station_no_duplicate_line(tfl_service: TfLService) -> None:
+    """Test _update_existing_station does not duplicate existing line."""
+    with freeze_time("2025-01-01 12:00:00"):
+        # Create station that already has victoria line
+        station = Station(
+            tfl_id="940GZZLUKSX",
+            name="King's Cross",
+            latitude=51.5308,
+            longitude=-0.1238,
+            lines=["victoria"],
+            last_updated=datetime(2024, 12, 1, 0, 0, 0, tzinfo=UTC),
+            hub_naptan_code=None,
+            hub_common_name=None,
+        )
+
+        # Update with same victoria line
+        tfl_service._update_existing_station(
+            station=station,
+            line_tfl_id="victoria",
+            hub_code="HUBKGX",
+            hub_name="King's Cross",
+        )
+
+        # Verify no duplicate
+        assert station.lines == ["victoria"]
+        # Verify timestamp and hub fields still updated
+        assert station.last_updated == datetime(2025, 1, 1, 12, 0, 0, tzinfo=UTC)
+        assert station.hub_naptan_code == "HUBKGX"
+        assert station.hub_common_name == "King's Cross"
+
+
+def test_update_existing_station_clears_hub_fields(tfl_service: TfLService) -> None:
+    """Test _update_existing_station clears hub fields when hub code is None."""
+    with freeze_time("2025-01-01 12:00:00"):
+        # Create station with existing hub fields
+        station = Station(
+            tfl_id="940GZZLUWBN",
+            name="Wimbledon",
+            latitude=51.4214,
+            longitude=-0.2064,
+            lines=["district"],
+            last_updated=datetime(2024, 12, 1, 0, 0, 0, tzinfo=UTC),
+            hub_naptan_code="HUBWIM",
+            hub_common_name="Wimbledon Station",
+        )
+
+        # Update with None hub fields (hub removed from API)
+        tfl_service._update_existing_station(
+            station=station,
+            line_tfl_id="district",
+            hub_code=None,
+            hub_name=None,
+        )
+
+        # Verify hub fields cleared
+        assert station.hub_naptan_code is None
+        assert station.hub_common_name is None
+
+
+def test_create_new_station_with_hub_code(tfl_service: TfLService) -> None:
+    """Test _create_new_station creates station with hub fields when hub code is present."""
+    with freeze_time("2025-01-01 12:00:00"):
+        # Create mock stop point with hub code
+        stop_point = create_mock_stop_point(
+            id="910GSEVNSIS",
+            common_name="Seven Sisters Rail Station",
+            lat=51.5823,
+            lon=-0.0751,
+            hubNaptanCode="HUBSVS",
+        )
+
+        # Create new station
+        station = tfl_service._create_new_station(
+            stop_point=stop_point,
+            line_tfl_id="weaver",
+            hub_code="HUBSVS",
+            hub_name="Seven Sisters Rail Station",
+        )
+
+        # Verify all fields
+        assert station.tfl_id == "910GSEVNSIS"
+        assert station.name == "Seven Sisters Rail Station"
+        assert station.latitude == 51.5823
+        assert station.longitude == -0.0751
+        assert station.lines == ["weaver"]
+        assert station.last_updated == datetime(2025, 1, 1, 12, 0, 0, tzinfo=UTC)
+        assert station.hub_naptan_code == "HUBSVS"
+        assert station.hub_common_name == "Seven Sisters Rail Station"
+
+
+def test_create_new_station_without_hub_code(tfl_service: TfLService) -> None:
+    """Test _create_new_station creates station with None hub fields when hub code is absent."""
+    with freeze_time("2025-01-01 12:00:00"):
+        # Create mock place without hub code
+        stop_point = create_mock_place(
+            id="940GZZLUWBN",
+            common_name="Wimbledon",
+            lat=51.4214,
+            lon=-0.2064,
+        )
+
+        # Create new station
+        station = tfl_service._create_new_station(
+            stop_point=stop_point,
+            line_tfl_id="district",
+            hub_code=None,
+            hub_name=None,
+        )
+
+        # Verify all fields
+        assert station.tfl_id == "940GZZLUWBN"
+        assert station.name == "Wimbledon"
+        assert station.latitude == 51.4214
+        assert station.longitude == -0.2064
+        assert station.lines == ["district"]
+        assert station.last_updated == datetime(2025, 1, 1, 12, 0, 0, tzinfo=UTC)
+        assert station.hub_naptan_code is None
+        assert station.hub_common_name is None
+
+
+# -------------------- Integration Tests --------------------
+
+
 async def test_fetch_stations_by_line(
     tfl_service: TfLService,
     db_session: AsyncSession,
@@ -823,56 +1018,6 @@ async def test_fetch_stations_all(
     tfl_ids = {s.tfl_id for s in result}
     assert "940GZZLUKSX" in tfl_ids
     assert "940GZZLUOXC" in tfl_ids
-
-
-@patch("asyncio.get_running_loop")
-async def test_fetch_stations_existing_station_with_line(
-    mock_get_loop: MagicMock,
-    tfl_service: TfLService,
-    db_session: AsyncSession,
-) -> None:
-    """Test fetching stations when station already has the line in its lines array."""
-    with freeze_time("2025-01-01 12:00:00"):
-        # Create existing station with victoria already in lines
-        existing_station = Station(
-            tfl_id="940GZZLUKSX",
-            name="King's Cross St. Pancras",
-            latitude=51.5308,
-            longitude=-0.1238,
-            lines=["victoria", "northern"],  # victoria already present
-            last_updated=datetime(2024, 12, 1, 0, 0, 0, tzinfo=UTC),  # Old timestamp
-        )
-        db_session.add(existing_station)
-        await db_session.commit()
-        await db_session.refresh(existing_station)
-
-        # Setup mock response returning the same station
-        mock_stops = [
-            create_mock_place(id="940GZZLUKSX", common_name="King's Cross St. Pancras", lat=51.5308, lon=-0.1238),
-        ]
-        mock_response = MockResponse(
-            data=mock_stops,
-            shared_expires=datetime(2025, 1, 2, 12, 0, 0, tzinfo=UTC),
-        )
-
-        # Mock the event loop and executor
-        mock_loop = AsyncMock()
-        mock_loop.run_in_executor = AsyncMock(return_value=mock_response)
-        mock_get_loop.return_value = mock_loop
-
-        # Execute - fetch stations for victoria line
-        stations = await tfl_service.fetch_stations(line_tfl_id="victoria", use_cache=False)
-
-        # Verify
-        assert len(stations) == 1
-        station = stations[0]
-        assert station.tfl_id == "940GZZLUKSX"
-        # Verify victoria is still in lines (not duplicated)
-        assert "victoria" in station.lines
-        assert station.lines.count("victoria") == 1  # Only once
-        assert "northern" in station.lines  # Other line preserved
-        # Verify timestamp was updated
-        assert station.last_updated == datetime(2025, 1, 1, 12, 0, 0, tzinfo=UTC)
 
 
 # ==================== fetch_disruptions Tests ====================
@@ -3863,239 +4008,11 @@ async def test_get_network_graph_exception(
 # ==================== Phase 2: Edge Case Coverage Tests ====================
 
 
-@patch("asyncio.get_running_loop")
-async def test_fetch_stations_new_line_to_existing_station(
-    mock_get_loop: MagicMock,
-    tfl_service: TfLService,
-    db_session: AsyncSession,
-) -> None:
-    """Test adding a new line to an existing station (covers line 504)."""
-    with freeze_time("2025-01-01 12:00:00"):
-        # Create existing station with only victoria line
-        existing_station = Station(
-            tfl_id="940GZZLUKSX",
-            name="King's Cross St. Pancras",
-            latitude=51.5308,
-            longitude=-0.1238,
-            lines=["victoria"],  # Only has victoria
-            last_updated=datetime(2024, 12, 1, 0, 0, 0, tzinfo=UTC),
-        )
-        db_session.add(existing_station)
-        await db_session.commit()
-
-        # Mock API response returning same station for northern line
-        mock_stops = [
-            create_mock_place(id="940GZZLUKSX", common_name="King's Cross St. Pancras", lat=51.5308, lon=-0.1238),
-        ]
-        mock_response = MockResponse(
-            data=mock_stops,
-            shared_expires=datetime(2025, 1, 2, 12, 0, 0, tzinfo=UTC),
-        )
-
-        mock_loop = AsyncMock()
-        mock_loop.run_in_executor = AsyncMock(return_value=mock_response)
-        mock_get_loop.return_value = mock_loop
-
-        # Fetch stations for northern line (different from existing)
-        stations = await tfl_service.fetch_stations(line_tfl_id="northern", use_cache=False)
-
-        # Verify northern was added to lines list
-        assert len(stations) == 1
-        station = stations[0]
-        assert "victoria" in station.lines
-        assert "northern" in station.lines
-        assert len(station.lines) == 2
-
-
-@patch("asyncio.get_running_loop")
-async def test_fetch_stations_with_hub_fields(
-    mock_get_loop: MagicMock,
-    tfl_service: TfLService,
-    db_session: AsyncSession,
-) -> None:
-    """Test that hub_naptan_code and hub_common_name are extracted from API."""
-    with freeze_time("2025-01-01 12:00:00"):
-        # Mock API response with hub information
-        # Seven Sisters has a hubNaptanCode linking rail and tube stations
-        # Use StopPoint instead of Place because hubNaptanCode is only on StopPoint
-        mock_stops = [
-            create_mock_stop_point(
-                id="910GSEVNSIS",
-                common_name="Seven Sisters Rail Station",
-                lat=51.5823,
-                lon=-0.0751,
-                hubNaptanCode="HUBSVS",  # Hub code for Seven Sisters
-            ),
-        ]
-        mock_response = MockResponse(
-            data=mock_stops,
-            shared_expires=datetime(2025, 1, 2, 12, 0, 0, tzinfo=UTC),
-        )
-
-        mock_loop = AsyncMock()
-        mock_loop.run_in_executor = AsyncMock(return_value=mock_response)
-        mock_get_loop.return_value = mock_loop
-
-        # Fetch stations
-        stations = await tfl_service.fetch_stations(line_tfl_id="weaver", use_cache=False)
-
-        # Verify hub fields were extracted
-        assert len(stations) == 1
-        station = stations[0]
-        assert station.tfl_id == "910GSEVNSIS"
-        assert station.hub_naptan_code == "HUBSVS"
-        assert station.hub_common_name == "Seven Sisters Rail Station"
-
-
-@patch("asyncio.get_running_loop")
-async def test_fetch_stations_without_hub_fields(
-    mock_get_loop: MagicMock,
-    tfl_service: TfLService,
-    db_session: AsyncSession,
-) -> None:
-    """Test that stations without hub codes have NULL hub fields."""
-    with freeze_time("2025-01-01 12:00:00"):
-        # Mock API response without hub information
-        mock_stops = [
-            create_mock_place(
-                id="940GZZLUWBN",
-                common_name="Wimbledon",
-                lat=51.4214,
-                lon=-0.2064,
-                # No hubNaptanCode - station is not a hub
-            ),
-        ]
-        mock_response = MockResponse(
-            data=mock_stops,
-            shared_expires=datetime(2025, 1, 2, 12, 0, 0, tzinfo=UTC),
-        )
-
-        mock_loop = AsyncMock()
-        mock_loop.run_in_executor = AsyncMock(return_value=mock_response)
-        mock_get_loop.return_value = mock_loop
-
-        # Fetch stations
-        stations = await tfl_service.fetch_stations(line_tfl_id="district", use_cache=False)
-
-        # Verify hub fields are None
-        assert len(stations) == 1
-        station = stations[0]
-        assert station.tfl_id == "940GZZLUWBN"
-        assert station.hub_naptan_code is None
-        assert station.hub_common_name is None
-
-
-@patch("asyncio.get_running_loop")
-async def test_fetch_stations_updates_existing_hub_fields(
-    mock_get_loop: MagicMock,
-    tfl_service: TfLService,
-    db_session: AsyncSession,
-) -> None:
-    """Test that hub fields are updated for existing stations."""
-    with freeze_time("2025-01-01 12:00:00"):
-        # Create existing station without hub information
-        existing_station = Station(
-            tfl_id="910GSEVNSIS",
-            name="Seven Sisters Rail Station",
-            latitude=51.5823,
-            longitude=-0.0751,
-            lines=["weaver"],
-            last_updated=datetime(2024, 12, 1, 0, 0, 0, tzinfo=UTC),
-            hub_naptan_code=None,  # No hub code initially
-            hub_common_name=None,
-        )
-        db_session.add(existing_station)
-        await db_session.commit()
-
-        # Mock API response with hub information
-        # Use StopPoint instead of Place because hubNaptanCode is only on StopPoint
-        mock_stops = [
-            create_mock_stop_point(
-                id="910GSEVNSIS",
-                common_name="Seven Sisters Rail Station",
-                lat=51.5823,
-                lon=-0.0751,
-                hubNaptanCode="HUBSVS",  # Hub code now present
-            ),
-        ]
-        mock_response = MockResponse(
-            data=mock_stops,
-            shared_expires=datetime(2025, 1, 2, 12, 0, 0, tzinfo=UTC),
-        )
-
-        mock_loop = AsyncMock()
-        mock_loop.run_in_executor = AsyncMock(return_value=mock_response)
-        mock_get_loop.return_value = mock_loop
-
-        # Fetch stations - should update existing station
-        stations = await tfl_service.fetch_stations(line_tfl_id="weaver", use_cache=False)
-
-        # Verify hub fields were updated
-        assert len(stations) == 1
-        station = stations[0]
-        assert station.tfl_id == "910GSEVNSIS"
-        assert station.hub_naptan_code == "HUBSVS"
-        assert station.hub_common_name == "Seven Sisters Rail Station"
-
-
-@patch("asyncio.get_running_loop")
-async def test_fetch_stations_clears_hub_fields_when_removed(
-    mock_get_loop: MagicMock,
-    tfl_service: TfLService,
-    db_session: AsyncSession,
-) -> None:
-    """Test that hub fields are cleared when hub code is removed from API."""
-    with freeze_time("2025-01-01 12:00:00"):
-        # Create existing station WITH hub information
-        existing_station = Station(
-            tfl_id="910GSEVNSIS",
-            name="Seven Sisters Rail Station",
-            latitude=51.5823,
-            longitude=-0.0751,
-            lines=["weaver"],
-            last_updated=datetime(2024, 12, 1, 0, 0, 0, tzinfo=UTC),
-            hub_naptan_code="HUBSVS",  # Hub code initially present
-            hub_common_name="Seven Sisters",
-        )
-        db_session.add(existing_station)
-        await db_session.commit()
-
-        # Mock API response WITHOUT hub information (hub code removed)
-        # Use Place instead of StopPoint (Place doesn't have hubNaptanCode)
-        mock_stops = [
-            create_mock_place(
-                id="910GSEVNSIS",
-                common_name="Seven Sisters Rail Station",
-                lat=51.5823,
-                lon=-0.0751,
-                # No hubNaptanCode - station is no longer a hub
-            ),
-        ]
-        mock_response = MockResponse(
-            data=mock_stops,
-            shared_expires=datetime(2025, 1, 2, 12, 0, 0, tzinfo=UTC),
-        )
-
-        mock_loop = AsyncMock()
-        mock_loop.run_in_executor = AsyncMock(return_value=mock_response)
-        mock_get_loop.return_value = mock_loop
-
-        # Fetch stations - should clear hub fields
-        stations = await tfl_service.fetch_stations(line_tfl_id="weaver", use_cache=False)
-
-        # Verify hub fields were cleared (no stale data)
-        assert len(stations) == 1
-        station = stations[0]
-        assert station.tfl_id == "910GSEVNSIS"
-        assert station.hub_naptan_code is None
-        assert station.hub_common_name is None
-
-
 async def test_process_station_pair_missing_stop_ids(
     tfl_service: TfLService,
     db_session: AsyncSession,
 ) -> None:
-    """Test _process_station_pair when stop objects lack ID fields (covers line 903)."""
+    """Test _process_station_pair when stop objects lack ID fields (covers line 1162)."""
     # Create line
     line = Line(tfl_id="victoria", name="Victoria", color="#000000", last_updated=datetime.now(UTC))
     db_session.add(line)
@@ -5011,3 +4928,252 @@ async def test_get_station_routes_database_error(
 
         assert exc_info.value.status_code == status.HTTP_500_INTERNAL_SERVER_ERROR
         assert "Failed to fetch routes for station '940GZZLUVIC'" in exc_info.value.detail
+
+
+# ==================== Additional Coverage Tests ====================
+
+
+async def test_fetch_stations_update_existing_station(
+    tfl_service: TfLService,
+    db_session: AsyncSession,
+) -> None:
+    """Test fetch_stations updates existing station with new line (covers line 656)."""
+    with freeze_time("2025-01-01 12:00:00"):
+        # Create existing station with one line
+        existing_station = Station(
+            tfl_id="940GZZLUVIC",
+            name="Victoria",
+            latitude=51.4966,
+            longitude=-0.1448,
+            lines=["victoria"],
+            last_updated=datetime(2024, 12, 1, tzinfo=UTC),
+        )
+        db_session.add(existing_station)
+        await db_session.commit()
+
+        # Mock API response for same station on different line
+        mock_stops = [
+            create_mock_place(id="940GZZLUVIC", common_name="Victoria", lat=51.4966, lon=-0.1448),
+        ]
+
+        # Execute with helper - fetch for district line
+        stations = await assert_fetch_from_api(
+            tfl_service=tfl_service,
+            method_callable=lambda: tfl_service.fetch_stations(line_tfl_id="district", use_cache=False),
+            mock_data=mock_stops,
+            expected_count=1,
+            cache_key="stations:line:district",
+            expected_ttl=86400,
+            shared_expires=datetime(2025, 1, 2, 12, 0, 0, tzinfo=UTC),
+        )
+
+        # Verify station was updated with new line
+        assert "district" in stations[0].lines
+        assert "victoria" in stations[0].lines
+        assert stations[0].last_updated == datetime(2025, 1, 1, 12, 0, 0, tzinfo=UTC)
+
+
+@patch("asyncio.get_running_loop")
+async def test_fetch_stations_http_exception_reraise(
+    mock_get_loop: MagicMock,
+    tfl_service: TfLService,
+) -> None:
+    """Test fetch_stations re-raises HTTPException (covers line 713)."""
+    # Mock executor to raise HTTPException
+    mock_loop = AsyncMock()
+    custom_http_error = HTTPException(status_code=429, detail="Rate limit exceeded")
+    mock_loop.run_in_executor = AsyncMock(side_effect=custom_http_error)
+    mock_get_loop.return_value = mock_loop
+
+    # Execute and verify HTTPException is re-raised
+    with pytest.raises(HTTPException) as exc_info:
+        await tfl_service.fetch_stations(line_tfl_id="victoria", use_cache=False)
+
+    assert exc_info.value.status_code == 429
+    assert "Rate limit exceeded" in exc_info.value.detail
+
+
+@patch("asyncio.get_running_loop")
+async def test_fetch_line_disruptions_http_exception_reraise(
+    mock_get_loop: MagicMock,
+    tfl_service: TfLService,
+) -> None:
+    """Test fetch_line_disruptions re-raises HTTPException (covers line 848)."""
+    # Mock executor to raise HTTPException
+    mock_loop = AsyncMock()
+    custom_http_error = HTTPException(status_code=401, detail="Unauthorized")
+    mock_loop.run_in_executor = AsyncMock(side_effect=custom_http_error)
+    mock_get_loop.return_value = mock_loop
+
+    # Execute and verify HTTPException is re-raised
+    with pytest.raises(HTTPException) as exc_info:
+        await tfl_service.fetch_line_disruptions(modes=["tube"], use_cache=False)
+
+    assert exc_info.value.status_code == 401
+    assert "Unauthorized" in exc_info.value.detail
+
+
+@patch("asyncio.get_running_loop")
+async def test_fetch_line_disruptions_generic_exception(
+    mock_get_loop: MagicMock,
+    tfl_service: TfLService,
+) -> None:
+    """Test fetch_line_disruptions wraps generic exceptions (covers lines 850-852)."""
+    # Mock executor to raise a generic exception
+    mock_loop = AsyncMock()
+    mock_loop.run_in_executor = AsyncMock(side_effect=ValueError("Invalid data format"))
+    mock_get_loop.return_value = mock_loop
+
+    # Execute and verify exception is wrapped in HTTPException
+    with pytest.raises(HTTPException) as exc_info:
+        await tfl_service.fetch_line_disruptions(modes=["tube", "dlr"], use_cache=False)
+
+    assert exc_info.value.status_code == 503
+    assert "Failed to fetch line disruptions from TfL API for modes: ['tube', 'dlr']" in exc_info.value.detail
+
+
+@patch("asyncio.get_running_loop")
+async def test_fetch_station_disruptions_http_exception_reraise(
+    mock_get_loop: MagicMock,
+    tfl_service: TfLService,
+) -> None:
+    """Test fetch_station_disruptions re-raises HTTPException (covers line 1044)."""
+    # Mock executor to raise HTTPException
+    mock_loop = AsyncMock()
+    custom_http_error = HTTPException(status_code=404, detail="Not found")
+    mock_loop.run_in_executor = AsyncMock(side_effect=custom_http_error)
+    mock_get_loop.return_value = mock_loop
+
+    # Execute and verify HTTPException is re-raised
+    with pytest.raises(HTTPException) as exc_info:
+        await tfl_service.fetch_station_disruptions(modes=["tube"], use_cache=False)
+
+    assert exc_info.value.status_code == 404
+    assert "Not found" in exc_info.value.detail
+
+
+@patch("asyncio.get_running_loop")
+async def test_process_route_sequence_exception_handling(
+    mock_get_loop: MagicMock,
+    tfl_service: TfLService,
+    db_session: AsyncSession,
+) -> None:
+    """Test _process_route_sequence handles exceptions gracefully (covers lines 1282-1289)."""
+    # Create line
+    line = Line(tfl_id="victoria", name="Victoria", color="#0019A8", last_updated=datetime.now(UTC))
+    db_session.add(line)
+    await db_session.commit()
+
+    # Mock executor to raise a generic exception during route sequence fetch
+    mock_loop = AsyncMock()
+    mock_loop.run_in_executor = AsyncMock(side_effect=ValueError("Invalid route data"))
+    mock_get_loop.return_value = mock_loop
+
+    # Call _process_route_sequence - should catch exception and return (0, None)
+    count, route_data = await tfl_service._process_route_sequence(line, "inbound", set(), set())
+
+    assert count == 0
+    assert route_data is None
+
+
+async def test_get_line_by_tfl_id_not_found(
+    tfl_service: TfLService,
+    db_session: AsyncSession,
+) -> None:
+    """Test get_line_by_tfl_id raises 404 when line not found (covers lines 1616-1617)."""
+    # Try to get non-existent line
+    with pytest.raises(HTTPException) as exc_info:
+        await tfl_service.get_line_by_tfl_id("non-existent-line")
+
+    assert exc_info.value.status_code == 404
+    assert "Line with TfL ID 'non-existent-line' not found" in exc_info.value.detail
+    assert "Please ensure TfL data is imported" in exc_info.value.detail
+
+
+async def test_validate_route_no_connection_different_lines(
+    tfl_service: TfLService,
+    db_session: AsyncSession,
+) -> None:
+    """Test validate_route message when stations are on different lines (covers line 1753)."""
+    # Create line with routes data (required for _check_connection to work)
+    victoria = Line(
+        tfl_id="victoria",
+        name="Victoria",
+        color="#0019A8",
+        last_updated=datetime.now(UTC),
+        routes={"routes": [{"name": "Test Route", "stations": ["940GZZLUVIC"]}]},
+    )
+    db_session.add(victoria)
+
+    # Create two stations on different lines (no common line)
+    station1 = Station(
+        tfl_id="940GZZLUVIC",
+        name="Victoria",
+        latitude=51.4966,
+        longitude=-0.1448,
+        lines=["victoria"],
+        last_updated=datetime.now(UTC),
+    )
+    station2 = Station(
+        tfl_id="940GZZLUSKS",
+        name="Sloane Square",
+        latitude=51.4924,
+        longitude=-0.1565,
+        lines=["district"],  # Different line
+        last_updated=datetime.now(UTC),
+    )
+    db_session.add_all([station1, station2])
+    await db_session.commit()
+
+    # Try to validate route between stations on different lines
+    segments = [
+        RouteSegmentRequest(station_tfl_id="940GZZLUVIC", line_tfl_id="victoria"),
+        RouteSegmentRequest(station_tfl_id="940GZZLUSKS", line_tfl_id=None),
+    ]
+
+    is_valid, message, segment_index = await tfl_service.validate_route(segments)
+
+    assert not is_valid
+    assert "No connection found between 'Victoria' and 'Sloane Square' on Victoria line" in message
+    assert segment_index == 0  # First segment failed
+
+
+async def test_validate_route_generic_exception(
+    tfl_service: TfLService,
+    db_session: AsyncSession,
+) -> None:
+    """Test validate_route handles generic exceptions (covers lines 1777-1779)."""
+    # Mock db.execute to raise a generic exception
+    with patch.object(
+        db_session,
+        "execute",
+        side_effect=Exception("Database error"),
+    ):
+        segments = [
+            RouteSegmentRequest(station_tfl_id="940GZZLUVIC", line_tfl_id="victoria"),
+            RouteSegmentRequest(station_tfl_id="940GZZLUSKS", line_tfl_id=None),
+        ]
+
+        with pytest.raises(HTTPException) as exc_info:
+            await tfl_service.validate_route(segments)
+
+        assert exc_info.value.status_code == 500
+        assert "Failed to validate route" in exc_info.value.detail
+
+
+async def test_check_connection_missing_entities(
+    tfl_service: TfLService,
+    db_session: AsyncSession,
+) -> None:
+    """Test _check_connection returns False when entities are missing (covers lines 1811-1817)."""
+    # Create a valid line
+    line = Line(tfl_id="victoria", name="Victoria", color="#0019A8", last_updated=datetime.now(UTC))
+    db_session.add(line)
+    await db_session.commit()
+
+    # Test with non-existent station UUIDs
+    fake_uuid1 = uuid.uuid4()
+    fake_uuid2 = uuid.uuid4()
+
+    result = await tfl_service._check_connection(fake_uuid1, fake_uuid2, line.id)
+    assert result is False
