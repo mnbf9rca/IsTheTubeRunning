@@ -5696,6 +5696,923 @@ async def test_validate_route_generic_exception(
         assert "Failed to validate route" in exc_info.value.detail
 
 
+# ============================================================================
+# Hub Interchange Validation Tests (Issue #52)
+# ============================================================================
+
+
+async def test_validate_route_hub_interchange_seven_sisters_rail(
+    tfl_service: TfLService,
+    db_session: AsyncSession,
+) -> None:
+    """Test hub interchange using Seven Sisters rail station ID (910GSEVNSIS).
+
+    Route: Bush Hill Park (Overground) → Seven Sisters (rail) → Pimlico (Victoria line)
+    Seven Sisters has two station IDs that share hub_naptan_code='HUBSVS':
+    - 910GSEVNSIS (Overground/rail)
+    - 940GZZLUSVS (Victoria line tube)
+
+    This test verifies that changing from Overground to Victoria line at Seven Sisters
+    is recognized as a valid hub interchange.
+    """
+    # Create Overground (Weaver) line
+    weaver_line = Line(
+        tfl_id="weaver",
+        name="Weaver",
+        color="#EE7C0E",
+        last_updated=datetime.now(UTC),
+        routes={
+            "routes": [
+                {
+                    "name": "Weaver Line",
+                    "service_type": "Regular",
+                    "direction": "inbound",
+                    "stations": ["910GBHILLPK", "910GSEVNSIS"],
+                }
+            ]
+        },
+    )
+
+    # Create Victoria line
+    victoria_line = Line(
+        tfl_id="victoria",
+        name="Victoria",
+        color="#0019A8",
+        last_updated=datetime.now(UTC),
+        routes={
+            "routes": [
+                {
+                    "name": "Victoria Line",
+                    "service_type": "Regular",
+                    "direction": "inbound",
+                    "stations": ["940GZZLUSVS", "940GZZLUPCO"],
+                }
+            ]
+        },
+    )
+    db_session.add_all([weaver_line, victoria_line])
+    await db_session.flush()
+
+    # Create stations
+    bush_hill_park = Station(
+        tfl_id="910GBHILLPK",
+        name="Bush Hill Park",
+        latitude=51.6419,
+        longitude=-0.0701,
+        lines=["weaver"],
+        last_updated=datetime.now(UTC),
+        hub_naptan_code=None,
+        hub_common_name=None,
+    )
+
+    seven_sisters_rail = Station(
+        tfl_id="910GSEVNSIS",
+        name="Seven Sisters",
+        latitude=51.5820,
+        longitude=-0.0749,
+        lines=["weaver"],
+        last_updated=datetime.now(UTC),
+        hub_naptan_code="HUBSVS",  # Shared hub code
+        hub_common_name="Seven Sisters",
+    )
+
+    seven_sisters_tube = Station(
+        tfl_id="940GZZLUSVS",
+        name="Seven Sisters",
+        latitude=51.5820,
+        longitude=-0.0749,
+        lines=["victoria"],
+        last_updated=datetime.now(UTC),
+        hub_naptan_code="HUBSVS",  # Same hub code
+        hub_common_name="Seven Sisters",
+    )
+
+    pimlico = Station(
+        tfl_id="940GZZLUPCO",
+        name="Pimlico",
+        latitude=51.4893,
+        longitude=-0.1334,
+        lines=["victoria"],
+        last_updated=datetime.now(UTC),
+        hub_naptan_code=None,
+        hub_common_name=None,
+    )
+
+    db_session.add_all([bush_hill_park, seven_sisters_rail, seven_sisters_tube, pimlico])
+    await db_session.flush()
+
+    # Create connections on each line
+    conn1 = StationConnection(
+        from_station_id=bush_hill_park.id,
+        to_station_id=seven_sisters_rail.id,
+        line_id=weaver_line.id,
+    )
+    conn2 = StationConnection(
+        from_station_id=seven_sisters_tube.id,
+        to_station_id=pimlico.id,
+        line_id=victoria_line.id,
+    )
+    db_session.add_all([conn1, conn2])
+    await db_session.commit()
+
+    # Create route: Bush Hill Park → Seven Sisters (rail) → Pimlico
+    segments = [
+        RouteSegmentRequest(station_tfl_id="910GBHILLPK", line_tfl_id="weaver"),
+        RouteSegmentRequest(station_tfl_id="910GSEVNSIS", line_tfl_id="victoria"),
+        RouteSegmentRequest(station_tfl_id="940GZZLUPCO", line_tfl_id=None),
+    ]
+
+    # Execute validation
+    is_valid, message, invalid_segment = await tfl_service.validate_route(segments)
+
+    # Verify route is valid
+    assert is_valid is True
+    assert "valid" in message.lower()
+    assert invalid_segment is None
+
+
+async def test_validate_route_hub_interchange_seven_sisters_tube(
+    tfl_service: TfLService,
+    db_session: AsyncSession,
+) -> None:
+    """Test hub interchange using Seven Sisters tube station ID (940GZZLUSVS).
+
+    Route: Bush Hill Park (Overground) → Seven Sisters (tube) → Pimlico (Victoria line)
+
+    This is equivalent to the previous test but uses the tube station ID in the route.
+    Should produce the same result since both stations share hub_naptan_code='HUBSVS'.
+    """
+    # Create Overground (Weaver) line
+    weaver_line = Line(
+        tfl_id="weaver",
+        name="Weaver",
+        color="#EE7C0E",
+        last_updated=datetime.now(UTC),
+        routes={
+            "routes": [
+                {
+                    "name": "Weaver Line",
+                    "service_type": "Regular",
+                    "direction": "inbound",
+                    "stations": ["910GBHILLPK", "910GSEVNSIS"],
+                }
+            ]
+        },
+    )
+
+    # Create Victoria line
+    victoria_line = Line(
+        tfl_id="victoria",
+        name="Victoria",
+        color="#0019A8",
+        last_updated=datetime.now(UTC),
+        routes={
+            "routes": [
+                {
+                    "name": "Victoria Line",
+                    "service_type": "Regular",
+                    "direction": "inbound",
+                    "stations": ["940GZZLUSVS", "940GZZLUPCO"],
+                }
+            ]
+        },
+    )
+    db_session.add_all([weaver_line, victoria_line])
+    await db_session.flush()
+
+    # Create stations
+    bush_hill_park = Station(
+        tfl_id="910GBHILLPK",
+        name="Bush Hill Park",
+        latitude=51.6419,
+        longitude=-0.0701,
+        lines=["weaver"],
+        last_updated=datetime.now(UTC),
+        hub_naptan_code=None,
+        hub_common_name=None,
+    )
+
+    seven_sisters_rail = Station(
+        tfl_id="910GSEVNSIS",
+        name="Seven Sisters",
+        latitude=51.5820,
+        longitude=-0.0749,
+        lines=["weaver"],
+        last_updated=datetime.now(UTC),
+        hub_naptan_code="HUBSVS",
+        hub_common_name="Seven Sisters",
+    )
+
+    seven_sisters_tube = Station(
+        tfl_id="940GZZLUSVS",
+        name="Seven Sisters",
+        latitude=51.5820,
+        longitude=-0.0749,
+        lines=["victoria"],
+        last_updated=datetime.now(UTC),
+        hub_naptan_code="HUBSVS",
+        hub_common_name="Seven Sisters",
+    )
+
+    pimlico = Station(
+        tfl_id="940GZZLUPCO",
+        name="Pimlico",
+        latitude=51.4893,
+        longitude=-0.1334,
+        lines=["victoria"],
+        last_updated=datetime.now(UTC),
+        hub_naptan_code=None,
+        hub_common_name=None,
+    )
+
+    db_session.add_all([bush_hill_park, seven_sisters_rail, seven_sisters_tube, pimlico])
+    await db_session.flush()
+
+    # Create connections on each line
+    conn1 = StationConnection(
+        from_station_id=bush_hill_park.id,
+        to_station_id=seven_sisters_rail.id,
+        line_id=weaver_line.id,
+    )
+    conn2 = StationConnection(
+        from_station_id=seven_sisters_tube.id,
+        to_station_id=pimlico.id,
+        line_id=victoria_line.id,
+    )
+    db_session.add_all([conn1, conn2])
+    await db_session.commit()
+
+    # Create route: Bush Hill Park → Seven Sisters (tube) → Pimlico
+    # Note: Using 940GZZLUSVS (tube) instead of 910GSEVNSIS (rail)
+    segments = [
+        RouteSegmentRequest(station_tfl_id="910GBHILLPK", line_tfl_id="weaver"),
+        RouteSegmentRequest(station_tfl_id="940GZZLUSVS", line_tfl_id="victoria"),
+        RouteSegmentRequest(station_tfl_id="940GZZLUPCO", line_tfl_id=None),
+    ]
+
+    # Execute validation
+    is_valid, message, invalid_segment = await tfl_service.validate_route(segments)
+
+    # Verify route is valid
+    assert is_valid is True
+    assert "valid" in message.lower()
+    assert invalid_segment is None
+
+
+async def test_validate_route_different_hubs_no_connection_fails(
+    tfl_service: TfLService,
+    db_session: AsyncSession,
+) -> None:
+    """Test that stations with different hub codes and no connection fail validation.
+
+    Verifies that hub interchange logic doesn't bypass connection validation when
+    hub codes don't match.
+    """
+    # Create line
+    line = Line(
+        tfl_id="testline",
+        name="Test Line",
+        color="#FF0000",
+        last_updated=datetime.now(UTC),
+        routes={
+            "routes": [
+                {
+                    "name": "Test Route",
+                    "service_type": "Regular",
+                    "direction": "inbound",
+                    "stations": ["station1"],  # Only station1
+                }
+            ]
+        },
+    )
+    db_session.add(line)
+    await db_session.flush()
+
+    # Create stations with different hub codes
+    station1 = Station(
+        tfl_id="station1",
+        name="Station One",
+        latitude=51.5,
+        longitude=-0.1,
+        lines=["testline"],
+        last_updated=datetime.now(UTC),
+        hub_naptan_code="HUB001",
+        hub_common_name="Hub One",
+    )
+
+    station2 = Station(
+        tfl_id="station2",
+        name="Station Two",
+        latitude=51.5,
+        longitude=-0.1,
+        lines=["testline"],
+        last_updated=datetime.now(UTC),
+        hub_naptan_code="HUB002",  # Different hub code
+        hub_common_name="Hub Two",
+    )
+
+    db_session.add_all([station1, station2])
+    await db_session.commit()
+
+    # Create route between stations with different hubs
+    segments = [
+        RouteSegmentRequest(station_tfl_id="station1", line_tfl_id="testline"),
+        RouteSegmentRequest(station_tfl_id="station2", line_tfl_id=None),
+    ]
+
+    # Execute validation
+    is_valid, message, invalid_segment = await tfl_service.validate_route(segments)
+
+    # Verify route fails validation (different hubs, no connection)
+    assert is_valid is False
+    assert "Station One" in message
+    assert "Station Two" in message
+    assert invalid_segment == 0
+
+
+async def test_validate_route_no_hub_requires_connection(
+    tfl_service: TfLService,
+    db_session: AsyncSession,
+) -> None:
+    """Test that stations without hub codes still require valid connections.
+
+    Verifies that hub interchange logic doesn't interfere with normal validation
+    when neither station has a hub code.
+    """
+    # Create line
+    line = Line(
+        tfl_id="testline",
+        name="Test Line",
+        color="#FF0000",
+        last_updated=datetime.now(UTC),
+        routes={
+            "routes": [
+                {
+                    "name": "Test Route",
+                    "service_type": "Regular",
+                    "direction": "inbound",
+                    "stations": ["station1"],  # Only station1
+                }
+            ]
+        },
+    )
+    db_session.add(line)
+    await db_session.flush()
+
+    # Create stations without hub codes
+    station1 = Station(
+        tfl_id="station1",
+        name="Station One",
+        latitude=51.5,
+        longitude=-0.1,
+        lines=["testline"],
+        last_updated=datetime.now(UTC),
+        hub_naptan_code=None,
+        hub_common_name=None,
+    )
+
+    station2 = Station(
+        tfl_id="station2",
+        name="Station Two",
+        latitude=51.5,
+        longitude=-0.1,
+        lines=["testline"],
+        last_updated=datetime.now(UTC),
+        hub_naptan_code=None,
+        hub_common_name=None,
+    )
+
+    db_session.add_all([station1, station2])
+    await db_session.commit()
+
+    # Create route between stations without hubs
+    segments = [
+        RouteSegmentRequest(station_tfl_id="station1", line_tfl_id="testline"),
+        RouteSegmentRequest(station_tfl_id="station2", line_tfl_id=None),
+    ]
+
+    # Execute validation
+    is_valid, message, invalid_segment = await tfl_service.validate_route(segments)
+
+    # Verify route fails validation (no hub, no connection)
+    assert is_valid is False
+    assert "Station One" in message
+    assert "Station Two" in message
+    assert invalid_segment == 0
+
+
+async def test_validate_route_one_hub_one_regular_requires_connection(
+    tfl_service: TfLService,
+    db_session: AsyncSession,
+) -> None:
+    """Test that one hub station + one regular station requires valid connection.
+
+    Verifies that hub interchange logic only applies when BOTH stations have
+    matching hub codes.
+    """
+    # Create line
+    line = Line(
+        tfl_id="testline",
+        name="Test Line",
+        color="#FF0000",
+        last_updated=datetime.now(UTC),
+        routes={
+            "routes": [
+                {
+                    "name": "Test Route",
+                    "service_type": "Regular",
+                    "direction": "inbound",
+                    "stations": ["station1"],  # Only station1
+                }
+            ]
+        },
+    )
+    db_session.add(line)
+    await db_session.flush()
+
+    # Create stations: one with hub, one without
+    station1 = Station(
+        tfl_id="station1",
+        name="Station One",
+        latitude=51.5,
+        longitude=-0.1,
+        lines=["testline"],
+        last_updated=datetime.now(UTC),
+        hub_naptan_code="HUB001",
+        hub_common_name="Hub One",
+    )
+
+    station2 = Station(
+        tfl_id="station2",
+        name="Station Two",
+        latitude=51.5,
+        longitude=-0.1,
+        lines=["testline"],
+        last_updated=datetime.now(UTC),
+        hub_naptan_code=None,  # No hub code
+        hub_common_name=None,
+    )
+
+    db_session.add_all([station1, station2])
+    await db_session.commit()
+
+    # Create route between hub station and regular station
+    segments = [
+        RouteSegmentRequest(station_tfl_id="station1", line_tfl_id="testline"),
+        RouteSegmentRequest(station_tfl_id="station2", line_tfl_id=None),
+    ]
+
+    # Execute validation
+    is_valid, message, invalid_segment = await tfl_service.validate_route(segments)
+
+    # Verify route fails validation (mixed hub status, no connection)
+    assert is_valid is False
+    assert "Station One" in message
+    assert "Station Two" in message
+    assert invalid_segment == 0
+
+
+async def test_validate_route_multiple_hub_interchanges(
+    tfl_service: TfLService,
+    db_session: AsyncSession,
+) -> None:
+    """Test route with multiple consecutive hub interchanges.
+
+    Verifies that multiple hub interchanges in the same route are all validated correctly.
+    """
+    # Create lines
+    line1 = Line(
+        tfl_id="line1",
+        name="Line 1",
+        color="#FF0000",
+        last_updated=datetime.now(UTC),
+        routes={
+            "routes": [
+                {
+                    "name": "Line 1 Route",
+                    "service_type": "Regular",
+                    "direction": "inbound",
+                    "stations": ["station_a1", "station_b1"],
+                }
+            ]
+        },
+    )
+
+    line2 = Line(
+        tfl_id="line2",
+        name="Line 2",
+        color="#00FF00",
+        last_updated=datetime.now(UTC),
+        routes={
+            "routes": [
+                {
+                    "name": "Line 2 Route",
+                    "service_type": "Regular",
+                    "direction": "inbound",
+                    "stations": ["station_b2", "station_c2"],
+                }
+            ]
+        },
+    )
+
+    line3 = Line(
+        tfl_id="line3",
+        name="Line 3",
+        color="#0000FF",
+        last_updated=datetime.now(UTC),
+        routes={
+            "routes": [
+                {
+                    "name": "Line 3 Route",
+                    "service_type": "Regular",
+                    "direction": "inbound",
+                    "stations": ["station_c3", "station_d"],
+                }
+            ]
+        },
+    )
+
+    db_session.add_all([line1, line2, line3])
+    await db_session.flush()
+
+    # Create stations: A → B (hub) → C (hub) → D
+    station_a1 = Station(
+        tfl_id="station_a1",
+        name="Station A",
+        latitude=51.5,
+        longitude=-0.1,
+        lines=["line1"],
+        last_updated=datetime.now(UTC),
+        hub_naptan_code=None,
+        hub_common_name=None,
+    )
+
+    # Hub B: station_b1 and station_b2 share HUBB
+    station_b1 = Station(
+        tfl_id="station_b1",
+        name="Station B1",
+        latitude=51.5,
+        longitude=-0.1,
+        lines=["line1"],
+        last_updated=datetime.now(UTC),
+        hub_naptan_code="HUBB",
+        hub_common_name="Hub B",
+    )
+
+    station_b2 = Station(
+        tfl_id="station_b2",
+        name="Station B2",
+        latitude=51.5,
+        longitude=-0.1,
+        lines=["line2"],
+        last_updated=datetime.now(UTC),
+        hub_naptan_code="HUBB",
+        hub_common_name="Hub B",
+    )
+
+    # Hub C: station_c2 and station_c3 share HUBC
+    station_c2 = Station(
+        tfl_id="station_c2",
+        name="Station C2",
+        latitude=51.5,
+        longitude=-0.1,
+        lines=["line2"],
+        last_updated=datetime.now(UTC),
+        hub_naptan_code="HUBC",
+        hub_common_name="Hub C",
+    )
+
+    station_c3 = Station(
+        tfl_id="station_c3",
+        name="Station C3",
+        latitude=51.5,
+        longitude=-0.1,
+        lines=["line3"],
+        last_updated=datetime.now(UTC),
+        hub_naptan_code="HUBC",
+        hub_common_name="Hub C",
+    )
+
+    station_d = Station(
+        tfl_id="station_d",
+        name="Station D",
+        latitude=51.5,
+        longitude=-0.1,
+        lines=["line3"],
+        last_updated=datetime.now(UTC),
+        hub_naptan_code=None,
+        hub_common_name=None,
+    )
+
+    db_session.add_all([station_a1, station_b1, station_b2, station_c2, station_c3, station_d])
+    await db_session.flush()
+
+    # Create connections (only within each line)
+    conn1 = StationConnection(from_station_id=station_a1.id, to_station_id=station_b1.id, line_id=line1.id)
+    conn2 = StationConnection(from_station_id=station_b2.id, to_station_id=station_c2.id, line_id=line2.id)
+    conn3 = StationConnection(from_station_id=station_c3.id, to_station_id=station_d.id, line_id=line3.id)
+    db_session.add_all([conn1, conn2, conn3])
+    await db_session.commit()
+
+    # Create route with two hub interchanges: A → B1 (hub) → B2 → C2 (hub) → C3 → D
+    segments = [
+        RouteSegmentRequest(station_tfl_id="station_a1", line_tfl_id="line1"),
+        RouteSegmentRequest(station_tfl_id="station_b1", line_tfl_id="line2"),  # Hub B interchange
+        RouteSegmentRequest(station_tfl_id="station_c2", line_tfl_id="line3"),  # Hub C interchange
+        RouteSegmentRequest(station_tfl_id="station_d", line_tfl_id=None),
+    ]
+
+    # Execute validation
+    is_valid, message, invalid_segment = await tfl_service.validate_route(segments)
+
+    # Verify route is valid (two hub interchanges recognized)
+    assert is_valid is True
+    assert "valid" in message.lower()
+    assert invalid_segment is None
+
+
+async def test_validate_route_hub_interchange_logs_correctly(
+    tfl_service: TfLService,
+    db_session: AsyncSession,
+) -> None:
+    """Test that hub interchange works with complex routing scenarios.
+
+    Verifies hub interchange detection for realistic multi-line routes.
+    Note: Logging output is visible in test output (structlog writes to stdout).
+    """
+    # Create lines
+    line1 = Line(
+        tfl_id="line1",
+        name="Line 1",
+        color="#FF0000",
+        last_updated=datetime.now(UTC),
+        routes={
+            "routes": [
+                {
+                    "name": "Line 1 Route",
+                    "service_type": "Regular",
+                    "direction": "inbound",
+                    "stations": ["station_a", "station_b1"],
+                }
+            ]
+        },
+    )
+
+    line2 = Line(
+        tfl_id="line2",
+        name="Line 2",
+        color="#00FF00",
+        last_updated=datetime.now(UTC),
+        routes={
+            "routes": [
+                {
+                    "name": "Line 2 Route",
+                    "service_type": "Regular",
+                    "direction": "inbound",
+                    "stations": ["station_b2", "station_c"],
+                }
+            ]
+        },
+    )
+
+    db_session.add_all([line1, line2])
+    await db_session.flush()
+
+    # Create stations with hub interchange
+    station_a = Station(
+        tfl_id="station_a",
+        name="Station A",
+        latitude=51.5,
+        longitude=-0.1,
+        lines=["line1"],
+        last_updated=datetime.now(UTC),
+        hub_naptan_code=None,
+        hub_common_name=None,
+    )
+
+    station_b1 = Station(
+        tfl_id="station_b1",
+        name="Station B1",
+        latitude=51.5,
+        longitude=-0.1,
+        lines=["line1"],
+        last_updated=datetime.now(UTC),
+        hub_naptan_code="HUBB",
+        hub_common_name="Hub B",
+    )
+
+    station_b2 = Station(
+        tfl_id="station_b2",
+        name="Station B2",
+        latitude=51.5,
+        longitude=-0.1,
+        lines=["line2"],
+        last_updated=datetime.now(UTC),
+        hub_naptan_code="HUBB",
+        hub_common_name="Hub B",
+    )
+
+    station_c = Station(
+        tfl_id="station_c",
+        name="Station C",
+        latitude=51.5,
+        longitude=-0.1,
+        lines=["line2"],
+        last_updated=datetime.now(UTC),
+        hub_naptan_code=None,
+        hub_common_name=None,
+    )
+
+    db_session.add_all([station_a, station_b1, station_b2, station_c])
+    await db_session.flush()
+
+    # Create connections
+    conn1 = StationConnection(from_station_id=station_a.id, to_station_id=station_b1.id, line_id=line1.id)
+    conn2 = StationConnection(from_station_id=station_b2.id, to_station_id=station_c.id, line_id=line2.id)
+    db_session.add_all([conn1, conn2])
+    await db_session.commit()
+
+    # Create route with hub interchange
+    segments = [
+        RouteSegmentRequest(station_tfl_id="station_a", line_tfl_id="line1"),
+        RouteSegmentRequest(station_tfl_id="station_b1", line_tfl_id="line2"),  # Hub interchange
+        RouteSegmentRequest(station_tfl_id="station_c", line_tfl_id=None),
+    ]
+
+    # Execute validation
+    is_valid, message, invalid_segment = await tfl_service.validate_route(segments)
+
+    # Verify route is valid (hub interchange B1 → B2 was recognized)
+    assert is_valid is True
+    assert "valid" in message.lower()
+    assert invalid_segment is None
+
+
+async def test_validate_route_hub_with_three_station_ids(
+    tfl_service: TfLService,
+    db_session: AsyncSession,
+) -> None:
+    """Test hub interchange with more than 2 station IDs in the same hub.
+
+    Verifies that the hub equivalence logic correctly handles hubs with 3+ stations
+    and tries all combinations to find valid connections.
+
+    Use case: King's Cross St Pancras has multiple station IDs:
+    - 940GZZLUKSX (Northern/Piccadilly/Victoria/Circle/Hammersmith & City/Metropolitan)
+    - 910GKNGX (National Rail)
+    - 940GZZLUKXM (Metropolitan line separate entrance)
+    """
+    # Create three different lines
+    line1 = Line(
+        tfl_id="line1",
+        name="Line 1",
+        color="#FF0000",
+        last_updated=datetime.now(UTC),
+        routes={
+            "routes": [
+                {
+                    "name": "Line 1 Route",
+                    "service_type": "Regular",
+                    "direction": "inbound",
+                    "stations": ["station_a", "station_hub1"],
+                }
+            ]
+        },
+    )
+
+    line2 = Line(
+        tfl_id="line2",
+        name="Line 2",
+        color="#00FF00",
+        last_updated=datetime.now(UTC),
+        routes={
+            "routes": [
+                {
+                    "name": "Line 2 Route",
+                    "service_type": "Regular",
+                    "direction": "inbound",
+                    "stations": ["station_hub2", "station_b"],
+                }
+            ]
+        },
+    )
+
+    line3 = Line(
+        tfl_id="line3",
+        name="Line 3",
+        color="#0000FF",
+        last_updated=datetime.now(UTC),
+        routes={
+            "routes": [
+                {
+                    "name": "Line 3 Route",
+                    "service_type": "Regular",
+                    "direction": "inbound",
+                    "stations": ["station_b", "station_c"],
+                }
+            ]
+        },
+    )
+
+    db_session.add_all([line1, line2, line3])
+    await db_session.flush()
+
+    # Create stations with a hub containing 3 station IDs
+    station_a = Station(
+        tfl_id="station_a",
+        name="Station A",
+        latitude=51.5,
+        longitude=-0.1,
+        lines=["line1"],
+        last_updated=datetime.now(UTC),
+        hub_naptan_code=None,
+        hub_common_name=None,
+    )
+
+    # Hub with 3 stations
+    station_hub1 = Station(
+        tfl_id="station_hub1",
+        name="Hub Station Entrance 1",
+        latitude=51.5,
+        longitude=-0.1,
+        lines=["line1"],
+        last_updated=datetime.now(UTC),
+        hub_naptan_code="HUBKGX",
+        hub_common_name="King's Cross",
+    )
+
+    station_hub2 = Station(
+        tfl_id="station_hub2",
+        name="Hub Station Entrance 2",
+        latitude=51.5,
+        longitude=-0.1,
+        lines=["line2"],
+        last_updated=datetime.now(UTC),
+        hub_naptan_code="HUBKGX",
+        hub_common_name="King's Cross",
+    )
+
+    station_hub3 = Station(
+        tfl_id="station_hub3",
+        name="Hub Station Entrance 3",
+        latitude=51.5,
+        longitude=-0.1,
+        lines=["line3"],
+        last_updated=datetime.now(UTC),
+        hub_naptan_code="HUBKGX",
+        hub_common_name="King's Cross",
+    )
+
+    station_b = Station(
+        tfl_id="station_b",
+        name="Station B",
+        latitude=51.5,
+        longitude=-0.1,
+        lines=["line2", "line3"],
+        last_updated=datetime.now(UTC),
+        hub_naptan_code=None,
+        hub_common_name=None,
+    )
+
+    station_c = Station(
+        tfl_id="station_c",
+        name="Station C",
+        latitude=51.5,
+        longitude=-0.1,
+        lines=["line3"],
+        last_updated=datetime.now(UTC),
+        hub_naptan_code=None,
+        hub_common_name=None,
+    )
+
+    db_session.add_all([station_a, station_hub1, station_hub2, station_hub3, station_b, station_c])
+    await db_session.flush()
+
+    # Create connections
+    conn1 = StationConnection(from_station_id=station_a.id, to_station_id=station_hub1.id, line_id=line1.id)
+    conn2 = StationConnection(from_station_id=station_hub2.id, to_station_id=station_b.id, line_id=line2.id)
+    conn3 = StationConnection(from_station_id=station_b.id, to_station_id=station_c.id, line_id=line3.id)
+    db_session.add_all([conn1, conn2, conn3])
+    await db_session.commit()
+
+    # Create route: A → Hub1 (line2) → B → C
+    # User specifies hub1 but hub2 is on line2, so system should find the interchange
+    segments = [
+        RouteSegmentRequest(station_tfl_id="station_a", line_tfl_id="line1"),
+        RouteSegmentRequest(station_tfl_id="station_hub1", line_tfl_id="line2"),  # Hub interchange
+        RouteSegmentRequest(station_tfl_id="station_b", line_tfl_id="line3"),
+        RouteSegmentRequest(station_tfl_id="station_c", line_tfl_id=None),
+    ]
+
+    # Execute validation
+    is_valid, message, invalid_segment = await tfl_service.validate_route(segments)
+
+    # Verify route is valid (system found hub1 → hub2 interchange)
+    assert is_valid is True
+    assert "valid" in message.lower()
+    assert invalid_segment is None
+
+
 async def test_check_connection_missing_entities(
     tfl_service: TfLService,
     db_session: AsyncSession,
@@ -5712,3 +6629,353 @@ async def test_check_connection_missing_entities(
 
     result = await tfl_service._check_connection(fake_uuid1, fake_uuid2, line.id)
     assert result is False
+
+
+# Unit tests for refactored helper functions
+
+
+def test_validate_route_segment_count_valid(tfl_service: TfLService) -> None:
+    """Test _validate_route_segment_count accepts valid segment counts."""
+    # Test minimum valid (2 segments)
+    segments = [
+        RouteSegmentRequest(station_tfl_id="A", line_tfl_id="line1"),
+        RouteSegmentRequest(station_tfl_id="B", line_tfl_id=None),
+    ]
+    is_valid, error_msg = tfl_service._validate_route_segment_count(segments)
+    assert is_valid is True
+    assert error_msg is None
+
+    # Test mid-range valid (10 segments)
+    segments = [RouteSegmentRequest(station_tfl_id=f"S{i}", line_tfl_id="line1") for i in range(10)]
+    is_valid, error_msg = tfl_service._validate_route_segment_count(segments)
+    assert is_valid is True
+    assert error_msg is None
+
+    # Test maximum valid (20 segments)
+    segments = [RouteSegmentRequest(station_tfl_id=f"S{i}", line_tfl_id="line1") for i in range(20)]
+    is_valid, error_msg = tfl_service._validate_route_segment_count(segments)
+    assert is_valid is True
+    assert error_msg is None
+
+
+def test_validate_route_segment_count_too_few(tfl_service: TfLService) -> None:
+    """Test _validate_route_segment_count rejects too few segments."""
+    # Test 1 segment (below minimum)
+    segments = [RouteSegmentRequest(station_tfl_id="A", line_tfl_id="line1")]
+    is_valid, error_msg = tfl_service._validate_route_segment_count(segments)
+    assert is_valid is False
+    assert "at least 2 segments" in error_msg
+
+
+def test_validate_route_segment_count_too_many(tfl_service: TfLService) -> None:
+    """Test _validate_route_segment_count rejects too many segments."""
+    # Test 21 segments (above maximum)
+    segments = [RouteSegmentRequest(station_tfl_id=f"S{i}", line_tfl_id="line1") for i in range(21)]
+    is_valid, error_msg = tfl_service._validate_route_segment_count(segments)
+    assert is_valid is False
+    assert "cannot have more than 20 segments" in error_msg
+    assert "21 segments" in error_msg
+
+
+async def test_validate_route_acyclic_valid(tfl_service: TfLService) -> None:
+    """Test _validate_route_acyclic accepts routes without duplicate stations."""
+    segments = [
+        RouteSegmentRequest(station_tfl_id="A", line_tfl_id="line1"),
+        RouteSegmentRequest(station_tfl_id="B", line_tfl_id="line1"),
+        RouteSegmentRequest(station_tfl_id="C", line_tfl_id=None),
+    ]
+    is_valid, error_msg, idx = await tfl_service._validate_route_acyclic(segments)
+    assert is_valid is True
+    assert error_msg is None
+    assert idx is None
+
+
+async def test_validate_route_acyclic_duplicate(
+    tfl_service: TfLService,
+    db_session: AsyncSession,
+) -> None:
+    """Test _validate_route_acyclic rejects routes with duplicate stations."""
+    # Create a station for error message lookup
+    station = Station(
+        tfl_id="station_a",
+        name="Station A",
+        latitude=51.5,
+        longitude=-0.1,
+        lines=["line1"],
+        last_updated=datetime.now(UTC),
+    )
+    db_session.add(station)
+    await db_session.commit()
+
+    # Create segments with duplicate
+    segments = [
+        RouteSegmentRequest(station_tfl_id="station_a", line_tfl_id="line1"),
+        RouteSegmentRequest(station_tfl_id="station_b", line_tfl_id="line1"),
+        RouteSegmentRequest(station_tfl_id="station_a", line_tfl_id=None),  # Duplicate
+    ]
+    is_valid, error_msg, idx = await tfl_service._validate_route_acyclic(segments)
+    assert is_valid is False
+    assert "Station A" in error_msg
+    assert "more than once" in error_msg
+    assert idx == 2  # Index of duplicate
+
+
+def test_validate_intermediate_line_ids_valid(tfl_service: TfLService) -> None:
+    """Test _validate_intermediate_line_ids accepts valid line ID placement."""
+    segments = [
+        RouteSegmentRequest(station_tfl_id="A", line_tfl_id="line1"),
+        RouteSegmentRequest(station_tfl_id="B", line_tfl_id="line2"),
+        RouteSegmentRequest(station_tfl_id="C", line_tfl_id=None),  # Only final segment has NULL
+    ]
+    is_valid, error_msg, idx = tfl_service._validate_intermediate_line_ids(segments)
+    assert is_valid is True
+    assert error_msg is None
+    assert idx is None
+
+
+def test_validate_intermediate_line_ids_null_intermediate(tfl_service: TfLService) -> None:
+    """Test _validate_intermediate_line_ids rejects NULL line_tfl_id in intermediate segments."""
+    segments = [
+        RouteSegmentRequest(station_tfl_id="A", line_tfl_id=None),  # Invalid - intermediate with NULL
+        RouteSegmentRequest(station_tfl_id="B", line_tfl_id="line2"),
+        RouteSegmentRequest(station_tfl_id="C", line_tfl_id=None),
+    ]
+    is_valid, error_msg, idx = tfl_service._validate_intermediate_line_ids(segments)
+    assert is_valid is False
+    assert "must have a line_tfl_id" in error_msg
+    assert "Segment 0" in error_msg
+    assert idx == 0
+
+
+async def test_fetch_route_validation_data(
+    tfl_service: TfLService,
+    db_session: AsyncSession,
+) -> None:
+    """Test _fetch_route_validation_data fetches all required data."""
+    # Create test data
+    station1 = Station(
+        tfl_id="station1",
+        name="Station 1",
+        latitude=51.5,
+        longitude=-0.1,
+        lines=["line1"],
+        last_updated=datetime.now(UTC),
+        hub_naptan_code="HUB1",
+        hub_common_name="Hub 1",
+    )
+    station2 = Station(
+        tfl_id="station2",
+        name="Station 2",
+        latitude=51.5,
+        longitude=-0.1,
+        lines=["line1"],
+        last_updated=datetime.now(UTC),
+        hub_naptan_code="HUB1",
+        hub_common_name="Hub 1",
+    )
+    station3 = Station(
+        tfl_id="station3",
+        name="Station 3",
+        latitude=51.5,
+        longitude=-0.1,
+        lines=["line2"],
+        last_updated=datetime.now(UTC),
+        hub_naptan_code=None,
+        hub_common_name=None,
+    )
+    line1 = Line(tfl_id="line1", name="Line 1", color="#000", last_updated=datetime.now(UTC))
+    line2 = Line(tfl_id="line2", name="Line 2", color="#000", last_updated=datetime.now(UTC))
+    db_session.add_all([station1, station2, station3, line1, line2])
+    await db_session.commit()
+
+    # Create segments
+    segments = [
+        RouteSegmentRequest(station_tfl_id="station1", line_tfl_id="line1"),
+        RouteSegmentRequest(station_tfl_id="station2", line_tfl_id="line2"),
+        RouteSegmentRequest(station_tfl_id="station3", line_tfl_id=None),
+    ]
+
+    # Fetch data
+    stations_map, lines_map, hub_map = await tfl_service._fetch_route_validation_data(segments)
+
+    # Verify stations_map
+    assert len(stations_map) == 3
+    assert "station1" in stations_map
+    assert "station2" in stations_map
+    assert "station3" in stations_map
+    assert stations_map["station1"].name == "Station 1"
+
+    # Verify lines_map (only non-NULL line_tfl_ids)
+    assert len(lines_map) == 2
+    assert "line1" in lines_map
+    assert "line2" in lines_map
+    assert lines_map["line1"].name == "Line 1"
+
+    # Verify hub_map
+    assert "HUB1" in hub_map
+    assert len(hub_map["HUB1"]) == 2  # Both station1 and station2
+
+
+def test_format_connection_error_message_different_branches(tfl_service: TfLService) -> None:
+    """Test _format_connection_error_message for stations on same line but different branches."""
+    # Create mock stations and line
+    from_station = Station(
+        tfl_id="bank",
+        name="Bank",
+        latitude=51.5,
+        longitude=-0.1,
+        lines=["northern"],
+        last_updated=datetime.now(UTC),
+    )
+    to_station = Station(
+        tfl_id="charing-cross",
+        name="Charing Cross",
+        latitude=51.5,
+        longitude=-0.1,
+        lines=["northern"],  # Same line
+        last_updated=datetime.now(UTC),
+    )
+    line = Line(tfl_id="northern", name="Northern", color="#000", last_updated=datetime.now(UTC))
+
+    # Format message
+    message = tfl_service._format_connection_error_message(from_station, to_station, line)
+
+    # Verify message mentions different branches
+    assert "Bank" in message
+    assert "Charing Cross" in message
+    assert "Northern" in message
+    assert "different branches" in message
+    assert "don't connect directly" in message
+
+
+def test_format_connection_error_message_different_lines(tfl_service: TfLService) -> None:
+    """Test _format_connection_error_message for stations on completely different lines."""
+    # Create mock stations and line
+    from_station = Station(
+        tfl_id="victoria",
+        name="Victoria",
+        latitude=51.5,
+        longitude=-0.1,
+        lines=["victoria", "district"],
+        last_updated=datetime.now(UTC),
+    )
+    to_station = Station(
+        tfl_id="oxford-circus",
+        name="Oxford Circus",
+        latitude=51.5,
+        longitude=-0.1,
+        lines=["central", "bakerloo"],  # No overlap
+        last_updated=datetime.now(UTC),
+    )
+    line = Line(tfl_id="victoria", name="Victoria", color="#000", last_updated=datetime.now(UTC))
+
+    # Format message
+    message = tfl_service._format_connection_error_message(from_station, to_station, line)
+
+    # Verify message mentions no connection
+    assert "Victoria" in message  # Station name
+    assert "Oxford Circus" in message
+    assert "Victoria" in message  # Line name
+    assert "No connection found" in message
+
+
+async def test_validate_segment_connections_valid(
+    tfl_service: TfLService,
+    db_session: AsyncSession,
+) -> None:
+    """Test _validate_segment_connections accepts valid connections."""
+    # Create test data
+    station1 = Station(
+        tfl_id="station1",
+        name="Station 1",
+        latitude=51.5,
+        longitude=-0.1,
+        lines=["line1"],
+        last_updated=datetime.now(UTC),
+    )
+    station2 = Station(
+        tfl_id="station2",
+        name="Station 2",
+        latitude=51.5,
+        longitude=-0.1,
+        lines=["line1"],
+        last_updated=datetime.now(UTC),
+    )
+    line1 = Line(
+        tfl_id="line1",
+        name="Line 1",
+        color="#000",
+        last_updated=datetime.now(UTC),
+        routes={"routes": [{"name": "Route 1", "direction": "inbound", "stations": ["station1", "station2"]}]},
+    )
+    db_session.add_all([station1, station2, line1])
+    await db_session.commit()
+
+    # Create segments
+    segments = [
+        RouteSegmentRequest(station_tfl_id="station1", line_tfl_id="line1"),
+        RouteSegmentRequest(station_tfl_id="station2", line_tfl_id=None),
+    ]
+
+    # Create maps
+    stations_map = {"station1": station1, "station2": station2}
+    lines_map = {"line1": line1}
+    hub_map: dict[str, list[Station]] = {}
+
+    # Validate connections
+    is_valid, message, idx = await tfl_service._validate_segment_connections(segments, stations_map, lines_map, hub_map)
+
+    assert is_valid is True
+    assert "valid" in message.lower()
+    assert idx is None
+
+
+async def test_validate_segment_connections_invalid(
+    tfl_service: TfLService,
+    db_session: AsyncSession,
+) -> None:
+    """Test _validate_segment_connections rejects invalid connections."""
+    # Create test data (no connection between stations)
+    station1 = Station(
+        tfl_id="station1",
+        name="Station 1",
+        latitude=51.5,
+        longitude=-0.1,
+        lines=["line1"],
+        last_updated=datetime.now(UTC),
+    )
+    station2 = Station(
+        tfl_id="station2",
+        name="Station 2",
+        latitude=51.5,
+        longitude=-0.1,
+        lines=["line1"],
+        last_updated=datetime.now(UTC),
+    )
+    line1 = Line(
+        tfl_id="line1",
+        name="Line 1",
+        color="#000",
+        last_updated=datetime.now(UTC),
+        routes={"routes": [{"name": "Route 1", "direction": "inbound", "stations": ["station1"]}]},  # Only station1
+    )
+    db_session.add_all([station1, station2, line1])
+    await db_session.commit()
+
+    # Create segments
+    segments = [
+        RouteSegmentRequest(station_tfl_id="station1", line_tfl_id="line1"),
+        RouteSegmentRequest(station_tfl_id="station2", line_tfl_id=None),
+    ]
+
+    # Create maps
+    stations_map = {"station1": station1, "station2": station2}
+    lines_map = {"line1": line1}
+    hub_map: dict[str, list[Station]] = {}
+
+    # Validate connections
+    is_valid, message, idx = await tfl_service._validate_segment_connections(segments, stations_map, lines_map, hub_map)
+
+    assert is_valid is False
+    assert "No connection" in message or "different branches" in message
+    assert idx == 0

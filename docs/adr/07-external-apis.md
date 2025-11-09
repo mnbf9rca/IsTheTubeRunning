@@ -174,3 +174,58 @@ Route validation now uses Line.routes JSON data from TfL API to check if consecu
 - Validation fails for lines without route sequence data (graceful degradation with warning logs)
 - More complex test fixtures (must include route sequences in test data)
 - Slight performance overhead (iterating through route sequences vs single graph lookup)
+
+---
+
+## Hub-Based Cross-Mode Interchange Validation
+
+### Status
+Active (Implemented: 2025-11-09, Issue #52)
+
+### Context
+Some London transport hubs serve multiple modes at the same physical location (e.g., Seven Sisters has both Overground and Victoria line stations). TfL represents these as separate stations with unique IDs:
+- Seven Sisters Overground: `910GSEVNSIS`
+- Seven Sisters Victoria line: `940GZZLUSVS`
+
+Without hub support, users would need to create invalid routes like "travel from Overground station to Victoria line" which fails validation because the Overground station ID isn't on the Victoria line.
+
+### Decision
+Stations sharing the same `hub_naptan_code` are treated as **equivalent/interchangeable** for routing purposes. When validating connections between consecutive segments, the system:
+
+1. Retrieves all stations with the same `hub_naptan_code` as the from/to stations
+2. Tries all combinations of hub-equivalent stations
+3. Accepts the route if ANY combination has a valid connection
+4. Logs hub interchange when a different station combination was used than user specified
+
+This allows both these equivalent routes to validate successfully:
+```json
+// Route 1: Using Overground station ID
+{"station_tfl_id": "910GSEVNSIS", "line_tfl_id": "victoria"}
+
+// Route 2: Using Victoria line station ID
+{"station_tfl_id": "940GZZLUSVS", "line_tfl_id": "victoria"}
+```
+
+Implementation uses two helper methods:
+- `_get_hub_equivalent_stations()`: Returns all stations sharing a hub code
+- `_check_any_hub_connection()`: Tries all hub combinations to find valid connection
+
+### Consequences
+**Easier:**
+- Realistic multi-mode routes (Overground → Tube → DLR, etc.)
+- Users don't need to know which specific station ID to use at hubs
+- Matches real-world interchange behavior
+- Observable via structured logging (`hub_interchange_detected`)
+- Maintains existing validation logic (`_check_connection()` unchanged)
+
+**More Difficult:**
+- Additional database query per segment validation (to fetch hub equivalents)
+- More complex validation logic (trying multiple station combinations)
+- Test fixtures must include `hub_naptan_code` and `hub_common_name` fields
+- N × M combinations tested (where N,M = stations per hub, typically 2-4)
+
+**Limitations (YAGNI):**
+- Does not support hub NaPTAN codes directly as `station_tfl_id` (see issue #65 for future enhancement)
+- No support for Out-of-Station Interchanges (OSI) - walk between nearby stations
+- No validation of walking time/distance between hub stations
+- Bus stop interchanges excluded (app focuses on rail-based modes)
