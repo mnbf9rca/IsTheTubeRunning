@@ -24,6 +24,11 @@
 # Output:
 #   JSON-formatted result for agent consumption
 #
+# Limitations:
+#   - Thread ID lookup queries first 100 review threads and first 100 comments per thread
+#   - For PRs with >100 threads or threads with >100 comments, lookup may fail
+#   - Consider providing thread ID directly if comment ID lookup fails
+#
 
 set -euo pipefail
 
@@ -157,20 +162,15 @@ _post_reply() {
         exit 1
     fi
 
-    # Check for errors in API response
-    if echo "$response" | jq -e '.message' > /dev/null 2>&1; then
-        local error_msg
-        error_msg=$(echo "$response" | jq -r '.message // "Unknown error"')
-        log_error "Failed to post reply: $error_msg"
-        exit 1
-    fi
-
-    # Extract and return new comment ID
+    # Extract new comment ID (check for success by verifying expected field exists)
     local new_comment_id
     new_comment_id=$(echo "$response" | jq -r '.id // empty')
 
+    # If no ID in response, it's an error - extract error message if available
     if [[ -z "$new_comment_id" ]]; then
-        log_error "Failed to extract comment ID from response"
+        local error_msg
+        error_msg=$(echo "$response" | jq -r '.message // "Unknown error: response missing expected .id field"')
+        log_error "Failed to post reply: $error_msg"
         exit 1
     fi
 
