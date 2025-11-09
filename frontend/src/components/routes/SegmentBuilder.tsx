@@ -196,7 +196,12 @@ export function SegmentBuilder({
     if (!currentStation || !selectedLine || !nextStation) return
 
     // Check for duplicate stations (acyclic enforcement)
-    const isDuplicate = localSegments.some((seg) => seg.station_tfl_id === currentStation.tfl_id)
+    // Allow currentStation if it's the last segment (junction we're continuing from)
+    const lastSegment = localSegments[localSegments.length - 1]
+    const isCurrentStationLastInRoute = lastSegment?.station_tfl_id === currentStation.tfl_id
+    const isDuplicate =
+      !isCurrentStationLastInRoute &&
+      localSegments.some((seg) => seg.station_tfl_id === currentStation.tfl_id)
     if (isDuplicate) {
       setError(
         `This station (${currentStation.name}) is already in your route. Routes cannot visit the same station twice.`
@@ -262,9 +267,12 @@ export function SegmentBuilder({
     if (!currentStation || !selectedLine || !nextStation) return
 
     // Check for duplicate stations
-    const isDuplicateCurrent = localSegments.some(
-      (seg) => seg.station_tfl_id === currentStation.tfl_id
-    )
+    // Allow currentStation if it's the last segment (junction we're continuing from)
+    const lastSegment = localSegments[localSegments.length - 1]
+    const isCurrentStationLastInRoute = lastSegment?.station_tfl_id === currentStation.tfl_id
+    const isDuplicateCurrent =
+      !isCurrentStationLastInRoute &&
+      localSegments.some((seg) => seg.station_tfl_id === currentStation.tfl_id)
     if (isDuplicateCurrent) {
       setError(
         `This station (${currentStation.name}) is already in your route. Routes cannot visit the same station twice.`
@@ -534,6 +542,14 @@ export function SegmentBuilder({
                   onChange={handleNextStationSelect}
                   placeholder="Select destination..."
                 />
+              </div>
+            )}
+
+            {/* Show selected next station before action buttons */}
+            {step === 'choose-action' && nextStation && (
+              <div className="rounded-md bg-muted p-3">
+                <div className="text-sm font-medium text-muted-foreground">To:</div>
+                <div className="text-base font-semibold">{nextStation.name}</div>
               </div>
             )}
 
