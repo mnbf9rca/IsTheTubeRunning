@@ -25,6 +25,17 @@ describe('useTflData', () => {
       tfl_id: 'northern',
       name: 'Northern',
       color: '#000000',
+      mode: 'tube',
+      routes: {
+        routes: [
+          {
+            name: 'Northern Line',
+            service_type: 'Regular',
+            direction: 'inbound',
+            stations: ['940GZZLUCMD', '940GZZLUKSX', '940GZZLUEUS', '940GZZLUEMB', '940GZZLUMDN'],
+          },
+        ],
+      },
       last_updated: '2025-01-01T00:00:00Z',
     },
     {
@@ -32,6 +43,17 @@ describe('useTflData', () => {
       tfl_id: 'victoria',
       name: 'Victoria',
       color: '#0098D8',
+      mode: 'tube',
+      routes: {
+        routes: [
+          {
+            name: 'Victoria Line',
+            service_type: 'Regular',
+            direction: 'inbound',
+            stations: ['940GZZLUKSX', '940GZZLUEUS'],
+          },
+        ],
+      },
       last_updated: '2025-01-01T00:00:00Z',
     },
     {
@@ -39,6 +61,17 @@ describe('useTflData', () => {
       tfl_id: 'circle',
       name: 'Circle',
       color: '#FFD300',
+      mode: 'tube',
+      routes: {
+        routes: [
+          {
+            name: 'Circle Line',
+            service_type: 'Regular',
+            direction: 'inbound',
+            stations: ['940GZZLUKSX', '940GZZLUEMB'],
+          },
+        ],
+      },
       last_updated: '2025-01-01T00:00:00Z',
     },
   ]
@@ -69,6 +102,24 @@ describe('useTflData', () => {
       latitude: 51.5074,
       longitude: -0.1224,
       lines: ['northern', 'circle'],
+      last_updated: '2025-01-01T00:00:00Z',
+    },
+    {
+      id: 'station-4',
+      tfl_id: '940GZZLUMDN',
+      name: 'Morden',
+      latitude: 51.4022,
+      longitude: -0.1948,
+      lines: ['northern'],
+      last_updated: '2025-01-01T00:00:00Z',
+    },
+    {
+      id: 'station-5',
+      tfl_id: '940GZZLUCMD',
+      name: 'Camden Town',
+      latitude: 51.5392,
+      longitude: -0.1426,
+      lines: ['northern'],
       last_updated: '2025-01-01T00:00:00Z',
     },
   ]
@@ -170,16 +221,22 @@ describe('useTflData', () => {
       })
 
       const northernStations = result.current.getStationsForLine('northern')
-      expect(northernStations).toHaveLength(3) // All test stations serve Northern
-      expect(northernStations.map((s) => s.tfl_id)).toEqual([
-        '940GZZLUKSX',
-        '940GZZLUEUS',
-        '940GZZLUEMB',
-      ])
+      expect(northernStations).toHaveLength(5) // Camden Town, King's Cross, Euston, Embankment, Morden
+      expect(northernStations.map((s) => s.tfl_id)).toEqual(
+        expect.arrayContaining([
+          '940GZZLUCMD',
+          '940GZZLUKSX',
+          '940GZZLUEUS',
+          '940GZZLUEMB',
+          '940GZZLUMDN',
+        ])
+      )
 
       const victoriaStations = result.current.getStationsForLine('victoria')
       expect(victoriaStations).toHaveLength(2)
-      expect(victoriaStations.map((s) => s.tfl_id)).toEqual(['940GZZLUKSX', '940GZZLUEUS'])
+      expect(victoriaStations.map((s) => s.tfl_id)).toEqual(
+        expect.arrayContaining(['940GZZLUKSX', '940GZZLUEUS'])
+      )
 
       unmount()
     })
@@ -212,18 +269,21 @@ describe('useTflData', () => {
   })
 
   describe('getNextStations', () => {
-    it('should return connected stations on the specified line', async () => {
+    it('should return all stations on the route sequence, including non-adjacent ones', async () => {
       const { result, unmount } = renderHook(() => useTflData())
 
       await waitFor(() => {
         expect(result.current.loading).toBe(false)
       })
 
-      // From King's Cross on Northern line, should reach Euston
+      // From King's Cross on Northern line, should return ALL stations in the route sequence
+      // (Camden Town, Euston, Embankment, Morden) - not just immediately adjacent ones
+      // This verifies multi-hop paths are allowed (e.g., King's Cross → Morden)
       const nextStations = result.current.getNextStations('940GZZLUKSX', 'northern')
-      expect(nextStations).toHaveLength(1)
-      expect(nextStations[0].tfl_id).toBe('940GZZLUEUS')
-      expect(nextStations[0].name).toBe('Euston')
+      expect(nextStations).toHaveLength(4)
+      expect(nextStations.map((s) => s.tfl_id)).toEqual(
+        expect.arrayContaining(['940GZZLUCMD', '940GZZLUEUS', '940GZZLUEMB', '940GZZLUMDN'])
+      )
 
       unmount()
     })
@@ -236,6 +296,7 @@ describe('useTflData', () => {
       })
 
       // From King's Cross on Circle line, should reach Embankment
+      // (only other station on Circle line besides King's Cross)
       const nextStations = result.current.getNextStations('940GZZLUKSX', 'circle')
       expect(nextStations).toHaveLength(1)
       expect(nextStations[0].tfl_id).toBe('940GZZLUEMB')
@@ -243,22 +304,43 @@ describe('useTflData', () => {
       unmount()
     })
 
-    it('should return empty array for station with no connections', async () => {
+    it('should return all other stations in the route sequence', async () => {
       const { result, unmount } = renderHook(() => useTflData())
 
       await waitFor(() => {
         expect(result.current.loading).toBe(false)
       })
 
-      // Embankment has no connections in our mock graph
+      // From Embankment on Northern line, should return all other stations in route sequence
+      // (Camden Town, King's Cross, Euston, Morden) - verifies multi-hop from middle of route
       const nextStations = result.current.getNextStations('940GZZLUEMB', 'northern')
-      expect(nextStations).toEqual([])
+      expect(nextStations).toHaveLength(4)
+      expect(nextStations.map((s) => s.tfl_id)).toEqual(
+        expect.arrayContaining(['940GZZLUCMD', '940GZZLUKSX', '940GZZLUEUS', '940GZZLUMDN'])
+      )
+
+      unmount()
+    })
+
+    it("should allow multi-hop paths (e.g., King's Cross to Morden)", async () => {
+      const { result, unmount } = renderHook(() => useTflData())
+
+      await waitFor(() => {
+        expect(result.current.loading).toBe(false)
+      })
+
+      // From King's Cross, Morden should be available even though it's not adjacent
+      // This verifies that users can select any station in the route sequence (multi-hop)
+      const nextStations = result.current.getNextStations('940GZZLUKSX', 'northern')
+      const mordenStation = nextStations.find((s) => s.tfl_id === '940GZZLUMDN')
+      expect(mordenStation).toBeDefined()
+      expect(mordenStation?.name).toBe('Morden')
 
       unmount()
     })
 
     it('should return empty array when data not loaded', () => {
-      vi.mocked(api.getNetworkGraph).mockImplementation(
+      vi.mocked(api.getStations).mockImplementation(
         () => new Promise(() => {}) // Never resolves
       )
 

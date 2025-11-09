@@ -47,6 +47,11 @@ export interface SegmentBuilderProps {
   getLinesForStation: (stationTflId: string) => LineResponse[]
 
   /**
+   * Helper function to get reachable stations from current position
+   */
+  getNextStations: (currentStationTflId: string, currentLineTflId: string) => StationResponse[]
+
+  /**
    * Callback to validate route before saving
    */
   onValidate: (segments: SegmentRequest[]) => Promise<RouteValidationResponse>
@@ -91,6 +96,7 @@ export function SegmentBuilder({
   lines,
   stations,
   getLinesForStation,
+  getNextStations,
   onValidate,
   onSave,
   onCancel,
@@ -431,18 +437,17 @@ export function SegmentBuilder({
     return null
   })()
 
-  // Get all available stations (for first segment, all stations; otherwise, stations on selected line)
+  // Get all available stations (for first segment, all stations; otherwise, only reachable stations)
   const availableStations = (() => {
     if (localSegments.length === 0 && step === 'select-station') {
       // First station: show all stations alphabetically
       return [...stations].sort((a, b) => a.name.localeCompare(b.name))
     }
     if (step === 'select-next-station') {
-      if (currentTravelingLine) {
-        // Subsequent stations: filter by line and keep in route order
-        // TODO: Need station order data from backend to sort by route position
-        // For now, just filter by line (keeping data order which approximates route order)
-        return stations.filter((s) => s.lines.includes(currentTravelingLine.tfl_id))
+      if (currentTravelingLine && currentStation) {
+        // Subsequent stations: show only reachable stations from current position on this line
+        // This prevents selecting stations on different branches (e.g., Bank -> Charing Cross on Northern)
+        return getNextStations(currentStation.tfl_id, currentTravelingLine.tfl_id)
       }
     }
     return []

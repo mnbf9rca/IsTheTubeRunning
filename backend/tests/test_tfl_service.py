@@ -2466,7 +2466,22 @@ async def test_validate_route_success(
 ) -> None:
     """Test successful route validation."""
     # Create test data
-    line = Line(tfl_id="victoria", name="Victoria", color="#0019A8", last_updated=datetime.now(UTC))
+    line = Line(
+        tfl_id="victoria",
+        name="Victoria",
+        color="#0019A8",
+        last_updated=datetime.now(UTC),
+        routes={
+            "routes": [
+                {
+                    "name": "Victoria Line",
+                    "service_type": "Regular",
+                    "direction": "inbound",
+                    "stations": ["st1", "st2", "st3"],
+                }
+            ]
+        },
+    )
     db_session.add(line)
     await db_session.flush()
 
@@ -2523,9 +2538,24 @@ async def test_validate_route_multiple_paths(
     tfl_service: TfLService,
     db_session: AsyncSession,
 ) -> None:
-    """Test route validation with multiple paths to same station (tests BFS visited check)."""
+    """Test route validation with multiple paths to same station."""
     # Create test data with diamond pattern: A -> B -> D and A -> C -> D
-    line = Line(tfl_id="victoria", name="Victoria", color="#0019A8", last_updated=datetime.now(UTC))
+    line = Line(
+        tfl_id="victoria",
+        name="Victoria",
+        color="#0019A8",
+        last_updated=datetime.now(UTC),
+        routes={
+            "routes": [
+                {
+                    "name": "Victoria Line",
+                    "service_type": "Regular",
+                    "direction": "inbound",
+                    "stations": ["st_a", "st_b", "st_c", "st_d"],
+                }
+            ]
+        },
+    )
     db_session.add(line)
     await db_session.flush()
 
@@ -2594,9 +2624,30 @@ async def test_validate_route_invalid_connection(
     tfl_service: TfLService,
     db_session: AsyncSession,
 ) -> None:
-    """Test route validation with invalid connection."""
-    # Create test data
-    line = Line(tfl_id="victoria", name="Victoria", color="#0019A8", last_updated=datetime.now(UTC))
+    """Test route validation with invalid connection (stations not in same route sequence)."""
+    # Create test data with routes that don't include both stations together
+    line = Line(
+        tfl_id="victoria",
+        name="Victoria",
+        color="#0019A8",
+        last_updated=datetime.now(UTC),
+        routes={
+            "routes": [
+                {
+                    "name": "Victoria Line Route 1",
+                    "service_type": "Regular",
+                    "direction": "inbound",
+                    "stations": ["st1", "st3"],  # st1 but not st2
+                },
+                {
+                    "name": "Victoria Line Route 2",
+                    "service_type": "Regular",
+                    "direction": "outbound",
+                    "stations": ["st2", "st4"],  # st2 but not st1
+                },
+            ]
+        },
+    )
     db_session.add(line)
     await db_session.flush()
 
@@ -2619,7 +2670,7 @@ async def test_validate_route_invalid_connection(
     db_session.add_all([station1, station2])
     await db_session.commit()
 
-    # No connection created between stations
+    # No connection created between stations (not needed with route sequence validation)
 
     # Create route segments
     segments = [
@@ -2630,9 +2681,9 @@ async def test_validate_route_invalid_connection(
     # Execute
     is_valid, message, invalid_segment = await tfl_service.validate_route(segments)
 
-    # Verify
+    # Verify - should fail because st1 and st2 are not in the same route sequence
     assert is_valid is False
-    assert "no connection" in message.lower()
+    assert "no connection" in message.lower() or "different branches" in message.lower()
     assert invalid_segment == 0
 
 
@@ -2861,7 +2912,22 @@ async def test_validate_route_with_null_destination_line_id(
 ) -> None:
     """Test route validation with NULL line_id for destination segment (should be valid)."""
     # Create test data
-    line = Line(tfl_id="victoria", name="Victoria", color="#0019A8", last_updated=datetime.now(UTC))
+    line = Line(
+        tfl_id="victoria",
+        name="Victoria",
+        color="#0019A8",
+        last_updated=datetime.now(UTC),
+        routes={
+            "routes": [
+                {
+                    "name": "Victoria Line",
+                    "service_type": "Regular",
+                    "direction": "inbound",
+                    "stations": ["st1", "st2", "st3"],
+                }
+            ]
+        },
+    )
     db_session.add(line)
     await db_session.flush()
 
@@ -2972,6 +3038,327 @@ async def test_validate_route_with_null_intermediate_line_id(
     assert "must have a line_tfl_id" in message.lower()
     assert "segment 1" in message.lower()  # Should mention the failing segment
     assert invalid_segment == 1  # Second segment (index 1)
+
+
+# ==================== Route Sequence Validation Tests (Issue #39) ====================
+
+
+async def test_validate_route_different_branches_fails(
+    tfl_service: TfLService,
+    db_session: AsyncSession,
+) -> None:
+    """Test that validation fails for stations on different branches (e.g., Bank -> Charing Cross on Northern)."""
+    # Create Northern line
+    line = Line(
+        tfl_id="northern",
+        name="Northern",
+        color="#000000",
+        last_updated=datetime.now(UTC),
+        routes={
+            "routes": [
+                {
+                    "name": "Edgware → Morden via Bank",
+                    "service_type": "Regular",
+                    "direction": "inbound",
+                    "stations": ["940GZZLUEGW", "940GZZLUCND", "940GZZLUBNK", "940GZZLUMDN"],
+                },
+                {
+                    "name": "Edgware → Morden via Charing Cross",
+                    "service_type": "Regular",
+                    "direction": "inbound",
+                    "stations": ["940GZZLUEGW", "940GZZLUCND", "940GZZLUCHX", "940GZZLUMDN"],
+                },
+            ]
+        },
+    )
+    db_session.add(line)
+    await db_session.flush()
+
+    # Create stations: Bank and Charing Cross on different branches
+    bank = Station(
+        tfl_id="940GZZLUBNK",
+        name="Bank",
+        latitude=51.5,
+        longitude=-0.1,
+        lines=["northern"],
+        last_updated=datetime.now(UTC),
+    )
+    charing_cross = Station(
+        tfl_id="940GZZLUCHX",
+        name="Charing Cross",
+        latitude=51.5,
+        longitude=-0.1,
+        lines=["northern"],
+        last_updated=datetime.now(UTC),
+    )
+    db_session.add_all([bank, charing_cross])
+    await db_session.commit()
+
+    # Create route segments: Bank -> Charing Cross (different branches!)
+    segments = [
+        RouteSegmentRequest(station_tfl_id="940GZZLUBNK", line_tfl_id="northern"),
+        RouteSegmentRequest(station_tfl_id="940GZZLUCHX"),
+    ]
+
+    # Execute
+    is_valid, message, invalid_segment = await tfl_service.validate_route(segments)
+
+    # Verify - should FAIL (different branches)
+    assert is_valid is False
+    assert "different branches" in message.lower()
+    assert "Bank" in message
+    assert "Charing Cross" in message
+    assert invalid_segment == 0
+
+
+async def test_validate_route_same_branch_succeeds(
+    tfl_service: TfLService,
+    db_session: AsyncSession,
+) -> None:
+    """Test that validation succeeds for stations on the same branch (e.g., Bank -> Morden via Bank)."""
+    # Create Northern line
+    line = Line(
+        tfl_id="northern",
+        name="Northern",
+        color="#000000",
+        last_updated=datetime.now(UTC),
+        routes={
+            "routes": [
+                {
+                    "name": "Edgware → Morden via Bank",
+                    "service_type": "Regular",
+                    "direction": "inbound",
+                    "stations": ["940GZZLUEGW", "940GZZLUCND", "940GZZLUBNK", "940GZZLUMDN"],
+                },
+                {
+                    "name": "Edgware → Morden via Charing Cross",
+                    "service_type": "Regular",
+                    "direction": "inbound",
+                    "stations": ["940GZZLUEGW", "940GZZLUCND", "940GZZLUCHX", "940GZZLUMDN"],
+                },
+            ]
+        },
+    )
+    db_session.add(line)
+    await db_session.flush()
+
+    # Create stations on same branch
+    bank = Station(
+        tfl_id="940GZZLUBNK",
+        name="Bank",
+        latitude=51.5,
+        longitude=-0.1,
+        lines=["northern"],
+        last_updated=datetime.now(UTC),
+    )
+    morden = Station(
+        tfl_id="940GZZLUMDN",
+        name="Morden",
+        latitude=51.5,
+        longitude=-0.1,
+        lines=["northern"],
+        last_updated=datetime.now(UTC),
+    )
+    db_session.add_all([bank, morden])
+    await db_session.commit()
+
+    # Create route segments: Bank -> Morden (same branch)
+    segments = [
+        RouteSegmentRequest(station_tfl_id="940GZZLUBNK", line_tfl_id="northern"),
+        RouteSegmentRequest(station_tfl_id="940GZZLUMDN"),
+    ]
+
+    # Execute
+    is_valid, message, invalid_segment = await tfl_service.validate_route(segments)
+
+    # Verify - should SUCCEED (same branch)
+    assert is_valid is True
+    assert "valid" in message.lower()
+    assert invalid_segment is None
+
+
+async def test_validate_route_before_branch_split_succeeds(
+    tfl_service: TfLService,
+    db_session: AsyncSession,
+) -> None:
+    """Test that validation succeeds for stations before the branch split (e.g., Edgware -> Camden Town)."""
+    # Create Northern line
+    line = Line(
+        tfl_id="northern",
+        name="Northern",
+        color="#000000",
+        last_updated=datetime.now(UTC),
+        routes={
+            "routes": [
+                {
+                    "name": "Edgware → Morden via Bank",
+                    "service_type": "Regular",
+                    "direction": "inbound",
+                    "stations": ["940GZZLUEGW", "940GZZLUCND", "940GZZLUBNK", "940GZZLUMDN"],
+                },
+                {
+                    "name": "Edgware → Morden via Charing Cross",
+                    "service_type": "Regular",
+                    "direction": "inbound",
+                    "stations": ["940GZZLUEGW", "940GZZLUCND", "940GZZLUCHX", "940GZZLUMDN"],
+                },
+            ]
+        },
+    )
+    db_session.add(line)
+    await db_session.flush()
+
+    # Create stations before branch split
+    edgware = Station(
+        tfl_id="940GZZLUEGW",
+        name="Edgware",
+        latitude=51.5,
+        longitude=-0.1,
+        lines=["northern"],
+        last_updated=datetime.now(UTC),
+    )
+    camden = Station(
+        tfl_id="940GZZLUCND",
+        name="Camden Town",
+        latitude=51.5,
+        longitude=-0.1,
+        lines=["northern"],
+        last_updated=datetime.now(UTC),
+    )
+    db_session.add_all([edgware, camden])
+    await db_session.commit()
+
+    # Create route segments: Edgware -> Camden Town (before split, in both routes)
+    segments = [
+        RouteSegmentRequest(station_tfl_id="940GZZLUEGW", line_tfl_id="northern"),
+        RouteSegmentRequest(station_tfl_id="940GZZLUCND"),
+    ]
+
+    # Execute
+    is_valid, message, invalid_segment = await tfl_service.validate_route(segments)
+
+    # Verify - should SUCCEED (both stations in all route sequences)
+    assert is_valid is True
+    assert "valid" in message.lower()
+    assert invalid_segment is None
+
+
+async def test_validate_route_full_line_succeeds(
+    tfl_service: TfLService,
+    db_session: AsyncSession,
+) -> None:
+    """Test that validation succeeds for full-line routes (e.g., Edgware -> Morden)."""
+    # Create Northern line
+    line = Line(
+        tfl_id="northern",
+        name="Northern",
+        color="#000000",
+        last_updated=datetime.now(UTC),
+        routes={
+            "routes": [
+                {
+                    "name": "Edgware → Morden via Bank",
+                    "service_type": "Regular",
+                    "direction": "inbound",
+                    "stations": ["940GZZLUEGW", "940GZZLUCND", "940GZZLUBNK", "940GZZLUMDN"],
+                },
+                {
+                    "name": "Edgware → Morden via Charing Cross",
+                    "service_type": "Regular",
+                    "direction": "inbound",
+                    "stations": ["940GZZLUEGW", "940GZZLUCND", "940GZZLUCHX", "940GZZLUMDN"],
+                },
+            ]
+        },
+    )
+    db_session.add(line)
+    await db_session.flush()
+
+    # Create terminus stations
+    edgware = Station(
+        tfl_id="940GZZLUEGW",
+        name="Edgware",
+        latitude=51.5,
+        longitude=-0.1,
+        lines=["northern"],
+        last_updated=datetime.now(UTC),
+    )
+    morden = Station(
+        tfl_id="940GZZLUMDN",
+        name="Morden",
+        latitude=51.5,
+        longitude=-0.1,
+        lines=["northern"],
+        last_updated=datetime.now(UTC),
+    )
+    db_session.add_all([edgware, morden])
+    await db_session.commit()
+
+    # Create route segments: Edgware -> Morden (full line, in both routes)
+    segments = [
+        RouteSegmentRequest(station_tfl_id="940GZZLUEGW", line_tfl_id="northern"),
+        RouteSegmentRequest(station_tfl_id="940GZZLUMDN"),
+    ]
+
+    # Execute
+    is_valid, message, invalid_segment = await tfl_service.validate_route(segments)
+
+    # Verify - should SUCCEED (both stations in multiple route sequences)
+    assert is_valid is True
+    assert "valid" in message.lower()
+    assert invalid_segment is None
+
+
+async def test_validate_route_no_routes_data_fails(
+    tfl_service: TfLService,
+    db_session: AsyncSession,
+) -> None:
+    """Test that validation fails gracefully when line has no routes data."""
+    # Create line WITHOUT routes data
+    line = Line(
+        tfl_id="northern",
+        name="Northern",
+        color="#000000",
+        last_updated=datetime.now(UTC),
+        routes=None,  # No routes data!
+    )
+    db_session.add(line)
+    await db_session.flush()
+
+    # Create stations
+    bank = Station(
+        tfl_id="940GZZLUBNK",
+        name="Bank",
+        latitude=51.5,
+        longitude=-0.1,
+        lines=["northern"],
+        last_updated=datetime.now(UTC),
+    )
+    morden = Station(
+        tfl_id="940GZZLUMDN",
+        name="Morden",
+        latitude=51.5,
+        longitude=-0.1,
+        lines=["northern"],
+        last_updated=datetime.now(UTC),
+    )
+    db_session.add_all([bank, morden])
+    await db_session.commit()
+
+    # Create route segments
+    segments = [
+        RouteSegmentRequest(station_tfl_id="940GZZLUBNK", line_tfl_id="northern"),
+        RouteSegmentRequest(station_tfl_id="940GZZLUMDN"),
+    ]
+
+    # Execute
+    is_valid, message, invalid_segment = await tfl_service.validate_route(segments)
+
+    # Verify - should FAIL (no routes data)
+    # When line has no routes but both stations serve the line, the "different branches" message is shown
+    assert is_valid is False
+    assert "different branches" in message.lower() or "no connection" in message.lower()
+    assert invalid_segment == 0
 
 
 # ==================== Helper Method Tests ====================
