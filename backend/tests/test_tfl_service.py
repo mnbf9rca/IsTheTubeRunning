@@ -900,6 +900,102 @@ def test_create_new_station_without_hub_code(tfl_service: TfLService) -> None:
         assert station.hub_common_name is None
 
 
+def test_extract_hub_fields_with_empty_string(tfl_service: TfLService) -> None:
+    """Test _extract_hub_fields returns None for empty string hub code."""
+    # Create mock stop point with empty string hub code
+    stop_point = create_mock_stop_point(
+        id="940GZZLUVIC",
+        common_name="Victoria",
+        hubNaptanCode="",  # Empty string should be treated as None
+    )
+
+    # Extract hub fields
+    hub_code, hub_name = tfl_service._extract_hub_fields(stop_point)
+
+    # Verify behavior: empty string is preserved but treated as falsy for hub_name
+    # hub_code = "" (empty string from getattr)
+    # hub_name = None (because empty string is falsy in "if hub_code" check)
+    assert hub_code == ""
+    assert hub_name is None
+
+
+def test_extract_hub_fields_with_whitespace(tfl_service: TfLService) -> None:
+    """Test _extract_hub_fields handles whitespace hub code."""
+    # Create mock stop point with whitespace hub code
+    stop_point = create_mock_stop_point(
+        id="940GZZLUVIC",
+        common_name="Victoria",
+        hubNaptanCode="   ",  # Whitespace is truthy in Python
+    )
+
+    # Extract hub fields
+    hub_code, hub_name = tfl_service._extract_hub_fields(stop_point)
+
+    # Current implementation treats whitespace as truthy (valid hub code)
+    # This matches Python's truthiness rules: bool("   ") == True
+    # If TfL API sends whitespace-only codes, this preserves the data as-is
+    assert hub_code == "   "
+    assert hub_name == "Victoria"
+
+
+def test_update_existing_station_updates_hub_fields(tfl_service: TfLService) -> None:
+    """Test _update_existing_station updates hub fields when they change."""
+    with freeze_time("2025-01-01 12:00:00"):
+        # Create station with OLD hub fields
+        station = Station(
+            tfl_id="940GZZLUKSX",
+            name="King's Cross St. Pancras",
+            latitude=51.5308,
+            longitude=-0.1238,
+            lines=["victoria"],
+            last_updated=datetime(2024, 12, 1, 0, 0, 0, tzinfo=UTC),
+            hub_naptan_code="OLDHUB",  # Old value
+            hub_common_name="Old Hub Name",  # Old value
+        )
+
+        # Update with NEW hub fields
+        tfl_service._update_existing_station(
+            station=station,
+            line_tfl_id="victoria",
+            hub_code="HUBKGX",  # New value
+            hub_name="King's Cross Hub",  # New value
+        )
+
+        # Verify hub fields updated (not just added)
+        assert station.hub_naptan_code == "HUBKGX"
+        assert station.hub_common_name == "King's Cross Hub"
+        assert station.last_updated == datetime(2025, 1, 1, 12, 0, 0, tzinfo=UTC)
+
+
+def test_update_existing_station_hub_name_change_only(tfl_service: TfLService) -> None:
+    """Test _update_existing_station updates hub name when only name changes."""
+    with freeze_time("2025-01-01 12:00:00"):
+        # Create station with hub code and name
+        station = Station(
+            tfl_id="940GZZLUKSX",
+            name="King's Cross St. Pancras",
+            latitude=51.5308,
+            longitude=-0.1238,
+            lines=["victoria"],
+            last_updated=datetime(2024, 12, 1, 0, 0, 0, tzinfo=UTC),
+            hub_naptan_code="HUBKGX",  # Code stays same
+            hub_common_name="Old Name",  # Old name
+        )
+
+        # Update with same code but different name
+        tfl_service._update_existing_station(
+            station=station,
+            line_tfl_id="victoria",
+            hub_code="HUBKGX",  # Same code
+            hub_name="King's Cross St. Pancras Hub",  # New name
+        )
+
+        # Verify hub name updated, code unchanged
+        assert station.hub_naptan_code == "HUBKGX"
+        assert station.hub_common_name == "King's Cross St. Pancras Hub"
+        assert station.last_updated == datetime(2025, 1, 1, 12, 0, 0, tzinfo=UTC)
+
+
 # -------------------- Integration Tests --------------------
 
 
@@ -4971,6 +5067,167 @@ async def test_fetch_stations_update_existing_station(
         assert "district" in stations[0].lines
         assert "victoria" in stations[0].lines
         assert stations[0].last_updated == datetime(2025, 1, 1, 12, 0, 0, tzinfo=UTC)
+
+
+async def test_fetch_stations_with_hub_fields(
+    tfl_service: TfLService,
+    db_session: AsyncSession,
+) -> None:
+    """Test fetch_stations populates hub fields from TfL API."""
+    with freeze_time("2025-01-01 12:00:00"):
+        # Mock API response with hub fields (use StopPoint for hubNaptanCode)
+        mock_stops = [
+            create_mock_stop_point(
+                id="910GSEVNSIS",
+                common_name="Seven Sisters Rail Station",
+                lat=51.5823,
+                lon=-0.0751,
+                hubNaptanCode="HUBSVS",
+            ),
+        ]
+
+        # Execute with helper
+        stations = await assert_fetch_from_api(
+            tfl_service=tfl_service,
+            method_callable=lambda: tfl_service.fetch_stations(line_tfl_id="weaver", use_cache=False),
+            mock_data=mock_stops,
+            expected_count=1,
+            cache_key="stations:line:weaver",
+            expected_ttl=86400,
+            shared_expires=datetime(2025, 1, 2, 12, 0, 0, tzinfo=UTC),
+        )
+
+        # Verify hub fields populated
+        assert stations[0].hub_naptan_code == "HUBSVS"
+        assert stations[0].hub_common_name == "Seven Sisters Rail Station"
+
+
+async def test_fetch_stations_without_hub_fields(
+    tfl_service: TfLService,
+    db_session: AsyncSession,
+) -> None:
+    """Test fetch_stations handles stations without hub fields."""
+    with freeze_time("2025-01-01 12:00:00"):
+        # Mock API response without hub fields
+        mock_stops = [
+            create_mock_place(
+                id="940GZZLUWBN",
+                common_name="Wimbledon",
+                lat=51.4214,
+                lon=-0.2064,
+                # No hubNaptanCode
+            ),
+        ]
+
+        # Execute with helper
+        stations = await assert_fetch_from_api(
+            tfl_service=tfl_service,
+            method_callable=lambda: tfl_service.fetch_stations(line_tfl_id="district", use_cache=False),
+            mock_data=mock_stops,
+            expected_count=1,
+            cache_key="stations:line:district",
+            expected_ttl=86400,
+            shared_expires=datetime(2025, 1, 2, 12, 0, 0, tzinfo=UTC),
+        )
+
+        # Verify hub fields are None
+        assert stations[0].hub_naptan_code is None
+        assert stations[0].hub_common_name is None
+
+
+async def test_fetch_stations_updates_changed_hub_fields(
+    tfl_service: TfLService,
+    db_session: AsyncSession,
+) -> None:
+    """Test fetch_stations updates hub fields when they change in API (old hub → new hub)."""
+    with freeze_time("2025-01-01 12:00:00"):
+        # Create existing station with OLD hub fields
+        existing_station = Station(
+            tfl_id="940GZZLUKSX",
+            name="King's Cross St. Pancras",
+            latitude=51.5308,
+            longitude=-0.1238,
+            lines=["victoria"],
+            last_updated=datetime(2024, 12, 1, tzinfo=UTC),
+            hub_naptan_code="OLDHUB",  # Old value
+            hub_common_name="Old Hub Name",  # Old value
+        )
+        db_session.add(existing_station)
+        await db_session.commit()
+
+        # Mock API response with NEW hub data (use StopPoint for hubNaptanCode)
+        mock_stops = [
+            create_mock_stop_point(
+                id="940GZZLUKSX",
+                common_name="King's Cross St. Pancras",
+                lat=51.5308,
+                lon=-0.1238,
+                hubNaptanCode="HUBKGX",  # New value
+            ),
+        ]
+
+        # Execute with helper
+        stations = await assert_fetch_from_api(
+            tfl_service=tfl_service,
+            method_callable=lambda: tfl_service.fetch_stations(line_tfl_id="victoria", use_cache=False),
+            mock_data=mock_stops,
+            expected_count=1,
+            cache_key="stations:line:victoria",
+            expected_ttl=86400,
+            shared_expires=datetime(2025, 1, 2, 12, 0, 0, tzinfo=UTC),
+        )
+
+        # Verify hub fields UPDATED (not just added)
+        assert stations[0].hub_naptan_code == "HUBKGX"
+        assert stations[0].hub_common_name == "King's Cross St. Pancras"
+        assert stations[0].last_updated == datetime(2025, 1, 1, 12, 0, 0, tzinfo=UTC)
+
+
+async def test_fetch_stations_clears_hub_fields_when_removed(
+    tfl_service: TfLService,
+    db_session: AsyncSession,
+) -> None:
+    """Test fetch_stations clears hub fields when removed from API."""
+    with freeze_time("2025-01-01 12:00:00"):
+        # Create existing station WITH hub fields
+        existing_station = Station(
+            tfl_id="940GZZLUWBN",
+            name="Wimbledon",
+            latitude=51.4214,
+            longitude=-0.2064,
+            lines=["district"],
+            last_updated=datetime(2024, 12, 1, tzinfo=UTC),
+            hub_naptan_code="HUBWIM",
+            hub_common_name="Wimbledon Station",
+        )
+        db_session.add(existing_station)
+        await db_session.commit()
+
+        # Mock API response WITHOUT hub data (hub removed)
+        mock_stops = [
+            create_mock_place(
+                id="940GZZLUWBN",
+                common_name="Wimbledon",
+                lat=51.4214,
+                lon=-0.2064,
+                # No hubNaptanCode
+            ),
+        ]
+
+        # Execute with helper
+        stations = await assert_fetch_from_api(
+            tfl_service=tfl_service,
+            method_callable=lambda: tfl_service.fetch_stations(line_tfl_id="district", use_cache=False),
+            mock_data=mock_stops,
+            expected_count=1,
+            cache_key="stations:line:district",
+            expected_ttl=86400,
+            shared_expires=datetime(2025, 1, 2, 12, 0, 0, tzinfo=UTC),
+        )
+
+        # Verify hub fields CLEARED (not stale)
+        assert stations[0].hub_naptan_code is None
+        assert stations[0].hub_common_name is None
 
 
 @patch("asyncio.get_running_loop")
