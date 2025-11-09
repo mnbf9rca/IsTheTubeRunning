@@ -77,6 +77,7 @@ async def build_tfl_graph(
         lines_count=result["lines_count"],
         stations_count=result["stations_count"],
         connections_count=result["connections_count"],
+        hubs_count=result["hubs_count"],
     )
 
 
