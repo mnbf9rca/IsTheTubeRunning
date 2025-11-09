@@ -1792,11 +1792,13 @@ class TfLService:
                 assert current_segment.line_tfl_id is not None  # For type checker
                 line = lines_map[current_segment.line_tfl_id]
 
-                # Check if connection exists
-                is_connected = await self._check_connection(
-                    from_station_id=from_station.id,
-                    to_station_id=to_station.id,
-                    line_id=line.id,
+                # Check if connection exists (with hub interchange support)
+                # Hub stations are equivalent - try all combinations of hub-equivalent stations
+                is_connected, _connected_from, _connected_to = await self._check_any_hub_connection(
+                    from_station=from_station,
+                    to_station=to_station,
+                    line=line,
+                    segment_index=i,
                 )
 
                 if not is_connected:
@@ -1844,6 +1846,108 @@ class TfLService:
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
                 detail="Failed to validate route.",
             ) from e
+
+    async def _get_hub_equivalent_stations(self, station: Station) -> list[Station]:
+        """
+        Get all stations equivalent to this station via hub interchange.
+
+        Stations are equivalent if they share the same hub_naptan_code.
+        This allows routing through any station in the same hub/interchange.
+
+        Args:
+            station: Station to find equivalents for
+
+        Returns:
+            List of equivalent stations (always includes original station)
+
+        Examples:
+            Seven Sisters Rail (hub='HUBSVS') returns:
+            - [Seven Sisters Rail, Seven Sisters Tube]
+
+            Regular station (no hub) returns:
+            - [Station itself]
+        """
+        if not station.hub_naptan_code:
+            # No hub - station only equivalent to itself
+            return [station]
+
+        # Query all stations with same hub code
+        result = await self.db.execute(
+            select(Station).where(
+                Station.hub_naptan_code == station.hub_naptan_code,
+                Station.deleted_at.is_(None),
+            )
+        )
+        hub_stations = list(result.scalars().all())
+
+        return hub_stations if hub_stations else [station]
+
+    async def _check_any_hub_connection(
+        self,
+        from_station: Station,
+        to_station: Station,
+        line: Line,
+        segment_index: int,
+    ) -> tuple[bool, Station | None, Station | None]:
+        """
+        Check if any hub-equivalent station pair has a valid connection on the line.
+
+        Hub stations are interchangeable/equivalent for routing purposes. This method
+        tries all combinations of hub-equivalent stations to find a valid connection.
+
+        Args:
+            from_station: User-specified starting station
+            to_station: User-specified destination station
+            line: Line to travel on
+            segment_index: Current segment index (for logging)
+
+        Returns:
+            Tuple of (is_connected, actual_from_station, actual_to_station)
+            - is_connected: True if any combination connects
+            - actual_from_station: Station that actually connects (may differ from user's choice)
+            - actual_to_station: Station that actually connects (may differ from user's choice)
+
+        Examples:
+            User specifies: Bush Hill Park → Seven Sisters Rail (Victoria line)
+            - Seven Sisters Rail not on Victoria line
+            - Seven Sisters Tube IS on Victoria line (same hub='HUBSVS')
+            - Returns: (True, from_station, seven_sisters_tube)
+        """
+        # Get all hub-equivalent stations for both endpoints
+        from_stations = await self._get_hub_equivalent_stations(from_station)
+        to_stations = await self._get_hub_equivalent_stations(to_station)
+
+        # Try all combinations of hub-equivalent stations
+        for from_st in from_stations:
+            for to_st in to_stations:
+                is_connected = await self._check_connection(
+                    from_station_id=from_st.id,
+                    to_station_id=to_st.id,
+                    line_id=line.id,
+                )
+
+                if is_connected:
+                    # Log hub interchange if we used different stations than user specified
+                    if from_st.id != from_station.id or to_st.id != to_station.id:
+                        logger.info(
+                            "hub_interchange_detected",
+                            segment_index=segment_index,
+                            user_from_station=from_station.name,
+                            user_from_tfl_id=from_station.tfl_id,
+                            actual_from_station=from_st.name,
+                            actual_from_tfl_id=from_st.tfl_id,
+                            user_to_station=to_station.name,
+                            user_to_tfl_id=to_station.tfl_id,
+                            actual_to_station=to_st.name,
+                            actual_to_tfl_id=to_st.tfl_id,
+                            hub_naptan_code=from_station.hub_naptan_code or to_station.hub_naptan_code,
+                            line_tfl_id=line.tfl_id,
+                        )
+
+                    return True, from_st, to_st
+
+        # No combination connects
+        return False, None, None
 
     async def _check_connection(
         self,
