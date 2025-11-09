@@ -134,7 +134,13 @@ class SegmentRequest(BaseModel):
     """Single segment in a route (station + line + sequence)."""
 
     sequence: int = Field(..., ge=0, description="Order of this segment in the route (0-based)")
-    station_tfl_id: str = Field(..., description="TfL station ID (e.g., '940GZZLUOXC')")
+    station_tfl_id: str = Field(
+        ...,
+        description=(
+            "TfL station ID (e.g., '940GZZLUOXC') or hub NaPTAN code (e.g., 'HUBSVS'). "
+            "Hub codes are resolved to specific stations using line context (Issue #65)."
+        ),
+    )
     line_tfl_id: str | None = Field(
         None, description="TfL line ID (e.g., 'victoria', 'northern'). NULL for destination segment (no onward travel)."
     )

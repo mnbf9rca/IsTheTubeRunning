@@ -2,6 +2,7 @@
 
 import uuid
 from datetime import time
+from typing import TYPE_CHECKING
 
 from sqlalchemy import (
     JSON,
@@ -18,10 +19,13 @@ from sqlalchemy import (
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
+from app.helpers.station_resolution import get_canonical_station_id
 from app.models.base import BaseModel
-from app.models.notification import NotificationPreference
 from app.models.tfl import Line, Station
 from app.models.user import User
+
+if TYPE_CHECKING:
+    from app.models.notification import NotificationPreference
 
 
 class Route(BaseModel):
@@ -115,8 +119,15 @@ class RouteSegment(BaseModel):
 
     @property
     def station_tfl_id(self) -> str:
-        """Get TfL ID from related station."""
-        return self.station.tfl_id
+        """
+        Get canonical station identifier from related station.
+
+        Returns hub NaPTAN code if station has one (e.g., 'HUBSVS'),
+        otherwise returns the station's TfL ID (e.g., '940GZZLUSVS').
+
+        This implements the "normalize on read" pattern for hub codes (Issue #65).
+        """
+        return get_canonical_station_id(self.station)
 
     @property
     def line_tfl_id(self) -> str | None:

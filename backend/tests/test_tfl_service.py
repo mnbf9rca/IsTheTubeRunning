@@ -6979,3 +6979,221 @@ async def test_validate_segment_connections_invalid(
     assert is_valid is False
     assert "No connection" in message or "different branches" in message
     assert idx == 0
+
+
+# ==================== Hub NaPTAN Code Resolution Tests (Issue #65) ====================
+
+
+class TestResolveStationOrHub:
+    """Tests for resolve_station_or_hub() method (Issue #65)."""
+
+    @pytest.mark.asyncio
+    async def test_resolve_station_by_tfl_id_backward_compatible(
+        self, tfl_service: TfLService, db_session: AsyncSession
+    ) -> None:
+        """Should resolve station by TfL ID (backward compatibility)."""
+        station = Station(
+            tfl_id="940GZZLUOXC",
+            name="Oxford Circus",
+            latitude=51.515,
+            longitude=-0.141,
+            lines=["victoria", "central"],
+            last_updated=datetime.now(UTC),
+        )
+        db_session.add(station)
+        await db_session.commit()
+
+        result = await tfl_service.resolve_station_or_hub("940GZZLUOXC", "victoria")
+
+        assert result.tfl_id == "940GZZLUOXC"
+        assert result.name == "Oxford Circus"
+
+    @pytest.mark.asyncio
+    async def test_resolve_station_by_tfl_id_no_line_context(
+        self, tfl_service: TfLService, db_session: AsyncSession
+    ) -> None:
+        """Should resolve station by TfL ID without line context (destination segment)."""
+        station = Station(
+            tfl_id="940GZZLUOXC",
+            name="Oxford Circus",
+            latitude=51.515,
+            longitude=-0.141,
+            lines=["victoria", "central"],
+            last_updated=datetime.now(UTC),
+        )
+        db_session.add(station)
+        await db_session.commit()
+
+        result = await tfl_service.resolve_station_or_hub("940GZZLUOXC", None)
+
+        assert result.tfl_id == "940GZZLUOXC"
+
+    @pytest.mark.asyncio
+    async def test_resolve_hub_code_with_line_context(self, tfl_service: TfLService, db_session: AsyncSession) -> None:
+        """Should resolve hub code to station using line context."""
+        # Seven Sisters hub with two stations
+        station_tube = Station(
+            tfl_id="940GZZLUSVS",
+            name="Seven Sisters Underground",
+            latitude=51.583,
+            longitude=-0.075,
+            lines=["victoria"],
+            hub_naptan_code="HUBSVS",
+            hub_common_name="Seven Sisters",
+            last_updated=datetime.now(UTC),
+        )
+        station_rail = Station(
+            tfl_id="910GSEVNSIS",
+            name="Seven Sisters Rail",
+            latitude=51.583,
+            longitude=-0.075,
+            lines=["weaver"],  # Overground line
+            hub_naptan_code="HUBSVS",
+            hub_common_name="Seven Sisters",
+            last_updated=datetime.now(UTC),
+        )
+        db_session.add_all([station_tube, station_rail])
+        await db_session.commit()
+
+        # Request hub with Victoria line context
+        result = await tfl_service.resolve_station_or_hub("HUBSVS", "victoria")
+
+        # Should return the Victoria line station
+        assert result.tfl_id == "940GZZLUSVS"
+        assert result.name == "Seven Sisters Underground"
+        assert "victoria" in result.lines
+
+    @pytest.mark.asyncio
+    async def test_resolve_hub_code_without_line_context(
+        self, tfl_service: TfLService, db_session: AsyncSession
+    ) -> None:
+        """Should resolve hub code without line context (destination segment)."""
+        station_tube = Station(
+            tfl_id="940GZZLUSVS",
+            name="Seven Sisters Underground",
+            latitude=51.583,
+            longitude=-0.075,
+            lines=["victoria"],
+            hub_naptan_code="HUBSVS",
+            hub_common_name="Seven Sisters",
+            last_updated=datetime.now(UTC),
+        )
+        station_rail = Station(
+            tfl_id="910GSEVNSIS",
+            name="Seven Sisters Rail",
+            latitude=51.583,
+            longitude=-0.075,
+            lines=["weaver"],
+            hub_naptan_code="HUBSVS",
+            hub_common_name="Seven Sisters",
+            last_updated=datetime.now(UTC),
+        )
+        db_session.add_all([station_tube, station_rail])
+        await db_session.commit()
+
+        # Request hub without line context (destination)
+        result = await tfl_service.resolve_station_or_hub("HUBSVS", None)
+
+        # Should return first station alphabetically (910... < 940...)
+        assert result.tfl_id == "910GSEVNSIS"
+
+    @pytest.mark.asyncio
+    async def test_resolve_hub_code_multiple_stations_serve_same_line(
+        self, tfl_service: TfLService, db_session: AsyncSession
+    ) -> None:
+        """Should handle edge case where multiple stations in hub serve the same line."""
+        # Hypothetical hub with two stations both serving Victoria line
+        station1 = Station(
+            tfl_id="940GZZLUHUB1",
+            name="Hub Station 1",
+            latitude=51.5,
+            longitude=-0.1,
+            lines=["victoria", "northern"],
+            hub_naptan_code="HUBTEST",
+            last_updated=datetime.now(UTC),
+        )
+        station2 = Station(
+            tfl_id="910GHUBTEST2",
+            name="Hub Station 2",
+            latitude=51.5,
+            longitude=-0.1,
+            lines=["victoria", "piccadilly"],
+            hub_naptan_code="HUBTEST",
+            last_updated=datetime.now(UTC),
+        )
+        db_session.add_all([station1, station2])
+        await db_session.commit()
+
+        result = await tfl_service.resolve_station_or_hub("HUBTEST", "victoria")
+
+        # Should return first alphabetically (910... < 940...)
+        assert result.tfl_id == "910GHUBTEST2"
+
+    @pytest.mark.asyncio
+    async def test_resolve_hub_code_not_found(self, tfl_service: TfLService, db_session: AsyncSession) -> None:
+        """Should raise 404 when hub code not found."""
+        with pytest.raises(HTTPException) as exc_info:
+            await tfl_service.resolve_station_or_hub("HUBNONEXISTENT", "victoria")
+
+        assert exc_info.value.status_code == 404
+        assert "HUBNONEXISTENT" in exc_info.value.detail
+        assert "not found" in exc_info.value.detail.lower()
+
+    @pytest.mark.asyncio
+    async def test_resolve_hub_code_no_station_serves_line(
+        self, tfl_service: TfLService, db_session: AsyncSession
+    ) -> None:
+        """Should raise 404 when hub exists but no station serves the specified line."""
+        # Seven Sisters hub (neither station serves Piccadilly line)
+        station_tube = Station(
+            tfl_id="940GZZLUSVS",
+            name="Seven Sisters Underground",
+            latitude=51.583,
+            longitude=-0.075,
+            lines=["victoria"],
+            hub_naptan_code="HUBSVS",
+            last_updated=datetime.now(UTC),
+        )
+        station_rail = Station(
+            tfl_id="910GSEVNSIS",
+            name="Seven Sisters Rail",
+            latitude=51.583,
+            longitude=-0.075,
+            lines=["weaver"],
+            hub_naptan_code="HUBSVS",
+            last_updated=datetime.now(UTC),
+        )
+        db_session.add_all([station_tube, station_rail])
+        await db_session.commit()
+
+        with pytest.raises(HTTPException) as exc_info:
+            await tfl_service.resolve_station_or_hub("HUBSVS", "piccadilly")
+
+        assert exc_info.value.status_code == 404
+        assert "HUBSVS" in exc_info.value.detail
+        assert "piccadilly" in exc_info.value.detail.lower()
+        assert "no station" in exc_info.value.detail.lower()
+
+    @pytest.mark.asyncio
+    async def test_resolve_station_with_hub_code_returns_station_not_hub(
+        self, tfl_service: TfLService, db_session: AsyncSession
+    ) -> None:
+        """Should return station object, not hub code string."""
+        station = Station(
+            tfl_id="940GZZLUSVS",
+            name="Seven Sisters Underground",
+            latitude=51.583,
+            longitude=-0.075,
+            lines=["victoria"],
+            hub_naptan_code="HUBSVS",
+            last_updated=datetime.now(UTC),
+        )
+        db_session.add(station)
+        await db_session.commit()
+
+        result = await tfl_service.resolve_station_or_hub("HUBSVS", "victoria")
+
+        # Should return Station object, not hub code
+        assert isinstance(result, Station)
+        assert result.tfl_id == "940GZZLUSVS"  # Station's tfl_id, not hub code
+        assert result.hub_naptan_code == "HUBSVS"
