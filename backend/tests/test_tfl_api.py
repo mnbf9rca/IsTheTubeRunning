@@ -426,6 +426,7 @@ async def test_build_graph_success(
         "lines_count": 11,
         "stations_count": 270,
         "connections_count": 1000,
+        "hubs_count": 25,
     }
 
     # Execute
@@ -438,6 +439,7 @@ async def test_build_graph_success(
     assert data["lines_count"] == 11
     assert data["stations_count"] == 270
     assert data["connections_count"] == 1000
+    assert data["hubs_count"] == 25
     assert "success" in data["message"].lower()
 
 

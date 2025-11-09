@@ -55,10 +55,21 @@ def create_mock_place(
     common_name: str = "Victoria",
     lat: float = 51.5,
     lon: float = -0.1,
+    modes: list[str] | None = None,
     **kwargs: Any,  # noqa: ANN401
 ) -> TflPlace:
-    """Factory for TfL Place mocks (stations) using actual pydantic model."""
-    return TflPlace(id=id, commonName=common_name, lat=lat, lon=lon, **kwargs)
+    """Factory for TfL Place mocks (stations) using actual pydantic model.
+
+    Args:
+        modes: Transport modes for the station (e.g., ["tube", "bus"]). Defaults to ["tube"].
+
+    Note: Automatically sets a 'modes' attribute to ['tube'] to match DEFAULT_MODES,
+    ensuring the mock station passes mode filtering.
+    """
+    place = TflPlace(id=id, commonName=common_name, lat=lat, lon=lon, **kwargs)
+    # Set modes attribute (default to ["tube"] if not provided)
+    object.__setattr__(place, "modes", modes if modes is not None else ["tube"])
+    return place
 
 
 def create_mock_route_section(
@@ -75,7 +86,13 @@ def create_mock_stop_point(
     common_name: str = "Victoria",
     **kwargs: Any,  # noqa: ANN401
 ) -> TflStopPoint:
-    """Factory for TfL StopPoint mocks using actual pydantic model."""
+    """Factory for TfL StopPoint mocks using actual pydantic model.
+
+    Note: Automatically sets 'modes' to ['tube'] to match DEFAULT_MODES unless explicitly provided in kwargs.
+    """
+    # Set default modes if not provided in kwargs (StopPoint has modes as a proper field)
+    if "modes" not in kwargs:
+        kwargs["modes"] = ["tube"]
     return TflStopPoint(id=id, commonName=common_name, **kwargs)
 
 
@@ -712,7 +729,16 @@ async def test_fetch_lines_invalid_mode(
 
 
 def test_extract_hub_fields_with_hub_code(tfl_service: TfLService) -> None:
-    """Test _extract_hub_fields extracts hub code and common name when hubNaptanCode is present."""
+    """Test _extract_hub_fields extracts hub code and fetches hub name from API."""
+    # Mock the hub API response
+    mock_hub_response = MagicMock()
+    mock_hub_data = create_mock_stop_point(
+        id="HUBSVS",
+        common_name="Seven Sisters",  # Hub name from API
+    )
+    mock_hub_response.content.root = [mock_hub_data]
+    tfl_service.stoppoint_client.GetByPathIdsQueryIncludeCrowdingData = MagicMock(return_value=mock_hub_response)
+
     # Create mock stop point with hub code
     stop_point = create_mock_stop_point(
         id="910GSEVNSIS",
@@ -725,7 +751,12 @@ def test_extract_hub_fields_with_hub_code(tfl_service: TfLService) -> None:
 
     # Verify extraction
     assert hub_code == "HUBSVS"
-    assert hub_name == "Seven Sisters Rail Station"
+    assert hub_name == "Seven Sisters"
+    # Verify API was called with correct hub code
+    tfl_service.stoppoint_client.GetByPathIdsQueryIncludeCrowdingData.assert_called_once_with(
+        ids="HUBSVS",
+        includeCrowdingData=False,
+    )
 
 
 def test_extract_hub_fields_without_hub_code(tfl_service: TfLService) -> None:
@@ -842,6 +873,15 @@ def test_update_existing_station_clears_hub_fields(tfl_service: TfLService) -> N
 def test_create_new_station_with_hub_code(tfl_service: TfLService) -> None:
     """Test _create_new_station creates station with hub fields when hub code is present."""
     with freeze_time("2025-01-01 12:00:00"):
+        # Mock the hub API response
+        mock_hub_response = MagicMock()
+        mock_hub_data = create_mock_stop_point(
+            id="HUBSVS",
+            common_name="Seven Sisters",  # Hub name from API
+        )
+        mock_hub_response.content.root = [mock_hub_data]
+        tfl_service.stoppoint_client.GetByPathIdsQueryIncludeCrowdingData = MagicMock(return_value=mock_hub_response)
+
         # Create mock stop point with hub code
         stop_point = create_mock_stop_point(
             id="910GSEVNSIS",
@@ -856,7 +896,7 @@ def test_create_new_station_with_hub_code(tfl_service: TfLService) -> None:
             stop_point=stop_point,
             line_tfl_id="weaver",
             hub_code="HUBSVS",
-            hub_name="Seven Sisters Rail Station",
+            hub_name="Seven Sisters",  # Hub name from API
         )
 
         # Verify all fields
@@ -867,7 +907,7 @@ def test_create_new_station_with_hub_code(tfl_service: TfLService) -> None:
         assert station.lines == ["weaver"]
         assert station.last_updated == datetime(2025, 1, 1, 12, 0, 0, tzinfo=UTC)
         assert station.hub_naptan_code == "HUBSVS"
-        assert station.hub_common_name == "Seven Sisters Rail Station"
+        assert station.hub_common_name == "Seven Sisters"
 
 
 def test_create_new_station_without_hub_code(tfl_service: TfLService) -> None:
@@ -921,6 +961,17 @@ def test_extract_hub_fields_with_empty_string(tfl_service: TfLService) -> None:
 
 def test_extract_hub_fields_with_whitespace(tfl_service: TfLService) -> None:
     """Test _extract_hub_fields handles whitespace hub code."""
+    # Mock API to return error for whitespace hub code
+    mock_api_error = ApiError(
+        timestampUtc=datetime(2025, 1, 1, 12, 0, 0, tzinfo=UTC),
+        exceptionType="ApiException",
+        httpStatusCode=404,
+        httpStatus="NotFound",
+        relativeUri="/StopPoint/   ",
+        message="Invalid hub code",
+    )
+    tfl_service.stoppoint_client.GetByPathIdsQueryIncludeCrowdingData = MagicMock(return_value=mock_api_error)
+
     # Create mock stop point with whitespace hub code
     stop_point = create_mock_stop_point(
         id="940GZZLUVIC",
@@ -933,9 +984,81 @@ def test_extract_hub_fields_with_whitespace(tfl_service: TfLService) -> None:
 
     # Current implementation treats whitespace as truthy (valid hub code)
     # This matches Python's truthiness rules: bool("   ") == True
-    # If TfL API sends whitespace-only codes, this preserves the data as-is
+    # Hub name is None because API returned error
     assert hub_code == "   "
-    assert hub_name == "Victoria"
+    assert hub_name is None
+
+
+def test_extract_hub_fields_api_error(tfl_service: TfLService) -> None:
+    """Test _extract_hub_fields handles API errors gracefully."""
+    # Mock API to return error
+    mock_api_error = ApiError(
+        timestampUtc=datetime(2025, 1, 1, 12, 0, 0, tzinfo=UTC),
+        exceptionType="ApiException",
+        httpStatusCode=404,
+        httpStatus="NotFound",
+        relativeUri="/StopPoint/HUBSVS",
+        message="Hub not found",
+    )
+    tfl_service.stoppoint_client.GetByPathIdsQueryIncludeCrowdingData = MagicMock(return_value=mock_api_error)
+
+    # Create mock stop point with hub code
+    stop_point = create_mock_stop_point(
+        id="910GSEVNSIS",
+        common_name="Seven Sisters Rail Station",
+        hubNaptanCode="HUBSVS",
+    )
+
+    # Extract hub fields
+    hub_code, hub_name = tfl_service._extract_hub_fields(stop_point)
+
+    # Should return hub code but None for hub name when API fails
+    assert hub_code == "HUBSVS"
+    assert hub_name is None
+
+
+def test_extract_hub_fields_api_exception(tfl_service: TfLService) -> None:
+    """Test _extract_hub_fields handles API exceptions gracefully."""
+    # Mock API to raise exception
+    tfl_service.stoppoint_client.GetByPathIdsQueryIncludeCrowdingData = MagicMock(
+        side_effect=Exception("Network error")
+    )
+
+    # Create mock stop point with hub code
+    stop_point = create_mock_stop_point(
+        id="910GSEVNSIS",
+        common_name="Seven Sisters Rail Station",
+        hubNaptanCode="HUBSVS",
+    )
+
+    # Extract hub fields
+    hub_code, hub_name = tfl_service._extract_hub_fields(stop_point)
+
+    # Should return hub code but None for hub name when exception occurs
+    assert hub_code == "HUBSVS"
+    assert hub_name is None
+
+
+def test_extract_hub_fields_empty_response(tfl_service: TfLService) -> None:
+    """Test _extract_hub_fields handles empty API response."""
+    # Mock API to return empty response
+    mock_hub_response = MagicMock()
+    mock_hub_response.content.root = []
+    tfl_service.stoppoint_client.GetByPathIdsQueryIncludeCrowdingData = MagicMock(return_value=mock_hub_response)
+
+    # Create mock stop point with hub code
+    stop_point = create_mock_stop_point(
+        id="910GSEVNSIS",
+        common_name="Seven Sisters Rail Station",
+        hubNaptanCode="HUBSVS",
+    )
+
+    # Extract hub fields
+    hub_code, hub_name = tfl_service._extract_hub_fields(stop_point)
+
+    # Should return hub code but None for hub name when response is empty
+    assert hub_code == "HUBSVS"
+    assert hub_name is None
 
 
 def test_update_existing_station_updates_hub_fields(tfl_service: TfLService) -> None:
@@ -958,12 +1081,12 @@ def test_update_existing_station_updates_hub_fields(tfl_service: TfLService) -> 
             station=station,
             line_tfl_id="victoria",
             hub_code="HUBKGX",  # New value
-            hub_name="King's Cross Hub",  # New value
+            hub_name="King's Cross",  # New value
         )
 
         # Verify hub fields updated (not just added)
         assert station.hub_naptan_code == "HUBKGX"
-        assert station.hub_common_name == "King's Cross Hub"
+        assert station.hub_common_name == "King's Cross"
         assert station.last_updated == datetime(2025, 1, 1, 12, 0, 0, tzinfo=UTC)
 
 
@@ -987,13 +1110,95 @@ def test_update_existing_station_hub_name_change_only(tfl_service: TfLService) -
             station=station,
             line_tfl_id="victoria",
             hub_code="HUBKGX",  # Same code
-            hub_name="King's Cross St. Pancras Hub",  # New name
+            hub_name="King's Cross",  # New name
         )
 
         # Verify hub name updated, code unchanged
         assert station.hub_naptan_code == "HUBKGX"
-        assert station.hub_common_name == "King's Cross St. Pancras Hub"
+        assert station.hub_common_name == "King's Cross"
         assert station.last_updated == datetime(2025, 1, 1, 12, 0, 0, tzinfo=UTC)
+
+
+async def test_fetch_stations_filters_non_matching_modes(
+    tfl_service: TfLService,
+    db_session: AsyncSession,
+) -> None:
+    """Test that stations without modes matching DEFAULT_MODES are filtered out."""
+    # Create mock stop points with different modes
+    bus_stop_a = create_mock_place(id="490001234A", common_name="Bus Stop A", lat=51.5, lon=-0.1, modes=["bus"])
+    bus_stop_b = create_mock_place(
+        id="490001234B", common_name="Bus Stop B", lat=51.5, lon=-0.1, modes=["bus", "coach"]
+    )
+    tube_station = create_mock_place(id="940GZZLUVIC", common_name="Victoria Underground Station", lat=51.5, lon=-0.1)
+    # tube_station modes default to ["tube"]
+
+    mock_stops = [bus_stop_a, bus_stop_b, tube_station]
+    mock_response = MagicMock()
+    mock_response.content.root = mock_stops
+
+    with patch.object(
+        tfl_service.line_client,
+        "StopPointsByPathIdQueryTflOperatedNationalRailStationsOnly",
+        return_value=mock_response,
+    ):
+        stations, _ = await tfl_service._fetch_stations_from_api("victoria")
+
+    # Should only get the tube station, bus stops filtered out
+    assert len(stations) == 1
+    assert stations[0].tfl_id == "940GZZLUVIC"
+    assert stations[0].name == "Victoria Underground Station"
+
+
+async def test_fetch_stations_includes_stations_with_mode_overlap(
+    tfl_service: TfLService,
+    db_session: AsyncSession,
+) -> None:
+    """Test that stations with at least one mode in DEFAULT_MODES are included."""
+    # Create mock stop points with mixed modes
+    bhp_station = create_mock_place(
+        id="910GBHILLPK",
+        common_name="Bush Hill Park Rail Station",
+        lat=51.5,
+        lon=-0.1,
+        modes=["bus", "overground"],
+    )
+    livst_station = create_mock_place(
+        id="910GLIVST",
+        common_name="London Liverpool Street Rail Station",
+        lat=51.5,
+        lon=-0.1,
+        modes=["elizabeth-line", "national-rail", "overground"],
+    )
+    dlr_station = create_mock_place(
+        id="940GZZLUDLR",
+        common_name="DLR Station",
+        lat=51.5,
+        lon=-0.1,
+        modes=["dlr"],
+    )
+
+    mock_stops = [bhp_station, livst_station, dlr_station]
+    mock_response = MagicMock()
+    mock_response.content.root = mock_stops
+
+    with patch.object(
+        tfl_service.line_client,
+        "StopPointsByPathIdQueryTflOperatedNationalRailStationsOnly",
+        return_value=mock_response,
+    ):
+        stations, _ = await tfl_service._fetch_stations_from_api("overground")
+
+    # All three stations should be included
+    assert len(stations) == 3
+    station_ids = {s.tfl_id for s in stations}
+    assert station_ids == {"910GBHILLPK", "910GLIVST", "940GZZLUDLR"}
+
+
+# NOTE: Logging tests for mode filtering and hub detection are not included.
+# The logging functionality exists in the code (using structlog for debug logging),
+# but structlog doesn't integrate easily with pytest's caplog. For this hobby project,
+# we verify the core functionality (filtering behavior and hub field extraction)
+# which is sufficient. The logging can be manually verified during development.
 
 
 # -------------------- Integration Tests --------------------
@@ -5075,6 +5280,15 @@ async def test_fetch_stations_with_hub_fields(
 ) -> None:
     """Test fetch_stations populates hub fields from TfL API."""
     with freeze_time("2025-01-01 12:00:00"):
+        # Mock the hub API response
+        mock_hub_response = MagicMock()
+        mock_hub_data = create_mock_stop_point(
+            id="HUBSVS",
+            common_name="Seven Sisters",  # Hub name from API
+        )
+        mock_hub_response.content.root = [mock_hub_data]
+        tfl_service.stoppoint_client.GetByPathIdsQueryIncludeCrowdingData = MagicMock(return_value=mock_hub_response)
+
         # Mock API response with hub fields (use StopPoint for hubNaptanCode)
         mock_stops = [
             create_mock_stop_point(
@@ -5099,7 +5313,7 @@ async def test_fetch_stations_with_hub_fields(
 
         # Verify hub fields populated
         assert stations[0].hub_naptan_code == "HUBSVS"
-        assert stations[0].hub_common_name == "Seven Sisters Rail Station"
+        assert stations[0].hub_common_name == "Seven Sisters"
 
 
 async def test_fetch_stations_without_hub_fields(
@@ -5141,6 +5355,15 @@ async def test_fetch_stations_updates_changed_hub_fields(
 ) -> None:
     """Test fetch_stations updates hub fields when they change in API (old hub → new hub)."""
     with freeze_time("2025-01-01 12:00:00"):
+        # Mock the hub API response
+        mock_hub_response = MagicMock()
+        mock_hub_data = create_mock_stop_point(
+            id="HUBKGX",
+            common_name="King's Cross",  # Hub name from API
+        )
+        mock_hub_response.content.root = [mock_hub_data]
+        tfl_service.stoppoint_client.GetByPathIdsQueryIncludeCrowdingData = MagicMock(return_value=mock_hub_response)
+
         # Create existing station with OLD hub fields
         existing_station = Station(
             tfl_id="940GZZLUKSX",
@@ -5179,7 +5402,7 @@ async def test_fetch_stations_updates_changed_hub_fields(
 
         # Verify hub fields UPDATED (not just added)
         assert stations[0].hub_naptan_code == "HUBKGX"
-        assert stations[0].hub_common_name == "King's Cross St. Pancras"
+        assert stations[0].hub_common_name == "King's Cross"
         assert stations[0].last_updated == datetime(2025, 1, 1, 12, 0, 0, tzinfo=UTC)
 
 

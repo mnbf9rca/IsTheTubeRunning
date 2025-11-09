@@ -167,3 +167,4 @@ class BuildGraphResponse(BaseModel):
     lines_count: int = Field(..., description="Number of lines processed")
     stations_count: int = Field(..., description="Number of stations processed")
     connections_count: int = Field(..., description="Number of connections created")
+    hubs_count: int = Field(..., description="Number of hub interchange stations")

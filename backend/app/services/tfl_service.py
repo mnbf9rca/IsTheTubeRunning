@@ -546,9 +546,11 @@ class TfLService:
 
     def _extract_hub_fields(self, stop_point: Any) -> tuple[str | None, str | None]:  # noqa: ANN401
         """
-        Extract hub NaPTAN code and common name from stop point.
+        Extract hub NaPTAN code and fetch hub common name from TfL API.
 
         Hub information is used to identify cross-mode interchange stations.
+        If a hub NaPTAN code exists, makes an API call to fetch the hub details
+        and extracts the common name (e.g., "Seven Sisters" for hub "HUBSVS").
 
         Args:
             stop_point: Stop point object from TfL API
@@ -557,7 +559,26 @@ class TfLService:
             Tuple of (hub_naptan_code, hub_common_name)
         """
         hub_code = getattr(stop_point, "hubNaptanCode", None)
-        hub_name = stop_point.commonName if hub_code else None
+        hub_name = None
+
+        # Fetch hub details from API if hub code exists
+        if hub_code:
+            try:
+                response = self.stoppoint_client.GetByPathIdsQueryIncludeCrowdingData(
+                    ids=hub_code,
+                    includeCrowdingData=False,
+                )
+                if not isinstance(response, ApiError) and response.content and response.content.root:
+                    hub_data = response.content.root[0]
+                    hub_name = getattr(hub_data, "commonName", None)
+            except Exception as e:
+                # Log error but don't fail - hub name is optional
+                logger.warning(
+                    "failed_to_fetch_hub_details",
+                    hub_code=hub_code,
+                    error=str(e),
+                )
+
         return hub_code, hub_name
 
     def _update_existing_station(
@@ -650,12 +671,34 @@ class TfLService:
         # - Database queries are fast (local DB, indexed tfl_id)
         # Bulk fetching could be considered if performance monitoring indicates a problem.
         for stop_point in stop_points:
+            # Filter stations by mode - only keep stations with at least one mode in DEFAULT_MODES
+            modes = getattr(stop_point, "modes", []) or []  # Handle None case
+            if not any(mode in DEFAULT_MODES for mode in modes):
+                logger.debug(
+                    "station_filtered_by_mode",
+                    station_id=stop_point.id,
+                    station_name=stop_point.commonName,
+                    modes=modes,
+                    reason="no_overlap_with_default_modes",
+                )
+                continue
+
             # Check if station exists in DB
             result = await self.db.execute(select(Station).where(Station.tfl_id == stop_point.id))
             station = result.scalar_one_or_none()
 
             # Extract hub fields once
             hub_code, hub_name = self._extract_hub_fields(stop_point)
+
+            # Log hub detection
+            if hub_code:
+                logger.debug(
+                    "hub_detected",
+                    station_id=stop_point.id,
+                    station_name=stop_point.commonName,
+                    hub_code=hub_code,
+                    hub_name=hub_name,
+                )
 
             if station:
                 # Update existing station
@@ -1383,7 +1426,7 @@ class TfLService:
         connections based on the actual order of stations on each route.
 
         Returns:
-            Dictionary with build statistics (lines_count, stations_count, connections_count)
+            Dictionary with build statistics (lines_count, stations_count, connections_count, hubs_count)
 
         Raises:
             HTTPException: 500 if graph building fails (old connections preserved via rollback)
@@ -1467,10 +1510,17 @@ class TfLService:
             await self.cache.delete("lines")
             logger.info("invalidated_all_tfl_caches", lines_invalidated=len(lines))
 
+            # Count stations with hub NaPTAN codes (interchange stations)
+            hubs_count_result = await self.db.execute(
+                select(func.count()).select_from(Station).where(Station.hub_naptan_code.isnot(None))
+            )
+            hubs_count = hubs_count_result.scalar_one()
+
             build_result = {
                 "lines_count": len(lines),
                 "stations_count": len(stations_set),
                 "connections_count": connections_count,
+                "hubs_count": hubs_count,
             }
 
             logger.info("building_station_graph_complete", **build_result)
