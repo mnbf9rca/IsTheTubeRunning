@@ -437,7 +437,7 @@ export function SegmentBuilder({
 
   // Instructions based on current step
   const getInstructions = () => {
-    if (localSegments.length === 0) {
+    if (localSegments.length === 0 && !currentStation) {
       return 'Select your starting station to begin your route.'
     }
     if (hasMaxSegments) {
@@ -514,17 +514,22 @@ export function SegmentBuilder({
       {!hasMaxSegments && !isRouteComplete && (
         <Card className="p-4">
           <h3 className="mb-4 text-sm font-medium">
-            {localSegments.length === 0 ? 'Add Starting Station' : 'Continue Your Journey'}
+            {localSegments.length === 0 && !currentStation
+              ? 'Add Starting Station'
+              : 'Continue Your Journey'}
           </h3>
 
           <div className="space-y-4">
             {/* Show selected starting station when building route */}
-            {currentStation && (step === 'select-line' || step === 'select-next-station') && (
-              <div className="rounded-md bg-muted p-3">
-                <div className="text-sm font-medium text-muted-foreground">From:</div>
-                <div className="text-base font-semibold">{currentStation.name}</div>
-              </div>
-            )}
+            {currentStation &&
+              (step === 'select-line' ||
+                step === 'select-next-station' ||
+                step === 'choose-action') && (
+                <div className="rounded-md bg-muted p-3">
+                  <div className="text-sm font-medium text-muted-foreground">From:</div>
+                  <div className="text-base font-semibold">{currentStation.name}</div>
+                </div>
+              )}
 
             {/* Step 1: Select Station (starting or next) */}
             {(step === 'select-station' || step === 'select-line') && (
