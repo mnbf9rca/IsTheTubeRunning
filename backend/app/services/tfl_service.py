@@ -3,6 +3,7 @@
 import asyncio
 import uuid
 from datetime import UTC, datetime
+from functools import partial
 from typing import Any
 from urllib.parse import urlparse
 
@@ -552,6 +553,9 @@ class TfLService:
         If a hub NaPTAN code exists, makes an API call to fetch the hub details
         and extracts the common name (e.g., "Seven Sisters" for hub "HUBSVS").
 
+        The API call is executed in a thread pool to avoid blocking the event loop.
+        The pydantic-tfl-api client is thread-safe as it uses httpx for HTTP requests.
+
         Args:
             stop_point: Stop point object from TfL API
 
@@ -565,12 +569,13 @@ class TfLService:
         if hub_code:
             try:
                 loop = asyncio.get_running_loop()
-                response = await loop.run_in_executor(
-                    None,
+                # Use partial to pass keyword arguments to the API call
+                api_call = partial(
                     self.stoppoint_client.GetByPathIdsQueryIncludeCrowdingData,
-                    hub_code,
-                    False,
+                    ids=hub_code,
+                    includeCrowdingData=False,
                 )
+                response = await loop.run_in_executor(None, api_call)
                 if not isinstance(response, ApiError) and response.content and response.content.root:
                     hub_data = response.content.root[0]
                     hub_name = getattr(hub_data, "commonName", None)
