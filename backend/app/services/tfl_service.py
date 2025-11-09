@@ -1688,24 +1688,19 @@ class TfLService:
 
         return line
 
-    async def validate_route(  # noqa: PLR0912
-        self, segments: list[RouteSegmentRequest]
-    ) -> tuple[bool, str, int | None]:
+    def _validate_route_segment_count(self, segments: list[RouteSegmentRequest]) -> tuple[bool, str | None]:
         """
-        Validate a route by checking if connections exist between segments.
-
-        Uses BFS to check if a path exists between consecutive stations on the specified line.
-        Also enforces acyclic routes (no duplicate stations) and maximum segment limits.
+        Validate route has appropriate number of segments.
 
         Args:
-            segments: List of route segments (station + line pairs)
+            segments: List of route segments to validate
 
         Returns:
-            Tuple of (is_valid, message, invalid_segment_index)
+            Tuple of (is_valid, error_message_or_none)
         """
         # Check minimum segments
         if len(segments) < MIN_ROUTE_SEGMENTS:
-            return False, f"Route must have at least {MIN_ROUTE_SEGMENTS} segments (start and end).", None
+            return False, f"Route must have at least {MIN_ROUTE_SEGMENTS} segments (start and end)."
 
         # Check maximum segments
         if len(segments) > MAX_ROUTE_SEGMENTS:
@@ -1713,10 +1708,20 @@ class TfLService:
                 False,
                 f"Route cannot have more than {MAX_ROUTE_SEGMENTS} segments. "
                 f"Current route has {len(segments)} segments.",
-                None,
             )
 
-        # Check for duplicate stations (enforce acyclic routes)
+        return True, None
+
+    async def _validate_route_acyclic(self, segments: list[RouteSegmentRequest]) -> tuple[bool, str | None, int | None]:
+        """
+        Validate route doesn't visit same station twice.
+
+        Args:
+            segments: List of route segments to validate
+
+        Returns:
+            Tuple of (is_valid, error_message_or_none, duplicate_index_or_none)
+        """
         station_tfl_ids = [segment.station_tfl_id for segment in segments]
         unique_stations = set(station_tfl_ids)
 
@@ -1744,6 +1749,20 @@ class TfLService:
                     )
                 seen.add(station_tfl_id)
 
+        return True, None, None
+
+    def _validate_intermediate_line_ids(
+        self, segments: list[RouteSegmentRequest]
+    ) -> tuple[bool, str | None, int | None]:
+        """
+        Validate only final segment has NULL line_tfl_id.
+
+        Args:
+            segments: List of route segments to validate
+
+        Returns:
+            Tuple of (is_valid, error_message_or_none, invalid_index_or_none)
+        """
         # Validate that only the final segment can have NULL line_tfl_id
         # All intermediate segments (0 to len-2) must have a line to travel on
         for i in range(len(segments) - 1):
@@ -1760,82 +1779,209 @@ class TfLService:
                     i,
                 )
 
+        return True, None, None
+
+    async def _fetch_route_validation_data(
+        self, segments: list[RouteSegmentRequest]
+    ) -> tuple[dict[str, Station], dict[str, Line], dict[str, list[Station]]]:
+        """
+        Bulk fetch all data needed for route validation.
+
+        Fetches:
+        - All stations referenced in segments
+        - All lines referenced in segments
+        - All hub-equivalent stations
+
+        Args:
+            segments: List of route segments to fetch data for
+
+        Returns:
+            Tuple of (stations_map, lines_map, hub_map)
+        """
+        # Bulk fetch all stations and lines to avoid redundant lookups
+        unique_station_ids = {seg.station_tfl_id for seg in segments}
+        # Filter out None values from line_tfl_ids (destination segments have no line)
+        unique_line_ids = {seg.line_tfl_id for seg in segments if seg.line_tfl_id is not None}
+
+        # Fetch all stations
+        stations_map = {}
+        for tfl_id in unique_station_ids:
+            station = await self.get_station_by_tfl_id(tfl_id)
+            stations_map[tfl_id] = station
+
+        # Fetch all lines
+        lines_map = {}
+        for tfl_id in unique_line_ids:
+            line = await self.get_line_by_tfl_id(tfl_id)
+            lines_map[tfl_id] = line
+
+        # Bulk fetch all hub-equivalent stations to avoid per-segment queries
+        # Collect unique hub codes from fetched stations
+        unique_hub_codes = {
+            station.hub_naptan_code for station in stations_map.values() if station.hub_naptan_code is not None
+        }
+
+        # Fetch all stations with these hub codes in one query
+        hub_map: dict[str, list[Station]] = {}
+        if unique_hub_codes:
+            result = await self.db.execute(
+                select(Station).where(
+                    Station.hub_naptan_code.in_(unique_hub_codes),
+                    Station.deleted_at.is_(None),
+                )
+            )
+            hub_stations = list(result.scalars().all())
+
+            # Build hub_naptan_code -> [stations] map
+            for station in hub_stations:
+                if station.hub_naptan_code:
+                    if station.hub_naptan_code not in hub_map:
+                        hub_map[station.hub_naptan_code] = []
+                    hub_map[station.hub_naptan_code].append(station)
+
+        return stations_map, lines_map, hub_map
+
+    def _format_connection_error_message(
+        self,
+        from_station: Station,
+        to_station: Station,
+        line: Line,
+    ) -> str:
+        """
+        Format error message for connection validation failure.
+
+        Generates different messages based on whether stations share the line
+        (different branches) vs completely different lines.
+
+        Args:
+            from_station: Starting station
+            to_station: Destination station
+            line: Line being traveled on
+
+        Returns:
+            Formatted error message
+        """
+        # Check if both stations serve the same line (different branches scenario)
+        from_lines = set(from_station.lines)
+        to_lines = set(to_station.lines)
+        common_lines = from_lines & to_lines
+
+        if line.tfl_id in common_lines:
+            # Stations are on the same line but different branches
+            return (
+                f"'{from_station.name}' and '{to_station.name}' are both on the "
+                f"{line.name} line, but they are on different branches that don't connect directly. "
+                f"You may need to select intermediate stations or change lines at an interchange."
+            )
+        # Stations are on different lines or connection doesn't exist
+        return f"No connection found between '{from_station.name}' and '{to_station.name}' on {line.name} line."
+
+    async def _validate_segment_connections(
+        self,
+        segments: list[RouteSegmentRequest],
+        stations_map: dict[str, Station],
+        lines_map: dict[str, Line],
+        hub_map: dict[str, list[Station]],
+    ) -> tuple[bool, str, int | None]:
+        """
+        Validate all segment connections in route.
+
+        Args:
+            segments: Route segments to validate
+            stations_map: Pre-fetched station objects
+            lines_map: Pre-fetched line objects
+            hub_map: Pre-fetched hub-equivalent stations
+
+        Returns:
+            Tuple of (is_valid, message, invalid_segment_index_or_none)
+        """
+        # Validate each segment connection using cached data
+        for i in range(len(segments) - 1):
+            current_segment = segments[i]
+            next_segment = segments[i + 1]
+
+            # Use cached station and line objects
+            from_station = stations_map[current_segment.station_tfl_id]
+            to_station = stations_map[next_segment.station_tfl_id]
+            # We already validated that intermediate segments have non-null line_tfl_id
+            assert current_segment.line_tfl_id is not None  # For type checker
+            line = lines_map[current_segment.line_tfl_id]
+
+            # Check if connection exists (with hub interchange support)
+            # Hub stations are equivalent - try all combinations of hub-equivalent stations
+            is_connected, _connected_from, _connected_to = await self._check_any_hub_connection(
+                from_station=from_station,
+                to_station=to_station,
+                line=line,
+                segment_index=i,
+                hub_map=hub_map,
+            )
+
+            if not is_connected:
+                # Format error message using helper
+                message = self._format_connection_error_message(from_station, to_station, line)
+
+                logger.warning(
+                    "route_validation_failed",
+                    segment_index=i,
+                    from_station_tfl_id=current_segment.station_tfl_id,
+                    to_station_tfl_id=next_segment.station_tfl_id,
+                    line_tfl_id=current_segment.line_tfl_id,
+                    from_station_name=from_station.name,
+                    to_station_name=to_station.name,
+                )
+
+                return False, message, i
+
+        return True, "Route is valid.", None
+
+    async def validate_route(self, segments: list[RouteSegmentRequest]) -> tuple[bool, str, int | None]:
+        """
+        Validate a route by checking if connections exist between segments.
+
+        Validates routes by checking that consecutive stations exist in the same route sequence
+        for the specified line, with support for hub interchanges. Also enforces acyclic routes
+        (no duplicate stations) and maximum segment limits.
+
+        Args:
+            segments: List of route segments (station + line pairs)
+
+        Returns:
+            Tuple of (is_valid, message, invalid_segment_index)
+        """
+        # Input validation - segment count
+        is_valid, error_msg = self._validate_route_segment_count(segments)
+        if not is_valid:
+            assert error_msg is not None  # Type narrowing: error_msg is str when is_valid is False
+            return False, error_msg, None
+
+        # Input validation - acyclic route (no duplicate stations)
+        is_valid, error_msg, idx = await self._validate_route_acyclic(segments)
+        if not is_valid:
+            assert error_msg is not None  # Type narrowing: error_msg is str when is_valid is False
+            return False, error_msg, idx
+
+        # Input validation - intermediate segments must have line IDs
+        is_valid, error_msg, idx = self._validate_intermediate_line_ids(segments)
+        if not is_valid:
+            assert error_msg is not None  # Type narrowing: error_msg is str when is_valid is False
+            return False, error_msg, idx
+
         logger.info("validating_route", segments_count=len(segments))
 
         try:
-            # Bulk fetch all stations and lines to avoid redundant lookups
-            unique_station_ids = {seg.station_tfl_id for seg in segments}
-            # Filter out None values from line_tfl_ids (destination segments have no line)
-            unique_line_ids = {seg.line_tfl_id for seg in segments if seg.line_tfl_id is not None}
+            # Bulk fetch all required data
+            stations_map, lines_map, hub_map = await self._fetch_route_validation_data(segments)
 
-            # Fetch all stations
-            stations_map = {}
-            for tfl_id in unique_station_ids:
-                station = await self.get_station_by_tfl_id(tfl_id)
-                stations_map[tfl_id] = station
+            # Validate segment connections
+            is_valid, message, invalid_idx = await self._validate_segment_connections(
+                segments, stations_map, lines_map, hub_map
+            )
 
-            # Fetch all lines
-            lines_map = {}
-            for tfl_id in unique_line_ids:
-                line = await self.get_line_by_tfl_id(tfl_id)
-                lines_map[tfl_id] = line
+            if is_valid:
+                logger.info("route_validation_successful", segments_count=len(segments))
 
-            # Validate each segment connection using cached data
-            for i in range(len(segments) - 1):
-                current_segment = segments[i]
-                next_segment = segments[i + 1]
-
-                # Use cached station and line objects
-                from_station = stations_map[current_segment.station_tfl_id]
-                to_station = stations_map[next_segment.station_tfl_id]
-                # We already validated that intermediate segments have non-null line_tfl_id
-                assert current_segment.line_tfl_id is not None  # For type checker
-                line = lines_map[current_segment.line_tfl_id]
-
-                # Check if connection exists (with hub interchange support)
-                # Hub stations are equivalent - try all combinations of hub-equivalent stations
-                is_connected, _connected_from, _connected_to = await self._check_any_hub_connection(
-                    from_station=from_station,
-                    to_station=to_station,
-                    line=line,
-                    segment_index=i,
-                )
-
-                if not is_connected:
-                    # Check if both stations serve the same line (different branches scenario)
-                    from_lines = set(from_station.lines)
-                    to_lines = set(to_station.lines)
-                    common_lines = from_lines & to_lines
-
-                    if line.tfl_id in common_lines:
-                        # Stations are on the same line but different branches
-                        message = (
-                            f"'{from_station.name}' and '{to_station.name}' are both on the "
-                            f"{line.name} line, but they are on different branches that don't connect directly. "
-                            f"You may need to select intermediate stations or change lines at an interchange."
-                        )
-                    else:
-                        # Stations are on different lines or connection doesn't exist
-                        message = (
-                            f"No connection found between '{from_station.name}' "
-                            f"and '{to_station.name}' "
-                            f"on {line.name} line."
-                        )
-
-                    logger.warning(
-                        "route_validation_failed",
-                        segment_index=i,
-                        from_station_tfl_id=current_segment.station_tfl_id,
-                        to_station_tfl_id=next_segment.station_tfl_id,
-                        line_tfl_id=current_segment.line_tfl_id,
-                        from_station_name=from_station.name,
-                        to_station_name=to_station.name,
-                    )
-
-                    return False, message, i
-
-            logger.info("route_validation_successful", segments_count=len(segments))
-            return True, "Route is valid.", None
+            return is_valid, message, invalid_idx
 
         except HTTPException:
             # Re-raise HTTP exceptions (e.g., 404 from get_station_by_tfl_id)
@@ -1847,7 +1993,7 @@ class TfLService:
                 detail="Failed to validate route.",
             ) from e
 
-    async def _get_hub_equivalent_stations(self, station: Station) -> list[Station]:
+    def _get_hub_equivalent_stations(self, station: Station, hub_map: dict[str, list[Station]]) -> list[Station]:
         """
         Get all stations equivalent to this station via hub interchange.
 
@@ -1856,6 +2002,7 @@ class TfLService:
 
         Args:
             station: Station to find equivalents for
+            hub_map: Pre-fetched map of hub_naptan_code -> [stations]
 
         Returns:
             List of equivalent stations (always includes original station)
@@ -1871,14 +2018,8 @@ class TfLService:
             # No hub - station only equivalent to itself
             return [station]
 
-        # Query all stations with same hub code
-        result = await self.db.execute(
-            select(Station).where(
-                Station.hub_naptan_code == station.hub_naptan_code,
-                Station.deleted_at.is_(None),
-            )
-        )
-        hub_stations = list(result.scalars().all())
+        # Look up hub equivalents from pre-fetched map
+        hub_stations = hub_map.get(station.hub_naptan_code, [])
 
         return hub_stations if hub_stations else [station]
 
@@ -1888,6 +2029,7 @@ class TfLService:
         to_station: Station,
         line: Line,
         segment_index: int,
+        hub_map: dict[str, list[Station]],
     ) -> tuple[bool, Station | None, Station | None]:
         """
         Check if any hub-equivalent station pair has a valid connection on the line.
@@ -1900,6 +2042,7 @@ class TfLService:
             to_station: User-specified destination station
             line: Line to travel on
             segment_index: Current segment index (for logging)
+            hub_map: Pre-fetched map of hub_naptan_code -> [stations]
 
         Returns:
             Tuple of (is_connected, actual_from_station, actual_to_station)
@@ -1913,9 +2056,9 @@ class TfLService:
             - Seven Sisters Tube IS on Victoria line (same hub='HUBSVS')
             - Returns: (True, from_station, seven_sisters_tube)
         """
-        # Get all hub-equivalent stations for both endpoints
-        from_stations = await self._get_hub_equivalent_stations(from_station)
-        to_stations = await self._get_hub_equivalent_stations(to_station)
+        # Get all hub-equivalent stations for both endpoints from pre-fetched map
+        from_stations = self._get_hub_equivalent_stations(from_station, hub_map)
+        to_stations = self._get_hub_equivalent_stations(to_station, hub_map)
 
         # Try all combinations of hub-equivalent stations
         for from_st in from_stations:
