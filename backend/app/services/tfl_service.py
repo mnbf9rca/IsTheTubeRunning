@@ -544,6 +544,131 @@ class TfLService:
                 detail="Failed to fetch stop types from TfL API.",
             ) from e
 
+    def _extract_hub_fields(self, stop_point: Any) -> tuple[str | None, str | None]:  # noqa: ANN401
+        """
+        Extract hub NaPTAN code and common name from stop point.
+
+        Hub information is used to identify cross-mode interchange stations.
+
+        Args:
+            stop_point: Stop point object from TfL API
+
+        Returns:
+            Tuple of (hub_naptan_code, hub_common_name)
+        """
+        hub_code = getattr(stop_point, "hubNaptanCode", None)
+        hub_name = stop_point.commonName if hub_code else None
+        return hub_code, hub_name
+
+    def _update_existing_station(
+        self,
+        station: Station,
+        line_tfl_id: str,
+        hub_code: str | None,
+        hub_name: str | None,
+    ) -> None:
+        """
+        Update existing station with line and hub information.
+
+        Args:
+            station: Existing station object to update
+            line_tfl_id: TfL line ID to add to station's lines
+            hub_code: Hub NaPTAN code (or None)
+            hub_name: Hub common name (or None)
+        """
+        if line_tfl_id not in station.lines:
+            station.lines = [*station.lines, line_tfl_id]
+        station.last_updated = datetime.now(UTC)
+        station.hub_naptan_code = hub_code
+        station.hub_common_name = hub_name
+
+    def _create_new_station(
+        self,
+        stop_point: Any,  # noqa: ANN401
+        line_tfl_id: str,
+        hub_code: str | None,
+        hub_name: str | None,
+    ) -> Station:
+        """
+        Create new station from stop point data.
+
+        Args:
+            stop_point: Stop point object from TfL API
+            line_tfl_id: TfL line ID for the station
+            hub_code: Hub NaPTAN code (or None)
+            hub_name: Hub common name (or None)
+
+        Returns:
+            New Station object (not yet added to session)
+        """
+        return Station(
+            tfl_id=stop_point.id,
+            name=stop_point.commonName,
+            latitude=stop_point.lat,
+            longitude=stop_point.lon,
+            lines=[line_tfl_id],
+            last_updated=datetime.now(UTC),
+            hub_naptan_code=hub_code,
+            hub_common_name=hub_name,
+        )
+
+    async def _fetch_stations_from_api(self, line_tfl_id: str) -> tuple[list[Station], int]:
+        """
+        Fetch stations for a line from TfL API and update database.
+
+        This fetches ALL stations on a line, including non-TfL-operated National Rail stations.
+
+        Args:
+            line_tfl_id: TfL line ID to fetch stations for
+
+        Returns:
+            Tuple of (list of Station objects, cache TTL in seconds)
+        """
+        # Fetch stations for the line using LineClient with tflOperatedNationalRailStationsOnly=False
+        # This ensures we get ALL stations, not just TfL-operated ones
+        loop = asyncio.get_running_loop()
+        response = await loop.run_in_executor(
+            None,
+            self.line_client.StopPointsByPathIdQueryTflOperatedNationalRailStationsOnly,
+            line_tfl_id,
+            False,  # tflOperatedNationalRailStationsOnly=False to get ALL stations
+        )
+
+        # Check for API error
+        self._handle_api_error(response)
+
+        # Type narrowing: _handle_api_error raises if response is ApiError, so it's safe here
+        ttl = self._extract_cache_ttl(response) or DEFAULT_STATIONS_CACHE_TTL  # type: ignore[arg-type]
+        # response.content is a PlaceArray (RootModel), access via .root
+        stop_points = response.content.root  # type: ignore[union-attr]
+
+        stations = []
+        for stop_point in stop_points:
+            # Check if station exists in DB
+            result = await self.db.execute(select(Station).where(Station.tfl_id == stop_point.id))
+            station = result.scalar_one_or_none()
+
+            # Extract hub fields once
+            hub_code, hub_name = self._extract_hub_fields(stop_point)
+
+            if station:
+                # Update existing station
+                self._update_existing_station(station, line_tfl_id, hub_code, hub_name)
+            else:
+                # Create new station
+                station = self._create_new_station(stop_point, line_tfl_id, hub_code, hub_name)
+                self.db.add(station)
+
+            stations.append(station)
+
+        await self.db.commit()
+
+        # Refresh to get database IDs
+        for station in stations:
+            await self.db.refresh(station)
+
+        return stations, ttl
+
     async def fetch_stations(self, line_tfl_id: str | None = None, use_cache: bool = True) -> list[Station]:
         """
         Fetch stations from TfL API or database cache.
@@ -571,65 +696,7 @@ class TfLService:
 
         try:
             if line_tfl_id:
-                # Fetch stations for the line using LineClient with tflOperatedNationalRailStationsOnly=False
-                # This ensures we get ALL stations, not just TfL-operated ones
-                loop = asyncio.get_running_loop()
-                response = await loop.run_in_executor(
-                    None,
-                    self.line_client.StopPointsByPathIdQueryTflOperatedNationalRailStationsOnly,
-                    line_tfl_id,
-                    False,  # tflOperatedNationalRailStationsOnly=False to get ALL stations
-                )
-
-                # Check for API error
-                self._handle_api_error(response)
-
-                # Type narrowing: _handle_api_error raises if response is ApiError, so it's safe here
-                ttl = self._extract_cache_ttl(response) or DEFAULT_STATIONS_CACHE_TTL  # type: ignore[arg-type]
-                # response.content is a PlaceArray (RootModel), access via .root
-                stop_points = response.content.root  # type: ignore[union-attr]
-
-                stations = []
-                for stop_point in stop_points:
-                    # Check if station exists in DB
-                    result = await self.db.execute(select(Station).where(Station.tfl_id == stop_point.id))
-                    station = result.scalar_one_or_none()
-
-                    if station:
-                        # Update existing station
-                        if line_tfl_id not in station.lines:
-                            station.lines = [*station.lines, line_tfl_id]
-                        station.last_updated = datetime.now(UTC)
-                        # Update hub information if present (Place doesn't have hubNaptanCode, only StopPoint does)
-                        hub_code = getattr(stop_point, "hubNaptanCode", None)
-                        station.hub_naptan_code = hub_code
-                        if hub_code:
-                            # Use commonName as hub name when hub code exists
-                            station.hub_common_name = stop_point.commonName
-                    else:
-                        # Create new station
-                        # Place objects don't have hubNaptanCode, only StopPoint objects do
-                        hub_code = getattr(stop_point, "hubNaptanCode", None)
-                        station = Station(
-                            tfl_id=stop_point.id,
-                            name=stop_point.commonName,
-                            latitude=stop_point.lat,
-                            longitude=stop_point.lon,
-                            lines=[line_tfl_id],
-                            last_updated=datetime.now(UTC),
-                            hub_naptan_code=hub_code,
-                            hub_common_name=stop_point.commonName if hub_code else None,
-                        )
-                        self.db.add(station)
-
-                    stations.append(station)
-
-                await self.db.commit()
-
-                # Refresh to get database IDs
-                for station in stations:
-                    await self.db.refresh(station)
-
+                stations, ttl = await self._fetch_stations_from_api(line_tfl_id)
             else:
                 # Fetch all stations from database
                 result = await self.db.execute(select(Station))

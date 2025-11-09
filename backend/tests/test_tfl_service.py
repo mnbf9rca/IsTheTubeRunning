@@ -4038,6 +4038,59 @@ async def test_fetch_stations_updates_existing_hub_fields(
         assert station.hub_common_name == "Seven Sisters Rail Station"
 
 
+@patch("asyncio.get_running_loop")
+async def test_fetch_stations_clears_hub_fields_when_removed(
+    mock_get_loop: MagicMock,
+    tfl_service: TfLService,
+    db_session: AsyncSession,
+) -> None:
+    """Test that hub fields are cleared when hub code is removed from API."""
+    with freeze_time("2025-01-01 12:00:00"):
+        # Create existing station WITH hub information
+        existing_station = Station(
+            tfl_id="910GSEVNSIS",
+            name="Seven Sisters Rail Station",
+            latitude=51.5823,
+            longitude=-0.0751,
+            lines=["weaver"],
+            last_updated=datetime(2024, 12, 1, 0, 0, 0, tzinfo=UTC),
+            hub_naptan_code="HUBSVS",  # Hub code initially present
+            hub_common_name="Seven Sisters",
+        )
+        db_session.add(existing_station)
+        await db_session.commit()
+
+        # Mock API response WITHOUT hub information (hub code removed)
+        # Use Place instead of StopPoint (Place doesn't have hubNaptanCode)
+        mock_stops = [
+            create_mock_place(
+                id="910GSEVNSIS",
+                common_name="Seven Sisters Rail Station",
+                lat=51.5823,
+                lon=-0.0751,
+                # No hubNaptanCode - station is no longer a hub
+            ),
+        ]
+        mock_response = MockResponse(
+            data=mock_stops,
+            shared_expires=datetime(2025, 1, 2, 12, 0, 0, tzinfo=UTC),
+        )
+
+        mock_loop = AsyncMock()
+        mock_loop.run_in_executor = AsyncMock(return_value=mock_response)
+        mock_get_loop.return_value = mock_loop
+
+        # Fetch stations - should clear hub fields
+        stations = await tfl_service.fetch_stations(line_tfl_id="weaver", use_cache=False)
+
+        # Verify hub fields were cleared (no stale data)
+        assert len(stations) == 1
+        station = stations[0]
+        assert station.tfl_id == "910GSEVNSIS"
+        assert station.hub_naptan_code is None
+        assert station.hub_common_name is None
+
+
 async def test_process_station_pair_missing_stop_ids(
     tfl_service: TfLService,
     db_session: AsyncSession,
