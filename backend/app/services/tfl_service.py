@@ -600,8 +600,16 @@ class TfLService:
                         if line_tfl_id not in station.lines:
                             station.lines = [*station.lines, line_tfl_id]
                         station.last_updated = datetime.now(UTC)
+                        # Update hub information if present (Place doesn't have hubNaptanCode, only StopPoint does)
+                        hub_code = getattr(stop_point, "hubNaptanCode", None)
+                        station.hub_naptan_code = hub_code
+                        if hub_code:
+                            # Use commonName as hub name when hub code exists
+                            station.hub_common_name = stop_point.commonName
                     else:
                         # Create new station
+                        # Place objects don't have hubNaptanCode, only StopPoint objects do
+                        hub_code = getattr(stop_point, "hubNaptanCode", None)
                         station = Station(
                             tfl_id=stop_point.id,
                             name=stop_point.commonName,
@@ -609,6 +617,8 @@ class TfLService:
                             longitude=stop_point.lon,
                             lines=[line_tfl_id],
                             last_updated=datetime.now(UTC),
+                            hub_naptan_code=hub_code,
+                            hub_common_name=stop_point.commonName if hub_code else None,
                         )
                         self.db.add(station)
 

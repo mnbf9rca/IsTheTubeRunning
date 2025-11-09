@@ -98,6 +98,18 @@ class Station(BaseModel):
         DateTime(timezone=True),
         nullable=False,
     )
+    # Hub information for cross-mode interchanges
+    hub_naptan_code: Mapped[str | None] = mapped_column(
+        String(50),
+        nullable=True,
+        index=True,  # For fast hub lookups during validation
+        comment="TfL hub NaPTAN code for interchange stations",
+    )
+    hub_common_name: Mapped[str | None] = mapped_column(
+        String(255),
+        nullable=True,
+        comment="Common name for the hub (e.g., 'Seven Sisters')",
+    )
 
     # Relationships
     connections_from: Mapped[list["StationConnection"]] = relationship(

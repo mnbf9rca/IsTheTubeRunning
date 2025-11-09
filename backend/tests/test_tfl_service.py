@@ -3907,6 +3907,137 @@ async def test_fetch_stations_new_line_to_existing_station(
         assert len(station.lines) == 2
 
 
+@patch("asyncio.get_running_loop")
+async def test_fetch_stations_with_hub_fields(
+    mock_get_loop: MagicMock,
+    tfl_service: TfLService,
+    db_session: AsyncSession,
+) -> None:
+    """Test that hub_naptan_code and hub_common_name are extracted from API."""
+    with freeze_time("2025-01-01 12:00:00"):
+        # Mock API response with hub information
+        # Seven Sisters has a hubNaptanCode linking rail and tube stations
+        # Use StopPoint instead of Place because hubNaptanCode is only on StopPoint
+        mock_stops = [
+            create_mock_stop_point(
+                id="910GSEVNSIS",
+                common_name="Seven Sisters Rail Station",
+                lat=51.5823,
+                lon=-0.0751,
+                hubNaptanCode="HUBSVS",  # Hub code for Seven Sisters
+            ),
+        ]
+        mock_response = MockResponse(
+            data=mock_stops,
+            shared_expires=datetime(2025, 1, 2, 12, 0, 0, tzinfo=UTC),
+        )
+
+        mock_loop = AsyncMock()
+        mock_loop.run_in_executor = AsyncMock(return_value=mock_response)
+        mock_get_loop.return_value = mock_loop
+
+        # Fetch stations
+        stations = await tfl_service.fetch_stations(line_tfl_id="weaver", use_cache=False)
+
+        # Verify hub fields were extracted
+        assert len(stations) == 1
+        station = stations[0]
+        assert station.tfl_id == "910GSEVNSIS"
+        assert station.hub_naptan_code == "HUBSVS"
+        assert station.hub_common_name == "Seven Sisters Rail Station"
+
+
+@patch("asyncio.get_running_loop")
+async def test_fetch_stations_without_hub_fields(
+    mock_get_loop: MagicMock,
+    tfl_service: TfLService,
+    db_session: AsyncSession,
+) -> None:
+    """Test that stations without hub codes have NULL hub fields."""
+    with freeze_time("2025-01-01 12:00:00"):
+        # Mock API response without hub information
+        mock_stops = [
+            create_mock_place(
+                id="940GZZLUWBN",
+                common_name="Wimbledon",
+                lat=51.4214,
+                lon=-0.2064,
+                # No hubNaptanCode - station is not a hub
+            ),
+        ]
+        mock_response = MockResponse(
+            data=mock_stops,
+            shared_expires=datetime(2025, 1, 2, 12, 0, 0, tzinfo=UTC),
+        )
+
+        mock_loop = AsyncMock()
+        mock_loop.run_in_executor = AsyncMock(return_value=mock_response)
+        mock_get_loop.return_value = mock_loop
+
+        # Fetch stations
+        stations = await tfl_service.fetch_stations(line_tfl_id="district", use_cache=False)
+
+        # Verify hub fields are None
+        assert len(stations) == 1
+        station = stations[0]
+        assert station.tfl_id == "940GZZLUWBN"
+        assert station.hub_naptan_code is None
+        assert station.hub_common_name is None
+
+
+@patch("asyncio.get_running_loop")
+async def test_fetch_stations_updates_existing_hub_fields(
+    mock_get_loop: MagicMock,
+    tfl_service: TfLService,
+    db_session: AsyncSession,
+) -> None:
+    """Test that hub fields are updated for existing stations."""
+    with freeze_time("2025-01-01 12:00:00"):
+        # Create existing station without hub information
+        existing_station = Station(
+            tfl_id="910GSEVNSIS",
+            name="Seven Sisters Rail Station",
+            latitude=51.5823,
+            longitude=-0.0751,
+            lines=["weaver"],
+            last_updated=datetime(2024, 12, 1, 0, 0, 0, tzinfo=UTC),
+            hub_naptan_code=None,  # No hub code initially
+            hub_common_name=None,
+        )
+        db_session.add(existing_station)
+        await db_session.commit()
+
+        # Mock API response with hub information
+        # Use StopPoint instead of Place because hubNaptanCode is only on StopPoint
+        mock_stops = [
+            create_mock_stop_point(
+                id="910GSEVNSIS",
+                common_name="Seven Sisters Rail Station",
+                lat=51.5823,
+                lon=-0.0751,
+                hubNaptanCode="HUBSVS",  # Hub code now present
+            ),
+        ]
+        mock_response = MockResponse(
+            data=mock_stops,
+            shared_expires=datetime(2025, 1, 2, 12, 0, 0, tzinfo=UTC),
+        )
+
+        mock_loop = AsyncMock()
+        mock_loop.run_in_executor = AsyncMock(return_value=mock_response)
+        mock_get_loop.return_value = mock_loop
+
+        # Fetch stations - should update existing station
+        stations = await tfl_service.fetch_stations(line_tfl_id="weaver", use_cache=False)
+
+        # Verify hub fields were updated
+        assert len(stations) == 1
+        station = stations[0]
+        assert station.tfl_id == "910GSEVNSIS"
+        assert station.hub_naptan_code == "HUBSVS"
+        assert station.hub_common_name == "Seven Sisters Rail Station"
+
+
 async def test_process_station_pair_missing_stop_ids(
     tfl_service: TfLService,
     db_session: AsyncSession,
