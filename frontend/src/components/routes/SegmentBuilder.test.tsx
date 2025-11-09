@@ -11,6 +11,7 @@ describe('SegmentBuilder', () => {
       tfl_id: 'northern',
       name: 'Northern',
       color: '#000000',
+      mode: 'tube',
       last_updated: '2025-01-01T00:00:00Z',
     },
   ]
@@ -57,6 +58,7 @@ describe('SegmentBuilder', () => {
     lines: mockLines,
     stations: mockStations,
     getLinesForStation: vi.fn(() => mockLines),
+    getNextStations: vi.fn(() => []),
     onValidate: vi.fn(async () => ({ valid: true, message: 'Valid route' })),
     onSave: vi.fn(async () => {}),
     onCancel: vi.fn(),
@@ -172,6 +174,7 @@ describe('SegmentBuilder', () => {
       tfl_id: 'piccadilly',
       name: 'Piccadilly',
       color: '#1c3f94',
+      mode: 'tube',
       last_updated: '2025-01-01T00:00:00Z',
     }
 
@@ -180,6 +183,7 @@ describe('SegmentBuilder', () => {
       tfl_id: 'northern',
       name: 'Northern',
       color: '#000000',
+      mode: 'tube',
       last_updated: '2025-01-01T00:00:00Z',
     }
 
@@ -399,6 +403,7 @@ describe('SegmentBuilder', () => {
       tfl_id: 'piccadilly',
       name: 'Piccadilly',
       color: '#1c3f94',
+      mode: 'tube',
       last_updated: '2025-01-01T00:00:00Z',
     }
 
