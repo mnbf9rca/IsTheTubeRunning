@@ -105,8 +105,9 @@ export function useTflData(): UseTflDataReturn {
   /**
    * Get stations reachable from the current station on a specific line
    *
-   * Uses the network graph to find connected stations. Filters connections
-   * to only include those on the specified line.
+   * Uses route sequence data to find stations on the same branch. This prevents
+   * cross-branch travel (e.g., Bank → Charing Cross on Northern line) while
+   * allowing multi-hop paths within the same route sequence (e.g., Edgware → Morden).
    *
    * @param currentStationTflId TfL ID of current station
    * @param currentLineTflId TfL ID of current line
@@ -114,20 +115,47 @@ export function useTflData(): UseTflDataReturn {
    */
   const getNextStations = useCallback(
     (currentStationTflId: string, currentLineTflId: string): StationResponse[] => {
-      if (!networkGraph || !stations) return []
+      if (!stations || !lines) return []
 
-      // Get connections from current station
-      const connections = networkGraph[currentStationTflId] || []
+      // Find the line object
+      const line = lines.find((l) => l.tfl_id === currentLineTflId)
+      if (!line) return []
 
-      // Filter to connections on the current line
-      const reachableStationTflIds = connections
-        .filter((conn) => conn.line_tfl_id === currentLineTflId)
-        .map((conn) => conn.station_tfl_id)
+      // If no route sequence data available, fall back to showing all stations on the line
+      // (backend validation will still catch invalid segments)
+      if (!line.routes || !line.routes.routes) {
+        const stationsOnLine = stations.filter((station) =>
+          station.lines.includes(currentLineTflId)
+        )
+        return stationsOnLine.filter((station) => station.tfl_id !== currentStationTflId)
+      }
 
-      // Return station details for reachable stations
-      return stations.filter((station) => reachableStationTflIds.includes(station.tfl_id))
+      // Find all route sequences that include the current station
+      // and collect all stations from those sequences (union across matching routes)
+      const reachableStationTflIds = new Set<string>()
+
+      for (const route of line.routes.routes) {
+        const stationList = route.stations || []
+
+        // Check if current station is in this route sequence
+        if (stationList.includes(currentStationTflId)) {
+          // Add all stations from this route sequence
+          for (const stationTflId of stationList) {
+            if (stationTflId !== currentStationTflId) {
+              reachableStationTflIds.add(stationTflId)
+            }
+          }
+        }
+      }
+
+      // Convert TfL IDs to station objects and sort alphabetically
+      const reachableStations = stations.filter((station) =>
+        reachableStationTflIds.has(station.tfl_id)
+      )
+
+      return reachableStations.sort((a, b) => a.name.localeCompare(b.name))
     },
-    [networkGraph, stations]
+    [stations, lines]
   )
 
   /**

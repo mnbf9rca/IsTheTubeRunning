@@ -788,6 +788,16 @@ export async function deleteNotificationPreference(
 // ============================================================================
 
 /**
+ * Route variant with ordered station sequence
+ */
+export interface RouteVariant {
+  name: string // e.g., "Edgware → Morden via Bank"
+  service_type: string // e.g., "Regular", "Night"
+  direction: string // "inbound" or "outbound"
+  stations: string[] // Ordered list of TfL station IDs
+}
+
+/**
  * TfL line information
  */
 export interface LineResponse {
@@ -795,6 +805,10 @@ export interface LineResponse {
   tfl_id: string
   name: string
   color: string
+  mode: string
+  routes?: {
+    routes: RouteVariant[]
+  } | null // Route sequences for branch-aware validation
   last_updated: string
 }
 

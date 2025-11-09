@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { X, AlertCircle, Check } from 'lucide-react'
 import { Button } from '../ui/button'
 import { Alert, AlertDescription } from '../ui/alert'
@@ -47,6 +47,11 @@ export interface SegmentBuilderProps {
   getLinesForStation: (stationTflId: string) => LineResponse[]
 
   /**
+   * Helper function to get reachable stations from current position
+   */
+  getNextStations: (currentStationTflId: string, currentLineTflId: string) => StationResponse[]
+
+  /**
    * Callback to validate route before saving
    */
   onValidate: (segments: SegmentRequest[]) => Promise<RouteValidationResponse>
@@ -91,6 +96,7 @@ export function SegmentBuilder({
   lines,
   stations,
   getLinesForStation,
+  getNextStations,
   onValidate,
   onSave,
   onCancel,
@@ -118,18 +124,18 @@ export function SegmentBuilder({
   const [error, setError] = useState<string | null>(null)
 
   // Get available lines for current station
-  const getCurrentStationLines = (): LineResponse[] => {
+  const getCurrentStationLines = useCallback((): LineResponse[] => {
     if (!currentStation) return []
     const stationLines = getLinesForStation(currentStation.tfl_id)
     return sortLines(stationLines)
-  }
+  }, [currentStation, getLinesForStation])
 
   // Get available lines for next station (for action buttons)
-  const getNextStationLines = (): LineResponse[] => {
+  const getNextStationLines = useCallback((): LineResponse[] => {
     if (!nextStation) return []
     const stationLines = getLinesForStation(nextStation.tfl_id)
     return sortLines(stationLines)
-  }
+  }, [nextStation, getLinesForStation])
 
   // Auto-advance logic when station selected
   useEffect(() => {
@@ -190,7 +196,12 @@ export function SegmentBuilder({
     if (!currentStation || !selectedLine || !nextStation) return
 
     // Check for duplicate stations (acyclic enforcement)
-    const isDuplicate = localSegments.some((seg) => seg.station_tfl_id === currentStation.tfl_id)
+    // Allow currentStation if it's the last segment (junction we're continuing from)
+    const lastSegment = localSegments[localSegments.length - 1]
+    const isCurrentStationLastInRoute = lastSegment?.station_tfl_id === currentStation.tfl_id
+    const isDuplicate =
+      !isCurrentStationLastInRoute &&
+      localSegments.some((seg) => seg.station_tfl_id === currentStation.tfl_id)
     if (isDuplicate) {
       setError(
         `This station (${currentStation.name}) is already in your route. Routes cannot visit the same station twice.`
@@ -198,20 +209,29 @@ export function SegmentBuilder({
       return
     }
 
-    // Check max segments limit
-    if (localSegments.length >= MAX_ROUTE_SEGMENTS) {
-      setError(`Maximum ${MAX_ROUTE_SEGMENTS} segments allowed per route.`)
-      return
-    }
+    // Add segment for current station if not already in route
+    let updatedSegments: SegmentRequest[]
 
-    // Add segment for current station with selected line
-    const newSegment: SegmentRequest = {
-      sequence: localSegments.length,
-      station_tfl_id: currentStation.tfl_id,
-      line_tfl_id: selectedLine.tfl_id,
-    }
+    if (isCurrentStationLastInRoute) {
+      // Current station is already the last segment (junction from previous line change)
+      // Don't add it again, just continue from here
+      updatedSegments = [...localSegments]
+    } else {
+      // Check max segments limit
+      if (localSegments.length >= MAX_ROUTE_SEGMENTS) {
+        setError(`Maximum ${MAX_ROUTE_SEGMENTS} segments allowed per route.`)
+        return
+      }
 
-    let updatedSegments = [...localSegments, newSegment]
+      // Add segment for current station with selected line
+      const newSegment: SegmentRequest = {
+        sequence: localSegments.length,
+        station_tfl_id: currentStation.tfl_id,
+        line_tfl_id: selectedLine.tfl_id,
+      }
+
+      updatedSegments = [...localSegments, newSegment]
+    }
 
     // If user is switching to a different line, also add the nextStation segment
     // This shows the station where the line change occurs
@@ -233,11 +253,11 @@ export function SegmentBuilder({
         return
       }
 
-      // Add nextStation with the line used to arrive at it
+      // Add nextStation with the line used to DEPART from it (the new line we're switching to)
       const nextSegment: SegmentRequest = {
         sequence: updatedSegments.length,
         station_tfl_id: nextStation.tfl_id,
-        line_tfl_id: selectedLine.tfl_id, // Line used to GET TO this station
+        line_tfl_id: line.tfl_id, // FIX: Use the line we're switching TO, not the line we arrived on
       }
       updatedSegments = [...updatedSegments, nextSegment]
     }
@@ -256,9 +276,12 @@ export function SegmentBuilder({
     if (!currentStation || !selectedLine || !nextStation) return
 
     // Check for duplicate stations
-    const isDuplicateCurrent = localSegments.some(
-      (seg) => seg.station_tfl_id === currentStation.tfl_id
-    )
+    // Allow currentStation if it's the last segment (junction we're continuing from)
+    const lastSegment = localSegments[localSegments.length - 1]
+    const isCurrentStationLastInRoute = lastSegment?.station_tfl_id === currentStation.tfl_id
+    const isDuplicateCurrent =
+      !isCurrentStationLastInRoute &&
+      localSegments.some((seg) => seg.station_tfl_id === currentStation.tfl_id)
     if (isDuplicateCurrent) {
       setError(
         `This station (${currentStation.name}) is already in your route. Routes cannot visit the same station twice.`
@@ -274,27 +297,45 @@ export function SegmentBuilder({
       return
     }
 
-    // Check max segments limit (we're adding 2 segments)
-    if (localSegments.length + 2 > MAX_ROUTE_SEGMENTS) {
-      setError(`Maximum ${MAX_ROUTE_SEGMENTS} segments allowed per route.`)
-      return
-    }
+    // Build final segments
+    let finalSegments: SegmentRequest[]
 
-    // Add segment for current station with selected line
-    const currentSegment: SegmentRequest = {
-      sequence: localSegments.length,
-      station_tfl_id: currentStation.tfl_id,
-      line_tfl_id: selectedLine.tfl_id,
-    }
+    if (isCurrentStationLastInRoute) {
+      // Current station is already in route (junction from line change)
+      // Only add the destination station
+      if (localSegments.length + 1 > MAX_ROUTE_SEGMENTS) {
+        setError(`Maximum ${MAX_ROUTE_SEGMENTS} segments allowed per route.`)
+        return
+      }
 
-    // Add segment for destination with null line_tfl_id
-    const destinationSegment: SegmentRequest = {
-      sequence: localSegments.length + 1,
-      station_tfl_id: nextStation.tfl_id,
-      line_tfl_id: null, // Destination has no outgoing line
-    }
+      const destinationSegment: SegmentRequest = {
+        sequence: localSegments.length,
+        station_tfl_id: nextStation.tfl_id,
+        line_tfl_id: null, // Destination has no outgoing line
+      }
 
-    const finalSegments = [...localSegments, currentSegment, destinationSegment]
+      finalSegments = [...localSegments, destinationSegment]
+    } else {
+      // Current station not in route yet - add both current and destination
+      if (localSegments.length + 2 > MAX_ROUTE_SEGMENTS) {
+        setError(`Maximum ${MAX_ROUTE_SEGMENTS} segments allowed per route.`)
+        return
+      }
+
+      const currentSegment: SegmentRequest = {
+        sequence: localSegments.length,
+        station_tfl_id: currentStation.tfl_id,
+        line_tfl_id: selectedLine.tfl_id,
+      }
+
+      const destinationSegment: SegmentRequest = {
+        sequence: localSegments.length + 1,
+        station_tfl_id: nextStation.tfl_id,
+        line_tfl_id: null, // Destination has no outgoing line
+      }
+
+      finalSegments = [...localSegments, currentSegment, destinationSegment]
+    }
 
     // Reset UI state
     setCurrentStation(null)
@@ -396,7 +437,7 @@ export function SegmentBuilder({
 
   // Instructions based on current step
   const getInstructions = () => {
-    if (localSegments.length === 0) {
+    if (localSegments.length === 0 && !currentStation) {
       return 'Select your starting station to begin your route.'
     }
     if (hasMaxSegments) {
@@ -431,18 +472,17 @@ export function SegmentBuilder({
     return null
   })()
 
-  // Get all available stations (for first segment, all stations; otherwise, stations on selected line)
+  // Get all available stations (for first segment, all stations; otherwise, only reachable stations)
   const availableStations = (() => {
     if (localSegments.length === 0 && step === 'select-station') {
       // First station: show all stations alphabetically
       return [...stations].sort((a, b) => a.name.localeCompare(b.name))
     }
     if (step === 'select-next-station') {
-      if (currentTravelingLine) {
-        // Subsequent stations: filter by line and keep in route order
-        // TODO: Need station order data from backend to sort by route position
-        // For now, just filter by line (keeping data order which approximates route order)
-        return stations.filter((s) => s.lines.includes(currentTravelingLine.tfl_id))
+      if (currentTravelingLine && currentStation) {
+        // Subsequent stations: show only reachable stations from current position on this line
+        // This prevents selecting stations on different branches (e.g., Bank -> Charing Cross on Northern)
+        return getNextStations(currentStation.tfl_id, currentTravelingLine.tfl_id)
       }
     }
     return []
@@ -474,17 +514,22 @@ export function SegmentBuilder({
       {!hasMaxSegments && !isRouteComplete && (
         <Card className="p-4">
           <h3 className="mb-4 text-sm font-medium">
-            {localSegments.length === 0 ? 'Add Starting Station' : 'Continue Your Journey'}
+            {localSegments.length === 0 && !currentStation
+              ? 'Add Starting Station'
+              : 'Continue Your Journey'}
           </h3>
 
           <div className="space-y-4">
             {/* Show selected starting station when building route */}
-            {currentStation && (step === 'select-line' || step === 'select-next-station') && (
-              <div className="rounded-md bg-muted p-3">
-                <div className="text-sm font-medium text-muted-foreground">From:</div>
-                <div className="text-base font-semibold">{currentStation.name}</div>
-              </div>
-            )}
+            {currentStation &&
+              (step === 'select-line' ||
+                step === 'select-next-station' ||
+                step === 'choose-action') && (
+                <div className="rounded-md bg-muted p-3">
+                  <div className="text-sm font-medium text-muted-foreground">From:</div>
+                  <div className="text-base font-semibold">{currentStation.name}</div>
+                </div>
+              )}
 
             {/* Step 1: Select Station (starting or next) */}
             {(step === 'select-station' || step === 'select-line') && (
@@ -529,6 +574,14 @@ export function SegmentBuilder({
                   onChange={handleNextStationSelect}
                   placeholder="Select destination..."
                 />
+              </div>
+            )}
+
+            {/* Show selected next station before action buttons */}
+            {step === 'choose-action' && nextStation && (
+              <div className="rounded-md bg-muted p-3">
+                <div className="text-sm font-medium text-muted-foreground">To:</div>
+                <div className="text-base font-semibold">{nextStation.name}</div>
               </div>
             )}
 

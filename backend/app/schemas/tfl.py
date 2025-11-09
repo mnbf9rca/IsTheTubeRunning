@@ -1,11 +1,27 @@
 """Pydantic schemas for TfL API data."""
 
 from datetime import datetime
+from typing import TypedDict
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field
 
 # ==================== Response Schemas ====================
+
+
+class RouteVariantData(TypedDict, total=False):
+    """Route variant structure stored in database."""
+
+    name: str
+    service_type: str
+    direction: str
+    stations: list[str]
+
+
+class RoutesData(TypedDict, total=False):
+    """Routes structure stored in Line.routes JSON field."""
+
+    routes: list[RouteVariantData]
 
 
 class LineResponse(BaseModel):
@@ -18,6 +34,7 @@ class LineResponse(BaseModel):
     name: str
     color: str  # Hex color code (e.g., #0019A8)
     mode: str  # Transport mode: "tube", "overground", "dlr", "elizabeth-line", etc.
+    routes: RoutesData | None = None  # Route sequences for branch-aware validation
     last_updated: datetime
 
 

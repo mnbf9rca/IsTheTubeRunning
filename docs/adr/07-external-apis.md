@@ -144,3 +144,33 @@ Extend TfL API integration to support multiple transport modes. Methods `fetch_l
 - More complex cache key management (must include modes)
 - Increased test complexity (need to mock multiple mode responses)
 - Higher API rate limit usage (4x calls by default vs single Tube call)
+
+---
+
+## Route Sequence Validation for Branch-Aware Paths
+
+### Status
+Active
+
+### Context
+Some tube lines have branches where trains diverge to different destinations (e.g., Northern Line splits into Bank and Charing Cross branches at Camden Town). The previous validation approach used a graph-based BFS algorithm that would incorrectly allow travel between stations on different branches (e.g., Bank → Charing Cross on Northern line), since both stations technically serve the same line but aren't directly connected.
+
+### Decision
+Route validation now uses Line.routes JSON data from TfL API to check if consecutive segments stay within the same route sequence. The `check_connection()` method validates that both the from_station and to_station exist in at least one common route sequence for the specified line. This prevents cross-branch travel while still allowing:
+- Travel within a single branch (e.g., Bank → London Bridge on Northern via Bank)
+- Travel on shared sections before/after splits (e.g., Edgware → Camden Town, which appears in all Northern line routes)
+- Bidirectional travel (order doesn't matter, as long as both stations are in the same route sequence)
+
+### Consequences
+**Easier:**
+- Accurate validation that matches real-world TfL service patterns
+- Prevents impossible routes (cross-branch travel)
+- Better error messages (explains when stations are on different branches)
+- Leverages existing TfL route sequence data (no additional API calls)
+- Frontend can filter available stations using `getNextStations()` to only show reachable stations
+
+**More Difficult:**
+- Requires Line.routes JSON to be populated (depends on TfL API data)
+- Validation fails for lines without route sequence data (graceful degradation with warning logs)
+- More complex test fixtures (must include route sequences in test data)
+- Slight performance overhead (iterating through route sequences vs single graph lookup)

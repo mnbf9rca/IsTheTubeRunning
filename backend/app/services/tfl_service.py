@@ -2,7 +2,6 @@
 
 import asyncio
 import uuid
-from collections import deque
 from datetime import UTC, datetime
 from typing import Any
 from urllib.parse import urlparse
@@ -1660,11 +1659,25 @@ class TfLService:
                 )
 
                 if not is_connected:
-                    message = (
-                        f"No connection found between '{from_station.name}' "
-                        f"and '{to_station.name}' "
-                        f"on {line.name} line."
-                    )
+                    # Check if both stations serve the same line (different branches scenario)
+                    from_lines = set(from_station.lines)
+                    to_lines = set(to_station.lines)
+                    common_lines = from_lines & to_lines
+
+                    if line.tfl_id in common_lines:
+                        # Stations are on the same line but different branches
+                        message = (
+                            f"'{from_station.name}' and '{to_station.name}' are both on the "
+                            f"{line.name} line, but they are on different branches that don't connect directly. "
+                            f"You may need to select intermediate stations or change lines at an interchange."
+                        )
+                    else:
+                        # Stations are on different lines or connection doesn't exist
+                        message = (
+                            f"No connection found between '{from_station.name}' "
+                            f"and '{to_station.name}' "
+                            f"on {line.name} line."
+                        )
 
                     logger.warning(
                         "route_validation_failed",
@@ -1672,6 +1685,8 @@ class TfLService:
                         from_station_tfl_id=current_segment.station_tfl_id,
                         to_station_tfl_id=next_segment.station_tfl_id,
                         line_tfl_id=current_segment.line_tfl_id,
+                        from_station_name=from_station.name,
+                        to_station_name=to_station.name,
                     )
 
                     return False, message, i
@@ -1696,7 +1711,11 @@ class TfLService:
         line_id: uuid.UUID,
     ) -> bool:
         """
-        Check if a direct or indirect connection exists between two stations on a line using BFS.
+        Check if two stations are reachable on the same route sequence.
+
+        This validates that both stations exist in at least one route sequence
+        for the specified line, preventing cross-branch travel (e.g., Bank → Charing Cross
+        on Northern line, which are on different branches).
 
         Args:
             from_station_id: Starting station UUID
@@ -1704,36 +1723,54 @@ class TfLService:
             line_id: Line UUID
 
         Returns:
-            True if connection exists, False otherwise
+            True if both stations exist in the same route sequence, False otherwise
         """
-        # BFS to find path
-        visited: set[uuid.UUID] = set()
-        queue: deque[uuid.UUID] = deque([from_station_id])
-        visited.add(from_station_id)
+        # Get station and line objects
+        from_station = await self.db.get(Station, from_station_id)
+        to_station = await self.db.get(Station, to_station_id)
+        line = await self.db.get(Line, line_id)
 
-        while queue:
-            current_station_id = queue.popleft()
+        if not from_station or not to_station or not line:
+            logger.warning(
+                "check_connection_missing_entity",
+                from_station_id=from_station_id,
+                to_station_id=to_station_id,
+                line_id=line_id,
+            )
+            return False
 
-            # Check if we reached the destination
-            if current_station_id == to_station_id:
+        # Check if route sequences exist for this line
+        if not line.routes or "routes" not in line.routes:
+            logger.warning(
+                "check_connection_no_routes",
+                line_tfl_id=line.tfl_id,
+                line_name=line.name,
+            )
+            return False
+
+        # Check each route sequence to see if both stations exist in the same one
+        routes = line.routes["routes"]
+        for route in routes:
+            stations = route.get("stations", [])
+
+            # Check if both stations exist in this route sequence
+            if from_station.tfl_id in stations and to_station.tfl_id in stations:
+                logger.debug(
+                    "connection_found_in_route",
+                    route_name=route.get("name", "Unknown"),
+                    from_station=from_station.name,
+                    to_station=to_station.name,
+                )
+                # Allow travel in either direction within the route sequence
                 return True
 
-            # Get all connections from current station on this line
-            result = await self.db.execute(
-                select(StationConnection).where(
-                    StationConnection.from_station_id == current_station_id,
-                    StationConnection.line_id == line_id,
-                )
-            )
-            connections = result.scalars().all()
-
-            # Add unvisited neighbors to queue
-            for connection in connections:
-                if connection.to_station_id not in visited:
-                    visited.add(connection.to_station_id)
-                    queue.append(connection.to_station_id)
-
-        # No path found
+        # Stations not found in any common route sequence
+        logger.debug(
+            "connection_not_found_different_branches",
+            from_station=from_station.name,
+            to_station=to_station.name,
+            line_name=line.name,
+        )
         return False
 
     async def get_line_routes(self, line_tfl_id: str) -> dict[str, Any] | None:

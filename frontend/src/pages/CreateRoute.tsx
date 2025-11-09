@@ -285,6 +285,7 @@ export function CreateRoute() {
               lines={tflData.lines || []}
               stations={tflData.stations || []}
               getLinesForStation={tflData.getLinesForStation}
+              getNextStations={tflData.getNextStations}
               onValidate={handleValidateRoute}
               onSave={handleSaveSegments}
               onCancel={() => {}}
