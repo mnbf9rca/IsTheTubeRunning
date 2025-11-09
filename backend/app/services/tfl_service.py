@@ -544,7 +544,7 @@ class TfLService:
                 detail="Failed to fetch stop types from TfL API.",
             ) from e
 
-    def _extract_hub_fields(self, stop_point: Any) -> tuple[str | None, str | None]:  # noqa: ANN401
+    async def _extract_hub_fields(self, stop_point: Any) -> tuple[str | None, str | None]:  # noqa: ANN401
         """
         Extract hub NaPTAN code and fetch hub common name from TfL API.
 
@@ -564,9 +564,12 @@ class TfLService:
         # Fetch hub details from API if hub code exists
         if hub_code:
             try:
-                response = self.stoppoint_client.GetByPathIdsQueryIncludeCrowdingData(
-                    ids=hub_code,
-                    includeCrowdingData=False,
+                loop = asyncio.get_running_loop()
+                response = await loop.run_in_executor(
+                    None,
+                    self.stoppoint_client.GetByPathIdsQueryIncludeCrowdingData,
+                    hub_code,
+                    False,
                 )
                 if not isinstance(response, ApiError) and response.content and response.content.root:
                     hub_data = response.content.root[0]
@@ -688,7 +691,7 @@ class TfLService:
             station = result.scalar_one_or_none()
 
             # Extract hub fields once
-            hub_code, hub_name = self._extract_hub_fields(stop_point)
+            hub_code, hub_name = await self._extract_hub_fields(stop_point)
 
             # Log hub detection
             if hub_code:
