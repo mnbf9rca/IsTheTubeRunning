@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { X, AlertCircle, Check } from 'lucide-react'
 import { Button } from '../ui/button'
 import { Alert, AlertDescription } from '../ui/alert'
@@ -124,18 +124,18 @@ export function SegmentBuilder({
   const [error, setError] = useState<string | null>(null)
 
   // Get available lines for current station
-  const getCurrentStationLines = (): LineResponse[] => {
+  const getCurrentStationLines = useCallback((): LineResponse[] => {
     if (!currentStation) return []
     const stationLines = getLinesForStation(currentStation.tfl_id)
     return sortLines(stationLines)
-  }
+  }, [currentStation, getLinesForStation])
 
   // Get available lines for next station (for action buttons)
-  const getNextStationLines = (): LineResponse[] => {
+  const getNextStationLines = useCallback((): LineResponse[] => {
     if (!nextStation) return []
     const stationLines = getLinesForStation(nextStation.tfl_id)
     return sortLines(stationLines)
-  }
+  }, [nextStation, getLinesForStation])
 
   // Auto-advance logic when station selected
   useEffect(() => {
@@ -209,20 +209,29 @@ export function SegmentBuilder({
       return
     }
 
-    // Check max segments limit
-    if (localSegments.length >= MAX_ROUTE_SEGMENTS) {
-      setError(`Maximum ${MAX_ROUTE_SEGMENTS} segments allowed per route.`)
-      return
-    }
+    // Add segment for current station if not already in route
+    let updatedSegments: SegmentRequest[]
 
-    // Add segment for current station with selected line
-    const newSegment: SegmentRequest = {
-      sequence: localSegments.length,
-      station_tfl_id: currentStation.tfl_id,
-      line_tfl_id: selectedLine.tfl_id,
-    }
+    if (isCurrentStationLastInRoute) {
+      // Current station is already the last segment (junction from previous line change)
+      // Don't add it again, just continue from here
+      updatedSegments = [...localSegments]
+    } else {
+      // Check max segments limit
+      if (localSegments.length >= MAX_ROUTE_SEGMENTS) {
+        setError(`Maximum ${MAX_ROUTE_SEGMENTS} segments allowed per route.`)
+        return
+      }
 
-    let updatedSegments = [...localSegments, newSegment]
+      // Add segment for current station with selected line
+      const newSegment: SegmentRequest = {
+        sequence: localSegments.length,
+        station_tfl_id: currentStation.tfl_id,
+        line_tfl_id: selectedLine.tfl_id,
+      }
+
+      updatedSegments = [...localSegments, newSegment]
+    }
 
     // If user is switching to a different line, also add the nextStation segment
     // This shows the station where the line change occurs
@@ -244,11 +253,11 @@ export function SegmentBuilder({
         return
       }
 
-      // Add nextStation with the line used to arrive at it
+      // Add nextStation with the line used to DEPART from it (the new line we're switching to)
       const nextSegment: SegmentRequest = {
         sequence: updatedSegments.length,
         station_tfl_id: nextStation.tfl_id,
-        line_tfl_id: selectedLine.tfl_id, // Line used to GET TO this station
+        line_tfl_id: line.tfl_id, // FIX: Use the line we're switching TO, not the line we arrived on
       }
       updatedSegments = [...updatedSegments, nextSegment]
     }
@@ -288,27 +297,45 @@ export function SegmentBuilder({
       return
     }
 
-    // Check max segments limit (we're adding 2 segments)
-    if (localSegments.length + 2 > MAX_ROUTE_SEGMENTS) {
-      setError(`Maximum ${MAX_ROUTE_SEGMENTS} segments allowed per route.`)
-      return
-    }
+    // Build final segments
+    let finalSegments: SegmentRequest[]
 
-    // Add segment for current station with selected line
-    const currentSegment: SegmentRequest = {
-      sequence: localSegments.length,
-      station_tfl_id: currentStation.tfl_id,
-      line_tfl_id: selectedLine.tfl_id,
-    }
+    if (isCurrentStationLastInRoute) {
+      // Current station is already in route (junction from line change)
+      // Only add the destination station
+      if (localSegments.length + 1 > MAX_ROUTE_SEGMENTS) {
+        setError(`Maximum ${MAX_ROUTE_SEGMENTS} segments allowed per route.`)
+        return
+      }
 
-    // Add segment for destination with null line_tfl_id
-    const destinationSegment: SegmentRequest = {
-      sequence: localSegments.length + 1,
-      station_tfl_id: nextStation.tfl_id,
-      line_tfl_id: null, // Destination has no outgoing line
-    }
+      const destinationSegment: SegmentRequest = {
+        sequence: localSegments.length,
+        station_tfl_id: nextStation.tfl_id,
+        line_tfl_id: null, // Destination has no outgoing line
+      }
 
-    const finalSegments = [...localSegments, currentSegment, destinationSegment]
+      finalSegments = [...localSegments, destinationSegment]
+    } else {
+      // Current station not in route yet - add both current and destination
+      if (localSegments.length + 2 > MAX_ROUTE_SEGMENTS) {
+        setError(`Maximum ${MAX_ROUTE_SEGMENTS} segments allowed per route.`)
+        return
+      }
+
+      const currentSegment: SegmentRequest = {
+        sequence: localSegments.length,
+        station_tfl_id: currentStation.tfl_id,
+        line_tfl_id: selectedLine.tfl_id,
+      }
+
+      const destinationSegment: SegmentRequest = {
+        sequence: localSegments.length + 1,
+        station_tfl_id: nextStation.tfl_id,
+        line_tfl_id: null, // Destination has no outgoing line
+      }
+
+      finalSegments = [...localSegments, currentSegment, destinationSegment]
+    }
 
     // Reset UI state
     setCurrentStation(null)
