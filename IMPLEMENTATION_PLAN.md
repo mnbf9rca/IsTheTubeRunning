@@ -627,6 +627,18 @@ The following refactoring suggestions were identified during code review but def
 - Manual transaction management is explicit and easy to understand for a hobby project
 - Following YAGNI principle - add complexity only when needed
 
+**Hub NaPTAN Code Performance Optimizations (Phase 10 - PR61)**:
+- **N+1 Query Pattern in `_fetch_stations_from_api`** (line 652): Current implementation queries the database inside a loop for each station. Could be optimized to bulk-fetch all stations in one query and use dictionary mapping. Code comment added explaining this is acceptable for current scale (see `backend/app/services/tfl_service.py:646-651`).
+- **Bulk Refresh Optimization** (line 672): Currently refreshes all stations after commit. Could track and refresh only newly created stations to save a few milliseconds.
+
+**Rationale for deferring**:
+- TfL lines typically have 20-60 stations (small N), so N+1 queries execute in milliseconds
+- Station fetch operation is infrequent (cached data, runs approximately daily)
+- Database queries are fast (local DB, indexed `tfl_id` column)
+- SQLAlchemy refresh is fast (in-memory cache hit for most cases)
+- No demonstrated performance problem
+- Following YAGNI principle - optimize when monitoring indicates an actual bottleneck
+
 ## Progress Tracking
 
 This document will be updated as phases are completed. Each phase will be marked with completion status and any relevant notes about implementation decisions or deviations from the original plan.

@@ -643,6 +643,12 @@ class TfLService:
         stop_points = response.content.root  # type: ignore[union-attr]
 
         stations = []
+        # Note: This implementation queries the database inside the loop (N+1 pattern).
+        # For this hobby project, this is acceptable because:
+        # - TfL lines typically have 20-60 stations (small N)
+        # - This operation is infrequent (cached station data, runs ~daily)
+        # - Database queries are fast (local DB, indexed tfl_id)
+        # Bulk fetching could be considered if performance monitoring indicates a problem.
         for stop_point in stop_points:
             # Check if station exists in DB
             result = await self.db.execute(select(Station).where(Station.tfl_id == stop_point.id))
