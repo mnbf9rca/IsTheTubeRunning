@@ -3,6 +3,7 @@
 import asyncio
 import uuid
 from datetime import UTC, datetime
+from functools import partial
 from typing import Any
 from urllib.parse import urlparse
 
@@ -544,13 +545,16 @@ class TfLService:
                 detail="Failed to fetch stop types from TfL API.",
             ) from e
 
-    def _extract_hub_fields(self, stop_point: Any) -> tuple[str | None, str | None]:  # noqa: ANN401
+    async def _extract_hub_fields(self, stop_point: Any) -> tuple[str | None, str | None]:  # noqa: ANN401
         """
         Extract hub NaPTAN code and fetch hub common name from TfL API.
 
         Hub information is used to identify cross-mode interchange stations.
         If a hub NaPTAN code exists, makes an API call to fetch the hub details
         and extracts the common name (e.g., "Seven Sisters" for hub "HUBSVS").
+
+        The API call is executed in a thread pool to avoid blocking the event loop.
+        The pydantic-tfl-api client is thread-safe as it uses httpx for HTTP requests.
 
         Args:
             stop_point: Stop point object from TfL API
@@ -564,10 +568,14 @@ class TfLService:
         # Fetch hub details from API if hub code exists
         if hub_code:
             try:
-                response = self.stoppoint_client.GetByPathIdsQueryIncludeCrowdingData(
+                loop = asyncio.get_running_loop()
+                # Use partial to pass keyword arguments to the API call
+                api_call = partial(
+                    self.stoppoint_client.GetByPathIdsQueryIncludeCrowdingData,
                     ids=hub_code,
                     includeCrowdingData=False,
                 )
+                response = await loop.run_in_executor(None, api_call)
                 if not isinstance(response, ApiError) and response.content and response.content.root:
                     hub_data = response.content.root[0]
                     hub_name = getattr(hub_data, "commonName", None)
@@ -688,7 +696,7 @@ class TfLService:
             station = result.scalar_one_or_none()
 
             # Extract hub fields once
-            hub_code, hub_name = self._extract_hub_fields(stop_point)
+            hub_code, hub_name = await self._extract_hub_fields(stop_point)
 
             # Log hub detection
             if hub_code:
