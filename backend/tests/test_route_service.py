@@ -26,7 +26,7 @@ class TestRouteServiceUpsertSegments:
         route = Route(user_id=test_user.id, name="Test Route", active=True)
         db_session.add(route)
 
-        line = Line(tfl_id="victoria", name="Victoria", color="#0019A8", last_updated=datetime.now(UTC))
+        line = Line(tfl_id="victoria", name="Victoria", last_updated=datetime.now(UTC))
         station1 = Station(
             tfl_id="st1",
             name="Station 1",

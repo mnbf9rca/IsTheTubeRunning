@@ -32,7 +32,6 @@ class LineResponse(BaseModel):
     id: UUID
     tfl_id: str
     name: str
-    color: str  # Hex color code (e.g., #0019A8)
     mode: str  # Transport mode: "tube", "overground", "dlr", "elizabeth-line", etc.
     routes: RoutesData | None = None  # Route sequences for branch-aware validation
     last_updated: datetime

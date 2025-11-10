@@ -101,7 +101,6 @@ async def test_get_lines_success(
             id=uuid.uuid4(),
             tfl_id="victoria",
             name="Victoria",
-            color="#0019A8",
             mode="tube",
             last_updated=fixed_time,
         ),
@@ -109,7 +108,6 @@ async def test_get_lines_success(
             id=uuid.uuid4(),
             tfl_id="northern",
             name="Northern",
-            color="#000000",
             mode="tube",
             last_updated=fixed_time,
         ),
@@ -125,7 +123,6 @@ async def test_get_lines_success(
     assert len(data) == 2
     assert data[0]["tfl_id"] == "victoria"
     assert data[0]["name"] == "Victoria"
-    assert data[0]["color"] == "#0019A8"
     assert data[1]["tfl_id"] == "northern"
 
 
@@ -289,7 +286,7 @@ async def test_validate_route_success(
 ) -> None:
     """Test successful route validation."""
     # Create test data for valid UUIDs
-    line = Line(tfl_id="victoria", name="Victoria", color="#0019A8", mode="tube", last_updated=datetime.now(UTC))
+    line = Line(tfl_id="victoria", name="Victoria", mode="tube", last_updated=datetime.now(UTC))
     station1 = Station(
         tfl_id="st1",
         name="Station 1",
@@ -340,7 +337,7 @@ async def test_validate_route_invalid(
 ) -> None:
     """Test route validation with invalid connection."""
     # Create test data
-    line = Line(tfl_id="victoria", name="Victoria", color="#0019A8", mode="tube", last_updated=datetime.now(UTC))
+    line = Line(tfl_id="victoria", name="Victoria", mode="tube", last_updated=datetime.now(UTC))
     station1 = Station(
         tfl_id="st1",
         name="Station 1",
@@ -389,7 +386,7 @@ async def test_validate_route_insufficient_segments(
 ) -> None:
     """Test route validation with too few segments."""
     # Create minimal test data
-    line = Line(tfl_id="victoria", name="Victoria", color="#0019A8", mode="tube", last_updated=datetime.now(UTC))
+    line = Line(tfl_id="victoria", name="Victoria", mode="tube", last_updated=datetime.now(UTC))
     station1 = Station(
         tfl_id="st1",
         name="Station 1",

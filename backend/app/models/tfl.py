@@ -34,10 +34,6 @@ class Line(BaseModel):
         String(255),
         nullable=False,
     )
-    color: Mapped[str] = mapped_column(
-        String(7),  # Hex color code e.g., #0019A8
-        nullable=False,
-    )
     mode: Mapped[str] = mapped_column(
         String(50),  # Transport mode: "tube", "overground", "dlr", "elizabeth-line", etc.
         nullable=False,

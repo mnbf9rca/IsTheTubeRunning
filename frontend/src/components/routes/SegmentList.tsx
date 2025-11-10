@@ -1,6 +1,7 @@
 import { TrainFront } from 'lucide-react'
 import { SegmentCard } from './SegmentCard'
 import type { SegmentResponse, LineResponse, StationResponse } from '../../lib/api'
+import { getLineColor } from '@/lib/tfl-colors'
 
 export interface SegmentListProps {
   /**
@@ -88,7 +89,7 @@ export function SegmentList({
               key={segment.id}
               stationName={station.name}
               lineName={line?.name ?? null}
-              lineColor={line?.color ?? null}
+              lineColor={line ? getLineColor(line.tfl_id) : null}
               sequence={segment.sequence}
               isLast={index === segments.length - 1}
               canDelete={canDelete}

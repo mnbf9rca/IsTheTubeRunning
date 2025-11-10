@@ -30,7 +30,7 @@ export const WHITE = '#FFFFFF'
 
 /**
  * Official TfL Line Colors (hex codes)
- * Backend currently returns #000000 for all lines, so we override with correct colors
+ * These are the authoritative source for line colors in the application.
  */
 const LINE_COLORS: Record<string, string> = {
   bakerloo: '#B36305',

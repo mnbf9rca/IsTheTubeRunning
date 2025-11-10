@@ -804,7 +804,6 @@ export interface LineResponse {
   id: string
   tfl_id: string
   name: string
-  color: string
   mode: string
   routes?: {
     routes: RouteVariant[]

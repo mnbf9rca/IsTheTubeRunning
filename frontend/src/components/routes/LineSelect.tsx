@@ -1,6 +1,7 @@
 import { Badge } from '../ui/badge'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../ui/select'
 import type { LineResponse } from '../../lib/api'
+import { getLineColor } from '@/lib/tfl-colors'
 
 export interface LineSelectProps {
   /**
@@ -65,7 +66,7 @@ export function LineSelect({
           <SelectItem key={line.id} value={line.id}>
             <div className="flex items-center gap-2">
               <Badge
-                style={{ backgroundColor: line.color }}
+                style={{ backgroundColor: getLineColor(line.tfl_id) }}
                 className="h-4 w-4 rounded-full p-0"
                 aria-label={`${line.name} line color`}
               />

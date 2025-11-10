@@ -223,9 +223,9 @@ async def test_integration_build_station_graph(db_session: AsyncSession, setting
 
     # First, fetch lines and populate stations for each line
     # This is required because build_station_graph needs stations in the database
-    lines = await service.fetch_lines(use_cache=False)
-    for line in lines[:3]:  # Only fetch stations for first 3 lines to keep test fast
-        await service.fetch_stations(line_tfl_id=line.tfl_id, use_cache=False)
+    # lines = await service.fetch_lines(use_cache=False)
+    # for line in lines[:3]:  # Only fetch stations for first 3 lines to keep test fast
+    #     await service.fetch_stations(line_tfl_id=line.tfl_id, use_cache=False)
 
     # Now call build_station_graph - this builds connections from route sequences
     result = await service.build_station_graph()

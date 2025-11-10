@@ -85,7 +85,6 @@ class TestRoutesAPI:
         line = Line(
             tfl_id="central",
             name="Central",
-            color="#DC241F",
             last_updated=datetime.now(UTC),
         )
         db_session.add(line)
@@ -1283,7 +1282,6 @@ class TestRoutesAPI:
         line2 = Line(
             tfl_id="victoria",
             name="Victoria",
-            color="#0098D4",
             last_updated=datetime.now(UTC),
         )
         db_session.add(line2)
@@ -1738,7 +1736,6 @@ class TestRouteSegmentsWithHubCodes:
         line1 = Line(
             tfl_id="line1",
             name="Line 1",
-            color="#FF0000",
             mode="tube",
             last_updated=datetime.now(UTC),
             routes={
@@ -1753,7 +1750,6 @@ class TestRouteSegmentsWithHubCodes:
         line2 = Line(
             tfl_id="line2",
             name="Line 2",
-            color="#0000FF",
             mode="overground",
             last_updated=datetime.now(UTC),
             routes={
@@ -1878,7 +1874,6 @@ class TestRouteSegmentsWithHubCodes:
         line3 = Line(
             tfl_id="line3",
             name="Line 3",
-            color="#00FF00",
             mode="dlr",
             last_updated=datetime.now(UTC),
             routes={"routes": [{"name": "Line 3 Route", "stations": ["other-station"]}]},
