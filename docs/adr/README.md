@@ -85,6 +85,14 @@ Testing approaches and patterns.
 - Test Database Dependency Override Pattern
 - IntegrityError Recovery Test Pattern
 
+### [11. Frontend State Management](./11-frontend-state-management.md)
+Frontend state management patterns for complex components.
+- Complex State Management Pattern
+- Pure Function Architecture
+- When to Apply This Pattern
+- Implementation Guidelines
+- Testing Requirements
+
 ---
 
 ## How to Add New Architecture Decisions
