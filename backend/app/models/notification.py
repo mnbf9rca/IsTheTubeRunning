@@ -3,6 +3,7 @@
 import enum
 import uuid
 from datetime import datetime
+from typing import TYPE_CHECKING
 
 from sqlalchemy import (
     CheckConstraint,
@@ -16,8 +17,10 @@ from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.models.base import BaseModel
-from app.models.route import Route
-from app.models.user import User
+
+if TYPE_CHECKING:  # Avoid circular imports -> route.py imports from app.helpers.station_resolution (line 22)
+    from app.models.route import Route
+    from app.models.user import User
 
 
 class NotificationMethod(str, enum.Enum):
