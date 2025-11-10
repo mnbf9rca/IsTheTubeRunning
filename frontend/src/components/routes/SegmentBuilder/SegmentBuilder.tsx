@@ -16,6 +16,7 @@ import type {
   SegmentRequest,
   RouteValidationResponse,
 } from '../../../lib/api'
+import type { Step } from './types'
 
 // Maximum number of segments allowed per route
 const MAX_ROUTE_SEGMENTS = 20
@@ -116,9 +117,7 @@ export function SegmentBuilder({
   const [nextStation, setNextStation] = useState<StationResponse | null>(null)
 
   // UI state
-  const [step, setStep] = useState<
-    'select-station' | 'select-line' | 'select-next-station' | 'choose-action'
-  >('select-station')
+  const [step, setStep] = useState<Step>('select-station')
   const [isSaving, setIsSaving] = useState(false)
   const [saveSuccess, setSaveSuccess] = useState(false)
   const [error, setError] = useState<string | null>(null)
