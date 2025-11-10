@@ -795,32 +795,26 @@ describe('SegmentBuilder', () => {
       const editButton = screen.getByRole('button', { name: /Edit Route/i })
       await user.click(editButton)
 
-      // Now in edit mode - delete the destination (Bank)
-      const deleteButtons = screen.getAllByRole('button', { name: /Delete/i })
-      await user.click(deleteButtons[2]) // Delete Bank (destination)
-
-      // After deletion:
-      // - Southgate and Leicester Square should remain
-      // - Bank should be removed
-      // - Should be able to continue building
+      // After clicking "Edit Route":
+      // - All segments should still exist in localSegments (NOT removed)
+      // - Destination marker should be hidden from display (choose-action mode)
+      // - Bank (the destination) should show with action buttons
       expect(screen.getAllByText(southgateStation.name).length).toBeGreaterThanOrEqual(1)
       expect(screen.getAllByText(leicesterSquareStation.name).length).toBeGreaterThanOrEqual(1)
-      expect(screen.queryByText(bankStation.name)).not.toBeInTheDocument()
+      // Bank (destination station) should now be visible for editing
+      expect(screen.getAllByText(bankStation.name).length).toBeGreaterThanOrEqual(1)
 
       // Should show "Continue Your Journey" heading
       expect(screen.getByText('Continue Your Journey')).toBeInTheDocument()
 
-      // getNextStations should eventually be called with Leicester Square as current station
-      // Note: This happens when availableStations is computed after state update
-      // The test verifies the component entered the correct state
-      expect(getNextStations).toHaveBeenCalled()
+      // Should show "Mark as Destination" button (choose-action step for Bank)
+      expect(
+        screen.getByRole('button', { name: /Mark this as my destination/i })
+      ).toBeInTheDocument()
 
-      // Verify it was called with the correct parameters
-      const calls = getNextStations.mock.calls
-      const foundCall = calls.some(
-        (call) => call[0] === leicesterSquareStation.tfl_id && call[1] === piccadillyLine.tfl_id
-      )
-      expect(foundCall).toBe(true)
+      // Should have delete buttons for the existing segments (can edit)
+      const deleteButtons = screen.getAllByRole('button', { name: /Delete/i })
+      expect(deleteButtons.length).toBeGreaterThan(0)
     })
   })
 })

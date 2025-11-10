@@ -378,6 +378,46 @@ export function SegmentBuilder({
     }
   }
 
+  /**
+   * Resume building from the last segment in the list
+   * Sets state as if user just selected that last station
+   * @param segments - The current list of segments to resume from
+   * @param targetStep - The step to set ('select-next-station' or 'choose-action')
+   */
+  const resumeFromLastSegment = (
+    segments: SegmentRequest[],
+    targetStep: 'select-next-station' | 'choose-action' = 'select-next-station'
+  ) => {
+    if (segments.length === 0) {
+      // No segments - start fresh
+      setCurrentStation(null)
+      setSelectedLine(null)
+      setNextStation(null)
+      setStep('select-station')
+    } else {
+      // Resume from last segment
+      const lastSegment = segments[segments.length - 1]
+      const lastStation = stations.find((s) => s.tfl_id === lastSegment.station_tfl_id)
+      const lastLine = lastSegment.line_tfl_id
+        ? lines.find((l) => l.tfl_id === lastSegment.line_tfl_id)
+        : null
+
+      if (lastStation && lastLine) {
+        // Ready to continue from this station
+        setCurrentStation(lastStation)
+        setSelectedLine(lastLine)
+        setNextStation(null)
+        setStep(targetStep)
+      } else {
+        // Fallback to initial state
+        setCurrentStation(null)
+        setSelectedLine(null)
+        setNextStation(null)
+        setStep('select-station')
+      }
+    }
+  }
+
   const handleDeleteSegment = (sequence: number) => {
     // Prevent deletion of destination station (last segment with line_tfl_id === null)
     const isDestination =
@@ -398,35 +438,8 @@ export function SegmentBuilder({
 
     setLocalSegments(updatedSegments)
 
-    // Intelligently reset state based on remaining segments
-    if (updatedSegments.length === 0) {
-      // No segments left - start fresh
-      setCurrentStation(null)
-      setSelectedLine(null)
-      setNextStation(null)
-      setStep('select-station')
-    } else {
-      // Segments remain - continue from last segment
-      const lastSegment = updatedSegments[updatedSegments.length - 1]
-      const lastStation = stations.find((s) => s.tfl_id === lastSegment.station_tfl_id)
-      const lastLine = lastSegment.line_tfl_id
-        ? lines.find((l) => l.tfl_id === lastSegment.line_tfl_id)
-        : null
-
-      if (lastStation && lastLine) {
-        // Last segment has both station and line - ready to add next segment
-        setCurrentStation(lastStation)
-        setSelectedLine(lastLine)
-        setNextStation(null)
-        setStep('select-next-station')
-      } else {
-        // Shouldn't happen in normal flow, but handle gracefully
-        setCurrentStation(null)
-        setSelectedLine(null)
-        setNextStation(null)
-        setStep('select-station')
-      }
-    }
+    // Resume from the last remaining segment
+    resumeFromLastSegment(updatedSegments, 'select-next-station')
 
     setError(null)
   }
@@ -451,14 +464,27 @@ export function SegmentBuilder({
   const hasMaxSegments = localSegments.length >= MAX_ROUTE_SEGMENTS
 
   // Check if route is complete (has destination segment with line_tfl_id: null)
+  // When in choose-action mode, we're editing the route, so it's not "complete" for UI purposes
   const isRouteComplete =
-    localSegments.length >= 2 && localSegments[localSegments.length - 1].line_tfl_id === null
+    localSegments.length >= 2 &&
+    localSegments[localSegments.length - 1].line_tfl_id === null &&
+    step !== 'choose-action'
 
   // Convert local segments to SegmentResponse format for display
-  const displaySegments: SegmentResponse[] = localSegments.map((seg) => ({
-    id: `temp-${seg.sequence}`, // Temporary ID for display
-    ...seg,
-  }))
+  // When in choose-action step with a complete route, hide the destination marker
+  // to show action buttons for the last actual station
+  const displaySegments: SegmentResponse[] = localSegments
+    .filter((seg) => {
+      // In choose-action mode, hide the destination so we can show action buttons
+      if (step === 'choose-action' && seg.line_tfl_id === null) {
+        return false
+      }
+      return true
+    })
+    .map((seg) => ({
+      id: `temp-${seg.sequence}`, // Temporary ID for display
+      ...seg,
+    }))
 
   // Instructions based on current step
   const getInstructions = () => {
@@ -653,41 +679,34 @@ export function SegmentBuilder({
         <Button
           variant="outline"
           onClick={() => {
-            // Remove the destination segment to allow editing
-            const updatedSegments = localSegments.slice(0, -1)
-            setLocalSegments(updatedSegments)
-            setSaveSuccess(false)
-            setError(null)
+            // Enter edit mode WITHOUT removing any segments
+            // Find the destination segment (line_tfl_id === null) to get the destination station
+            const destinationSegment = localSegments.find((seg) => seg.line_tfl_id === null)
+            if (destinationSegment && localSegments.length >= 2) {
+              // Get the segment before the destination to find the line we arrived on
+              const segmentBeforeDestination = localSegments[localSegments.length - 2]
+              const prevStation = stations.find(
+                (s) => s.tfl_id === segmentBeforeDestination.station_tfl_id
+              )
+              const destinationStation = stations.find(
+                (s) => s.tfl_id === destinationSegment.station_tfl_id
+              )
+              const arrivalLine = lines.find(
+                (l) => l.tfl_id === segmentBeforeDestination.line_tfl_id
+              )
 
-            // Intelligently resume from last segment (same logic as handleDeleteSegment)
-            if (updatedSegments.length === 0) {
-              // No segments left after removing destination - start fresh
-              setCurrentStation(null)
-              setSelectedLine(null)
-              setNextStation(null)
-              setStep('select-station')
-            } else {
-              // Resume from last segment
-              const lastSegment = updatedSegments[updatedSegments.length - 1]
-              const lastStation = stations.find((s) => s.tfl_id === lastSegment.station_tfl_id)
-              const lastLine = lastSegment.line_tfl_id
-                ? lines.find((l) => l.tfl_id === lastSegment.line_tfl_id)
-                : null
-
-              if (lastStation && lastLine) {
-                // Ready to add next segment
-                setCurrentStation(lastStation)
-                setSelectedLine(lastLine)
-                setNextStation(null)
-                setStep('select-next-station')
-              } else {
-                // Fallback to initial state
-                setCurrentStation(null)
-                setSelectedLine(null)
-                setNextStation(null)
-                setStep('select-station')
+              if (prevStation && destinationStation && arrivalLine) {
+                // Set up state as if we just selected the destination as the "next station"
+                // This shows line buttons for interchanges + "Mark as Destination" button
+                setCurrentStation(prevStation)
+                setSelectedLine(arrivalLine)
+                setNextStation(destinationStation)
+                setStep('choose-action')
               }
             }
+
+            setSaveSuccess(false)
+            setError(null)
           }}
           disabled={isSaving}
         >
