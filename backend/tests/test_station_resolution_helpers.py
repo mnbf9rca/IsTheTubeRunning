@@ -21,7 +21,6 @@ from app.helpers.station_resolution import (
     select_station_from_candidates,
     should_canonicalize_to_hub,
 )
-from app.models.tfl import Station
 
 from tests.conftest import create_test_station
 
@@ -93,9 +92,9 @@ class TestSelectStationFromCandidates:
     def test_select_station_from_candidates_deterministic(self):
         """Should always return the same result for the same input (deterministic)."""
         stations = [
-            Station(tfl_id="C", name="C", latitude=0.0, longitude=0.0, lines=[]),
-            Station(tfl_id="A", name="A", latitude=0.0, longitude=0.0, lines=[]),
-            Station(tfl_id="B", name="B", latitude=0.0, longitude=0.0, lines=[]),
+            create_test_station("C", "C", []),
+            create_test_station("A", "A", []),
+            create_test_station("B", "B", []),
         ]
 
         result1 = select_station_from_candidates(stations)
@@ -257,15 +256,9 @@ class TestGroupStationsByHub:
 
     def test_group_stations_by_hub_multiple_hubs(self):
         """Should correctly group stations into multiple separate hubs."""
-        hub1_station1 = Station(
-            tfl_id="A1", name="Hub1 A", latitude=0.0, longitude=0.0, lines=["line1"], hub_naptan_code="HUB1"
-        )
-        hub1_station2 = Station(
-            tfl_id="A2", name="Hub1 B", latitude=0.0, longitude=0.0, lines=["line2"], hub_naptan_code="HUB1"
-        )
-        hub2_station1 = Station(
-            tfl_id="B1", name="Hub2 A", latitude=0.0, longitude=0.0, lines=["line3"], hub_naptan_code="HUB2"
-        )
+        hub1_station1 = create_test_station("A1", "Hub1 A", ["line1"], hub_naptan_code="HUB1")
+        hub1_station2 = create_test_station("A2", "Hub1 B", ["line2"], hub_naptan_code="HUB1")
+        hub2_station1 = create_test_station("B1", "Hub2 A", ["line3"], hub_naptan_code="HUB2")
 
         hub_groups, standalone_stations = group_stations_by_hub([hub1_station1, hub1_station2, hub2_station1])
 
@@ -289,8 +282,8 @@ class TestAggregateStationLines:
 
     def test_aggregate_station_lines_multiple_stations(self):
         """Should aggregate and deduplicate lines from multiple stations."""
-        station1 = Station(tfl_id="A", name="Station A", latitude=0.0, longitude=0.0, lines=["line1", "line2"])
-        station2 = Station(tfl_id="B", name="Station B", latitude=0.0, longitude=0.0, lines=["line1", "line3"])
+        station1 = create_test_station("A", "Station A", ["line1", "line2"])
+        station2 = create_test_station("B", "Station B", ["line1", "line3"])
 
         result = aggregate_station_lines([station1, station2])
 
@@ -298,8 +291,8 @@ class TestAggregateStationLines:
 
     def test_aggregate_station_lines_no_duplicates(self):
         """Should return sorted unique lines when no duplicates exist."""
-        station1 = Station(tfl_id="A", name="Station A", latitude=0.0, longitude=0.0, lines=["line2"])
-        station2 = Station(tfl_id="B", name="Station B", latitude=0.0, longitude=0.0, lines=["line3"])
+        station1 = create_test_station("A", "Station A", ["line2"])
+        station2 = create_test_station("B", "Station B", ["line3"])
 
         result = aggregate_station_lines([station1, station2])
 
@@ -307,8 +300,8 @@ class TestAggregateStationLines:
 
     def test_aggregate_station_lines_all_same(self):
         """Should deduplicate when all stations serve same lines."""
-        station1 = Station(tfl_id="A", name="Station A", latitude=0.0, longitude=0.0, lines=["line1"])
-        station2 = Station(tfl_id="B", name="Station B", latitude=0.0, longitude=0.0, lines=["line1"])
+        station1 = create_test_station("A", "Station A", ["line1"])
+        station2 = create_test_station("B", "Station B", ["line1"])
 
         result = aggregate_station_lines([station1, station2])
 
@@ -316,7 +309,7 @@ class TestAggregateStationLines:
 
     def test_aggregate_station_lines_single_station(self):
         """Should return station's lines when only one station provided."""
-        station = Station(tfl_id="A", name="Station A", latitude=0.0, longitude=0.0, lines=["line1", "line2"])
+        station = create_test_station("A", "Station A", ["line1", "line2"])
 
         result = aggregate_station_lines([station])
 
@@ -361,12 +354,8 @@ class TestGetLatestUpdateTime:
     def test_get_latest_update_time_all_same(self):
         """Should handle all stations having same timestamp."""
         timestamp = datetime(2025, 1, 1, tzinfo=UTC)
-        station1 = Station(
-            tfl_id="A", name="Station A", latitude=0.0, longitude=0.0, lines=["line1"], last_updated=timestamp
-        )
-        station2 = Station(
-            tfl_id="B", name="Station B", latitude=0.0, longitude=0.0, lines=["line2"], last_updated=timestamp
-        )
+        station1 = create_test_station("A", "Station A", ["line1"], last_updated=timestamp)
+        station2 = create_test_station("B", "Station B", ["line2"], last_updated=timestamp)
 
         result = get_latest_update_time([station1, station2])
 
