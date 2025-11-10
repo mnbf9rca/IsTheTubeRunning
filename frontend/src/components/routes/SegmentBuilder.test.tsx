@@ -816,5 +816,74 @@ describe('SegmentBuilder', () => {
       const deleteButtons = screen.getAllByRole('button', { name: /Delete/i })
       expect(deleteButtons.length).toBeGreaterThan(0)
     })
+
+    it('should allow going back from choose-action to re-select next station (issue #90)', async () => {
+      const user = userEvent.setup()
+
+      // Start with empty route - will select stations manually
+      const segments: SegmentResponse[] = []
+
+      render(
+        <SegmentBuilder
+          {...defaultProps}
+          initialSegments={segments}
+          lines={[piccadillyLine, northernLine]}
+          stations={[southgateStation, leicesterSquareStation, bankStation]}
+          getLinesForStation={vi.fn(() => [piccadillyLine])}
+          getNextStations={vi.fn((stationId, lineId) => {
+            if (stationId === southgateStation.tfl_id && lineId === piccadillyLine.tfl_id) {
+              return [leicesterSquareStation, bankStation]
+            }
+            return []
+          })}
+        />
+      )
+
+      // Select starting station
+      const startStationInput = screen.getByRole('combobox', { name: /Select tube station/i })
+      await user.click(startStationInput)
+      await user.click(screen.getByText(southgateStation.name))
+
+      // Should now show next station selector
+      expect(screen.getByText('Select destination...')).toBeInTheDocument()
+
+      // Select next station
+      const nextStationSelector = screen.getAllByRole('combobox', {
+        name: /Select tube station/i,
+      })[0]
+      await user.click(nextStationSelector)
+      await user.click(screen.getByText(leicesterSquareStation.name))
+
+      // Should now be in choose-action step
+      expect(screen.getByText(/What next/i)).toBeInTheDocument()
+
+      // Should show the selected station with delete button
+      expect(screen.getByText('To:')).toBeInTheDocument()
+      expect(screen.getAllByText(leicesterSquareStation.name).length).toBeGreaterThanOrEqual(1)
+
+      // Should have a remove/back button
+      const removeButton = screen.getByRole('button', { name: /Remove selected station/i })
+      expect(removeButton).toBeInTheDocument()
+
+      // Click the remove button
+      await user.click(removeButton)
+
+      // Should be back to select-next-station step
+      expect(screen.getByText('Select destination...')).toBeInTheDocument()
+
+      // "What next" should be gone
+      expect(screen.queryByText(/What next/i)).not.toBeInTheDocument()
+
+      // Should be able to select a different station now
+      const nextStationSelectorAgain = screen.getAllByRole('combobox', {
+        name: /Select tube station/i,
+      })[0]
+      await user.click(nextStationSelectorAgain)
+      await user.click(screen.getByText(bankStation.name))
+
+      // Should be in choose-action step again with Bank
+      expect(screen.getByText(/What next/i)).toBeInTheDocument()
+      expect(screen.getAllByText(bankStation.name).length).toBeGreaterThanOrEqual(1)
+    })
   })
 })

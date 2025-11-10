@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react'
-import { X, AlertCircle, Check } from 'lucide-react'
+import { X, AlertCircle, Check, Trash2 } from 'lucide-react'
 import { Button } from '../ui/button'
 import { Alert, AlertDescription } from '../ui/alert'
 import { Label } from '../ui/label'
@@ -419,6 +419,18 @@ export function SegmentBuilder({
   }
 
   /**
+   * Go back from choose-action step to select-next-station
+   * Allows user to re-select the next station if they made a mistake
+   * When in edit mode (saveSuccess is false and we have local segments), stay in edit mode
+   */
+  const handleBackFromChooseAction = () => {
+    setNextStation(null)
+    setStep('select-next-station')
+    setError(null)
+    // Don't exit edit mode - keep saveSuccess as false so we stay in editing state
+  }
+
+  /**
    * Enter edit mode for a completed route
    * Sets state to show the destination station with action buttons (line selection + mark as destination)
    */
@@ -494,11 +506,14 @@ export function SegmentBuilder({
   const hasMaxSegments = localSegments.length >= MAX_ROUTE_SEGMENTS
 
   // Check if route is complete (has destination segment with line_tfl_id: null)
-  // When in choose-action mode, we're editing the route, so it's not "complete" for UI purposes
+  // When in choose-action mode, select-next-station with currentStation, or nextStation is set,
+  // we're editing the route, so it's not "complete" for UI purposes
   const isRouteComplete =
     localSegments.length >= 2 &&
     localSegments[localSegments.length - 1].line_tfl_id === null &&
-    step !== 'choose-action'
+    step !== 'choose-action' &&
+    !(step === 'select-next-station' && currentStation) &&
+    !nextStation
 
   // Convert local segments to SegmentResponse format for display
   // When in choose-action step with a complete route, hide the destination marker
@@ -660,9 +675,20 @@ export function SegmentBuilder({
 
             {/* Show selected next station before action buttons */}
             {step === 'choose-action' && nextStation && (
-              <div className="rounded-md bg-muted p-3">
-                <div className="text-sm font-medium text-muted-foreground">To:</div>
-                <div className="text-base font-semibold">{nextStation.name}</div>
+              <div className="rounded-md bg-muted p-3 flex items-center justify-between">
+                <div>
+                  <div className="text-sm font-medium text-muted-foreground">To:</div>
+                  <div className="text-base font-semibold">{nextStation.name}</div>
+                </div>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  onClick={handleBackFromChooseAction}
+                  aria-label="Remove selected station"
+                  className="h-8 w-8"
+                >
+                  <Trash2 className="h-4 w-4" />
+                </Button>
               </div>
             )}
 
