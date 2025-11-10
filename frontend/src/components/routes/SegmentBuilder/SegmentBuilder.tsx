@@ -17,9 +17,12 @@ import type {
   RouteValidationResponse,
 } from '../../../lib/api'
 import type { Step } from './types'
-
-// Maximum number of segments allowed per route
-const MAX_ROUTE_SEGMENTS = 20
+import {
+  MAX_ROUTE_SEGMENTS,
+  validateNotDuplicate,
+  validateMaxSegments,
+  validateCanDeleteSegment,
+} from './validation'
 
 export interface SegmentBuilderProps {
   /**
@@ -196,17 +199,15 @@ export function SegmentBuilder({
 
     // Check for duplicate stations (acyclic enforcement)
     // Allow currentStation if it's the last segment (junction we're continuing from)
-    const lastSegment = localSegments[localSegments.length - 1]
-    const isCurrentStationLastInRoute = lastSegment?.station_tfl_id === currentStation.tfl_id
-    const isDuplicate =
-      !isCurrentStationLastInRoute &&
-      localSegments.some((seg) => seg.station_tfl_id === currentStation.tfl_id)
-    if (isDuplicate) {
-      setError(
-        `This station (${currentStation.name}) is already in your route. Routes cannot visit the same station twice.`
-      )
+    const validation = validateNotDuplicate(currentStation, localSegments, { allowLast: true })
+    if (!validation.valid) {
+      setError(validation.error)
       return
     }
+
+    // Check if currentStation is already the last segment (needed for logic below)
+    const lastSegment = localSegments[localSegments.length - 1]
+    const isCurrentStationLastInRoute = lastSegment?.station_tfl_id === currentStation.tfl_id
 
     // Add segment for current station if not already in route
     let updatedSegments: SegmentRequest[]
@@ -217,8 +218,9 @@ export function SegmentBuilder({
       updatedSegments = [...localSegments]
     } else {
       // Check max segments limit
-      if (localSegments.length >= MAX_ROUTE_SEGMENTS) {
-        setError(`Maximum ${MAX_ROUTE_SEGMENTS} segments allowed per route.`)
+      const maxSegmentsValidation = validateMaxSegments(localSegments.length)
+      if (!maxSegmentsValidation.valid) {
+        setError(maxSegmentsValidation.error)
         return
       }
 
@@ -236,19 +238,16 @@ export function SegmentBuilder({
     // This shows the station where the line change occurs
     if (line.id !== selectedLine.id) {
       // Check if nextStation is a duplicate
-      const isNextDuplicate = updatedSegments.some(
-        (seg) => seg.station_tfl_id === nextStation.tfl_id
-      )
-      if (isNextDuplicate) {
-        setError(
-          `This station (${nextStation.name}) is already in your route. Routes cannot visit the same station twice.`
-        )
+      const nextValidation = validateNotDuplicate(nextStation, updatedSegments)
+      if (!nextValidation.valid) {
+        setError(nextValidation.error)
         return
       }
 
       // Check max segments limit after adding both segments
-      if (updatedSegments.length >= MAX_ROUTE_SEGMENTS) {
-        setError(`Maximum ${MAX_ROUTE_SEGMENTS} segments allowed per route.`)
+      const maxSegmentsValidation = validateMaxSegments(updatedSegments.length)
+      if (!maxSegmentsValidation.valid) {
+        setError(maxSegmentsValidation.error)
         return
       }
 
@@ -276,25 +275,23 @@ export function SegmentBuilder({
 
     // Check for duplicate stations
     // Allow currentStation if it's the last segment (junction we're continuing from)
-    const lastSegment = localSegments[localSegments.length - 1]
-    const isCurrentStationLastInRoute = lastSegment?.station_tfl_id === currentStation.tfl_id
-    const isDuplicateCurrent =
-      !isCurrentStationLastInRoute &&
-      localSegments.some((seg) => seg.station_tfl_id === currentStation.tfl_id)
-    if (isDuplicateCurrent) {
-      setError(
-        `This station (${currentStation.name}) is already in your route. Routes cannot visit the same station twice.`
-      )
+    const currentValidation = validateNotDuplicate(currentStation, localSegments, {
+      allowLast: true,
+    })
+    if (!currentValidation.valid) {
+      setError(currentValidation.error)
       return
     }
 
-    const isDuplicateNext = localSegments.some((seg) => seg.station_tfl_id === nextStation.tfl_id)
-    if (isDuplicateNext) {
-      setError(
-        `This station (${nextStation.name}) is already in your route. Routes cannot visit the same station twice.`
-      )
+    const nextValidation = validateNotDuplicate(nextStation, localSegments)
+    if (!nextValidation.valid) {
+      setError(nextValidation.error)
       return
     }
+
+    // Check if currentStation is already the last segment (needed for logic below)
+    const lastSegment = localSegments[localSegments.length - 1]
+    const isCurrentStationLastInRoute = lastSegment?.station_tfl_id === currentStation.tfl_id
 
     // Build final segments
     let finalSegments: SegmentRequest[]
@@ -302,8 +299,9 @@ export function SegmentBuilder({
     if (isCurrentStationLastInRoute) {
       // Current station is already in route (junction from line change)
       // Only add the destination station
-      if (localSegments.length + 1 > MAX_ROUTE_SEGMENTS) {
-        setError(`Maximum ${MAX_ROUTE_SEGMENTS} segments allowed per route.`)
+      const maxSegmentsValidation = validateMaxSegments(localSegments.length, 1)
+      if (!maxSegmentsValidation.valid) {
+        setError(maxSegmentsValidation.error)
         return
       }
 
@@ -316,8 +314,9 @@ export function SegmentBuilder({
       finalSegments = [...localSegments, destinationSegment]
     } else {
       // Current station not in route yet - add both current and destination
-      if (localSegments.length + 2 > MAX_ROUTE_SEGMENTS) {
-        setError(`Maximum ${MAX_ROUTE_SEGMENTS} segments allowed per route.`)
+      const maxSegmentsValidation = validateMaxSegments(localSegments.length, 2)
+      if (!maxSegmentsValidation.valid) {
+        setError(maxSegmentsValidation.error)
         return
       }
 
@@ -460,14 +459,10 @@ export function SegmentBuilder({
   }
 
   const handleDeleteSegment = (sequence: number) => {
-    // Prevent deletion of destination station (last segment with line_tfl_id === null)
-    const isDestination =
-      sequence === localSegments.length - 1 && localSegments[sequence].line_tfl_id === null
-
-    if (isDestination) {
-      setError(
-        'Cannot delete the destination station. Delete an earlier station to shorten your route.'
-      )
+    // Validate deletion (prevents deleting destination, validates bounds)
+    const deleteValidation = validateCanDeleteSegment(sequence, localSegments)
+    if (!deleteValidation.valid) {
+      setError(deleteValidation.error)
       return
     }
 
