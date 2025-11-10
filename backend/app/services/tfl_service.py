@@ -19,6 +19,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import aliased
 
 from app.core.config import settings
+from app.helpers.route_validation import find_valid_connection_in_routes
 from app.helpers.station_resolution import (
     NoMatchingStationsError,
     StationNotFoundError,
@@ -2352,46 +2353,29 @@ class TfLService:
             )
             return False
 
-        # Check each route sequence to see if both stations exist in the correct order
-        # Performance: O(n) per route variant using index(), same complexity as previous
-        # 'in' operator. With typical route lengths of 20-60 stations and infrequent
-        # validation (only during route creation/editing), performance impact is negligible.
+        # Use pure helper function to find valid connection
+        # Performance: O(r * n) where r = route variants (2-6), n = stations (20-60)
+        # With infrequent validation (only during route creation/editing), performance is negligible.
         routes = line.routes["routes"]
-        for route in routes:
-            stations = route.get("stations", [])
+        result = find_valid_connection_in_routes(
+            from_station.tfl_id,
+            to_station.tfl_id,
+            routes,
+        )
 
-            # Check if both stations exist in this route sequence and validate order
-            try:
-                from_index = stations.index(from_station.tfl_id)
-                to_index = stations.index(to_station.tfl_id)
+        if result and result["found"]:
+            logger.debug(
+                "connection_found_in_route",
+                route_name=result["route_name"],
+                direction=result["direction"],
+                from_station=from_station.name,
+                to_station=to_station.name,
+                from_index=result["from_index"],
+                to_index=result["to_index"],
+            )
+            return True
 
-                # Enforce directional validation: to_station must come after from_station
-                if from_index < to_index:
-                    logger.debug(
-                        "connection_found_in_route",
-                        route_name=route.get("name", "Unknown"),
-                        direction=route.get("direction", "Unknown"),
-                        from_station=from_station.name,
-                        to_station=to_station.name,
-                        from_index=from_index,
-                        to_index=to_index,
-                    )
-                    return True
-                # Stations found but in wrong order (backwards travel)
-                logger.debug(
-                    "connection_found_but_wrong_direction",
-                    route_name=route.get("name", "Unknown"),
-                    direction=route.get("direction", "Unknown"),
-                    from_station=from_station.name,
-                    to_station=to_station.name,
-                    from_index=from_index,
-                    to_index=to_index,
-                )
-            except ValueError:
-                # One or both stations not in this route variant, try next route
-                continue
-
-        # Stations not found in any common route sequence
+        # Stations not found in any common route sequence in correct order
         logger.debug(
             "connection_not_found_different_branches",
             from_station=from_station.name,
