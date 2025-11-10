@@ -68,8 +68,8 @@ async def get_stations(
     """
     Get tube stations, optionally filtered by line and/or deduplicated by hub.
 
-    Returns cached data from Redis or fetches from TfL API if cache expired.
-    Data is cached for 24 hours (or TTL specified by TfL API).
+    Returns cached data from Redis or database. Data is cached for 24 hours.
+    Stations are populated by the admin-controlled /admin/tfl/build-graph endpoint.
 
     When deduplicated=true, stations that share a hub_naptan_code are grouped into
     a single representative station with:
@@ -87,7 +87,9 @@ async def get_stations(
         List of stations with location and line information
 
     Raises:
-        HTTPException: 503 if TfL API is unavailable
+        HTTPException: 503 if TfL data not initialized (run /admin/tfl/build-graph)
+        HTTPException: 404 if line_id provided but line doesn't exist
+        HTTPException: 404 if line exists but no stations found
 
     Examples:
         GET /tfl/stations  # All stations including hub children

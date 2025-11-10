@@ -243,3 +243,28 @@ Accept hub NaPTAN codes (e.g., `HUBSVS`) directly as `station_tfl_id` values in 
 
 ### Related Decisions
 - Builds on "Hub Interchange Validation" above
+
+---
+
+## Line Validation Before TfL API Calls
+
+### Status
+Active (Issue #38)
+
+### Context
+`/api/v1/tfl/stations` accepted arbitrary `line_id` parameters and queried TfL API on cache miss, even for invalid lines. Malicious actors could spam non-existent line IDs, exhausting API quota and risking key blocking.
+
+### Decision
+Database-only for public endpoints: validate line exists before database query, never call TfL API. Returns 503 if graph uninitialized, 404 if line invalid or no stations. Added `skip_database_validation` parameter for graph building to allow controlled TfL API access.
+
+### Consequences
+**Easier:**
+- Protects against API quota exhaustion
+- Database whitelist of valid lines
+- Consistent error responses (404/503)
+- Clean API: `skip_database_validation` parameter makes intent explicit
+
+**More Difficult:**
+- Requires `/admin/tfl/build-graph` before queries work
+- New TfL lines require manual graph rebuild
+- Additional database query on cache miss (minimal: indexed lookup)

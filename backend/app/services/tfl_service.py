@@ -20,6 +20,15 @@ from sqlalchemy.orm import aliased
 
 from app.core.config import settings
 from app.helpers.route_validation import find_valid_connection_in_routes
+from app.helpers.station_fetching import (
+    DatabaseNotInitializedError,
+    LineNotFoundError,
+    NoStationsForLineError,
+    build_station_cache_key,
+    filter_stations_by_line_tfl_id,
+    is_database_initialized,
+    validate_stations_exist_for_line,
+)
 from app.helpers.station_resolution import (
     NoMatchingStationsError,
     StationNotFoundError,
@@ -730,21 +739,30 @@ class TfLService:
 
         return stations, ttl
 
-    async def fetch_stations(self, line_tfl_id: str | None = None, use_cache: bool = True) -> list[Station]:
+    async def fetch_stations(
+        self, line_tfl_id: str | None = None, use_cache: bool = True, skip_database_validation: bool = False
+    ) -> list[Station]:
         """
-        Fetch stations from TfL API or database cache.
+        Fetch stations from database or TfL API (during graph building).
 
-        This method fetches ALL stations on a line, including non-TfL-operated National Rail stations,
-        by setting tflOperatedNationalRailStationsOnly=False.
+        For public endpoints, this reads from database only. During graph building
+        (skip_database_validation=True), it calls TfL API to populate the database.
 
         Args:
             line_tfl_id: Optional TfL line ID to filter stations (e.g., "victoria")
             use_cache: Whether to use Redis cache (default: True)
+            skip_database_validation: If True, skip validation and call TfL API directly.
+                Used during graph building to populate database. Default: False.
 
         Returns:
-            List of Station objects from database
+            List of Station objects
+
+        Raises:
+            HTTPException(503): If database not initialized (and skip_database_validation=False)
+            HTTPException(404): If line doesn't exist (and skip_database_validation=False)
+            HTTPException(404): If line exists but no stations found (and skip_database_validation=False)
         """
-        cache_key = f"stations:line:{line_tfl_id}" if line_tfl_id else "stations:all"
+        cache_key = build_station_cache_key(line_tfl_id)
 
         # Try cache first
         if use_cache:
@@ -753,23 +771,25 @@ class TfLService:
                 logger.debug("stations_cache_hit", line_tfl_id=line_tfl_id, count=len(cached_stations))
                 return cached_stations
 
-        logger.info("fetching_stations_from_tfl_api", line_tfl_id=line_tfl_id)
+        # Route to appropriate fetch method
+        if skip_database_validation:
+            # Graph building always requires a specific line_tfl_id
+            if line_tfl_id is None:
+                msg = "line_tfl_id is required when skip_database_validation=True"
+                raise ValueError(msg)
+            return await self._fetch_stations_for_graph_building(line_tfl_id, cache_key)
+        return await self._fetch_stations_from_database(line_tfl_id, cache_key)
 
+    async def _fetch_stations_for_graph_building(self, line_tfl_id: str, cache_key: str) -> list[Station]:
+        """Fetch stations from TfL API for graph building (skips validation)."""
+        logger.info("fetching_stations_from_tfl_api", line_tfl_id=line_tfl_id)
         try:
-            if line_tfl_id:
-                stations, ttl = await self._fetch_stations_from_api(line_tfl_id)
-            else:
-                # Fetch all stations from database
-                result = await self.db.execute(select(Station))
-                stations = list(result.scalars().all())
-                ttl = DEFAULT_STATIONS_CACHE_TTL
+            stations, ttl = await self._fetch_stations_from_api(line_tfl_id)
 
             # Cache the results
             await self.cache.set(cache_key, stations, ttl=ttl)
-
             logger.info("stations_fetched_and_cached", line_tfl_id=line_tfl_id, count=len(stations), ttl=ttl)
             return stations
-
         except HTTPException:
             raise
         except Exception as e:
@@ -777,6 +797,68 @@ class TfLService:
             raise HTTPException(
                 status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
                 detail="Failed to fetch stations from TfL API.",
+            ) from e
+
+    async def _fetch_stations_from_database(self, line_tfl_id: str | None, cache_key: str) -> list[Station]:
+        """Fetch stations from database with validation (public endpoint, prevents API quota exhaustion)."""
+        logger.info("fetching_stations_from_database", line_tfl_id=line_tfl_id)
+
+        try:
+            # Check if database has been initialized
+            station_count_result = await self.db.execute(select(func.count(Station.id)))
+            station_count = station_count_result.scalar() or 0
+
+            if not is_database_initialized(station_count):
+                logger.error("tfl_data_not_initialized")
+                raise DatabaseNotInitializedError
+
+            if line_tfl_id:
+                # Validate line exists
+                line_result = await self.db.execute(select(Line).where(Line.tfl_id == line_tfl_id))
+                line = line_result.scalar_one_or_none()
+
+                if line is None:
+                    logger.warning("line_not_found", line_tfl_id=line_tfl_id)
+                    raise LineNotFoundError(line_tfl_id)
+
+                # Fetch all stations and filter by line using helper
+                result = await self.db.execute(select(Station))
+                all_stations = list(result.scalars().all())
+                stations = filter_stations_by_line_tfl_id(all_stations, line_tfl_id)
+
+                # Validate at least one station found
+                validate_stations_exist_for_line(stations, line_tfl_id)
+            else:
+                # Fetch all stations from database
+                result = await self.db.execute(select(Station))
+                stations = list(result.scalars().all())
+
+            # Cache the results
+            ttl = DEFAULT_STATIONS_CACHE_TTL
+            await self.cache.set(cache_key, stations, ttl=ttl)
+            logger.info("stations_fetched_and_cached", line_tfl_id=line_tfl_id, count=len(stations), ttl=ttl)
+            return stations
+
+        except DatabaseNotInitializedError as e:
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail=str(e),
+            ) from e
+        except (LineNotFoundError, NoStationsForLineError) as e:
+            # Log at appropriate level based on error type
+            if isinstance(e, NoStationsForLineError):
+                logger.warning("no_stations_for_line", line_tfl_id=line_tfl_id)
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=str(e),
+            ) from e
+        except HTTPException:
+            raise
+        except Exception as e:
+            logger.error("fetch_stations_failed", line_tfl_id=line_tfl_id, error=str(e), exc_info=e)
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="Failed to fetch stations from database.",
             ) from e
 
     def deduplicate_stations_by_hub(self, stations: list[Station], line_filter: str | None = None) -> list[Station]:
@@ -1515,9 +1597,10 @@ class TfLService:
 
             # Fetch stations for all lines BEFORE building connections
             # This ensures stations exist in the database for connection creation
+            # Use skip_database_validation=True to allow TfL API calls during initial graph building
             for line in lines:
                 logger.info("fetching_stations_for_line", line_tfl_id=line.tfl_id, line_name=line.name)
-                await self.fetch_stations(line_tfl_id=line.tfl_id, use_cache=False)
+                await self.fetch_stations(line_tfl_id=line.tfl_id, use_cache=False, skip_database_validation=True)
 
             # Validate that stations were populated
             station_count_result = await self.db.execute(select(func.count()).select_from(Station))
