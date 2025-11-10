@@ -85,6 +85,8 @@ describe('useTflData', () => {
       longitude: -0.1238,
       lines: ['northern', 'victoria', 'circle'],
       last_updated: '2025-01-01T00:00:00Z',
+      hub_naptan_code: 'HUBKSX',
+      hub_common_name: "King's Cross St. Pancras",
     },
     {
       id: 'station-2',
@@ -94,6 +96,8 @@ describe('useTflData', () => {
       longitude: -0.1337,
       lines: ['northern', 'victoria'],
       last_updated: '2025-01-01T00:00:00Z',
+      hub_naptan_code: null,
+      hub_common_name: null,
     },
     {
       id: 'station-3',
@@ -103,6 +107,8 @@ describe('useTflData', () => {
       longitude: -0.1224,
       lines: ['northern', 'circle'],
       last_updated: '2025-01-01T00:00:00Z',
+      hub_naptan_code: null,
+      hub_common_name: null,
     },
     {
       id: 'station-4',
@@ -112,6 +118,8 @@ describe('useTflData', () => {
       longitude: -0.1948,
       lines: ['northern'],
       last_updated: '2025-01-01T00:00:00Z',
+      hub_naptan_code: null,
+      hub_common_name: null,
     },
     {
       id: 'station-5',
@@ -121,6 +129,8 @@ describe('useTflData', () => {
       longitude: -0.1426,
       lines: ['northern'],
       last_updated: '2025-01-01T00:00:00Z',
+      hub_naptan_code: null,
+      hub_common_name: null,
     },
   ]
 
