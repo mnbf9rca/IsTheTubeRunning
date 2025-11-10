@@ -197,6 +197,9 @@ export function SegmentBuilder({
   const handleContinueJourney = (line: LineResponse) => {
     if (!currentStation || !selectedLine || !nextStation) return
 
+    // Clear any previous errors
+    setError(null)
+
     // Check for duplicate stations (acyclic enforcement)
     // Allow currentStation if it's the last segment (junction we're continuing from)
     const validation = validateNotDuplicate(currentStation, localSegments, { allowLast: true })
@@ -218,7 +221,7 @@ export function SegmentBuilder({
       updatedSegments = [...localSegments]
     } else {
       // Check max segments limit
-      const maxSegmentsValidation = validateMaxSegments(localSegments.length)
+      const maxSegmentsValidation = validateMaxSegments(localSegments.length, 1)
       if (!maxSegmentsValidation.valid) {
         setError(maxSegmentsValidation.error)
         return
@@ -245,7 +248,7 @@ export function SegmentBuilder({
       }
 
       // Check max segments limit after adding both segments
-      const maxSegmentsValidation = validateMaxSegments(updatedSegments.length)
+      const maxSegmentsValidation = validateMaxSegments(updatedSegments.length, 1)
       if (!maxSegmentsValidation.valid) {
         setError(maxSegmentsValidation.error)
         return
@@ -267,11 +270,13 @@ export function SegmentBuilder({
     setSelectedLine(line) // Continue on selected line
     setNextStation(null)
     setStep('select-next-station')
-    setError(null)
   }
 
   const handleMarkAsDestination = async () => {
     if (!currentStation || !selectedLine || !nextStation) return
+
+    // Clear any previous errors
+    setError(null)
 
     // Check for duplicate stations
     // Allow currentStation if it's the last segment (junction we're continuing from)
@@ -340,7 +345,6 @@ export function SegmentBuilder({
     setSelectedLine(null)
     setNextStation(null)
     setStep('select-station')
-    setError(null)
 
     // Auto-save the route
     try {
@@ -459,6 +463,9 @@ export function SegmentBuilder({
   }
 
   const handleDeleteSegment = (sequence: number) => {
+    // Clear any previous errors
+    setError(null)
+
     // Validate deletion (prevents deleting destination, validates bounds)
     const deleteValidation = validateCanDeleteSegment(sequence, localSegments)
     if (!deleteValidation.valid) {
@@ -476,8 +483,6 @@ export function SegmentBuilder({
 
     // Resume from the last remaining segment
     resumeFromLastSegment(updatedSegments, 'select-next-station')
-
-    setError(null)
   }
 
   const handleCancel = () => {
