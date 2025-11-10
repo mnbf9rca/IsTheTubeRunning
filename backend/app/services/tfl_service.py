@@ -13,12 +13,18 @@ from aiocache.serializers import PickleSerializer
 from fastapi import HTTPException, status
 from pydantic_tfl_api import LineClient, StopPointClient
 from pydantic_tfl_api.core import ApiError, ResponseModel
-from sqlalchemy import delete, func, select
+from sqlalchemy import delete, func, or_, select
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import aliased
 
 from app.core.config import settings
+from app.helpers.station_resolution import (
+    NoMatchingStationsError,
+    StationNotFoundError,
+    filter_stations_by_line,
+    select_station_from_candidates,
+)
 from app.models.tfl import (
     DisruptionCategory,
     Line,
@@ -1660,6 +1666,132 @@ class TfLService:
 
         return station
 
+    async def resolve_station_or_hub(self, tfl_id_or_hub: str, line_tfl_id: str | None = None) -> Station:
+        """
+        Resolve station TfL ID or hub NaPTAN code to a Station.
+
+        This method supports both station TfL IDs (e.g., '940GZZLUSVS') and hub NaPTAN
+        codes (e.g., 'HUBSVS') for improved UX. When a hub code is provided with a
+        line context, it selects the station in that hub that serves the specified line.
+
+        Resolution logic (using pure helper functions from app.helpers.station_resolution):
+        1. Query for stations matching tfl_id OR hub_naptan_code (single query)
+        2. If direct tfl_id match found, use it (backward compatibility)
+        3. Otherwise, treat all results as hub stations
+        4. If hub found and line_tfl_id provided, filter stations that serve that line
+        5. If hub found and line_tfl_id is None (destination segment), return first station
+
+        Args:
+            tfl_id_or_hub: Either a station TfL ID or a hub NaPTAN code
+            line_tfl_id: Optional line TfL ID for line-context resolution
+
+        Returns:
+            Station object from database
+
+        Raises:
+            HTTPException(404): If station/hub not found or no station serves line
+
+        Examples:
+            # Station ID (backward compatible)
+            >>> await resolve_station_or_hub("940GZZLUSVS", "victoria")
+            <Station(tfl_id='940GZZLUSVS', name='Seven Sisters Underground')>
+
+            # Hub code with line context
+            >>> await resolve_station_or_hub("HUBSVS", "victoria")
+            <Station(tfl_id='940GZZLUSVS', name='Seven Sisters Underground')>
+
+            # Hub code as destination (no line)
+            >>> await resolve_station_or_hub("HUBSVS", None)
+            <Station(tfl_id='910GSEVNSIS', ...)>  # Returns any station in hub
+        """
+        # Single query: check both tfl_id and hub_naptan_code (optimization from code review)
+        result = await self.db.execute(
+            select(Station).where(
+                or_(
+                    Station.tfl_id == tfl_id_or_hub,
+                    Station.hub_naptan_code == tfl_id_or_hub,
+                )
+            )
+        )
+        stations = list(result.scalars().all())
+
+        if not stations:
+            logger.warning(
+                "station_or_hub_not_found",
+                tfl_id_or_hub=tfl_id_or_hub,
+                line_tfl_id=line_tfl_id,
+            )
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=str(StationNotFoundError(tfl_id_or_hub)),
+            )
+
+        # Check if we have a direct tfl_id match (takes precedence for backward compatibility)
+        direct_match = next((s for s in stations if s.tfl_id == tfl_id_or_hub), None)
+        if direct_match is not None:
+            logger.debug(
+                "station_resolved_by_tfl_id",
+                tfl_id=tfl_id_or_hub,
+                station_name=direct_match.name,
+                line_tfl_id=line_tfl_id,
+            )
+            return direct_match
+
+        # All remaining stations are hub matches (hub_naptan_code == tfl_id_or_hub)
+        hub_stations = stations
+
+        # Filter by line context if provided (using pure helper function)
+        if line_tfl_id is not None:
+            matching_stations = filter_stations_by_line(hub_stations, line_tfl_id)
+
+            if not matching_stations:
+                logger.warning(
+                    "hub_no_station_serves_line",
+                    hub_code=tfl_id_or_hub,
+                    line_tfl_id=line_tfl_id,
+                    hub_stations=[s.tfl_id for s in hub_stations],
+                )
+                error = NoMatchingStationsError(
+                    tfl_id_or_hub,
+                    line_tfl_id,
+                    [s.tfl_id for s in hub_stations],
+                )
+                raise HTTPException(
+                    status_code=status.HTTP_404_NOT_FOUND,
+                    detail=str(error),
+                )
+
+            # Use pure function to select station (deterministic)
+            if len(matching_stations) > 1:
+                logger.info(
+                    "hub_multiple_stations_serve_line",
+                    hub_code=tfl_id_or_hub,
+                    line_tfl_id=line_tfl_id,
+                    matching_stations=[s.tfl_id for s in matching_stations],
+                )
+
+            resolved_station = select_station_from_candidates(matching_stations)
+
+            logger.info(
+                "hub_resolved_with_line_context",
+                hub_code=tfl_id_or_hub,
+                line_tfl_id=line_tfl_id,
+                resolved_tfl_id=resolved_station.tfl_id,
+                resolved_name=resolved_station.name,
+            )
+            return resolved_station
+
+        # No line context (destination segment) - use pure helper function
+        resolved_station = select_station_from_candidates(hub_stations)
+        logger.info(
+            "hub_resolved_without_line_context",
+            hub_code=tfl_id_or_hub,
+            resolved_tfl_id=resolved_station.tfl_id,
+            resolved_name=resolved_station.name,
+            hub_stations=[s.tfl_id for s in hub_stations],
+        )
+        return resolved_station
+
     async def get_line_by_tfl_id(self, tfl_id: str) -> Line:
         """
         Get line from database by TfL ID.
@@ -1799,15 +1931,26 @@ class TfLService:
             Tuple of (stations_map, lines_map, hub_map)
         """
         # Bulk fetch all stations and lines to avoid redundant lookups
-        unique_station_ids = {seg.station_tfl_id for seg in segments}
         # Filter out None values from line_tfl_ids (destination segments have no line)
         unique_line_ids = {seg.line_tfl_id for seg in segments if seg.line_tfl_id is not None}
 
-        # Fetch all stations
+        # Fetch all stations - use resolve_station_or_hub to support both station IDs and hub codes
+        # We need to pair station IDs with their line contexts from the segments
+        station_line_pairs = [(seg.station_tfl_id, seg.line_tfl_id) for seg in segments]
+
         stations_map = {}
-        for tfl_id in unique_station_ids:
-            station = await self.get_station_by_tfl_id(tfl_id)
-            stations_map[tfl_id] = station
+        for tfl_id_or_hub, line_context in station_line_pairs:
+            if tfl_id_or_hub not in stations_map:
+                # resolve_station_or_hub supports both station TfL IDs and hub codes
+                station = await self.resolve_station_or_hub(tfl_id_or_hub, line_context)
+                stations_map[tfl_id_or_hub] = station
+
+                # Cache by station tfl_id to avoid redundant resolutions (code review optimization)
+                # If later segments reference same station by its tfl_id, reuse this result
+                # NOTE: We don't cache by hub_naptan_code because hub resolution is line-context
+                # dependent - "HUBTEST" with line1 vs line2 may resolve to different stations
+                if station.tfl_id != tfl_id_or_hub:
+                    stations_map[station.tfl_id] = station
 
         # Fetch all lines
         lines_map = {}

@@ -18,7 +18,7 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.models.base import BaseModel
 
-if TYPE_CHECKING:
+if TYPE_CHECKING:  # Avoid circular imports -> route.py imports from app.helpers.station_resolution (line 22)
     from app.models.route import Route
     from app.models.user import User
 

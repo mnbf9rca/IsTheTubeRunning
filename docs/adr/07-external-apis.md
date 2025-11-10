@@ -225,7 +225,55 @@ Implementation uses two helper methods:
 - N × M combinations tested (where N,M = stations per hub, typically 2-4)
 
 **Limitations (YAGNI):**
-- Does not support hub NaPTAN codes directly as `station_tfl_id` (see issue #65 for future enhancement)
 - No support for Out-of-Station Interchanges (OSI) - walk between nearby stations
 - No validation of walking time/distance between hub stations
 - Bus stop interchanges excluded (app focuses on rail-based modes)
+
+
+---
+
+## Hub NaPTAN Code Support as Station Identifiers
+
+### Status
+Active (Issue #65, implemented January 2025)
+
+### Context
+After implementing hub interchange validation (#52), users still had to choose between specific station IDs when specifying routes through hub interchanges. For example, at "Seven Sisters" interchange, users needed to know whether to use `910GSEVNSIS` (Overground) or `940GZZLUSVS` (Victoria line), rather than simply specifying "Seven Sisters" via its hub code `HUBSVS`.
+
+This created poor UX, especially for frontend applications where users should be able to select interchange stations without understanding the underlying multi-station structure.
+
+### Decision
+Accept hub NaPTAN codes (e.g., `HUBSVS`) directly as `station_tfl_id` values in route segment requests, with automatic resolution to specific stations using line context.
+
+**Pattern: "Normalize on write, canonicalize on read"**
+
+- **Write path**: Accept both station TfL IDs and hub codes. Resolve hub codes to specific stations using line context (`line_tfl_id`). Store actual station UUIDs in database (normalized).
+- **Read path**: Return hub NaPTAN code as canonical representation if station has one, otherwise return station TfL ID.
+
+**Resolution logic**: Try station ID lookup first (backward compatibility). If not found, try hub code lookup. Filter hub stations by line context if provided, select deterministically (alphabetically) if multiple matches.
+
+**Helper functions**: Pure, testable functions extracted to `app/helpers/station_resolution.py` for filtering, selection, and canonicalization logic.
+
+### Consequences
+
+**Easier:**
+- Improved UX: Users specify "HUBSVS" instead of choosing between multiple station IDs
+- Consistent API responses: All hub-capable stations return canonical hub representation
+- Backward compatible: Existing routes using station IDs continue to work unchanged
+- Testable: Pure helper functions enable comprehensive unit testing without database
+
+**More Difficult:**
+- Additional resolution logic adds complexity to station lookup
+- Context-dependent behavior: Same hub code resolves differently based on line context
+- Edge case handling: Multiple stations in hub serving same line (resolved alphabetically)
+- Must document and support two valid input formats (station IDs and hub codes)
+
+**Error Handling:**
+- Hub code not found → 404
+- Hub found but no station serves specified line → 404 with available stations
+- Multiple stations serve line → Select first alphabetically (deterministic)
+
+### Related Decisions
+- Builds on "Hub Interchange Validation" above
+- Follows "Normalize on write" pattern similar to timezone handling
+- Aligns with KISS principle (pure functions for testability)

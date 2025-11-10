@@ -219,11 +219,12 @@ class RouteService:
             # Delete existing segments
             await self.db.execute(sql_delete(RouteSegment).where(RouteSegment.route_id == route_id))
 
-            # Create new segments - translate TfL IDs to UUIDs
+            # Create new segments - translate TfL IDs (or hub codes) to UUIDs
             new_segments = []
             for seg in segments:
-                # Look up station and line by TfL ID
-                station = await self.tfl_service.get_station_by_tfl_id(seg.station_tfl_id)
+                # Resolve station (supports both station TfL IDs and hub codes)
+                # Pass line context for hub resolution
+                station = await self.tfl_service.resolve_station_or_hub(seg.station_tfl_id, seg.line_tfl_id)
                 # Line is optional for destination segments (NULL line_tfl_id)
                 line = await self.tfl_service.get_line_by_tfl_id(seg.line_tfl_id) if seg.line_tfl_id else None
 
@@ -284,9 +285,18 @@ class RouteService:
                 detail=f"Segment with sequence {sequence} not found.",
             )
 
-        # Update fields - translate TfL IDs to UUIDs
+        # Update fields - translate TfL IDs (or hub codes) to UUIDs
         if request.station_tfl_id is not None:
-            station = await self.tfl_service.get_station_by_tfl_id(request.station_tfl_id)
+            # Determine line context for hub resolution
+            # Use new line if provided, otherwise use existing segment's line
+            line_context = (
+                request.line_tfl_id
+                if request.line_tfl_id is not None
+                else segment.line.tfl_id
+                if segment.line
+                else None
+            )
+            station = await self.tfl_service.resolve_station_or_hub(request.station_tfl_id, line_context)
             segment.station_id = station.id
         if request.line_tfl_id is not None:
             line = await self.tfl_service.get_line_by_tfl_id(request.line_tfl_id)
