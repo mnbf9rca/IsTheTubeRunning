@@ -503,10 +503,13 @@ Once this plan is committed, Phase 1 implementation will begin with:
 ### Completed Phases
 - [x] Planning and Architecture Design
 - [x] Phase 1: Project Foundation (Completed: November 2025)
+  - **Merged PRs:** #1, #2, #3, #6, #7
 - [x] Phase 2: Database Models & Migrations (Completed: November 2025)
+  - **Merged PRs:** #8, #9, #10
   - CI tests fixed with python-dotenv-vault secret management
   - Pre-commit hooks configured for automatic .env.vault rebuilding
 - [x] Phase 3: Auth0 Integration (Completed: November 2025)
+  - **Merged PRs:** #11, #12
   - User model refactored: auth0_id → external_id + auth_provider for multi-provider support
   - Mock JWT generator using RS256 (production algorithm) with ephemeral RSA keys
   - Config validation utility (require_config()) for all modules
@@ -517,6 +520,7 @@ Once this plan is committed, Phase 1 implementation will begin with:
   - Alembic: Added clear feedback messages; startup validation in production mode
 
 - [x] Phase 4: Contact Verification (Completed: November 2025)
+  - **Merged PRs:** #13
   - Email/phone contact management with verification codes
   - HTML email templates with Jinja2
   - SMS stub service with console and file logging
@@ -526,6 +530,7 @@ Once this plan is committed, Phase 1 implementation will begin with:
   - Coverage: 98.85% (exceeds 95% target) - 148 tests passing
 
 - [x] Phase 5: TfL Data Integration (Completed: November 2025)
+  - **Merged PRs:** #14, #15, #21, #27, #28, #29, #30, #32, #33, #61, #62, #63, #64, #66, #69, #71, #87
   - TfL API integration using pydantic-tfl-api library (v2.0.2+)
   - Redis caching with aiocache (TTL from TfL API Cache-Control headers)
   - Async service wrapping synchronous pydantic-tfl-api clients
@@ -542,6 +547,7 @@ Once this plan is committed, Phase 1 implementation will begin with:
   - Note: Unit tests require refactoring to properly mock pydantic-tfl-api (deferred to Phase 11)
 
 - [x] Phase 6: Route Management (Completed: November 2025)
+  - **Merged PRs:** #16, #18
   - Full CRUD API for routes with segments and schedules
   - Route validation enforced on all segment operations via TfL service integration
   - Network graph endpoint (GET /tfl/network-graph) provides adjacency list for GUI route building
@@ -554,6 +560,7 @@ Once this plan is committed, Phase 1 implementation will begin with:
   - Linting compliant (minor exception string warnings accepted)
 
 - [x] Phase 7: Notification Preferences (Completed: November 2025)
+  - **Merged PRs:** #17
   - Full CRUD API for notification preferences (GET, POST, PATCH, DELETE)
   - Service layer with comprehensive validation (contact ownership, verification, duplicates, limits)
   - Configurable preference limit per route (MAX_NOTIFICATION_PREFERENCES_PER_ROUTE = 5)
@@ -566,6 +573,7 @@ Once this plan is committed, Phase 1 implementation will begin with:
   - Type-safe (mypy --strict) and linting compliant (ruff)
 
 - [x] Phase 8: Alert Processing Worker (Completed: November 2025)
+  - **Merged PRs:** #19, #20
   - **PR1 (#19):** Core worker logic with Celery infrastructure, alert service, and comprehensive tests
     - Celery setup with Redis broker (db 1) and result backend (db 2)
     - 30-second periodic task with 5-min hard/4-min soft timeouts
@@ -584,6 +592,7 @@ Once this plan is committed, Phase 1 implementation will begin with:
     - Documentation updates (Background Jobs ADRs, README.md)
 
 - [x] Phase 9: Admin Dashboard Backend (Completed: November 2025)
+  - **Merged PRs:** #22
   - AdminService with user management and analytics methods
   - User management endpoints: GET /admin/users (list with pagination/search), GET /admin/users/{id} (details), DELETE /admin/users/{id} (privacy-focused anonymisation)
   - Analytics endpoint: GET /admin/analytics/engagement (comprehensive metrics: user counts, route stats, notification stats, growth/retention)
@@ -594,13 +603,16 @@ Once this plan is committed, Phase 1 implementation will begin with:
   - Follows KISS principle: single engagement metrics endpoint instead of multiple specialized analytics APIs
 
 ### Upcoming Phases
-- [ ] Phase 10: Frontend Development (In Progress - PR1 & PR2.5 Complete ✅)
-  - PR1: Authentication & Foundation (Complete ✅ Merged ✅) - Auth0 integration, routing, layout, quality tooling
-  - PR2.5: Backend Auth Architecture (Complete ✅ Merged ✅) - Critical auth flow fixes, backend availability pattern
-  - PR2: Contact Management (Not Started)
-  - PR3: Route Management (Not Started)
-  - PR4: Notification Preferences (Not Started)
-  - PR5: Admin Dashboard (Not Started)
+- [ ] Phase 10: Frontend Development (~70% Complete)
+  - **Merged PRs:** #23, #24, #25, #26, #40, #58, #60, #72, #73, #74, #85
+  - [x] PR1: Authentication & Foundation (Complete ✅ Merged ✅) - #23
+  - [x] PR2: Contact Management (Complete ✅ Merged ✅) - #24
+  - [x] PR2.5: Backend Auth Architecture (Complete ✅ Merged ✅) - #25
+  - [x] PR3a: Routes Foundation (Complete ✅ Merged ✅) - #26
+  - [x] PR3b: Route Builder & Schedules (Complete ✅ Merged ✅) - #40
+  - [x] Bug Fixes & Enhancements: #58, #60, #72, #73, #74, #85
+  - [ ] PR4: Notification Preferences (Not Started)
+  - [ ] PR5: Admin Dashboard (Not Started)
 - [ ] Phase 11: Testing & Quality
 - [ ] Phase 12: Deployment
 
