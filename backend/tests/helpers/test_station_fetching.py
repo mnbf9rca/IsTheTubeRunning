@@ -5,6 +5,7 @@ Tests pure validation and filtering functions used by TfLService.fetch_stations(
 These tests don't require database mocking since all functions are pure.
 """
 
+from unittest.mock import Mock
 from uuid import uuid4
 
 import pytest
@@ -162,6 +163,28 @@ class TestFilterStationsByLineTflId:
         result = filter_stations_by_line_tfl_id([station], "victoria")
 
         assert result == []
+
+    def test_defensive_non_list_lines(self):
+        """Should defensively handle stations where lines is not a list (edge case)."""
+        # This tests the defensive isinstance check for edge cases like
+        # legacy data, manual DB manipulation, or migration issues
+        station_with_invalid_lines = Mock(spec=Station)
+        station_with_invalid_lines.lines = None  # Invalid: should be a list
+
+        valid_station = Station(
+            id=uuid4(),
+            tfl_id="DEF",
+            name="Station B",
+            latitude=51.5,
+            longitude=-0.1,
+            lines=["victoria"],
+        )
+
+        result = filter_stations_by_line_tfl_id([station_with_invalid_lines, valid_station], "victoria")
+
+        # Should only return the valid station, silently filtering out the invalid one
+        assert len(result) == 1
+        assert result[0].tfl_id == "DEF"
 
 
 class TestValidateStationsExistForLine:

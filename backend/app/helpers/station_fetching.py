@@ -69,6 +69,9 @@ def filter_stations_by_line_tfl_id(
     Station.lines is JSON type (not JSONB), so containment operators don't
     work well in SQL. This allows filtering in Python after fetching.
 
+    Defensive: Handles cases where Station.lines might not be a list (e.g.,
+    legacy data, manual DB manipulation, or edge cases during migrations).
+
     Args:
         stations: List of Station objects to filter
         line_tfl_id: TfL line ID to filter by (e.g., 'victoria', 'northern')
@@ -85,7 +88,7 @@ def filter_stations_by_line_tfl_id(
         >>> filter_stations_by_line_tfl_id([station2], "victoria")
         []
     """
-    return [s for s in stations if line_tfl_id in s.lines]
+    return [s for s in stations if isinstance(s.lines, list) and line_tfl_id in s.lines]
 
 
 def validate_stations_exist_for_line(
