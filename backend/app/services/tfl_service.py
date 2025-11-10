@@ -773,20 +773,18 @@ class TfLService:
 
         # Route to appropriate fetch method
         if skip_database_validation:
+            # Graph building always requires a specific line_tfl_id
+            if line_tfl_id is None:
+                msg = "line_tfl_id is required when skip_database_validation=True"
+                raise ValueError(msg)
             return await self._fetch_stations_for_graph_building(line_tfl_id, cache_key)
         return await self._fetch_stations_from_database(line_tfl_id, cache_key)
 
-    async def _fetch_stations_for_graph_building(self, line_tfl_id: str | None, cache_key: str) -> list[Station]:
+    async def _fetch_stations_for_graph_building(self, line_tfl_id: str, cache_key: str) -> list[Station]:
         """Fetch stations from TfL API for graph building (skips validation)."""
         logger.info("fetching_stations_from_tfl_api", line_tfl_id=line_tfl_id)
         try:
-            if line_tfl_id:
-                stations, ttl = await self._fetch_stations_from_api(line_tfl_id)
-            else:
-                # Fetch all stations from database
-                result = await self.db.execute(select(Station))
-                stations = list(result.scalars().all())
-                ttl = DEFAULT_STATIONS_CACHE_TTL
+            stations, ttl = await self._fetch_stations_from_api(line_tfl_id)
 
             # Cache the results
             await self.cache.set(cache_key, stations, ttl=ttl)
