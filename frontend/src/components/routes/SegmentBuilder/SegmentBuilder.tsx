@@ -22,7 +22,15 @@ import {
   validateNotDuplicate,
   validateMaxSegments,
   validateCanDeleteSegment,
+  isStationLastInRoute,
 } from './validation'
+import { isSameLine } from './utils'
+import {
+  buildSegmentsForContinue,
+  buildSegmentsForDestination,
+  computeResumeState,
+  deleteSegmentAndResequence,
+} from './segments'
 
 export interface SegmentBuilderProps {
   /**
@@ -208,60 +216,44 @@ export function SegmentBuilder({
       return
     }
 
-    // Check if currentStation is already the last segment (needed for logic below)
-    const lastSegment = localSegments[localSegments.length - 1]
-    const isCurrentStationLastInRoute = lastSegment?.station_tfl_id === currentStation.tfl_id
+    // Determine how many segments will be added
+    const isChangingLines = !isSameLine(line, selectedLine)
+    const isCurrentStationLast = isStationLastInRoute(currentStation, localSegments)
 
-    // Add segment for current station if not already in route
-    let updatedSegments: SegmentRequest[]
-
-    if (isCurrentStationLastInRoute) {
-      // Current station is already the last segment (junction from previous line change)
-      // Don't add it again, just continue from here
-      updatedSegments = [...localSegments]
+    // Calculate actual segments to be added based on junction scenario
+    let additionalSegments: number
+    if (isCurrentStationLast) {
+      // Current station already in route - won't be added again
+      additionalSegments = isChangingLines ? 1 : 0
     } else {
-      // Check max segments limit
-      const maxSegmentsValidation = validateMaxSegments(localSegments.length, 1)
-      if (!maxSegmentsValidation.valid) {
-        setError(maxSegmentsValidation.error)
-        return
-      }
-
-      // Add segment for current station with selected line
-      const newSegment: SegmentRequest = {
-        sequence: localSegments.length,
-        station_tfl_id: currentStation.tfl_id,
-        line_tfl_id: selectedLine.tfl_id,
-      }
-
-      updatedSegments = [...localSegments, newSegment]
+      // Current station will be added
+      additionalSegments = isChangingLines ? 2 : 1
     }
 
-    // If user is switching to a different line, also add the nextStation segment
-    // This shows the station where the line change occurs
-    if (line.id !== selectedLine.id) {
-      // Check if nextStation is a duplicate
-      const nextValidation = validateNotDuplicate(nextStation, updatedSegments)
+    // Check max segments limit before building
+    const maxSegmentsValidation = validateMaxSegments(localSegments.length, additionalSegments)
+    if (!maxSegmentsValidation.valid) {
+      setError(maxSegmentsValidation.error)
+      return
+    }
+
+    // If changing lines, validate nextStation is not a duplicate
+    if (isChangingLines) {
+      const nextValidation = validateNotDuplicate(nextStation, localSegments)
       if (!nextValidation.valid) {
         setError(nextValidation.error)
         return
       }
-
-      // Check max segments limit after adding both segments
-      const maxSegmentsValidation = validateMaxSegments(updatedSegments.length, 1)
-      if (!maxSegmentsValidation.valid) {
-        setError(maxSegmentsValidation.error)
-        return
-      }
-
-      // Add nextStation with the line used to DEPART from it (the new line we're switching to)
-      const nextSegment: SegmentRequest = {
-        sequence: updatedSegments.length,
-        station_tfl_id: nextStation.tfl_id,
-        line_tfl_id: line.tfl_id, // FIX: Use the line we're switching TO, not the line we arrived on
-      }
-      updatedSegments = [...updatedSegments, nextSegment]
     }
+
+    // Build segments using pure function
+    const updatedSegments = buildSegmentsForContinue({
+      currentStation,
+      selectedLine,
+      nextStation,
+      currentSegments: localSegments,
+      continueLine: line,
+    })
 
     setLocalSegments(updatedSegments)
 
@@ -294,51 +286,22 @@ export function SegmentBuilder({
       return
     }
 
-    // Check if currentStation is already the last segment (needed for logic below)
-    const lastSegment = localSegments[localSegments.length - 1]
-    const isCurrentStationLastInRoute = lastSegment?.station_tfl_id === currentStation.tfl_id
-
-    // Build final segments
-    let finalSegments: SegmentRequest[]
-
-    if (isCurrentStationLastInRoute) {
-      // Current station is already in route (junction from line change)
-      // Only add the destination station
-      const maxSegmentsValidation = validateMaxSegments(localSegments.length, 1)
-      if (!maxSegmentsValidation.valid) {
-        setError(maxSegmentsValidation.error)
-        return
-      }
-
-      const destinationSegment: SegmentRequest = {
-        sequence: localSegments.length,
-        station_tfl_id: nextStation.tfl_id,
-        line_tfl_id: null, // Destination has no outgoing line
-      }
-
-      finalSegments = [...localSegments, destinationSegment]
-    } else {
-      // Current station not in route yet - add both current and destination
-      const maxSegmentsValidation = validateMaxSegments(localSegments.length, 2)
-      if (!maxSegmentsValidation.valid) {
-        setError(maxSegmentsValidation.error)
-        return
-      }
-
-      const currentSegment: SegmentRequest = {
-        sequence: localSegments.length,
-        station_tfl_id: currentStation.tfl_id,
-        line_tfl_id: selectedLine.tfl_id,
-      }
-
-      const destinationSegment: SegmentRequest = {
-        sequence: localSegments.length + 1,
-        station_tfl_id: nextStation.tfl_id,
-        line_tfl_id: null, // Destination has no outgoing line
-      }
-
-      finalSegments = [...localSegments, currentSegment, destinationSegment]
+    // Check max segments limit (will add 1 or 2 segments depending on whether current is last)
+    const isCurrentStationLast = isStationLastInRoute(currentStation, localSegments)
+    const additionalSegments = isCurrentStationLast ? 1 : 2
+    const maxSegmentsValidation = validateMaxSegments(localSegments.length, additionalSegments)
+    if (!maxSegmentsValidation.valid) {
+      setError(maxSegmentsValidation.error)
+      return
     }
+
+    // Build final segments using pure function
+    const finalSegments = buildSegmentsForDestination({
+      currentStation,
+      selectedLine,
+      destinationStation: nextStation,
+      currentSegments: localSegments,
+    })
 
     // Reset UI state
     setCurrentStation(null)
@@ -390,33 +353,21 @@ export function SegmentBuilder({
     segments: SegmentRequest[],
     targetStep: 'select-next-station' | 'choose-action' = 'select-next-station'
   ) => {
-    if (segments.length === 0) {
-      // No segments - start fresh
+    // Compute resume state using pure function
+    const resumeState = computeResumeState(segments, stations, lines)
+
+    if (resumeState && resumeState.station && resumeState.line) {
+      // Ready to continue from this station
+      setCurrentStation(resumeState.station)
+      setSelectedLine(resumeState.line)
+      setNextStation(null)
+      setStep(targetStep)
+    } else {
+      // No segments or invalid state - start fresh
       setCurrentStation(null)
       setSelectedLine(null)
       setNextStation(null)
       setStep('select-station')
-    } else {
-      // Resume from last segment
-      const lastSegment = segments[segments.length - 1]
-      const lastStation = stations.find((s) => s.tfl_id === lastSegment.station_tfl_id)
-      const lastLine = lastSegment.line_tfl_id
-        ? lines.find((l) => l.tfl_id === lastSegment.line_tfl_id)
-        : null
-
-      if (lastStation && lastLine) {
-        // Ready to continue from this station
-        setCurrentStation(lastStation)
-        setSelectedLine(lastLine)
-        setNextStation(null)
-        setStep(targetStep)
-      } else {
-        // Fallback to initial state
-        setCurrentStation(null)
-        setSelectedLine(null)
-        setNextStation(null)
-        setStep('select-station')
-      }
     }
   }
 
@@ -473,11 +424,8 @@ export function SegmentBuilder({
       return
     }
 
-    // When deleting intermediate station, delete it and all subsequent stations
-    // to avoid invalid routes (A->B->C, delete B would leave A->C which may be invalid)
-    const updatedSegments = localSegments
-      .filter((seg) => seg.sequence < sequence)
-      .map((seg, index) => ({ ...seg, sequence: index }))
+    // Delete segment and all subsequent segments using pure function
+    const updatedSegments = deleteSegmentAndResequence(sequence, localSegments)
 
     setLocalSegments(updatedSegments)
 
