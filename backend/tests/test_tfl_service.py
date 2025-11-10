@@ -1380,6 +1380,112 @@ async def test_fetch_stations_all(
     assert "940GZZLUOXC" in tfl_ids
 
 
+async def test_fetch_stations_with_no_data_returns_503(
+    tfl_service: TfLService,
+    db_session: AsyncSession,
+) -> None:
+    """Test fetching stations when database is empty returns 503."""
+    # Execute - no stations in database at all
+    with pytest.raises(HTTPException) as exc_info:
+        await tfl_service.fetch_stations(line_tfl_id="victoria", use_cache=False)
+
+    # Verify 503 error
+    assert exc_info.value.status_code == 503
+    assert "not initialized" in exc_info.value.detail.lower()
+
+
+async def test_fetch_stations_invalid_line_returns_404(
+    tfl_service: TfLService,
+    db_session: AsyncSession,
+) -> None:
+    """Test fetching stations with invalid line_id returns 404."""
+    # Add a station to database (so database is initialized)
+    station = Station(
+        tfl_id="940GZZLUKSX",
+        name="King's Cross",
+        latitude=51.5308,
+        longitude=-0.1238,
+        lines=["victoria"],
+        last_updated=datetime.now(UTC),
+    )
+    db_session.add(station)
+    await db_session.commit()
+
+    # Execute - try to fetch with line that doesn't exist in Line table
+    with pytest.raises(HTTPException) as exc_info:
+        await tfl_service.fetch_stations(line_tfl_id="invalid-line", use_cache=False)
+
+    # Verify 404 error
+    assert exc_info.value.status_code == 404
+    assert "not found" in exc_info.value.detail.lower()
+    assert "invalid-line" in exc_info.value.detail
+
+
+async def test_fetch_stations_valid_line_no_stations_returns_404(
+    tfl_service: TfLService,
+    db_session: AsyncSession,
+) -> None:
+    """Test fetching stations when line exists but has no stations returns 404."""
+    # Add a line to database
+    line = Line(
+        tfl_id="jubilee",
+        name="Jubilee",
+        mode="tube",
+        last_updated=datetime.now(UTC),
+    )
+    db_session.add(line)
+
+    # Add a station for a different line (so database has stations)
+    station = Station(
+        tfl_id="940GZZLUKSX",
+        name="King's Cross",
+        latitude=51.5308,
+        longitude=-0.1238,
+        lines=["victoria"],  # Not jubilee
+        last_updated=datetime.now(UTC),
+    )
+    db_session.add(station)
+    await db_session.commit()
+
+    # Execute - line exists but no stations on it
+    with pytest.raises(HTTPException) as exc_info:
+        await tfl_service.fetch_stations(line_tfl_id="jubilee", use_cache=False)
+
+    # Verify 404 error
+    assert exc_info.value.status_code == 404
+    assert "no stations found" in exc_info.value.detail.lower()
+    assert "jubilee" in exc_info.value.detail
+
+
+async def test_fetch_stations_skip_validation_calls_api(
+    tfl_service: TfLService,
+    db_session: AsyncSession,
+) -> None:
+    """Test skip_database_validation=True allows TfL API calls even with empty database."""
+    with freeze_time("2025-01-01 12:00:00"):
+        # Mock TfL API response
+        mock_stops = [
+            create_mock_place(id="940GZZLUVIC", common_name="Victoria", lat=51.4965, lon=-0.1447),
+        ]
+
+        # Execute with skip_database_validation=True (used during graph building)
+        stations = await assert_fetch_from_api(
+            tfl_service=tfl_service,
+            method_callable=lambda: tfl_service.fetch_stations(
+                line_tfl_id="victoria", use_cache=False, skip_database_validation=True
+            ),
+            mock_data=mock_stops,
+            expected_count=1,
+            cache_key="stations:line:victoria",
+            expected_ttl=86400,
+            shared_expires=datetime(2025, 1, 2, 12, 0, 0, tzinfo=UTC),
+        )
+
+        # Verify station returned from API
+        assert len(stations) == 1
+        assert stations[0].tfl_id == "940GZZLUVIC"
+
+
 # ==================== fetch_disruptions Tests ====================
 
 

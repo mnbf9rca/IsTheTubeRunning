@@ -13,7 +13,7 @@ from app.core.database import get_db
 from app.main import app
 from app.models.tfl import Line, Station
 from app.models.user import User
-from fastapi import HTTPException
+from fastapi import HTTPException, status
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -220,9 +220,12 @@ async def test_get_stations_with_invalid_line_id(
     mock_fetch_stations: AsyncMock,
     async_client_with_auth: AsyncClient,
 ) -> None:
-    """Test retrieving stations with invalid/non-existent line_id."""
-    # Mock empty result for invalid line
-    mock_fetch_stations.return_value = []
+    """Test retrieving stations with invalid/non-existent line_id returns 404."""
+    # Mock 404 error for invalid line
+    mock_fetch_stations.side_effect = HTTPException(
+        status_code=status.HTTP_404_NOT_FOUND,
+        detail="Line 'invalid-line' not found.",
+    )
 
     # Execute with invalid line_id
     response = await async_client_with_auth.get(
@@ -230,10 +233,10 @@ async def test_get_stations_with_invalid_line_id(
         params={"line_id": "invalid-line"},
     )
 
-    # Verify - should return 200 with empty list
-    assert response.status_code == 200
+    # Verify - should return 404
+    assert response.status_code == 404
     data = response.json()
-    assert len(data) == 0
+    assert "not found" in data["detail"].lower()
 
     # Verify service was called with the invalid line_id
     mock_fetch_stations.assert_called_once()
