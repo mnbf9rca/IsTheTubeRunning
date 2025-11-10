@@ -1278,7 +1278,9 @@ async def test_fetch_stations_by_line(
         # Execute with helper
         stations = await assert_fetch_from_api(
             tfl_service=tfl_service,
-            method_callable=lambda: tfl_service.fetch_stations(line_tfl_id="victoria", use_cache=False),
+            method_callable=lambda: tfl_service.fetch_stations(
+                line_tfl_id="victoria", use_cache=False, skip_database_validation=True
+            ),
             mock_data=mock_stops,
             expected_count=2,
             cache_key="stations:line:victoria",
@@ -1332,7 +1334,9 @@ async def test_fetch_stations_cache_miss(
         # Execute with helper
         stations = await assert_cache_miss(
             tfl_service=tfl_service,
-            method_callable=lambda: tfl_service.fetch_stations(line_tfl_id="victoria", use_cache=True),
+            method_callable=lambda: tfl_service.fetch_stations(
+                line_tfl_id="victoria", use_cache=True, skip_database_validation=True
+            ),
             mock_data=mock_stops,
             expected_count=1,
             shared_expires=datetime(2025, 1, 2, 12, 0, 0, tzinfo=UTC),
@@ -4721,7 +4725,7 @@ async def test_fetch_stations_api_error_handling(
 
     # Execute and verify proper error handling
     with pytest.raises(HTTPException) as exc_info:
-        await tfl_service.fetch_stations(line_tfl_id="victoria", use_cache=False)
+        await tfl_service.fetch_stations(line_tfl_id="victoria", use_cache=False, skip_database_validation=True)
 
     assert exc_info.value.status_code == 503
     assert "Failed to fetch stations from TfL API" in exc_info.value.detail
@@ -5400,7 +5404,9 @@ async def test_fetch_stations_update_existing_station(
         # Execute with helper - fetch for district line
         stations = await assert_fetch_from_api(
             tfl_service=tfl_service,
-            method_callable=lambda: tfl_service.fetch_stations(line_tfl_id="district", use_cache=False),
+            method_callable=lambda: tfl_service.fetch_stations(
+                line_tfl_id="district", use_cache=False, skip_database_validation=True
+            ),
             mock_data=mock_stops,
             expected_count=1,
             cache_key="stations:line:district",
@@ -5438,7 +5444,9 @@ async def test_fetch_stations_with_hub_fields(
         # Execute with helper
         stations = await assert_fetch_from_api(
             tfl_service=tfl_service,
-            method_callable=lambda: tfl_service.fetch_stations(line_tfl_id="weaver", use_cache=False),
+            method_callable=lambda: tfl_service.fetch_stations(
+                line_tfl_id="weaver", use_cache=False, skip_database_validation=True
+            ),
             mock_data=mock_stops,
             expected_count=1,
             cache_key="stations:line:weaver",
@@ -5473,7 +5481,9 @@ async def test_fetch_stations_without_hub_fields(
         # Execute with helper
         stations = await assert_fetch_from_api(
             tfl_service=tfl_service,
-            method_callable=lambda: tfl_service.fetch_stations(line_tfl_id="district", use_cache=False),
+            method_callable=lambda: tfl_service.fetch_stations(
+                line_tfl_id="district", use_cache=False, skip_database_validation=True
+            ),
             mock_data=mock_stops,
             expected_count=1,
             cache_key="stations:line:district",
@@ -5524,7 +5534,9 @@ async def test_fetch_stations_updates_changed_hub_fields(
         # Execute with helper
         stations = await assert_fetch_from_api(
             tfl_service=tfl_service,
-            method_callable=lambda: tfl_service.fetch_stations(line_tfl_id="victoria", use_cache=False),
+            method_callable=lambda: tfl_service.fetch_stations(
+                line_tfl_id="victoria", use_cache=False, skip_database_validation=True
+            ),
             mock_data=mock_stops,
             expected_count=1,
             cache_key="stations:line:victoria",
@@ -5575,7 +5587,9 @@ async def test_fetch_stations_clears_hub_fields_when_removed(
         # Execute with helper
         stations = await assert_fetch_from_api(
             tfl_service=tfl_service,
-            method_callable=lambda: tfl_service.fetch_stations(line_tfl_id="district", use_cache=False),
+            method_callable=lambda: tfl_service.fetch_stations(
+                line_tfl_id="district", use_cache=False, skip_database_validation=True
+            ),
             mock_data=mock_stops,
             expected_count=1,
             cache_key="stations:line:district",
@@ -5602,7 +5616,7 @@ async def test_fetch_stations_http_exception_reraise(
 
     # Execute and verify HTTPException is re-raised
     with pytest.raises(HTTPException) as exc_info:
-        await tfl_service.fetch_stations(line_tfl_id="victoria", use_cache=False)
+        await tfl_service.fetch_stations(line_tfl_id="victoria", use_cache=False, skip_database_validation=True)
 
     assert exc_info.value.status_code == 429
     assert "Rate limit exceeded" in exc_info.value.detail

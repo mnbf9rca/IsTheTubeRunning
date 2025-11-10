@@ -57,7 +57,9 @@ async def test_integration_fetch_stations(db_session: AsyncSession, settings_fix
     test_line = lines[0]
 
     # Call real API to fetch stations for this line
-    stations = await service.fetch_stations(line_tfl_id=test_line.tfl_id, use_cache=False)
+    stations = await service.fetch_stations(
+        line_tfl_id=test_line.tfl_id, use_cache=False, skip_database_validation=True
+    )
 
     # Basic assertions
     assert len(stations) > 0, f"Should fetch at least one station for {test_line.name} line"
@@ -187,7 +189,7 @@ async def test_integration_fetch_station_disruptions(db_session: AsyncSession, s
     lines = await service.fetch_lines(use_cache=False)
     if len(lines) > 0:
         # Fetch stations for at least one line to populate the database
-        await service.fetch_stations(line_tfl_id=lines[0].tfl_id, use_cache=False)
+        await service.fetch_stations(line_tfl_id=lines[0].tfl_id, use_cache=False, skip_database_validation=True)
 
     # Call real API
     disruptions = await service.fetch_station_disruptions(use_cache=False)
