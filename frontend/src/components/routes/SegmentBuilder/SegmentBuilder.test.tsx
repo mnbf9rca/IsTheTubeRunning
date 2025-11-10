@@ -2,7 +2,7 @@ import { render, screen } from '@testing-library/react'
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import userEvent from '@testing-library/user-event'
 import { SegmentBuilder } from './SegmentBuilder'
-import type { SegmentResponse, LineResponse, StationResponse } from '../../lib/api'
+import type { SegmentResponse, LineResponse, StationResponse } from '../../../lib/api'
 
 describe('SegmentBuilder', () => {
   const mockLines: LineResponse[] = [

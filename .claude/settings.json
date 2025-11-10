@@ -44,13 +44,14 @@
       "Bash(gh issue comment:*)",
       "Bash(gh issue view:*)",
       "Bash(gh pr view:*)",
+      "Bash(git commit:*)",
       "Bash(./scripts/gh_pr_comment_action.sh:*)"
     ],
     "deny": [
       "Bash(npx dotenv-vault@latest keys:*)"
     ],
     "ask": [
-      "Bash(git commit:*)",
+
       "Bash(git push:*)",
       "Bash(gh pr create:*)"
     ]
