@@ -654,11 +654,11 @@ describe('SegmentBuilder segments', () => {
         },
       ]
 
-      const result = deleteSegmentAndResequence(2, segments)
+      const result = deleteSegmentAndResequence(2, segments, mockStations, mockLines)
 
-      expect(result).toHaveLength(2)
-      expect(result[0].station_tfl_id).toBe('station-a')
-      expect(result[1].station_tfl_id).toBe('station-b')
+      expect(result.segments).toHaveLength(2)
+      expect(result.segments[0].station_tfl_id).toBe('station-a')
+      expect(result.segments[1].station_tfl_id).toBe('station-b')
     })
 
     it('should resequence remaining segments correctly', () => {
@@ -680,17 +680,17 @@ describe('SegmentBuilder segments', () => {
         },
       ]
 
-      const result = deleteSegmentAndResequence(1, segments)
+      const result = deleteSegmentAndResequence(1, segments, mockStations, mockLines)
 
-      expect(result).toHaveLength(1)
-      expect(result[0]).toEqual({
+      expect(result.segments).toHaveLength(1)
+      expect(result.segments[0]).toEqual({
         sequence: 0,
         station_tfl_id: 'station-a',
         line_tfl_id: 'northern',
       })
     })
 
-    it('should return empty array when deleting from start', () => {
+    it('should return empty segments array when deleting from start', () => {
       const segments: SegmentRequest[] = [
         {
           sequence: 0,
@@ -704,9 +704,9 @@ describe('SegmentBuilder segments', () => {
         },
       ]
 
-      const result = deleteSegmentAndResequence(0, segments)
+      const result = deleteSegmentAndResequence(0, segments, mockStations, mockLines)
 
-      expect(result).toHaveLength(0)
+      expect(result.segments).toHaveLength(0)
     })
 
     it('should handle deleting last segment', () => {
@@ -723,10 +723,10 @@ describe('SegmentBuilder segments', () => {
         },
       ]
 
-      const result = deleteSegmentAndResequence(1, segments)
+      const result = deleteSegmentAndResequence(1, segments, mockStations, mockLines)
 
-      expect(result).toHaveLength(1)
-      expect(result[0]).toEqual({
+      expect(result.segments).toHaveLength(1)
+      expect(result.segments[0]).toEqual({
         sequence: 0,
         station_tfl_id: 'station-a',
         line_tfl_id: 'northern',
@@ -757,9 +757,9 @@ describe('SegmentBuilder segments', () => {
         },
       ]
 
-      const result = deleteSegmentAndResequence(2, segments)
+      const result = deleteSegmentAndResequence(2, segments, mockStations, mockLines)
 
-      expect(result.map((s) => s.sequence)).toEqual([0, 1])
+      expect(result.segments.map((s) => s.sequence)).toEqual([0, 1])
     })
 
     it('should not mutate original segments array', () => {
@@ -777,9 +777,152 @@ describe('SegmentBuilder segments', () => {
       ]
 
       const originalLength = segments.length
-      deleteSegmentAndResequence(1, segments)
+      deleteSegmentAndResequence(1, segments, mockStations, mockLines)
 
       expect(segments).toHaveLength(originalLength)
+    })
+
+    // Truncation context tests
+    describe('truncation context', () => {
+      it('should return null resume context when deleting from start (empty route)', () => {
+        const segments: SegmentRequest[] = [
+          {
+            sequence: 0,
+            station_tfl_id: 'station-a',
+            line_tfl_id: 'northern',
+          },
+          {
+            sequence: 1,
+            station_tfl_id: 'station-b',
+            line_tfl_id: 'northern',
+          },
+        ]
+
+        const result = deleteSegmentAndResequence(0, segments, mockStations, mockLines)
+
+        expect(result.segments).toHaveLength(0)
+        expect(result.resumeFrom.station).toBeNull()
+        expect(result.resumeFrom.line).toBeNull()
+      })
+
+      it('should return resume context from last remaining segment when deleting from middle', () => {
+        const segments: SegmentRequest[] = [
+          {
+            sequence: 0,
+            station_tfl_id: 'station-a',
+            line_tfl_id: 'northern',
+          },
+          {
+            sequence: 1,
+            station_tfl_id: 'station-b',
+            line_tfl_id: 'northern',
+          },
+          {
+            sequence: 2,
+            station_tfl_id: 'station-c',
+            line_tfl_id: 'victoria',
+          },
+          {
+            sequence: 3,
+            station_tfl_id: 'station-d',
+            line_tfl_id: 'victoria',
+          },
+        ]
+
+        // Delete from sequence 2 (keeps A→B)
+        const result = deleteSegmentAndResequence(2, segments, mockStations, mockLines)
+
+        expect(result.segments).toHaveLength(2)
+        expect(result.resumeFrom.station?.tfl_id).toBe('station-b')
+        expect(result.resumeFrom.line?.tfl_id).toBe('northern')
+      })
+
+      it('should return resume context when deleting last segment with destination marker', () => {
+        const segments: SegmentRequest[] = [
+          {
+            sequence: 0,
+            station_tfl_id: 'station-a',
+            line_tfl_id: 'northern',
+          },
+          {
+            sequence: 1,
+            station_tfl_id: 'station-b',
+            line_tfl_id: 'northern',
+          },
+          {
+            sequence: 2,
+            station_tfl_id: 'station-c',
+            line_tfl_id: null, // Destination marker
+          },
+        ]
+
+        // Delete from sequence 2 (removes destination)
+        const result = deleteSegmentAndResequence(2, segments, mockStations, mockLines)
+
+        expect(result.segments).toHaveLength(2)
+        expect(result.resumeFrom.station?.tfl_id).toBe('station-b')
+        expect(result.resumeFrom.line?.tfl_id).toBe('northern')
+      })
+
+      it('should return resume context with correct line after line change', () => {
+        const segments: SegmentRequest[] = [
+          {
+            sequence: 0,
+            station_tfl_id: 'station-a',
+            line_tfl_id: 'northern',
+          },
+          {
+            sequence: 1,
+            station_tfl_id: 'station-c',
+            line_tfl_id: 'northern',
+          },
+          {
+            sequence: 2,
+            station_tfl_id: 'station-d',
+            line_tfl_id: 'victoria', // Line change
+          },
+        ]
+
+        // Delete from sequence 2 (keeps A→C on Northern)
+        const result = deleteSegmentAndResequence(2, segments, mockStations, mockLines)
+
+        expect(result.segments).toHaveLength(2)
+        expect(result.resumeFrom.station?.tfl_id).toBe('station-c')
+        expect(result.resumeFrom.line?.tfl_id).toBe('northern') // Should be Northern, not Victoria
+      })
+
+      it('should handle complex truncation: delete middle of multi-line route', () => {
+        const segments: SegmentRequest[] = [
+          {
+            sequence: 0,
+            station_tfl_id: 'station-a',
+            line_tfl_id: 'northern',
+          },
+          {
+            sequence: 1,
+            station_tfl_id: 'station-b',
+            line_tfl_id: 'northern',
+          },
+          {
+            sequence: 2,
+            station_tfl_id: 'station-c',
+            line_tfl_id: 'northern',
+          },
+          {
+            sequence: 3,
+            station_tfl_id: 'station-d',
+            line_tfl_id: 'victoria',
+          },
+        ]
+
+        // Delete from sequence 1 (truncate to just station-a)
+        const result = deleteSegmentAndResequence(1, segments, mockStations, mockLines)
+
+        expect(result.segments).toHaveLength(1)
+        expect(result.segments[0].station_tfl_id).toBe('station-a')
+        expect(result.resumeFrom.station?.tfl_id).toBe('station-a')
+        expect(result.resumeFrom.line?.tfl_id).toBe('northern')
+      })
     })
   })
 })

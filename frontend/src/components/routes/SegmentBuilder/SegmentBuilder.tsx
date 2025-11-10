@@ -16,7 +16,7 @@ import type {
   SegmentRequest,
   RouteValidationResponse,
 } from '../../../lib/api'
-import type { Step } from './types'
+import type { Step, CoreSegmentBuilderState } from './types'
 import {
   MAX_ROUTE_SEGMENTS,
   validateNotDuplicate,
@@ -28,9 +28,16 @@ import { isSameLine } from './utils'
 import {
   buildSegmentsForContinue,
   buildSegmentsForDestination,
-  computeResumeState,
   deleteSegmentAndResequence,
 } from './segments'
+import {
+  transitionToSelectStation,
+  transitionToSelectNextStation,
+  transitionToChooseAction,
+  transitionBackFromChooseAction,
+  transitionToResumeFromSegments,
+  computeStateAfterStationSelect,
+} from './transitions'
 
 export interface SegmentBuilderProps {
   /**
@@ -133,6 +140,18 @@ export function SegmentBuilder({
   const [saveSuccess, setSaveSuccess] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
+  /**
+   * Helper to apply a state transition to component state
+   * Takes a CoreSegmentBuilderState and applies it to individual setters
+   */
+  const applyTransition = (newState: CoreSegmentBuilderState) => {
+    setCurrentStation(newState.currentStation)
+    setSelectedLine(newState.selectedLine)
+    setNextStation(newState.nextStation)
+    setStep(newState.step)
+    setError(newState.error)
+  }
+
   // Get available lines for current station
   const getCurrentStationLines = useCallback((): LineResponse[] => {
     if (!currentStation) return []
@@ -151,25 +170,15 @@ export function SegmentBuilder({
   useEffect(() => {
     if (step === 'select-station' && currentStation) {
       const stationLines = getCurrentStationLines()
-
-      // If only 1 line available, auto-select it and advance to next station
-      if (stationLines.length === 1) {
-        setSelectedLine(stationLines[0])
-        setStep('select-next-station')
-      } else if (stationLines.length > 1) {
-        // Multiple lines: show line selection buttons
-        setStep('select-line')
-      } else {
-        // No lines (shouldn't happen with valid TfL data)
-        setError('This station has no lines available')
-      }
+      const newState = computeStateAfterStationSelect(currentStation, stationLines)
+      applyTransition(newState)
     }
   }, [currentStation, step, getCurrentStationLines])
 
   const handleStationSelect = (stationId: string | undefined) => {
     if (!stationId) {
-      setCurrentStation(null)
-      setStep('select-station')
+      const newState = transitionToSelectStation()
+      applyTransition(newState)
       return
     }
 
@@ -182,23 +191,21 @@ export function SegmentBuilder({
   }
 
   const handleLineClick = (line: LineResponse) => {
-    setSelectedLine(line)
-    setStep('select-next-station')
-    setError(null)
+    if (!currentStation) return
+    const newState = transitionToSelectNextStation(currentStation, line)
+    applyTransition(newState)
   }
 
   const handleNextStationSelect = (stationId: string | undefined) => {
-    if (!stationId) {
+    if (!stationId || !currentStation || !selectedLine) {
       setNextStation(null)
-      setStep('select-next-station')
       return
     }
 
     const station = stations.find((s) => s.id === stationId)
     if (station) {
-      setNextStation(station)
-      setStep('choose-action')
-      setError(null)
+      const newState = transitionToChooseAction(currentStation, selectedLine, station)
+      applyTransition(newState)
     }
   }
 
@@ -257,11 +264,9 @@ export function SegmentBuilder({
 
     setLocalSegments(updatedSegments)
 
-    // Set up for next segment
-    setCurrentStation(nextStation)
-    setSelectedLine(line) // Continue on selected line
-    setNextStation(null)
-    setStep('select-next-station')
+    // Set up for next segment using transition function
+    const newState = transitionToSelectNextStation(nextStation, line)
+    applyTransition(newState)
   }
 
   const handleMarkAsDestination = async () => {
@@ -303,11 +308,9 @@ export function SegmentBuilder({
       currentSegments: localSegments,
     })
 
-    // Reset UI state
-    setCurrentStation(null)
-    setSelectedLine(null)
-    setNextStation(null)
-    setStep('select-station')
+    // Reset UI state using transition function
+    const newState = transitionToSelectStation()
+    applyTransition(newState)
 
     // Auto-save the route
     try {
@@ -344,42 +347,15 @@ export function SegmentBuilder({
   }
 
   /**
-   * Resume building from the last segment in the list
-   * Sets state as if user just selected that last station
-   * @param segments - The current list of segments to resume from
-   * @param targetStep - The step to set ('select-next-station' or 'choose-action')
-   */
-  const resumeFromLastSegment = (
-    segments: SegmentRequest[],
-    targetStep: 'select-next-station' | 'choose-action' = 'select-next-station'
-  ) => {
-    // Compute resume state using pure function
-    const resumeState = computeResumeState(segments, stations, lines)
-
-    if (resumeState && resumeState.station && resumeState.line) {
-      // Ready to continue from this station
-      setCurrentStation(resumeState.station)
-      setSelectedLine(resumeState.line)
-      setNextStation(null)
-      setStep(targetStep)
-    } else {
-      // No segments or invalid state - start fresh
-      setCurrentStation(null)
-      setSelectedLine(null)
-      setNextStation(null)
-      setStep('select-station')
-    }
-  }
-
-  /**
    * Go back from choose-action step to select-next-station
    * Allows user to re-select the next station if they made a mistake
    * When in edit mode (saveSuccess is false and we have local segments), stay in edit mode
    */
   const handleBackFromChooseAction = () => {
-    setNextStation(null)
-    setStep('select-next-station')
-    setError(null)
+    if (!currentStation || !selectedLine) return
+
+    const newState = transitionBackFromChooseAction(currentStation, selectedLine)
+    applyTransition(newState)
     // Don't exit edit mode - keep saveSuccess as false so we stay in editing state
   }
 
@@ -403,14 +379,11 @@ export function SegmentBuilder({
     if (prevStation && destinationStation && arrivalLine) {
       // Set up state as if we just selected the destination as the "next station"
       // This shows line buttons for interchanges + "Mark as Destination" button
-      setCurrentStation(prevStation)
-      setSelectedLine(arrivalLine)
-      setNextStation(destinationStation)
-      setStep('choose-action')
+      const newState = transitionToChooseAction(prevStation, arrivalLine, destinationStation)
+      applyTransition(newState)
     }
 
     setSaveSuccess(false)
-    setError(null)
   }
 
   const handleDeleteSegment = (sequence: number) => {
@@ -424,13 +397,17 @@ export function SegmentBuilder({
       return
     }
 
-    // Delete segment and all subsequent segments using pure function
-    const updatedSegments = deleteSegmentAndResequence(sequence, localSegments)
+    // Delete segment and get truncation context using enhanced pure function
+    const deletionResult = deleteSegmentAndResequence(sequence, localSegments, stations, lines)
 
-    setLocalSegments(updatedSegments)
+    setLocalSegments(deletionResult.segments)
 
-    // Resume from the last remaining segment
-    resumeFromLastSegment(updatedSegments, 'select-next-station')
+    // Resume from truncation point using the provided context
+    const newState = transitionToResumeFromSegments(
+      deletionResult.resumeFrom.station,
+      deletionResult.resumeFrom.line
+    )
+    applyTransition(newState)
   }
 
   const handleCancel = () => {
@@ -441,11 +418,11 @@ export function SegmentBuilder({
         line_tfl_id: seg.line_tfl_id,
       }))
     )
-    setCurrentStation(null)
-    setSelectedLine(null)
-    setNextStation(null)
-    setStep('select-station')
-    setError(null)
+
+    // Reset state using transition function
+    const newState = transitionToSelectStation()
+    applyTransition(newState)
+
     setSaveSuccess(false)
     onCancel()
   }

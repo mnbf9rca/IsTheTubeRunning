@@ -21,6 +21,21 @@ import { isStationLastInRoute } from './validation'
 import { isSameLine } from './utils'
 
 /**
+ * Result of deleting a segment with truncation context
+ */
+export interface DeletionResult {
+  /** Remaining segments after deletion (resequenced) */
+  segments: SegmentRequest[]
+  /** Context for resuming route building after truncation */
+  resumeFrom: {
+    /** Station to resume from (from last remaining segment) */
+    station: StationResponse | null
+    /** Line to resume on (from last remaining segment) */
+    line: LineResponse | null
+  }
+}
+
+/**
  * Parameters for building segments when continuing a journey
  */
 export interface BuildContinueSegmentsParams {
@@ -284,15 +299,24 @@ export function computeResumeState(
  * Removes segments from a sequence number onwards and resequences remaining segments
  *
  * This function is used when deleting a segment, which also removes all subsequent
- * segments to maintain route consistency. After deletion, remaining segments are
+ * segments to maintain route consistency (truncation). After deletion, remaining segments are
  * resequenced to ensure contiguous sequence numbers (0, 1, 2, ...).
  *
+ * The function also computes truncation context to support resuming route building:
+ * - If deleting from sequence 0: returns null resume context (route becomes empty)
+ * - If deleting from sequence N > 0: returns station/line from last remaining segment
+ *
+ * The truncation context enables the UI to resume building from the correct station/line
+ * after deletion, rather than resetting to initial state.
+ *
  * The function does NOT validate the deletion (validation should happen in the caller).
- * It only performs the pure logic of filtering and resequencing.
+ * It only performs the pure logic of filtering, resequencing, and computing resume context.
  *
  * @param sequence - Sequence number to delete from (inclusive)
  * @param segments - Current route segments
- * @returns New array of segments with updated sequence numbers (does not mutate segments)
+ * @param stations - All available stations (for looking up truncation context)
+ * @param lines - All available lines (for looking up truncation context)
+ * @returns DeletionResult with new segments and resume context (does not mutate segments)
  *
  * @example
  * ```typescript
@@ -303,22 +327,43 @@ export function computeResumeState(
  *   { sequence: 2, station_tfl_id: 'c', line_tfl_id: 'victoria' },
  *   { sequence: 3, station_tfl_id: 'd', line_tfl_id: 'victoria' }
  * ]
- * const result = deleteSegmentAndResequence(2, segments)
- * // Result: [
- * //   { sequence: 0, station_tfl_id: 'a', line_tfl_id: 'northern' },
- * //   { sequence: 1, station_tfl_id: 'b', line_tfl_id: 'northern' }
- * // ]
+ * const result = deleteSegmentAndResequence(2, segments, stations, lines)
+ * // Result: {
+ * //   segments: [
+ * //     { sequence: 0, station_tfl_id: 'a', line_tfl_id: 'northern' },
+ * //     { sequence: 1, station_tfl_id: 'b', line_tfl_id: 'northern' }
+ * //   ],
+ * //   resumeFrom: { station: StationB, line: NorthernLine }
+ * // }
  *
  * // Delete from start (clears all segments)
- * const result = deleteSegmentAndResequence(0, segments)
- * // Result: []
+ * const result = deleteSegmentAndResequence(0, segments, stations, lines)
+ * // Result: {
+ * //   segments: [],
+ * //   resumeFrom: { station: null, line: null }
+ * // }
  * ```
  */
 export function deleteSegmentAndResequence(
   sequence: number,
-  segments: SegmentRequest[]
-): SegmentRequest[] {
-  return segments
+  segments: SegmentRequest[],
+  stations: StationResponse[],
+  lines: LineResponse[]
+): DeletionResult {
+  // Filter and resequence remaining segments
+  const remainingSegments = segments
     .filter((seg) => seg.sequence < sequence)
     .map((seg, index) => ({ ...seg, sequence: index }))
+
+  // Compute truncation context using existing computeResumeState logic
+  // This handles the case where last segment is a destination marker (null line)
+  const resumeState = computeResumeState(remainingSegments, stations, lines)
+
+  return {
+    segments: remainingSegments,
+    resumeFrom: {
+      station: resumeState?.station ?? null,
+      line: resumeState?.line ?? null,
+    },
+  }
 }
