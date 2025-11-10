@@ -188,7 +188,7 @@ export function buildSegmentsForDestination(
         },
       ]
 
-  // Add destination marker (null line_id indicates destination)
+  // Add destination marker (null line_tfl_id indicates destination)
   updatedSegments.push({
     sequence: updatedSegments.length,
     station_tfl_id: destinationStation.tfl_id,

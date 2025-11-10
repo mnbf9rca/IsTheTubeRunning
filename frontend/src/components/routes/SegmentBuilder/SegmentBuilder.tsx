@@ -22,6 +22,7 @@ import {
   validateNotDuplicate,
   validateMaxSegments,
   validateCanDeleteSegment,
+  isStationLastInRoute,
 } from './validation'
 import { isSameLine } from './utils'
 import {
@@ -217,7 +218,17 @@ export function SegmentBuilder({
 
     // Determine how many segments will be added
     const isChangingLines = !isSameLine(line, selectedLine)
-    const additionalSegments = isChangingLines ? 2 : 1
+    const isCurrentStationLast = isStationLastInRoute(currentStation, localSegments)
+
+    // Calculate actual segments to be added based on junction scenario
+    let additionalSegments: number
+    if (isCurrentStationLast) {
+      // Current station already in route - won't be added again
+      additionalSegments = isChangingLines ? 1 : 0
+    } else {
+      // Current station will be added
+      additionalSegments = isChangingLines ? 2 : 1
+    }
 
     // Check max segments limit before building
     const maxSegmentsValidation = validateMaxSegments(localSegments.length, additionalSegments)
@@ -276,7 +287,9 @@ export function SegmentBuilder({
     }
 
     // Check max segments limit (will add 1 or 2 segments depending on whether current is last)
-    const maxSegmentsValidation = validateMaxSegments(localSegments.length, 2)
+    const isCurrentStationLast = isStationLastInRoute(currentStation, localSegments)
+    const additionalSegments = isCurrentStationLast ? 1 : 2
+    const maxSegmentsValidation = validateMaxSegments(localSegments.length, additionalSegments)
     if (!maxSegmentsValidation.valid) {
       setError(maxSegmentsValidation.error)
       return
