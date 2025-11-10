@@ -418,6 +418,36 @@ export function SegmentBuilder({
     }
   }
 
+  /**
+   * Enter edit mode for a completed route
+   * Sets state to show the destination station with action buttons (line selection + mark as destination)
+   */
+  const handleEditRoute = () => {
+    // Find the destination segment (line_tfl_id === null) to get the destination station
+    const destinationSegment = localSegments.find((seg) => seg.line_tfl_id === null)
+    if (!destinationSegment || localSegments.length < 2) {
+      return
+    }
+
+    // Get the segment before the destination to find the line we arrived on
+    const segmentBeforeDestination = localSegments[localSegments.length - 2]
+    const prevStation = stations.find((s) => s.tfl_id === segmentBeforeDestination.station_tfl_id)
+    const destinationStation = stations.find((s) => s.tfl_id === destinationSegment.station_tfl_id)
+    const arrivalLine = lines.find((l) => l.tfl_id === segmentBeforeDestination.line_tfl_id)
+
+    if (prevStation && destinationStation && arrivalLine) {
+      // Set up state as if we just selected the destination as the "next station"
+      // This shows line buttons for interchanges + "Mark as Destination" button
+      setCurrentStation(prevStation)
+      setSelectedLine(arrivalLine)
+      setNextStation(destinationStation)
+      setStep('choose-action')
+    }
+
+    setSaveSuccess(false)
+    setError(null)
+  }
+
   const handleDeleteSegment = (sequence: number) => {
     // Prevent deletion of destination station (last segment with line_tfl_id === null)
     const isDestination =
@@ -676,40 +706,7 @@ export function SegmentBuilder({
 
       {/* Edit Route Button (shown when route is complete) */}
       {isRouteComplete && (
-        <Button
-          variant="outline"
-          onClick={() => {
-            // Enter edit mode WITHOUT removing any segments
-            // Find the destination segment (line_tfl_id === null) to get the destination station
-            const destinationSegment = localSegments.find((seg) => seg.line_tfl_id === null)
-            if (destinationSegment && localSegments.length >= 2) {
-              // Get the segment before the destination to find the line we arrived on
-              const segmentBeforeDestination = localSegments[localSegments.length - 2]
-              const prevStation = stations.find(
-                (s) => s.tfl_id === segmentBeforeDestination.station_tfl_id
-              )
-              const destinationStation = stations.find(
-                (s) => s.tfl_id === destinationSegment.station_tfl_id
-              )
-              const arrivalLine = lines.find(
-                (l) => l.tfl_id === segmentBeforeDestination.line_tfl_id
-              )
-
-              if (prevStation && destinationStation && arrivalLine) {
-                // Set up state as if we just selected the destination as the "next station"
-                // This shows line buttons for interchanges + "Mark as Destination" button
-                setCurrentStation(prevStation)
-                setSelectedLine(arrivalLine)
-                setNextStation(destinationStation)
-                setStep('choose-action')
-              }
-            }
-
-            setSaveSuccess(false)
-            setError(null)
-          }}
-          disabled={isSaving}
-        >
+        <Button variant="outline" onClick={handleEditRoute} disabled={isSaving}>
           Edit Route
         </Button>
       )}
