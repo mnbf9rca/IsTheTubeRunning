@@ -832,12 +832,9 @@ class TfLService:
         for hub_children in hub_groups.values():
             # If line filter provided, prefer child serving that line for UUID/coords
             preferred_child = None
-            if line_filter:
-                # Find child station that serves the filtered line
-                matching = [child for child in hub_children if line_filter in child.lines]
-                if matching:
-                    # Use first matching child (deterministic - sorted by tfl_id in helper)
-                    preferred_child = matching[0]
+            # Find child stations that serve the filtered line and sort for deterministic selection
+            if line_filter and (matching := [child for child in hub_children if line_filter in child.lines]):
+                preferred_child = sorted(matching, key=lambda s: s.tfl_id)[0]
 
             hub_representative = create_hub_representative(hub_children, preferred_child)
             result.append(hub_representative)
