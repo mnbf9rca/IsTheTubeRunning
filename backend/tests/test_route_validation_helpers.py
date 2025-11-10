@@ -315,3 +315,26 @@ class TestFindValidConnectionInRoutes:
         assert result is not None
         assert result["found"] is True
         assert result["direction"] == "outbound"
+
+    def test_backwards_travel_detection(self) -> None:
+        """Should return backwards result (found=False with indices) vs None for different branches."""
+        routes: list[RouteVariant] = [
+            {
+                "name": "A → C",
+                "service_type": "Regular",
+                "direction": "inbound",
+                "stations": ["A", "B", "C"],
+            },
+        ]
+
+        # Backwards travel: stations found but wrong order
+        result = find_valid_connection_in_routes("C", "A", routes)
+        assert result is not None  # Result returned (not None)
+        assert result["found"] is False  # But not valid
+        assert result["from_index"] == 2  # Indices populated
+        assert result["to_index"] == 0
+        assert result["route_name"] == "A → C"
+
+        # Different branches: station not in route at all
+        result = find_valid_connection_in_routes("A", "X", routes)
+        assert result is None  # No result (completely not found)

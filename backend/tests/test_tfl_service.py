@@ -7503,6 +7503,67 @@ async def test_validate_route_branches_still_blocked(
     assert "not connected" in message.lower() or "different branches" in message.lower() or "invalid" in message.lower()
 
 
+async def test_validate_route_backwards_on_single_line(
+    tfl_service: TfLService,
+    db_session: AsyncSession,
+) -> None:
+    """Test backwards travel on a simple line with only one route variant.
+
+    This verifies that backwards detection works even when there's no
+    alternative route variant to match.
+    """
+    # Create Victoria line with only one direction
+    line = Line(
+        tfl_id="victoria",
+        name="Victoria",
+        color="#0019A8",
+        last_updated=datetime.now(UTC),
+        routes={
+            "routes": [
+                {
+                    "name": "Brixton → Walthamstow",
+                    "service_type": "Regular",
+                    "direction": "inbound",
+                    "stations": ["940GZZLUBXN", "940GZZLUSTK"],  # Brixton, then Stockwell
+                }
+            ]
+        },
+    )
+    db_session.add(line)
+    await db_session.flush()
+
+    brixton = Station(
+        tfl_id="940GZZLUBXN",
+        name="Brixton Underground Station",
+        latitude=51.4623,
+        longitude=-0.1145,
+        lines=["victoria"],
+        last_updated=datetime.now(UTC),
+    )
+    stockwell = Station(
+        tfl_id="940GZZLUSTK",
+        name="Stockwell Underground Station",
+        latitude=51.4723,
+        longitude=-0.1230,
+        lines=["victoria"],
+        last_updated=datetime.now(UTC),
+    )
+    db_session.add_all([brixton, stockwell])
+    await db_session.commit()
+
+    # Try backwards: Stockwell → Brixton (route goes Brixton → Stockwell)
+    segments = [
+        RouteSegmentRequest(station_tfl_id="940GZZLUSTK", line_tfl_id="victoria"),
+        RouteSegmentRequest(station_tfl_id="940GZZLUBXN", line_tfl_id=None),
+    ]
+
+    is_valid, message, _ = await tfl_service.validate_route(segments)
+
+    # Should fail - backwards travel with no alternative route
+    assert is_valid is False
+    assert "not connected" in message.lower() or "different branches" in message.lower() or "invalid" in message.lower()
+
+
 async def test_validate_route_same_branch_with_direction(
     tfl_service: TfLService,
     db_session: AsyncSession,

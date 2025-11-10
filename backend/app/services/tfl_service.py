@@ -2375,13 +2375,29 @@ class TfLService:
             )
             return True
 
-        # Stations not found in any common route sequence in correct order
-        logger.debug(
-            "connection_not_found_different_branches",
-            from_station=from_station.name,
-            to_station=to_station.name,
-            line_name=line.name,
-        )
+        # Connection not found - check if it's backwards travel or different branches
+        # If result has indices but found=False, stations exist but in wrong order (backwards)
+        # If result is None or has no indices, stations not in same route (different branches)
+        if result and result["from_index"] is not None and result["to_index"] is not None:
+            # Backwards travel detected
+            logger.debug(
+                "connection_found_but_wrong_direction",
+                route_name=result["route_name"],
+                direction=result["direction"],
+                from_station=from_station.name,
+                to_station=to_station.name,
+                from_index=result["from_index"],
+                to_index=result["to_index"],
+                line_name=line.name,
+            )
+        else:
+            # Stations not in any common route sequence (different branches)
+            logger.debug(
+                "connection_not_found_different_branches",
+                from_station=from_station.name,
+                to_station=to_station.name,
+                line_name=line.name,
+            )
         return False
 
     async def get_line_routes(self, line_tfl_id: str) -> dict[str, Any] | None:

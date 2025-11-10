@@ -176,6 +176,10 @@ def find_valid_connection_in_routes(
     Iterates through route variants and returns the first one where both stations
     exist in the correct order. Returns None if no valid connection found.
 
+    If stations are found but in wrong order (backwards), returns a ConnectionResult
+    with found=False but with indices populated, allowing caller to distinguish
+    between backwards travel and stations not being in same route.
+
     Performance: O(r * n) where r = number of route variants, n = stations per route.
     With typical values (2-6 route variants, 20-60 stations each), this is fast.
 
@@ -185,7 +189,9 @@ def find_valid_connection_in_routes(
         routes: List of route variant dicts
 
     Returns:
-        ConnectionResult for first valid connection, or None if none found
+        - ConnectionResult with found=True if valid connection exists
+        - ConnectionResult with found=False + indices if backwards travel detected
+        - None if stations not found in any common route sequence
 
     Examples:
         >>> routes = [
@@ -198,10 +204,16 @@ def find_valid_connection_in_routes(
         >>> find_valid_connection_in_routes("B", "A", routes)  # Backwards on first, need second route
         {'found': True, 'from_index': 1, 'to_index': 2, ...}
     """
+    backwards_result = None
+
     for route in routes:
         result = check_connection_in_route_variant(from_station_tfl_id, to_station_tfl_id, route)
         if result["found"]:
             return result
 
-    # No valid connection found in any route variant
-    return None
+        # Track backwards travel (stations found but wrong order) for better error reporting
+        if result["from_index"] is not None and result["to_index"] is not None and backwards_result is None:
+            backwards_result = result
+
+    # Return backwards result if detected, otherwise None (different branches)
+    return backwards_result
