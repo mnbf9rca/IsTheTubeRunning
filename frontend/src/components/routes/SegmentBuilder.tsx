@@ -532,7 +532,7 @@ export function SegmentBuilder({
               )}
 
             {/* Step 1: Select Station (starting or next) */}
-            {(step === 'select-station' || step === 'select-line') && (
+            {step === 'select-station' && (
               <div className="space-y-2">
                 <Label htmlFor="station-select">Station</Label>
                 <StationCombobox
