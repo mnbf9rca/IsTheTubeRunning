@@ -180,73 +180,26 @@ Backend validation enforces this rule. Frontend automatically sets the last segm
 ## Hub NaPTAN Code for Cross-Mode Interchanges
 
 ### Status
-Active (Implemented 2025-11-09)
+Active (Implemented 2025-11-09, Issues #50-55)
 
 ### Context
-Some TfL stations have multiple entries in the station list for different transport modes at the same physical location. For example, Seven Sisters has two station IDs:
-- `910GSEVNSIS` (London Overground - Weaver line)
-- `940GZZLUSVS` (London Underground - Victoria line)
-
-These represent the same physical interchange station. Users should be able to create routes that change between modes at these locations (e.g., Overground → Tube). TfL provides a `hubNaptanCode` field that links related stations together (e.g., both Seven Sisters stations have hub code `HUBSVS`).
-
-Without hub codes, route validation would reject valid cross-mode interchanges because the station IDs differ.
+TfL represents interchange stations with multiple transport modes as separate stations with unique IDs (e.g., Seven Sisters has distinct IDs for Overground and Victoria line). Users need to create routes that change between modes at these physical locations. TfL provides a `hubNaptanCode` field linking related stations at the same physical interchange.
 
 ### Decision
 Add two nullable fields to the `stations` table:
-- `hub_naptan_code` (String(50), indexed): TfL's hub identifier linking stations at the same physical location
-- `hub_common_name` (String(255)): User-friendly name for the hub (e.g., "Seven Sisters")
+- `hub_naptan_code`: TfL's hub identifier linking stations at the same physical location (indexed for fast lookups)
+- `hub_common_name`: User-friendly display name for the hub
 
-Fields are nullable because not all stations are hubs - only major interchange stations with multiple modes have hub codes.
-
-An index on `hub_naptan_code` enables fast lookups during route validation to check if two different station IDs represent the same physical interchange.
+Fields are nullable because only major interchange stations with multiple modes have hub codes.
 
 ### Consequences
 **Easier:**
-- Route validation can recognize cross-mode interchanges at the same physical location
-- Users can create journeys that change between modes (e.g., Overground → Tube at Seven Sisters)
-- Hub common names improve user experience (display "Seven Sisters" instead of separate station names)
-- Nullable design is flexible (works for both hub and non-hub stations)
-- Index on hub_naptan_code enables fast validation lookups
+- Route validation recognizes cross-mode interchanges at the same physical location
+- Users can create journeys changing between modes (e.g., Overground → Tube)
+- Improved UX with hub common names instead of separate station names
+- Flexible design accommodates both hub and non-hub stations
 
 **More Difficult:**
-- Route validation logic must check both direct connections AND hub-based connections
-- Need to populate hub data from TfL API (Issue #51)
-- Slightly increased database size (two additional columns per station)
+- Route validation must check both direct connections and hub-based connections
+- Hub data must be populated from TfL API
 - Must handle NULL values in validation and display logic
-
-### Implementation Details
-
-**Database Schema:**
-- Migration `90d1c387ce78` adds columns to `stations` table
-- `hub_naptan_code`: String(50), nullable, indexed
-- `hub_common_name`: String(255), nullable
-- Index: `ix_stations_hub_naptan_code` for fast lookups
-
-**Model:**
-- `Station.hub_naptan_code: Mapped[str | None]` (backend/app/models/tfl.py)
-- `Station.hub_common_name: Mapped[str | None]`
-
-**API Schema:**
-- `StationResponse.hub_naptan_code: str | None` (backend/app/schemas/tfl.py)
-- `StationResponse.hub_common_name: str | None`
-
-**Data Population:**
-- Fields will be populated in Issue #51 by fetching `hubNaptanCode` from TfL API
-- Until then, fields remain NULL (does not break existing functionality)
-
-**Route Validation:**
-- Updated in Issue #52 to allow interchanges when stations share the same hub code
-- Validation checks: direct connection OR same hub_naptan_code
-
-**Test Coverage:**
-- `test_create_station_with_hub_fields` - creates station with hub fields
-- `test_create_station_without_hub_fields` - verifies nullable fields work correctly
-- Comprehensive validation tests in Issue #53
-
-**Related Issues:**
-- Issue #50: Add fields (this ADR)
-- Issue #51: Fetch and populate hub data from TfL API
-- Issue #52: Update route validation to support hub interchanges
-- Issue #53: Comprehensive testing of hub interchange functionality
-- Issue #54: Frontend display of hub names
-- Issue #55: Documentation updates

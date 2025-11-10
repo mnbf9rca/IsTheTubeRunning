@@ -532,6 +532,10 @@ Once this plan is committed, Phase 1 implementation will begin with:
   - Lines, stations, and disruptions fetching with caching
   - Station connection graph for route validation
   - BFS-based route validation for multi-segment routes
+  - Hub-based cross-mode interchange support (Issues #47, #50-55)
+    - Stations can be identified by hub NaPTAN codes for better UX
+    - Route validation recognizes same-hub interchanges across modes
+    - Frontend displays hub common names with interchange badges
   - Admin endpoint: POST /admin/tfl/build-graph
   - Public endpoints: GET /tfl/lines, GET /tfl/stations, GET /tfl/disruptions, POST /tfl/validate-route
   - Core functionality complete and ready for manual/integration testing
