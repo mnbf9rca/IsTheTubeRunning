@@ -55,17 +55,31 @@ async def get_lines(
 @router.get("/stations", response_model=list[StationResponse])
 async def get_stations(
     line_id: str | None = Query(None, description="Filter stations by TfL line ID (e.g., 'victoria')"),
+    deduplicated: bool = Query(
+        False,
+        description=(
+            "Group hub stations into single entries with aggregated lines "
+            "(e.g., 'Seven Sisters' instead of separate Rail and Tube stations)"
+        ),
+    ),
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ) -> list[StationResponse]:
     """
-    Get tube stations, optionally filtered by line.
+    Get tube stations, optionally filtered by line and/or deduplicated by hub.
 
     Returns cached data from Redis or fetches from TfL API if cache expired.
     Data is cached for 24 hours (or TTL specified by TfL API).
 
+    When deduplicated=true, stations that share a hub_naptan_code are grouped into
+    a single representative station with:
+    - tfl_id: hub NaPTAN code (e.g., 'HUBSVS' instead of '940GZZLUSVS')
+    - name: hub common name (e.g., 'Seven Sisters')
+    - lines: aggregated from all hub child stations
+
     Args:
         line_id: Optional TfL line ID to filter stations
+        deduplicated: Whether to group hub stations into single entries (default: False)
         current_user: Authenticated user
         db: Database session
 
@@ -74,9 +88,31 @@ async def get_stations(
 
     Raises:
         HTTPException: 503 if TfL API is unavailable
+
+    Examples:
+        GET /tfl/stations  # All stations including hub children
+        GET /tfl/stations?line_id=victoria  # Victoria line stations only
+        GET /tfl/stations?deduplicated=true  # Hub-grouped stations
+        GET /tfl/stations?line_id=victoria&deduplicated=true  # Victoria line, hub-grouped
     """
     tfl_service = TfLService(db)
-    stations = await tfl_service.fetch_stations(line_tfl_id=line_id)
+
+    # When deduplicating, fetch ALL stations first to get complete hub data,
+    # then filter by line after deduplication. This ensures hub representatives
+    # show all lines served by the hub, not just the filtered line.
+    if deduplicated:
+        # Fetch all stations to get complete hub information
+        stations = await tfl_service.fetch_stations(line_tfl_id=None)
+        # Deduplicate to create hub representatives with all lines
+        # Pass line_id so hub representatives use UUID from the line-matched station
+        stations = tfl_service.deduplicate_stations_by_hub(stations, line_filter=line_id)
+        # Then filter by line if requested (keeps only stations serving that line)
+        if line_id:
+            stations = [s for s in stations if line_id in s.lines]
+    else:
+        # Normal behavior: filter by line directly
+        stations = await tfl_service.fetch_stations(line_tfl_id=line_id)
+
     return [StationResponse.model_validate(station) for station in stations]
 
 

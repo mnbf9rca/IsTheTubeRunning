@@ -22,7 +22,9 @@ from app.core.config import settings
 from app.helpers.station_resolution import (
     NoMatchingStationsError,
     StationNotFoundError,
+    create_hub_representative,
     filter_stations_by_line,
+    group_stations_by_hub,
     select_station_from_candidates,
 )
 from app.models.tfl import (
@@ -780,6 +782,71 @@ class TfLService:
                 status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
                 detail="Failed to fetch stations from TfL API.",
             ) from e
+
+    def deduplicate_stations_by_hub(self, stations: list[Station], line_filter: str | None = None) -> list[Station]:
+        """
+        Deduplicate stations by grouping hub children into single representative stations.
+
+        This method takes a list of stations and groups those that share a hub_naptan_code
+        into single representative stations. Each hub representative uses the hub code as
+        its tfl_id, aggregates lines from all child stations, and uses the hub_common_name.
+
+        When a line_filter is provided, the hub representative's UUID and other properties
+        are taken from the child station that serves that line (if available), making the
+        response contextually relevant to the query.
+
+        Standalone stations (without hub_naptan_code) are returned unchanged.
+
+        This method orchestrates pure helper functions from app.helpers.station_resolution
+        for testable, functional-style deduplication logic.
+
+        Args:
+            stations: List of Station objects to deduplicate
+            line_filter: Optional line ID to prefer when selecting hub representative template.
+                        If provided, uses the child station serving this line for UUID/coordinates.
+
+        Returns:
+            List of deduplicated stations with hubs represented as single entries,
+            sorted alphabetically by name
+
+        Examples:
+            >>> # Seven Sisters has both Rail and Tube stations
+            >>> rail = Station(tfl_id="910GSEVNSIS", hub_naptan_code="HUBSVS", lines=["overground"])
+            >>> tube = Station(tfl_id="940GZZLUSVS", hub_naptan_code="HUBSVS", lines=["victoria"])
+            >>> standalone = Station(tfl_id="940GZZLUOXC", hub_naptan_code=None, lines=["piccadilly"])
+            >>> service.deduplicate_stations_by_hub([rail, tube, standalone])
+            [
+                Station(tfl_id="HUBSVS", name="Seven Sisters", lines=["overground", "victoria"]),
+                Station(tfl_id="940GZZLUOXC", name="Oxford Circus", lines=["piccadilly"])
+            ]
+
+        See Also:
+            - group_stations_by_hub: Groups stations into hub groups and standalone lists
+            - create_hub_representative: Creates representative station from hub children
+        """
+        # Group stations by hub using pure helper
+        hub_groups, standalone_stations = group_stations_by_hub(stations)
+
+        # Create hub representatives
+        result: list[Station] = []
+        for hub_children in hub_groups.values():
+            # If line filter provided, prefer child serving that line for UUID/coords
+            preferred_child = None
+            if line_filter:
+                # Find child station that serves the filtered line
+                matching = [child for child in hub_children if line_filter in child.lines]
+                if matching:
+                    # Use first matching child (deterministic - sorted by tfl_id in helper)
+                    preferred_child = matching[0]
+
+            hub_representative = create_hub_representative(hub_children, preferred_child)
+            result.append(hub_representative)
+
+        # Add standalone stations
+        result.extend(standalone_stations)
+
+        # Sort alphabetically by name for consistent ordering
+        return sorted(result, key=lambda s: s.name)
 
     def _extract_disruption_from_route(
         self,
