@@ -2310,11 +2310,15 @@ class TfLService:
         line_id: uuid.UUID,
     ) -> bool:
         """
-        Check if two stations are reachable on the same route sequence.
+        Check if two stations are reachable on the same route sequence in the correct direction.
 
-        This validates that both stations exist in at least one route sequence
-        for the specified line, preventing cross-branch travel (e.g., Bank → Charing Cross
-        on Northern line, which are on different branches).
+        This validates that:
+        1. Both stations exist in at least one route sequence for the specified line
+        2. The stations appear in the correct order (directional validation)
+
+        This prevents both cross-branch travel (e.g., Bank → Charing Cross on Northern line)
+        and backwards travel (e.g., Piccadilly Circus → Arsenal on Piccadilly line when the
+        route sequence goes Arsenal → Piccadilly Circus).
 
         Args:
             from_station_id: Starting station UUID
@@ -2322,7 +2326,8 @@ class TfLService:
             line_id: Line UUID
 
         Returns:
-            True if both stations exist in the same route sequence, False otherwise
+            True if both stations exist in the same route sequence in the correct order,
+            False otherwise
         """
         # Get station and line objects
         from_station = await self.db.get(Station, from_station_id)
@@ -2347,21 +2352,44 @@ class TfLService:
             )
             return False
 
-        # Check each route sequence to see if both stations exist in the same one
+        # Check each route sequence to see if both stations exist in the correct order
+        # Performance: O(n) per route variant using index(), same complexity as previous
+        # 'in' operator. With typical route lengths of 20-60 stations and infrequent
+        # validation (only during route creation/editing), performance impact is negligible.
         routes = line.routes["routes"]
         for route in routes:
             stations = route.get("stations", [])
 
-            # Check if both stations exist in this route sequence
-            if from_station.tfl_id in stations and to_station.tfl_id in stations:
+            # Check if both stations exist in this route sequence and validate order
+            try:
+                from_index = stations.index(from_station.tfl_id)
+                to_index = stations.index(to_station.tfl_id)
+
+                # Enforce directional validation: to_station must come after from_station
+                if from_index < to_index:
+                    logger.debug(
+                        "connection_found_in_route",
+                        route_name=route.get("name", "Unknown"),
+                        direction=route.get("direction", "Unknown"),
+                        from_station=from_station.name,
+                        to_station=to_station.name,
+                        from_index=from_index,
+                        to_index=to_index,
+                    )
+                    return True
+                # Stations found but in wrong order (backwards travel)
                 logger.debug(
-                    "connection_found_in_route",
+                    "connection_found_but_wrong_direction",
                     route_name=route.get("name", "Unknown"),
+                    direction=route.get("direction", "Unknown"),
                     from_station=from_station.name,
                     to_station=to_station.name,
+                    from_index=from_index,
+                    to_index=to_index,
                 )
-                # Allow travel in either direction within the route sequence
-                return True
+            except ValueError:
+                # One or both stations not in this route variant, try next route
+                continue
 
         # Stations not found in any common route sequence
         logger.debug(
