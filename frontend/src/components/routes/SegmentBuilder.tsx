@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react'
-import { X, AlertCircle, Check } from 'lucide-react'
+import { X, AlertCircle, Check, Trash2 } from 'lucide-react'
 import { Button } from '../ui/button'
 import { Alert, AlertDescription } from '../ui/alert'
 import { Label } from '../ui/label'
@@ -378,6 +378,88 @@ export function SegmentBuilder({
     }
   }
 
+  /**
+   * Resume building from the last segment in the list
+   * Sets state as if user just selected that last station
+   * @param segments - The current list of segments to resume from
+   * @param targetStep - The step to set ('select-next-station' or 'choose-action')
+   */
+  const resumeFromLastSegment = (
+    segments: SegmentRequest[],
+    targetStep: 'select-next-station' | 'choose-action' = 'select-next-station'
+  ) => {
+    if (segments.length === 0) {
+      // No segments - start fresh
+      setCurrentStation(null)
+      setSelectedLine(null)
+      setNextStation(null)
+      setStep('select-station')
+    } else {
+      // Resume from last segment
+      const lastSegment = segments[segments.length - 1]
+      const lastStation = stations.find((s) => s.tfl_id === lastSegment.station_tfl_id)
+      const lastLine = lastSegment.line_tfl_id
+        ? lines.find((l) => l.tfl_id === lastSegment.line_tfl_id)
+        : null
+
+      if (lastStation && lastLine) {
+        // Ready to continue from this station
+        setCurrentStation(lastStation)
+        setSelectedLine(lastLine)
+        setNextStation(null)
+        setStep(targetStep)
+      } else {
+        // Fallback to initial state
+        setCurrentStation(null)
+        setSelectedLine(null)
+        setNextStation(null)
+        setStep('select-station')
+      }
+    }
+  }
+
+  /**
+   * Go back from choose-action step to select-next-station
+   * Allows user to re-select the next station if they made a mistake
+   * When in edit mode (saveSuccess is false and we have local segments), stay in edit mode
+   */
+  const handleBackFromChooseAction = () => {
+    setNextStation(null)
+    setStep('select-next-station')
+    setError(null)
+    // Don't exit edit mode - keep saveSuccess as false so we stay in editing state
+  }
+
+  /**
+   * Enter edit mode for a completed route
+   * Sets state to show the destination station with action buttons (line selection + mark as destination)
+   */
+  const handleEditRoute = () => {
+    // Find the destination segment (line_tfl_id === null) to get the destination station
+    const destinationSegment = localSegments.find((seg) => seg.line_tfl_id === null)
+    if (!destinationSegment || localSegments.length < 2) {
+      return
+    }
+
+    // Get the segment before the destination to find the line we arrived on
+    const segmentBeforeDestination = localSegments[localSegments.length - 2]
+    const prevStation = stations.find((s) => s.tfl_id === segmentBeforeDestination.station_tfl_id)
+    const destinationStation = stations.find((s) => s.tfl_id === destinationSegment.station_tfl_id)
+    const arrivalLine = lines.find((l) => l.tfl_id === segmentBeforeDestination.line_tfl_id)
+
+    if (prevStation && destinationStation && arrivalLine) {
+      // Set up state as if we just selected the destination as the "next station"
+      // This shows line buttons for interchanges + "Mark as Destination" button
+      setCurrentStation(prevStation)
+      setSelectedLine(arrivalLine)
+      setNextStation(destinationStation)
+      setStep('choose-action')
+    }
+
+    setSaveSuccess(false)
+    setError(null)
+  }
+
   const handleDeleteSegment = (sequence: number) => {
     // Prevent deletion of destination station (last segment with line_tfl_id === null)
     const isDestination =
@@ -398,11 +480,9 @@ export function SegmentBuilder({
 
     setLocalSegments(updatedSegments)
 
-    // Reset building state
-    setCurrentStation(null)
-    setSelectedLine(null)
-    setNextStation(null)
-    setStep('select-station')
+    // Resume from the last remaining segment
+    resumeFromLastSegment(updatedSegments, 'select-next-station')
+
     setError(null)
   }
 
@@ -426,14 +506,30 @@ export function SegmentBuilder({
   const hasMaxSegments = localSegments.length >= MAX_ROUTE_SEGMENTS
 
   // Check if route is complete (has destination segment with line_tfl_id: null)
+  // When in choose-action mode, select-next-station with currentStation, or nextStation is set,
+  // we're editing the route, so it's not "complete" for UI purposes
   const isRouteComplete =
-    localSegments.length >= 2 && localSegments[localSegments.length - 1].line_tfl_id === null
+    localSegments.length >= 2 &&
+    localSegments[localSegments.length - 1].line_tfl_id === null &&
+    step !== 'choose-action' &&
+    !(step === 'select-next-station' && currentStation) &&
+    !nextStation
 
   // Convert local segments to SegmentResponse format for display
-  const displaySegments: SegmentResponse[] = localSegments.map((seg) => ({
-    id: `temp-${seg.sequence}`, // Temporary ID for display
-    ...seg,
-  }))
+  // When in choose-action step with a complete route, hide the destination marker
+  // to show action buttons for the last actual station
+  const displaySegments: SegmentResponse[] = localSegments
+    .filter((seg) => {
+      // In choose-action mode, hide the destination so we can show action buttons
+      if (step === 'choose-action' && seg.line_tfl_id === null) {
+        return false
+      }
+      return true
+    })
+    .map((seg) => ({
+      id: `temp-${seg.sequence}`, // Temporary ID for display
+      ...seg,
+    }))
 
   // Instructions based on current step
   const getInstructions = () => {
@@ -532,7 +628,7 @@ export function SegmentBuilder({
               )}
 
             {/* Step 1: Select Station (starting or next) */}
-            {(step === 'select-station' || step === 'select-line') && (
+            {step === 'select-station' && (
               <div className="space-y-2">
                 <Label htmlFor="station-select">Station</Label>
                 <StationCombobox
@@ -579,9 +675,20 @@ export function SegmentBuilder({
 
             {/* Show selected next station before action buttons */}
             {step === 'choose-action' && nextStation && (
-              <div className="rounded-md bg-muted p-3">
-                <div className="text-sm font-medium text-muted-foreground">To:</div>
-                <div className="text-base font-semibold">{nextStation.name}</div>
+              <div className="rounded-md bg-muted p-3 flex items-center justify-between">
+                <div>
+                  <div className="text-sm font-medium text-muted-foreground">To:</div>
+                  <div className="text-base font-semibold">{nextStation.name}</div>
+                </div>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  onClick={handleBackFromChooseAction}
+                  aria-label="Remove selected station"
+                  className="h-8 w-8"
+                >
+                  <Trash2 className="h-4 w-4" />
+                </Button>
               </div>
             )}
 
@@ -625,22 +732,7 @@ export function SegmentBuilder({
 
       {/* Edit Route Button (shown when route is complete) */}
       {isRouteComplete && (
-        <Button
-          variant="outline"
-          onClick={() => {
-            // Remove the destination segment to allow editing
-            const updatedSegments = localSegments.slice(0, -1)
-            setLocalSegments(updatedSegments)
-            setSaveSuccess(false)
-            setError(null)
-            // Reset form state to allow continuing the journey
-            setCurrentStation(null)
-            setSelectedLine(null)
-            setNextStation(null)
-            setStep('select-next-station')
-          }}
-          disabled={isSaving}
-        >
+        <Button variant="outline" onClick={handleEditRoute} disabled={isSaving}>
           Edit Route
         </Button>
       )}
