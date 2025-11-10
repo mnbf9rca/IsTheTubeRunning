@@ -830,15 +830,13 @@ class TfLService:
 
                 # Validate at least one station found
                 validate_stations_exist_for_line(stations, line_tfl_id)
-
-                ttl = DEFAULT_STATIONS_CACHE_TTL
             else:
                 # Fetch all stations from database
                 result = await self.db.execute(select(Station))
                 stations = list(result.scalars().all())
-                ttl = DEFAULT_STATIONS_CACHE_TTL
 
             # Cache the results
+            ttl = DEFAULT_STATIONS_CACHE_TTL
             await self.cache.set(cache_key, stations, ttl=ttl)
             logger.info("stations_fetched_and_cached", line_tfl_id=line_tfl_id, count=len(stations), ttl=ttl)
             return stations
