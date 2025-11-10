@@ -2,6 +2,7 @@ import { TrainFront, ArrowRight } from 'lucide-react'
 import { Badge } from '../ui/badge'
 import { Card } from '../ui/card'
 import type { SegmentResponse, LineResponse, StationResponse } from '../../lib/api'
+import { getLineColor } from '@/lib/tfl-colors'
 
 export interface SegmentDisplayProps {
   /**
@@ -76,7 +77,7 @@ export function SegmentDisplay({ segments, lines, stations }: SegmentDisplayProp
                   ) : line ? (
                     <>
                       <Badge
-                        style={{ backgroundColor: line.color }}
+                        style={{ backgroundColor: getLineColor(line.tfl_id) }}
                         className="h-3 w-3 rounded-full p-0"
                         aria-label={`${line.name} line color`}
                       />

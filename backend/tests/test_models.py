@@ -234,7 +234,6 @@ class TestTfLModels:
         line = Line(
             tfl_id="victoria",
             name="Victoria Line",
-            color="#0019A8",
             last_updated=datetime.now(UTC),
         )
 
@@ -245,7 +244,6 @@ class TestTfLModels:
         saved_line = result.scalar_one()
 
         assert saved_line.name == "Victoria Line"
-        assert saved_line.color == "#0019A8"
 
     @pytest.mark.asyncio
     async def test_create_station(self, db_session: AsyncSession) -> None:
@@ -321,7 +319,6 @@ class TestTfLModels:
         line = Line(
             tfl_id="victoria",
             name="Victoria Line",
-            color="#0019A8",
             last_updated=datetime.now(UTC),
         )
         station1 = Station(
@@ -360,7 +357,7 @@ class TestTfLModels:
             pytest.param(
                 Station, "940GZZLUVXL", {"latitude": 51.486, "longitude": -0.125, "lines": ["victoria"]}, id="station"
             ),
-            pytest.param(Line, "victoria", {"color": "#0019A8"}, id="line"),
+            pytest.param(Line, "victoria", {}, id="line"),
         ],
     )
     async def test_duplicate_tfl_id_raises_error(
@@ -393,7 +390,6 @@ class TestTfLModels:
         line = Line(
             tfl_id="victoria",
             name="Victoria Line",
-            color="#0019A8",
             last_updated=datetime.now(UTC),
         )
         station1 = Station(
@@ -434,7 +430,6 @@ class TestRouteModels:
         line = Line(
             tfl_id="victoria",
             name="Victoria Line",
-            color="#0019A8",
             last_updated=datetime.now(UTC),
         )
         station1 = Station(
@@ -503,7 +498,6 @@ class TestRouteModels:
         line = Line(
             tfl_id="victoria",
             name="Victoria Line",
-            color="#0019A8",
             last_updated=datetime.now(UTC),
         )
         station1 = Station(
@@ -542,7 +536,6 @@ class TestRouteModels:
         line = Line(
             tfl_id="victoria",
             name="Victoria Line",
-            color="#0019A8",
             last_updated=datetime.now(UTC),
         )
         station = Station(
@@ -608,7 +601,6 @@ class TestRouteModels:
         line = Line(
             tfl_id="victoria",
             name="Victoria Line",
-            color="#0019A8",
             last_updated=datetime.now(UTC),
         )
         station1 = Station(

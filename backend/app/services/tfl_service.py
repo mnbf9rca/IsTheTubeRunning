@@ -270,15 +270,10 @@ class TfLService:
                 # response.content is a LineArray (RootModel), access via .root
                 line_data_list = response.content.root  # type: ignore[union-attr]
 
-                # TfL API doesn't provide color in GetByModeByPathModes response
-                # Use a default color (can be updated later via different endpoint if needed)
-                color = "#000000"  # Default black
-
                 for line_data in line_data_list:
                     line = Line(
                         tfl_id=line_data.id,
                         name=line_data.name,
-                        color=color,
                         mode=mode,
                         last_updated=datetime.now(UTC),
                     )

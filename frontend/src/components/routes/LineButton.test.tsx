@@ -10,7 +10,7 @@ describe('LineButton', () => {
     id: '1',
     tfl_id: 'piccadilly',
     name: 'Piccadilly',
-    color: '#0019A8',
+    mode: 'tube',
     last_updated: '2024-01-01T00:00:00Z',
   }
 
@@ -18,7 +18,7 @@ describe('LineButton', () => {
     id: '2',
     tfl_id: 'circle',
     name: 'Circle',
-    color: '#FFC80A',
+    mode: 'tube',
     last_updated: '2024-01-01T00:00:00Z',
   }
 

@@ -549,7 +549,6 @@ async def test_fetch_lines_from_api(
             # Verify specific attributes
             assert lines[0].tfl_id == "victoria"
             assert lines[0].name == "Victoria"
-            assert lines[0].color == "#000000"  # Default color
             assert lines[0].mode == "tube"
 
             assert lines[2].tfl_id == "london-overground"
@@ -570,7 +569,7 @@ async def test_fetch_lines_cache_hit(
     with freeze_time("2025-01-01 12:00:00"):
         # Setup cached lines
         cached_lines = [
-            Line(tfl_id="victoria", name="Victoria", color="#0019A8", mode="tube", last_updated=datetime.now(UTC)),
+            Line(tfl_id="victoria", name="Victoria", mode="tube", last_updated=datetime.now(UTC)),
         ]
 
         # Execute with helper - default modes sorted: dlr,elizabeth-line,overground,tube
@@ -2450,7 +2449,7 @@ async def test_fetch_station_disruptions_uses_helpers(
 ) -> None:
     """Test that fetch_station_disruptions uses the helper methods."""
     # Create line and station
-    line = Line(tfl_id="victoria", name="Victoria", color="#000000", last_updated=datetime.now(UTC))
+    line = Line(tfl_id="victoria", name="Victoria", last_updated=datetime.now(UTC))
     station = Station(
         tfl_id="940GZZLUVIC",
         name="Victoria",
@@ -2975,7 +2974,6 @@ async def test_validate_route_success(
     line = Line(
         tfl_id="victoria",
         name="Victoria",
-        color="#0019A8",
         last_updated=datetime.now(UTC),
         routes={
             "routes": [
@@ -3049,7 +3047,6 @@ async def test_validate_route_multiple_paths(
     line = Line(
         tfl_id="victoria",
         name="Victoria",
-        color="#0019A8",
         last_updated=datetime.now(UTC),
         routes={
             "routes": [
@@ -3135,7 +3132,6 @@ async def test_validate_route_invalid_connection(
     line = Line(
         tfl_id="victoria",
         name="Victoria",
-        color="#0019A8",
         last_updated=datetime.now(UTC),
         routes={
             "routes": [
@@ -3199,7 +3195,7 @@ async def test_validate_route_too_few_segments(
 ) -> None:
     """Test route validation with insufficient segments."""
     # Create minimal test data
-    line = Line(tfl_id="victoria", name="Victoria", color="#0019A8", last_updated=datetime.now(UTC))
+    line = Line(tfl_id="victoria", name="Victoria", last_updated=datetime.now(UTC))
     station1 = Station(
         tfl_id="st1",
         name="Station 1",
@@ -3228,7 +3224,7 @@ async def test_validate_route_with_nonexistent_station_or_line(
 ) -> None:
     """Test route validation with non-existent station or line IDs."""
     # Create valid entities
-    line = Line(tfl_id="victoria", name="Victoria", color="#0019A8", last_updated=datetime.now(UTC))
+    line = Line(tfl_id="victoria", name="Victoria", last_updated=datetime.now(UTC))
     station1 = Station(
         tfl_id="st1",
         name="Station 1",
@@ -3262,7 +3258,7 @@ async def test_validate_route_with_deleted_stations(
 ) -> None:
     """Test route validation with soft-deleted stations."""
     # Create test data with valid route
-    line = Line(tfl_id="victoria", name="Victoria", color="#0019A8", last_updated=datetime.now(UTC))
+    line = Line(tfl_id="victoria", name="Victoria", last_updated=datetime.now(UTC))
     db_session.add(line)
     await db_session.flush()
 
@@ -3316,7 +3312,7 @@ async def test_validate_route_with_duplicate_stations(
 ) -> None:
     """Test route validation with duplicate stations (acyclic enforcement)."""
     # Create test data
-    line = Line(tfl_id="victoria", name="Victoria", color="#0019A8", last_updated=datetime.now(UTC))
+    line = Line(tfl_id="victoria", name="Victoria", last_updated=datetime.now(UTC))
     db_session.add(line)
     await db_session.flush()
 
@@ -3368,7 +3364,7 @@ async def test_validate_route_with_too_many_segments(
 ) -> None:
     """Test route validation with too many segments (exceeds MAX_ROUTE_SEGMENTS)."""
     # Create test data
-    line = Line(tfl_id="victoria", name="Victoria", color="#0019A8", last_updated=datetime.now(UTC))
+    line = Line(tfl_id="victoria", name="Victoria", last_updated=datetime.now(UTC))
     db_session.add(line)
     await db_session.flush()
 
@@ -3421,7 +3417,6 @@ async def test_validate_route_with_null_destination_line_id(
     line = Line(
         tfl_id="victoria",
         name="Victoria",
-        color="#0019A8",
         last_updated=datetime.now(UTC),
         routes={
             "routes": [
@@ -3492,7 +3487,7 @@ async def test_validate_route_with_null_intermediate_line_id(
 ) -> None:
     """Test route validation with NULL line_id for intermediate segment (should fail)."""
     # Create test data
-    line = Line(tfl_id="victoria", name="Victoria", color="#0019A8", last_updated=datetime.now(UTC))
+    line = Line(tfl_id="victoria", name="Victoria", last_updated=datetime.now(UTC))
     db_session.add(line)
     await db_session.flush()
 
@@ -3558,7 +3553,6 @@ async def test_validate_route_different_branches_fails(
     line = Line(
         tfl_id="northern",
         name="Northern",
-        color="#000000",
         last_updated=datetime.now(UTC),
         routes={
             "routes": [
@@ -3626,7 +3620,6 @@ async def test_validate_route_same_branch_succeeds(
     line = Line(
         tfl_id="northern",
         name="Northern",
-        color="#000000",
         last_updated=datetime.now(UTC),
         routes={
             "routes": [
@@ -3692,7 +3685,6 @@ async def test_validate_route_before_branch_split_succeeds(
     line = Line(
         tfl_id="northern",
         name="Northern",
-        color="#000000",
         last_updated=datetime.now(UTC),
         routes={
             "routes": [
@@ -3758,7 +3750,6 @@ async def test_validate_route_full_line_succeeds(
     line = Line(
         tfl_id="northern",
         name="Northern",
-        color="#000000",
         last_updated=datetime.now(UTC),
         routes={
             "routes": [
@@ -3824,7 +3815,6 @@ async def test_validate_route_no_routes_data_fails(
     line = Line(
         tfl_id="northern",
         name="Northern",
-        color="#000000",
         last_updated=datetime.now(UTC),
         routes=None,  # No routes data!
     )
@@ -4037,7 +4027,7 @@ async def test_get_station_by_tfl_id_not_found(db_session: AsyncSession) -> None
 async def test_connection_exists_true(db_session: AsyncSession) -> None:
     """Test connection existence check returns True."""
     # Create stations and line
-    line = Line(tfl_id="victoria", name="Victoria", color="#000000", last_updated=datetime.now(UTC))
+    line = Line(tfl_id="victoria", name="Victoria", last_updated=datetime.now(UTC))
     station1 = Station(
         tfl_id="940GZZLUVIC",
         name="Victoria",
@@ -4076,7 +4066,7 @@ async def test_connection_exists_true(db_session: AsyncSession) -> None:
 async def test_connection_exists_false(db_session: AsyncSession) -> None:
     """Test connection existence check returns False."""
     # Create stations and line without connection
-    line = Line(tfl_id="victoria", name="Victoria", color="#000000", last_updated=datetime.now(UTC))
+    line = Line(tfl_id="victoria", name="Victoria", last_updated=datetime.now(UTC))
     station1 = Station(
         tfl_id="940GZZLUVIC",
         name="Victoria",
@@ -4119,7 +4109,7 @@ def test_create_connection(tfl_service: TfLService) -> None:
 async def test_process_station_pair_creates_both(db_session: AsyncSession) -> None:
     """Test station pair processing creates bidirectional connections."""
     # Create line and stations
-    line = Line(tfl_id="victoria", name="Victoria", color="#000000", last_updated=datetime.now(UTC))
+    line = Line(tfl_id="victoria", name="Victoria", last_updated=datetime.now(UTC))
     station1 = Station(
         tfl_id="940GZZLUVIC",
         name="Victoria",
@@ -4160,7 +4150,7 @@ async def test_process_station_pair_creates_both(db_session: AsyncSession) -> No
 async def test_process_station_pair_missing_station(db_session: AsyncSession) -> None:
     """Test station pair processing when station not in DB."""
     # Create line but no stations
-    line = Line(tfl_id="victoria", name="Victoria", color="#000000", last_updated=datetime.now(UTC))
+    line = Line(tfl_id="victoria", name="Victoria", last_updated=datetime.now(UTC))
     db_session.add(line)
     await db_session.commit()
 
@@ -4184,7 +4174,7 @@ async def test_process_station_pair_missing_station(db_session: AsyncSession) ->
 async def test_process_station_pair_existing_connections(db_session: AsyncSession) -> None:
     """Test station pair processing when connections already exist in pending set."""
     # Create line and stations
-    line = Line(tfl_id="victoria", name="Victoria", color="#000000", last_updated=datetime.now(UTC))
+    line = Line(tfl_id="victoria", name="Victoria", last_updated=datetime.now(UTC))
     station1 = Station(
         tfl_id="940GZZLUVIC",
         name="Victoria",
@@ -4237,8 +4227,8 @@ async def test_get_network_graph_success(
 ) -> None:
     """Test getting network graph with valid connections."""
     # Create test data - lines, stations, and connections
-    line1 = Line(tfl_id="victoria", name="Victoria", color="#0019A8", last_updated=datetime.now(UTC))
-    line2 = Line(tfl_id="northern", name="Northern", color="#000000", last_updated=datetime.now(UTC))
+    line1 = Line(tfl_id="victoria", name="Victoria", last_updated=datetime.now(UTC))
+    line2 = Line(tfl_id="northern", name="Northern", last_updated=datetime.now(UTC))
     db_session.add_all([line1, line2])
     await db_session.flush()
 
@@ -4321,7 +4311,7 @@ async def test_get_network_graph_exception(
 ) -> None:
     """Test get_network_graph handles database failures correctly."""
     # Create at least one connection so the initial check passes
-    line = Line(tfl_id="victoria", name="Victoria", color="#0019A8", last_updated=datetime.now(UTC))
+    line = Line(tfl_id="victoria", name="Victoria", last_updated=datetime.now(UTC))
     station1 = Station(
         tfl_id="st1",
         name="Station 1",
@@ -4375,7 +4365,7 @@ async def test_process_station_pair_missing_stop_ids(
 ) -> None:
     """Test _process_station_pair when stop objects lack ID fields (covers line 1162)."""
     # Create line
-    line = Line(tfl_id="victoria", name="Victoria", color="#000000", last_updated=datetime.now(UTC))
+    line = Line(tfl_id="victoria", name="Victoria", last_updated=datetime.now(UTC))
     db_session.add(line)
     await db_session.commit()
 
@@ -4458,7 +4448,7 @@ async def test_fetch_route_sequence_no_stop_points(
 ) -> None:
     """Test _fetch_route_sequence returns route data even when no stopPointSequences."""
     # Create line
-    line = Line(tfl_id="victoria", name="Victoria", color="#000000", last_updated=datetime.now(UTC))
+    line = Line(tfl_id="victoria", name="Victoria", last_updated=datetime.now(UTC))
     db_session.add(line)
     await db_session.commit()
 
@@ -4490,7 +4480,7 @@ async def test_process_route_sequence_empty_stop_points(
 ) -> None:
     """Test _process_route_sequence handles sequences without stopPoint (covers line 1001)."""
     # Create line
-    line = Line(tfl_id="victoria", name="Victoria", color="#000000", last_updated=datetime.now(UTC))
+    line = Line(tfl_id="victoria", name="Victoria", last_updated=datetime.now(UTC))
     db_session.add(line)
     await db_session.commit()
 
@@ -4644,7 +4634,6 @@ async def test_store_line_routes_regular_service(db_session: AsyncSession) -> No
     line = Line(
         tfl_id="victoria",
         name="Victoria",
-        color="#0019A8",
         mode="tube",
         last_updated=datetime.now(UTC),
     )
@@ -4700,7 +4689,6 @@ async def test_store_line_routes_skip_night_service(db_session: AsyncSession) ->
     line = Line(
         tfl_id="victoria",
         name="Victoria",
-        color="#0019A8",
         mode="tube",
         last_updated=datetime.now(UTC),
     )
@@ -4740,7 +4728,6 @@ async def test_store_line_routes_none_data(db_session: AsyncSession) -> None:
     line = Line(
         tfl_id="victoria",
         name="Victoria",
-        color="#0019A8",
         mode="tube",
         last_updated=datetime.now(UTC),
     )
@@ -4761,7 +4748,6 @@ async def test_store_line_routes_empty_ordered_routes(db_session: AsyncSession) 
     line = Line(
         tfl_id="victoria",
         name="Victoria",
-        color="#0019A8",
         mode="tube",
         last_updated=datetime.now(UTC),
     )
@@ -4785,7 +4771,6 @@ async def test_store_line_routes_no_naptan_ids(db_session: AsyncSession) -> None
     line = Line(
         tfl_id="victoria",
         name="Victoria",
-        color="#0019A8",
         mode="tube",
         last_updated=datetime.now(UTC),
     )
@@ -4816,7 +4801,6 @@ async def test_store_line_routes_no_ordered_routes_attr(db_session: AsyncSession
     line = Line(
         tfl_id="victoria",
         name="Victoria",
-        color="#0019A8",
         mode="tube",
         last_updated=datetime.now(UTC),
     )
@@ -4843,7 +4827,6 @@ async def test_store_line_routes_only_inbound(db_session: AsyncSession) -> None:
     line = Line(
         tfl_id="victoria",
         name="Victoria",
-        color="#0019A8",
         mode="tube",
         last_updated=datetime.now(UTC),
     )
@@ -4877,7 +4860,6 @@ async def test_store_line_routes_only_outbound(db_session: AsyncSession) -> None
     line = Line(
         tfl_id="victoria",
         name="Victoria",
-        color="#0019A8",
         mode="tube",
         last_updated=datetime.now(UTC),
     )
@@ -4914,7 +4896,6 @@ async def test_get_line_routes_success(db_session: AsyncSession) -> None:
     line = Line(
         tfl_id="victoria",
         name="Victoria",
-        color="#0019A8",
         mode="tube",
         last_updated=datetime.now(UTC),
         routes={
@@ -4964,7 +4945,6 @@ async def test_get_line_routes_not_built(db_session: AsyncSession) -> None:
     line = Line(
         tfl_id="victoria",
         name="Victoria",
-        color="#0019A8",
         mode="tube",
         last_updated=datetime.now(UTC),
     )
@@ -4988,7 +4968,6 @@ async def test_get_line_routes_empty_routes(db_session: AsyncSession) -> None:
     line = Line(
         tfl_id="victoria",
         name="Victoria",
-        color="#0019A8",
         mode="tube",
         last_updated=datetime.now(UTC),
         routes={},
@@ -5046,7 +5025,6 @@ async def test_get_station_routes_success(db_session: AsyncSession) -> None:
     line1 = Line(
         tfl_id="victoria",
         name="Victoria",
-        color="#0019A8",
         mode="tube",
         last_updated=datetime.now(UTC),
         routes={
@@ -5063,7 +5041,6 @@ async def test_get_station_routes_success(db_session: AsyncSession) -> None:
     line2 = Line(
         tfl_id="district",
         name="District",
-        color="#00782A",
         mode="tube",
         last_updated=datetime.now(UTC),
         routes={
@@ -5159,7 +5136,6 @@ async def test_get_station_routes_not_built(db_session: AsyncSession) -> None:
     line = Line(
         tfl_id="victoria",
         name="Victoria",
-        color="#0019A8",
         mode="tube",
         last_updated=datetime.now(UTC),
     )
@@ -5191,7 +5167,6 @@ async def test_get_station_routes_station_not_on_route(db_session: AsyncSession)
     line = Line(
         tfl_id="victoria",
         name="Victoria",
-        color="#0019A8",
         mode="tube",
         last_updated=datetime.now(UTC),
         routes={
@@ -5233,7 +5208,6 @@ async def test_get_station_routes_multiple_routes_same_line(db_session: AsyncSes
     line = Line(
         tfl_id="northern",
         name="Northern",
-        color="#000000",
         mode="tube",
         last_updated=datetime.now(UTC),
         routes={
@@ -5595,7 +5569,7 @@ async def test_process_route_sequence_exception_handling(
 ) -> None:
     """Test _process_route_sequence handles exceptions gracefully (covers lines 1282-1289)."""
     # Create line
-    line = Line(tfl_id="victoria", name="Victoria", color="#0019A8", last_updated=datetime.now(UTC))
+    line = Line(tfl_id="victoria", name="Victoria", last_updated=datetime.now(UTC))
     db_session.add(line)
     await db_session.commit()
 
@@ -5634,7 +5608,6 @@ async def test_validate_route_no_connection_different_lines(
     victoria = Line(
         tfl_id="victoria",
         name="Victoria",
-        color="#0019A8",
         last_updated=datetime.now(UTC),
         routes={"routes": [{"name": "Test Route", "stations": ["940GZZLUVIC"]}]},
     )
@@ -5719,7 +5692,6 @@ async def test_validate_route_hub_interchange_seven_sisters_rail(
     weaver_line = Line(
         tfl_id="weaver",
         name="Weaver",
-        color="#EE7C0E",
         last_updated=datetime.now(UTC),
         routes={
             "routes": [
@@ -5737,7 +5709,6 @@ async def test_validate_route_hub_interchange_seven_sisters_rail(
     victoria_line = Line(
         tfl_id="victoria",
         name="Victoria",
-        color="#0019A8",
         last_updated=datetime.now(UTC),
         routes={
             "routes": [
@@ -5846,7 +5817,6 @@ async def test_validate_route_hub_interchange_seven_sisters_tube(
     weaver_line = Line(
         tfl_id="weaver",
         name="Weaver",
-        color="#EE7C0E",
         last_updated=datetime.now(UTC),
         routes={
             "routes": [
@@ -5864,7 +5834,6 @@ async def test_validate_route_hub_interchange_seven_sisters_tube(
     victoria_line = Line(
         tfl_id="victoria",
         name="Victoria",
-        color="#0019A8",
         last_updated=datetime.now(UTC),
         routes={
             "routes": [
@@ -5972,7 +5941,6 @@ async def test_validate_route_different_hubs_no_connection_fails(
     line = Line(
         tfl_id="testline",
         name="Test Line",
-        color="#FF0000",
         last_updated=datetime.now(UTC),
         routes={
             "routes": [
@@ -6043,7 +6011,6 @@ async def test_validate_route_no_hub_requires_connection(
     line = Line(
         tfl_id="testline",
         name="Test Line",
-        color="#FF0000",
         last_updated=datetime.now(UTC),
         routes={
             "routes": [
@@ -6114,7 +6081,6 @@ async def test_validate_route_one_hub_one_regular_requires_connection(
     line = Line(
         tfl_id="testline",
         name="Test Line",
-        color="#FF0000",
         last_updated=datetime.now(UTC),
         routes={
             "routes": [
@@ -6184,7 +6150,6 @@ async def test_validate_route_multiple_hub_interchanges(
     line1 = Line(
         tfl_id="line1",
         name="Line 1",
-        color="#FF0000",
         last_updated=datetime.now(UTC),
         routes={
             "routes": [
@@ -6201,7 +6166,6 @@ async def test_validate_route_multiple_hub_interchanges(
     line2 = Line(
         tfl_id="line2",
         name="Line 2",
-        color="#00FF00",
         last_updated=datetime.now(UTC),
         routes={
             "routes": [
@@ -6218,7 +6182,6 @@ async def test_validate_route_multiple_hub_interchanges(
     line3 = Line(
         tfl_id="line3",
         name="Line 3",
-        color="#0000FF",
         last_updated=datetime.now(UTC),
         routes={
             "routes": [
@@ -6344,7 +6307,6 @@ async def test_validate_route_hub_interchange_logs_correctly(
     line1 = Line(
         tfl_id="line1",
         name="Line 1",
-        color="#FF0000",
         last_updated=datetime.now(UTC),
         routes={
             "routes": [
@@ -6361,7 +6323,6 @@ async def test_validate_route_hub_interchange_logs_correctly(
     line2 = Line(
         tfl_id="line2",
         name="Line 2",
-        color="#00FF00",
         last_updated=datetime.now(UTC),
         routes={
             "routes": [
@@ -6466,7 +6427,6 @@ async def test_validate_route_hub_with_three_station_ids(
     line1 = Line(
         tfl_id="line1",
         name="Line 1",
-        color="#FF0000",
         last_updated=datetime.now(UTC),
         routes={
             "routes": [
@@ -6483,7 +6443,6 @@ async def test_validate_route_hub_with_three_station_ids(
     line2 = Line(
         tfl_id="line2",
         name="Line 2",
-        color="#00FF00",
         last_updated=datetime.now(UTC),
         routes={
             "routes": [
@@ -6500,7 +6459,6 @@ async def test_validate_route_hub_with_three_station_ids(
     line3 = Line(
         tfl_id="line3",
         name="Line 3",
-        color="#0000FF",
         last_updated=datetime.now(UTC),
         routes={
             "routes": [
@@ -6619,7 +6577,7 @@ async def test_check_connection_missing_entities(
 ) -> None:
     """Test _check_connection returns False when entities are missing (covers lines 1811-1817)."""
     # Create a valid line
-    line = Line(tfl_id="victoria", name="Victoria", color="#0019A8", last_updated=datetime.now(UTC))
+    line = Line(tfl_id="victoria", name="Victoria", last_updated=datetime.now(UTC))
     db_session.add(line)
     await db_session.commit()
 
@@ -6783,8 +6741,8 @@ async def test_fetch_route_validation_data(
         hub_naptan_code=None,
         hub_common_name=None,
     )
-    line1 = Line(tfl_id="line1", name="Line 1", color="#000", last_updated=datetime.now(UTC))
-    line2 = Line(tfl_id="line2", name="Line 2", color="#000", last_updated=datetime.now(UTC))
+    line1 = Line(tfl_id="line1", name="Line 1", last_updated=datetime.now(UTC))
+    line2 = Line(tfl_id="line2", name="Line 2", last_updated=datetime.now(UTC))
     db_session.add_all([station1, station2, station3, line1, line2])
     await db_session.commit()
 
@@ -6835,7 +6793,7 @@ def test_format_connection_error_message_different_branches(tfl_service: TfLServ
         lines=["northern"],  # Same line
         last_updated=datetime.now(UTC),
     )
-    line = Line(tfl_id="northern", name="Northern", color="#000", last_updated=datetime.now(UTC))
+    line = Line(tfl_id="northern", name="Northern", last_updated=datetime.now(UTC))
 
     # Format message
     message = tfl_service._format_connection_error_message(from_station, to_station, line)
@@ -6867,7 +6825,7 @@ def test_format_connection_error_message_different_lines(tfl_service: TfLService
         lines=["central", "bakerloo"],  # No overlap
         last_updated=datetime.now(UTC),
     )
-    line = Line(tfl_id="victoria", name="Victoria", color="#000", last_updated=datetime.now(UTC))
+    line = Line(tfl_id="victoria", name="Victoria", last_updated=datetime.now(UTC))
 
     # Format message
     message = tfl_service._format_connection_error_message(from_station, to_station, line)
@@ -6904,7 +6862,6 @@ async def test_validate_segment_connections_valid(
     line1 = Line(
         tfl_id="line1",
         name="Line 1",
-        color="#000",
         last_updated=datetime.now(UTC),
         routes={"routes": [{"name": "Route 1", "direction": "inbound", "stations": ["station1", "station2"]}]},
     )
@@ -6955,7 +6912,6 @@ async def test_validate_segment_connections_invalid(
     line1 = Line(
         tfl_id="line1",
         name="Line 1",
-        color="#000",
         last_updated=datetime.now(UTC),
         routes={"routes": [{"name": "Route 1", "direction": "inbound", "stations": ["station1"]}]},  # Only station1
     )
@@ -7215,7 +7171,6 @@ async def test_validate_route_backwards_direction_fails(
     line = Line(
         tfl_id="piccadilly",
         name="Piccadilly",
-        color="#0019A8",
         last_updated=datetime.now(UTC),
         routes={
             "routes": [
@@ -7278,7 +7233,6 @@ async def test_validate_route_forward_direction_succeeds(
     line = Line(
         tfl_id="piccadilly",
         name="Piccadilly",
-        color="#0019A8",
         last_updated=datetime.now(UTC),
         routes={
             "routes": [
@@ -7340,7 +7294,6 @@ async def test_validate_route_bidirectional_both_work(
     line = Line(
         tfl_id="victoria",
         name="Victoria",
-        color="#0019A8",
         last_updated=datetime.now(UTC),
         routes={
             "routes": [
@@ -7425,7 +7378,6 @@ async def test_validate_route_branches_still_blocked(
     line = Line(
         tfl_id="northern",
         name="Northern",
-        color="#000000",
         last_updated=datetime.now(UTC),
         routes={
             "routes": [
@@ -7516,7 +7468,6 @@ async def test_validate_route_backwards_on_single_line(
     line = Line(
         tfl_id="victoria",
         name="Victoria",
-        color="#0019A8",
         last_updated=datetime.now(UTC),
         routes={
             "routes": [
@@ -7576,7 +7527,6 @@ async def test_validate_route_same_branch_with_direction(
     line = Line(
         tfl_id="northern",
         name="Northern",
-        color="#000000",
         last_updated=datetime.now(UTC),
         routes={
             "routes": [

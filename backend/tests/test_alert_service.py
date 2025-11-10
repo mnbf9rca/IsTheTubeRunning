@@ -67,7 +67,7 @@ async def test_user_with_contacts(db_session: AsyncSession) -> User:
 @pytest.fixture
 async def test_line(db_session: AsyncSession) -> Line:
     """Create test line."""
-    line = Line(tfl_id="victoria", name="Victoria", color="#0019A8", last_updated=datetime.now(UTC))
+    line = Line(tfl_id="victoria", name="Victoria", last_updated=datetime.now(UTC))
     db_session.add(line)
     await db_session.commit()
     await db_session.refresh(line)
