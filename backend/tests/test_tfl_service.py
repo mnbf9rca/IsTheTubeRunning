@@ -7197,3 +7197,428 @@ class TestResolveStationOrHub:
         assert isinstance(result, Station)
         assert result.tfl_id == "940GZZLUSVS"  # Station's tfl_id, not hub code
         assert result.hub_naptan_code == "HUBSVS"
+
+
+# Tests for Issue #57: Route Direction Validation
+
+
+async def test_validate_route_backwards_direction_fails(
+    tfl_service: TfLService,
+    db_session: AsyncSession,
+) -> None:
+    """Test that backwards routes are rejected (Issue #57).
+
+    Example: Piccadilly Circus → Arsenal should fail when the route sequence
+    goes Arsenal → Piccadilly Circus.
+    """
+    # Create Piccadilly line with route sequence: Arsenal → Piccadilly Circus
+    line = Line(
+        tfl_id="piccadilly",
+        name="Piccadilly",
+        color="#0019A8",
+        last_updated=datetime.now(UTC),
+        routes={
+            "routes": [
+                {
+                    "name": "Cockfosters → Heathrow",
+                    "service_type": "Regular",
+                    "direction": "inbound",
+                    "stations": ["940GZZLUASL", "940GZZLUPCC"],  # Arsenal, then Piccadilly Circus
+                }
+            ]
+        },
+    )
+    db_session.add(line)
+    await db_session.flush()
+
+    arsenal = Station(
+        tfl_id="940GZZLUASL",
+        name="Arsenal Underground Station",
+        latitude=51.5586,
+        longitude=-0.1059,
+        lines=["piccadilly"],
+        last_updated=datetime.now(UTC),
+    )
+    piccadilly_circus = Station(
+        tfl_id="940GZZLUPCC",
+        name="Piccadilly Circus Underground Station",
+        latitude=51.5099,
+        longitude=-0.1342,
+        lines=["piccadilly"],
+        last_updated=datetime.now(UTC),
+    )
+    db_session.add_all([arsenal, piccadilly_circus])
+    await db_session.commit()
+
+    # Try to validate BACKWARDS route: Piccadilly Circus → Arsenal
+    segments = [
+        RouteSegmentRequest(station_tfl_id="940GZZLUPCC", line_tfl_id="piccadilly"),
+        RouteSegmentRequest(station_tfl_id="940GZZLUASL", line_tfl_id=None),
+    ]
+
+    is_valid, message, invalid_segment = await tfl_service.validate_route(segments)
+
+    # Should fail - this is backwards travel
+    assert is_valid is False
+    # The error message mentions "different branches" but the root cause is backwards travel
+    assert "not connected" in message.lower() or "different branches" in message.lower() or "invalid" in message.lower()
+    assert invalid_segment == 0  # First segment fails because connection to second segment is backwards
+
+
+async def test_validate_route_forward_direction_succeeds(
+    tfl_service: TfLService,
+    db_session: AsyncSession,
+) -> None:
+    """Test that forward routes are accepted.
+
+    Example: Arsenal → Piccadilly Circus should succeed when the route sequence
+    goes Arsenal → Piccadilly Circus.
+    """
+    # Create Piccadilly line with route sequence: Arsenal → Piccadilly Circus
+    line = Line(
+        tfl_id="piccadilly",
+        name="Piccadilly",
+        color="#0019A8",
+        last_updated=datetime.now(UTC),
+        routes={
+            "routes": [
+                {
+                    "name": "Cockfosters → Heathrow",
+                    "service_type": "Regular",
+                    "direction": "inbound",
+                    "stations": ["940GZZLUASL", "940GZZLUPCC"],  # Arsenal, then Piccadilly Circus
+                }
+            ]
+        },
+    )
+    db_session.add(line)
+    await db_session.flush()
+
+    arsenal = Station(
+        tfl_id="940GZZLUASL",
+        name="Arsenal Underground Station",
+        latitude=51.5586,
+        longitude=-0.1059,
+        lines=["piccadilly"],
+        last_updated=datetime.now(UTC),
+    )
+    piccadilly_circus = Station(
+        tfl_id="940GZZLUPCC",
+        name="Piccadilly Circus Underground Station",
+        latitude=51.5099,
+        longitude=-0.1342,
+        lines=["piccadilly"],
+        last_updated=datetime.now(UTC),
+    )
+    db_session.add_all([arsenal, piccadilly_circus])
+    await db_session.commit()
+
+    # Validate FORWARD route: Arsenal → Piccadilly Circus
+    segments = [
+        RouteSegmentRequest(station_tfl_id="940GZZLUASL", line_tfl_id="piccadilly"),
+        RouteSegmentRequest(station_tfl_id="940GZZLUPCC", line_tfl_id=None),
+    ]
+
+    is_valid, message, invalid_segment = await tfl_service.validate_route(segments)
+
+    # Should succeed - this is forward travel
+    assert is_valid is True
+    assert "valid" in message.lower()
+    assert invalid_segment is None
+
+
+async def test_validate_route_bidirectional_both_work(
+    tfl_service: TfLService,
+    db_session: AsyncSession,
+) -> None:
+    """Test that bidirectional lines work correctly with both inbound and outbound routes.
+
+    A typical line has both directions represented as separate route variants.
+    Both A→B and B→A should validate successfully.
+    """
+    # Create Victoria line with BOTH directions
+    line = Line(
+        tfl_id="victoria",
+        name="Victoria",
+        color="#0019A8",
+        last_updated=datetime.now(UTC),
+        routes={
+            "routes": [
+                {
+                    "name": "Brixton → Walthamstow Central",
+                    "service_type": "Regular",
+                    "direction": "inbound",
+                    "stations": ["940GZZLUBXN", "940GZZLUSTK", "940GZZLUWTH"],  # Brixton → Stockwell → Walthamstow
+                },
+                {
+                    "name": "Walthamstow Central → Brixton",
+                    "service_type": "Regular",
+                    "direction": "outbound",
+                    "stations": ["940GZZLUWTH", "940GZZLUSTK", "940GZZLUBXN"],  # Walthamstow → Stockwell → Brixton
+                },
+            ]
+        },
+    )
+    db_session.add(line)
+    await db_session.flush()
+
+    brixton = Station(
+        tfl_id="940GZZLUBXN",
+        name="Brixton Underground Station",
+        latitude=51.4623,
+        longitude=-0.1145,
+        lines=["victoria"],
+        last_updated=datetime.now(UTC),
+    )
+    stockwell = Station(
+        tfl_id="940GZZLUSTK",
+        name="Stockwell Underground Station",
+        latitude=51.4723,
+        longitude=-0.1230,
+        lines=["victoria"],
+        last_updated=datetime.now(UTC),
+    )
+    walthamstow = Station(
+        tfl_id="940GZZLUWTH",
+        name="Walthamstow Central Underground Station",
+        latitude=51.5831,
+        longitude=-0.0197,
+        lines=["victoria"],
+        last_updated=datetime.now(UTC),
+    )
+    db_session.add_all([brixton, stockwell, walthamstow])
+    await db_session.commit()
+
+    # Test direction 1: Brixton → Walthamstow (should match inbound route)
+    segments_inbound = [
+        RouteSegmentRequest(station_tfl_id="940GZZLUBXN", line_tfl_id="victoria"),
+        RouteSegmentRequest(station_tfl_id="940GZZLUSTK", line_tfl_id="victoria"),
+        RouteSegmentRequest(station_tfl_id="940GZZLUWTH", line_tfl_id=None),
+    ]
+
+    is_valid, message, _ = await tfl_service.validate_route(segments_inbound)
+    assert is_valid is True
+    assert "valid" in message.lower()
+
+    # Test direction 2: Walthamstow → Brixton (should match outbound route)
+    segments_outbound = [
+        RouteSegmentRequest(station_tfl_id="940GZZLUWTH", line_tfl_id="victoria"),
+        RouteSegmentRequest(station_tfl_id="940GZZLUSTK", line_tfl_id="victoria"),
+        RouteSegmentRequest(station_tfl_id="940GZZLUBXN", line_tfl_id=None),
+    ]
+
+    is_valid, message, _ = await tfl_service.validate_route(segments_outbound)
+    assert is_valid is True
+    assert "valid" in message.lower()
+
+
+async def test_validate_route_branches_still_blocked(
+    tfl_service: TfLService,
+    db_session: AsyncSession,
+) -> None:
+    """Test that cross-branch validation still works correctly (shouldn't regress issue #39).
+
+    Northern line has branches. Bank → Charing Cross should fail because they're
+    on different branches, even with directional validation.
+    """
+    # Create Northern line with two branches
+    line = Line(
+        tfl_id="northern",
+        name="Northern",
+        color="#000000",
+        last_updated=datetime.now(UTC),
+        routes={
+            "routes": [
+                {
+                    "name": "Edgware → Morden via Bank",
+                    "service_type": "Regular",
+                    "direction": "inbound",
+                    "stations": ["940GZZLUEGW", "940GZZLUCND", "940GZZLUBNK", "940GZZLUMDN"],
+                },
+                {
+                    "name": "Edgware → Morden via Charing Cross",
+                    "service_type": "Regular",
+                    "direction": "inbound",
+                    "stations": ["940GZZLUEGW", "940GZZLUCND", "940GZZLUCHX", "940GZZLUMDN"],
+                },
+            ]
+        },
+    )
+    db_session.add(line)
+    await db_session.flush()
+
+    edgware = Station(
+        tfl_id="940GZZLUEGW",
+        name="Edgware Underground Station",
+        latitude=51.6137,
+        longitude=-0.2752,
+        lines=["northern"],
+        last_updated=datetime.now(UTC),
+    )
+    camden_town = Station(
+        tfl_id="940GZZLUCND",
+        name="Camden Town Underground Station",
+        latitude=51.5392,
+        longitude=-0.1426,
+        lines=["northern"],
+        last_updated=datetime.now(UTC),
+    )
+    bank = Station(
+        tfl_id="940GZZLUBNK",
+        name="Bank Underground Station",
+        latitude=51.5133,
+        longitude=-0.0886,
+        lines=["northern"],
+        last_updated=datetime.now(UTC),
+    )
+    charing_cross = Station(
+        tfl_id="940GZZLUCHX",
+        name="Charing Cross Underground Station",
+        latitude=51.5080,
+        longitude=-0.1247,
+        lines=["northern"],
+        last_updated=datetime.now(UTC),
+    )
+    morden = Station(
+        tfl_id="940GZZLUMDN",
+        name="Morden Underground Station",
+        latitude=51.4022,
+        longitude=-0.1949,
+        lines=["northern"],
+        last_updated=datetime.now(UTC),
+    )
+    db_session.add_all([edgware, camden_town, bank, charing_cross, morden])
+    await db_session.commit()
+
+    # Try to go Bank → Charing Cross (different branches, should fail)
+    segments = [
+        RouteSegmentRequest(station_tfl_id="940GZZLUBNK", line_tfl_id="northern"),
+        RouteSegmentRequest(station_tfl_id="940GZZLUCHX", line_tfl_id=None),
+    ]
+
+    is_valid, message, _ = await tfl_service.validate_route(segments)
+
+    # Should fail - these stations are on different branches
+    assert is_valid is False
+    assert "not connected" in message.lower() or "different branches" in message.lower() or "invalid" in message.lower()
+
+
+async def test_validate_route_backwards_on_single_line(
+    tfl_service: TfLService,
+    db_session: AsyncSession,
+) -> None:
+    """Test backwards travel on a simple line with only one route variant.
+
+    This verifies that backwards detection works even when there's no
+    alternative route variant to match.
+    """
+    # Create Victoria line with only one direction
+    line = Line(
+        tfl_id="victoria",
+        name="Victoria",
+        color="#0019A8",
+        last_updated=datetime.now(UTC),
+        routes={
+            "routes": [
+                {
+                    "name": "Brixton → Walthamstow",
+                    "service_type": "Regular",
+                    "direction": "inbound",
+                    "stations": ["940GZZLUBXN", "940GZZLUSTK"],  # Brixton, then Stockwell
+                }
+            ]
+        },
+    )
+    db_session.add(line)
+    await db_session.flush()
+
+    brixton = Station(
+        tfl_id="940GZZLUBXN",
+        name="Brixton Underground Station",
+        latitude=51.4623,
+        longitude=-0.1145,
+        lines=["victoria"],
+        last_updated=datetime.now(UTC),
+    )
+    stockwell = Station(
+        tfl_id="940GZZLUSTK",
+        name="Stockwell Underground Station",
+        latitude=51.4723,
+        longitude=-0.1230,
+        lines=["victoria"],
+        last_updated=datetime.now(UTC),
+    )
+    db_session.add_all([brixton, stockwell])
+    await db_session.commit()
+
+    # Try backwards: Stockwell → Brixton (route goes Brixton → Stockwell)
+    segments = [
+        RouteSegmentRequest(station_tfl_id="940GZZLUSTK", line_tfl_id="victoria"),
+        RouteSegmentRequest(station_tfl_id="940GZZLUBXN", line_tfl_id=None),
+    ]
+
+    is_valid, message, _ = await tfl_service.validate_route(segments)
+
+    # Should fail - backwards travel with no alternative route
+    assert is_valid is False
+    assert "not connected" in message.lower() or "different branches" in message.lower() or "invalid" in message.lower()
+
+
+async def test_validate_route_same_branch_with_direction(
+    tfl_service: TfLService,
+    db_session: AsyncSession,
+) -> None:
+    """Test that same-branch routes work with directional validation.
+
+    Camden Town → Bank on Northern line via Bank branch should succeed.
+    """
+    # Create Northern line with Bank branch
+    line = Line(
+        tfl_id="northern",
+        name="Northern",
+        color="#000000",
+        last_updated=datetime.now(UTC),
+        routes={
+            "routes": [
+                {
+                    "name": "Edgware → Morden via Bank",
+                    "service_type": "Regular",
+                    "direction": "inbound",
+                    "stations": ["940GZZLUEGW", "940GZZLUCND", "940GZZLUBNK", "940GZZLUMDN"],
+                },
+            ]
+        },
+    )
+    db_session.add(line)
+    await db_session.flush()
+
+    camden_town = Station(
+        tfl_id="940GZZLUCND",
+        name="Camden Town Underground Station",
+        latitude=51.5392,
+        longitude=-0.1426,
+        lines=["northern"],
+        last_updated=datetime.now(UTC),
+    )
+    bank = Station(
+        tfl_id="940GZZLUBNK",
+        name="Bank Underground Station",
+        latitude=51.5133,
+        longitude=-0.0886,
+        lines=["northern"],
+        last_updated=datetime.now(UTC),
+    )
+    db_session.add_all([camden_town, bank])
+    await db_session.commit()
+
+    # Camden Town → Bank (forward direction on Bank branch)
+    segments = [
+        RouteSegmentRequest(station_tfl_id="940GZZLUCND", line_tfl_id="northern"),
+        RouteSegmentRequest(station_tfl_id="940GZZLUBNK", line_tfl_id=None),
+    ]
+
+    is_valid, message, _ = await tfl_service.validate_route(segments)
+
+    # Should succeed - same branch, correct direction
+    assert is_valid is True
+    assert "valid" in message.lower()

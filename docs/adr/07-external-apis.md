@@ -150,30 +150,40 @@ Extend TfL API integration to support multiple transport modes. Methods `fetch_l
 ## Route Sequence Validation for Branch-Aware Paths
 
 ### Status
-Active
+Active (Updated: 2025-11-10, Issue #57 - Added directional validation)
 
 ### Context
 Some tube lines have branches where trains diverge to different destinations (e.g., Northern Line splits into Bank and Charing Cross branches at Camden Town). The previous validation approach used a graph-based BFS algorithm that would incorrectly allow travel between stations on different branches (e.g., Bank → Charing Cross on Northern line), since both stations technically serve the same line but aren't directly connected.
 
+Additionally, TfL API's OrderedRoute object is directional (inbound/outbound), with stations listed in sequential order. The system must validate that user-specified routes follow the correct direction (Issue #57).
+
 ### Decision
-Route validation now uses Line.routes JSON data from TfL API to check if consecutive segments stay within the same route sequence. The `check_connection()` method validates that both the from_station and to_station exist in at least one common route sequence for the specified line. This prevents cross-branch travel while still allowing:
-- Travel within a single branch (e.g., Bank → London Bridge on Northern via Bank)
-- Travel on shared sections before/after splits (e.g., Edgware → Camden Town, which appears in all Northern line routes)
-- Bidirectional travel (order doesn't matter, as long as both stations are in the same route sequence)
+Route validation uses Line.routes JSON data from TfL API to check if consecutive segments stay within the same route sequence **in the correct order**. The `_check_connection()` method validates that:
+1. Both from_station and to_station exist in at least one common route sequence for the specified line
+2. The stations appear in the correct order (to_station must come AFTER from_station in the route sequence)
+
+This prevents:
+- Cross-branch travel (e.g., Bank → Charing Cross on Northern line)
+- Backwards travel (e.g., Piccadilly Circus → Arsenal when route sequence goes Arsenal → Piccadilly Circus)
+
+**Bidirectional support**: Lines typically have both inbound and outbound route variants stored separately (e.g., "Brixton → Walthamstow" and "Walthamstow → Brixton"). The validation iterates through ALL route variants, so both directions work naturally by matching different route sequences.
+
+**Performance**: Uses `stations.index()` for order validation, which is O(n) per route variant - same complexity as previous membership check. With typical route lengths of 20-60 stations and infrequent validation (only during route creation/editing), performance impact is negligible.
 
 ### Consequences
 **Easier:**
-- Accurate validation that matches real-world TfL service patterns
-- Prevents impossible routes (cross-branch travel)
-- Better error messages (explains when stations are on different branches)
-- Leverages existing TfL route sequence data (no additional API calls)
+- Accurate validation matching real-world TfL service patterns and direction
+- Prevents impossible routes (cross-branch AND backwards travel)
+- Better error messages (logged as "connection_found_but_wrong_direction" when direction is incorrect)
+- Leverages existing TfL route sequence data (no additional API calls, no database schema changes)
 - Frontend can filter available stations using `getNextStations()` to only show reachable stations
+- No need to understand "inbound" vs "outbound" semantics - just check station order
 
 **More Difficult:**
 - Requires Line.routes JSON to be populated (depends on TfL API data)
 - Validation fails for lines without route sequence data (graceful degradation with warning logs)
 - More complex test fixtures (must include route sequences in test data)
-- Slight performance overhead (iterating through route sequences vs single graph lookup)
+- Slight performance overhead (iterating through route sequences + index lookups vs single graph lookup)
 
 ---
 

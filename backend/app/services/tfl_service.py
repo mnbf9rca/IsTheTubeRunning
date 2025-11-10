@@ -19,6 +19,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import aliased
 
 from app.core.config import settings
+from app.helpers.route_validation import find_valid_connection_in_routes
 from app.helpers.station_resolution import (
     NoMatchingStationsError,
     StationNotFoundError,
@@ -2310,11 +2311,15 @@ class TfLService:
         line_id: uuid.UUID,
     ) -> bool:
         """
-        Check if two stations are reachable on the same route sequence.
+        Check if two stations are reachable on the same route sequence in the correct direction.
 
-        This validates that both stations exist in at least one route sequence
-        for the specified line, preventing cross-branch travel (e.g., Bank → Charing Cross
-        on Northern line, which are on different branches).
+        This validates that:
+        1. Both stations exist in at least one route sequence for the specified line
+        2. The stations appear in the correct order (directional validation)
+
+        This prevents both cross-branch travel (e.g., Bank → Charing Cross on Northern line)
+        and backwards travel (e.g., Piccadilly Circus → Arsenal on Piccadilly line when the
+        route sequence goes Arsenal → Piccadilly Circus).
 
         Args:
             from_station_id: Starting station UUID
@@ -2322,7 +2327,8 @@ class TfLService:
             line_id: Line UUID
 
         Returns:
-            True if both stations exist in the same route sequence, False otherwise
+            True if both stations exist in the same route sequence in the correct order,
+            False otherwise
         """
         # Get station and line objects
         from_station = await self.db.get(Station, from_station_id)
@@ -2347,29 +2353,51 @@ class TfLService:
             )
             return False
 
-        # Check each route sequence to see if both stations exist in the same one
+        # Use pure helper function to find valid connection
+        # Performance: O(r * n) where r = route variants (2-6), n = stations (20-60)
+        # With infrequent validation (only during route creation/editing), performance is negligible.
         routes = line.routes["routes"]
-        for route in routes:
-            stations = route.get("stations", [])
-
-            # Check if both stations exist in this route sequence
-            if from_station.tfl_id in stations and to_station.tfl_id in stations:
-                logger.debug(
-                    "connection_found_in_route",
-                    route_name=route.get("name", "Unknown"),
-                    from_station=from_station.name,
-                    to_station=to_station.name,
-                )
-                # Allow travel in either direction within the route sequence
-                return True
-
-        # Stations not found in any common route sequence
-        logger.debug(
-            "connection_not_found_different_branches",
-            from_station=from_station.name,
-            to_station=to_station.name,
-            line_name=line.name,
+        result = find_valid_connection_in_routes(
+            from_station.tfl_id,
+            to_station.tfl_id,
+            routes,
         )
+
+        if result and result["found"]:
+            logger.debug(
+                "connection_found_in_route",
+                route_name=result["route_name"],
+                direction=result["direction"],
+                from_station=from_station.name,
+                to_station=to_station.name,
+                from_index=result["from_index"],
+                to_index=result["to_index"],
+            )
+            return True
+
+        # Connection not found - check if it's backwards travel or different branches
+        # If result has indices but found=False, stations exist but in wrong order (backwards)
+        # If result is None or has no indices, stations not in same route (different branches)
+        if result and result["from_index"] is not None and result["to_index"] is not None:
+            # Backwards travel detected
+            logger.debug(
+                "connection_found_but_wrong_direction",
+                route_name=result["route_name"],
+                direction=result["direction"],
+                from_station=from_station.name,
+                to_station=to_station.name,
+                from_index=result["from_index"],
+                to_index=result["to_index"],
+                line_name=line.name,
+            )
+        else:
+            # Stations not in any common route sequence (different branches)
+            logger.debug(
+                "connection_not_found_different_branches",
+                from_station=from_station.name,
+                to_station=to_station.name,
+                line_name=line.name,
+            )
         return False
 
     async def get_line_routes(self, line_tfl_id: str) -> dict[str, Any] | None:
