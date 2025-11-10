@@ -25,6 +25,8 @@ describe('SegmentBuilder', () => {
       longitude: -0.1238,
       lines: ['northern'],
       last_updated: '2025-01-01T00:00:00Z',
+      hub_naptan_code: null,
+      hub_common_name: null,
     },
     {
       id: 'station-2',
@@ -34,6 +36,8 @@ describe('SegmentBuilder', () => {
       longitude: -0.1337,
       lines: ['northern'],
       last_updated: '2025-01-01T00:00:00Z',
+      hub_naptan_code: null,
+      hub_common_name: null,
     },
   ]
 

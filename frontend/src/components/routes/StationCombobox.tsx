@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Check, ChevronsUpDown } from 'lucide-react'
+import { ArrowLeftRight, Check, ChevronsUpDown } from 'lucide-react'
 import { Button } from '../ui/button'
 import {
   Command,
@@ -118,7 +118,15 @@ export function StationCombobox({
                       value === station.id ? 'opacity-100' : 'opacity-0'
                     )}
                   />
-                  {station.name}
+                  <div className="flex items-center justify-between w-full">
+                    <span>{station.name}</span>
+                    {station.hub_naptan_code && (
+                      <ArrowLeftRight
+                        className="h-3 w-3 text-muted-foreground ml-2 shrink-0"
+                        aria-label="Interchange station"
+                      />
+                    )}
+                  </div>
                 </CommandItem>
               ))}
             </CommandGroup>

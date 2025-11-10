@@ -31,6 +31,8 @@ describe('SegmentList', () => {
       longitude: -0.1238,
       lines: ['northern', 'victoria'],
       last_updated: '2025-01-01T00:00:00Z',
+      hub_naptan_code: null,
+      hub_common_name: null,
     },
     {
       id: 'station-2',
@@ -40,6 +42,8 @@ describe('SegmentList', () => {
       longitude: -0.1337,
       lines: ['northern'],
       last_updated: '2025-01-01T00:00:00Z',
+      hub_naptan_code: null,
+      hub_common_name: null,
     },
     {
       id: 'station-3',
@@ -49,6 +53,8 @@ describe('SegmentList', () => {
       longitude: -0.1224,
       lines: ['northern'],
       last_updated: '2025-01-01T00:00:00Z',
+      hub_naptan_code: null,
+      hub_common_name: null,
     },
   ]
 

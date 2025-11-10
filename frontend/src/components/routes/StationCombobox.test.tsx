@@ -8,12 +8,14 @@ describe('StationCombobox', () => {
   const mockStations: StationResponse[] = [
     {
       id: 'station-1',
-      tfl_id: '940GZZLUKSX',
+      tfl_id: 'HUBKSX',
       name: "King's Cross St. Pancras",
       latitude: 51.5308,
       longitude: -0.1238,
-      lines: ['northern', 'victoria'],
+      lines: ['northern', 'victoria', 'circle', 'hammersmith-city', 'metropolitan', 'piccadilly'],
       last_updated: '2025-01-01T00:00:00Z',
+      hub_naptan_code: 'HUBKSX',
+      hub_common_name: "King's Cross St. Pancras",
     },
     {
       id: 'station-2',
@@ -23,6 +25,8 @@ describe('StationCombobox', () => {
       longitude: -0.1337,
       lines: ['northern', 'victoria'],
       last_updated: '2025-01-01T00:00:00Z',
+      hub_naptan_code: null,
+      hub_common_name: null,
     },
     {
       id: 'station-3',
@@ -32,6 +36,8 @@ describe('StationCombobox', () => {
       longitude: -0.1224,
       lines: ['northern', 'circle'],
       last_updated: '2025-01-01T00:00:00Z',
+      hub_naptan_code: null,
+      hub_common_name: null,
     },
   ]
 
@@ -174,5 +180,22 @@ describe('StationCombobox', () => {
     expect(screen.getByText("King's Cross St. Pancras")).toBeInTheDocument()
     expect(screen.getByText('Euston')).toBeInTheDocument()
     expect(screen.getByText('Embankment')).toBeInTheDocument()
+  })
+
+  it('should show interchange badge for hub stations only', async () => {
+    const user = userEvent.setup()
+    const onChange = vi.fn()
+
+    render(<StationCombobox stations={mockStations} value={undefined} onChange={onChange} />)
+
+    // Open combobox
+    await user.click(screen.getByRole('combobox'))
+
+    // King's Cross St. Pancras is a hub station - should have interchange badge
+    const interchangeBadges = screen.getAllByLabelText('Interchange station')
+    expect(interchangeBadges).toHaveLength(1)
+
+    // Non-hub stations (Euston, Embankment) should not have badges
+    // (verified by only 1 badge total when there are 3 stations)
   })
 })

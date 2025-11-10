@@ -823,6 +823,8 @@ export interface StationResponse {
   longitude: number
   lines: string[] // Array of line TfL IDs
   last_updated: string
+  hub_naptan_code: string | null // Hub NaPTAN code for interchange stations (e.g., 'HUBSVS')
+  hub_common_name: string | null // Common name for the hub (e.g., 'Seven Sisters')
 }
 
 /**
@@ -877,12 +879,22 @@ export async function getLines(): Promise<LineResponse[]> {
 /**
  * Get all TfL stations, optionally filtered by line
  *
+ * Stations are deduplicated by hub - hubs like "Seven Sisters" appear once
+ * with aggregated lines from all child stations (e.g., Overground + Victoria).
+ *
  * @param lineId Optional line ID to filter stations
- * @returns Array of stations (cached 24 hours on backend)
+ * @returns Array of hub-grouped stations (cached 24 hours on backend)
  * @throws {ApiError} If the request fails
  */
 export async function getStations(lineId?: string): Promise<StationResponse[]> {
-  const endpoint = lineId ? `/tfl/stations?line_id=${lineId}` : '/tfl/stations'
+  const params = new URLSearchParams()
+  if (lineId) {
+    params.append('line_id', lineId)
+  }
+  // Request deduplicated stations to group hubs into single entries
+  params.append('deduplicated', 'true')
+
+  const endpoint = `/tfl/stations?${params.toString()}`
   const response = await fetchAPI<StationResponse[]>(endpoint)
   if (!response) {
     throw new ApiError(204, 'Unexpected 204 response from stations endpoint')
