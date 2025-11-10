@@ -1,21 +1,21 @@
 import { useState, useEffect, useCallback } from 'react'
 import { X, AlertCircle, Check, Trash2 } from 'lucide-react'
-import { Button } from '../ui/button'
-import { Alert, AlertDescription } from '../ui/alert'
-import { Label } from '../ui/label'
-import { Card } from '../ui/card'
-import { StationCombobox } from './StationCombobox'
-import { LineButton } from './LineButton'
-import { DestinationButton } from './DestinationButton'
-import { SegmentList } from './SegmentList'
-import { sortLines } from '../../lib/tfl-colors'
+import { Button } from '../../ui/button'
+import { Alert, AlertDescription } from '../../ui/alert'
+import { Label } from '../../ui/label'
+import { Card } from '../../ui/card'
+import { StationCombobox } from '../StationCombobox'
+import { LineButton } from '../LineButton'
+import { DestinationButton } from '../DestinationButton'
+import { SegmentList } from '../SegmentList'
+import { sortLines } from '../../../lib/tfl-colors'
 import type {
   SegmentResponse,
   LineResponse,
   StationResponse,
   SegmentRequest,
   RouteValidationResponse,
-} from '../../lib/api'
+} from '../../../lib/api'
 
 // Maximum number of segments allowed per route
 const MAX_ROUTE_SEGMENTS = 20
