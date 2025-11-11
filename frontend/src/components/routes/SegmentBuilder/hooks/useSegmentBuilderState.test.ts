@@ -543,10 +543,16 @@ describe('useSegmentBuilderState', () => {
         result.current.handleEditRoute()
       })
 
+      // Should remove destination marker and position as if just selected destination
       expect(result.current.step).toBe('choose-action')
       expect(result.current.currentStation).toEqual(mockStationSouthgate)
       expect(result.current.selectedLine).toEqual(mockLinePiccadilly)
       expect(result.current.nextStation).toEqual(mockStationLeicesterSquare)
+
+      // Destination marker should be removed from segments
+      expect(result.current.localSegments).toHaveLength(1)
+      expect(result.current.localSegments[0].station_tfl_id).toBe('southgate')
+      expect(result.current.localSegments[0].line_tfl_id).toBe('piccadilly')
     })
   })
 
@@ -704,8 +710,7 @@ describe('useSegmentBuilderState', () => {
   })
 
   describe('Issue #93 Regression: Edit route at junction station', () => {
-    // TODO: Fix this test - needs proper flow simulation with all intermediate steps
-    it.skip('should allow continuing route at Leicester Square without duplicate error', () => {
+    it('should allow continuing route at Leicester Square without duplicate error', () => {
       const { result } = renderHook(() =>
         useSegmentBuilderState({
           initialSegments: [],
@@ -734,25 +739,37 @@ describe('useSegmentBuilderState', () => {
         result.current.handleEditRoute()
       })
 
+      // After edit: Should be at choose-action with destination marker removed
+      // Positioned as if we just selected Leicester Square as next station
       expect(result.current.step).toBe('choose-action')
+      expect(result.current.currentStation).toEqual(mockStationSouthgate)
+      expect(result.current.selectedLine).toEqual(mockLinePiccadilly)
       expect(result.current.nextStation).toEqual(mockStationLeicesterSquare)
 
-      // Step 3: Click Northern line at Leicester Square
+      // Destination marker should be removed (critical for the fix!)
+      // This makes Southgate the last segment, so allowLast validation will pass
+      expect(result.current.localSegments).toHaveLength(1)
+      expect(result.current.localSegments[0].station_tfl_id).toBe('southgate')
+      expect(result.current.localSegments[0].line_tfl_id).toBe('piccadilly')
+
+      // Step 3: Click Northern line at Leicester Square to change lines
       // This is the critical test - should NOT show "already in your route" error
+      // Because Southgate is now the last segment (destination removed), validation passes
       act(() => {
         result.current.handleContinueJourney(mockLineNorthern)
       })
 
-      // Verify no error
+      // Verify no error - this was the bug!
       expect(result.current.error).toBeNull()
 
-      // Verify route continues correctly
+      // Verify route continues correctly on Northern line
       expect(result.current.step).toBe('select-next-station')
       expect(result.current.currentStation).toEqual(mockStationLeicesterSquare)
       expect(result.current.selectedLine).toEqual(mockLineNorthern)
 
-      // Should have added interchange segment
+      // Should have added Leicester Square on Piccadilly and interchange to Northern
       expect(result.current.localSegments).toHaveLength(2)
+      expect(result.current.localSegments[0].station_tfl_id).toBe('southgate')
       expect(result.current.localSegments[1].station_tfl_id).toBe('leicester-square')
       expect(result.current.localSegments[1].line_tfl_id).toBe('northern')
     })

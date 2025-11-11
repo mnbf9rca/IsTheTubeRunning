@@ -424,7 +424,9 @@ export function useSegmentBuilderState({
 
   /**
    * Enter edit mode for a completed route
-   * Sets state to show the destination station with action buttons
+   * Removes the destination marker and positions the user as if they just selected
+   * the destination as the next station, allowing them to continue the route or
+   * mark it as destination again.
    */
   const handleEditRoute = useCallback(() => {
     // Find the destination segment (line_tfl_id === null) to get the destination station
@@ -440,8 +442,17 @@ export function useSegmentBuilderState({
     const arrivalLine = lines.find((l) => l.tfl_id === segmentBeforeDestination.line_tfl_id)
 
     if (prevStation && destinationStation && arrivalLine) {
+      // CRITICAL: Remove the destination marker BEFORE transitioning
+      // This makes prevStation the last segment, so handleContinueJourney's
+      // validateNotDuplicate(currentStation, segments, { allowLast: true })
+      // will pass (prevStation is now the last segment)
+      const segmentsWithoutDestination = localSegments.filter((seg) => seg.line_tfl_id !== null)
+      setLocalSegments(segmentsWithoutDestination)
+
       // Set up state as if we just selected the destination as the "next station"
       // This shows line buttons for interchanges + "Mark as Destination" button
+      // With the destination marker removed, prevStation is now the last segment,
+      // so it won't trigger duplicate errors when continuing
       const newState = transitionToChooseAction(prevStation, arrivalLine, destinationStation)
       applyTransition(newState)
     }
