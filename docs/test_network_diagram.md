@@ -31,6 +31,8 @@ HUB_CENTRAL (2-mode interchange)
 └─ hubcentral-dlr (DLR - 2stopline)
 ```
 
+**Note on Hub Children**: The notation above shows which lines each hub child "serves" (i.e., which lines appear in the station's `lines` array). However, **hub children are NOT part of the route sequences** for these lines. They represent interchange points that provide access to the lines without being on the actual routes. For example, `hubcentral-dlr` has `2stopline` in its `lines` array, but it does not appear in the 2STOPLINE route sequences (which only include `twostop-west` and `twostop-east`).
+
 ---
 
 ### Line 1: FORKEDLINE (Tube)
@@ -111,7 +113,7 @@ asym-east → asym-regular-2 → asym-regular-1 → asym-west
 - **Eastbound:** asym-west → asym-regular-1 → asym-skip-station → asym-regular-2 → asym-east
 - **Westbound:** asym-east → asym-regular-2 → asym-regular-1 → asym-west
 
-**Hub Connection:** asym-regular-1 is actually `hubnorth-overground` at HUB_NORTH
+**Note:** The ASYMMETRICLINE routes use standalone stations. `hubnorth-overground` is a separate hub child at HUB_NORTH that serves the line (has `asymmetricline` in its `lines` array) but is not part of the route sequences. This represents a hub interchange point that provides access to the line without being on the actual route.
 
 **Testing Scenarios:** Non-symmetric routes, direction-dependent station service, skipped stations
 
@@ -123,13 +125,13 @@ asym-east → asym-regular-2 → asym-regular-1 → asym-west
 
 ```
 twostop-west ←→ twostop-east
-                     |
-              hubcentral-dlr (at HUB_CENTRAL)
 ```
 
 **Routes:**
 - **Eastbound:** twostop-west → twostop-east
 - **Westbound:** twostop-east → twostop-west
+
+**Note:** The 2STOPLINE routes use standalone stations. `hubcentral-dlr` is a separate hub child at HUB_CENTRAL that serves the line (has `2stopline` in its `lines` array) but is not part of the route sequences. This represents a hub interchange point that provides access to the line without being on the actual route.
 
 **Testing Scenarios:** Minimal line, edge case with only 2 stations
 
@@ -821,12 +823,10 @@ west-fork-2 ←→ west-fork                             east-fork-2 ←→ east
                           fork-south-end
 
 
-asym-west ←→ asym-regular-1 (at HUBNORTH overground) ←→ asym-skip-station (eastbound only) ←→ asym-regular-2 ←→ asym-east
+asym-west ←→ asym-regular-1 ←→ asym-skip-station (eastbound only) ←→ asym-regular-2 ←→ asym-east
 
 
 twostop-west ←→ twostop-east
-                      |
-               hubcentral-dlr (at HUBCENTRAL dlr)
 
 
 shareda-1 ←→ shareda-2 ←→ shared-station ←→ shareda-4 ←→ shareda-5
