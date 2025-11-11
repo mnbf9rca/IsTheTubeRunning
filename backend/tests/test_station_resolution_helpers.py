@@ -22,7 +22,7 @@ from app.helpers.station_resolution import (
     should_canonicalize_to_hub,
 )
 
-from tests.conftest import create_test_station
+from tests.helpers.railway_network import create_test_station
 
 
 class TestFilterStationsByLine:
