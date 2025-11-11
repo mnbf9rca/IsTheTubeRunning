@@ -42,12 +42,45 @@ export type Step = 'select-station' | 'select-line' | 'select-next-station' | 'c
 export type ValidationResult = { valid: true } | { valid: false; error: string }
 
 /**
+ * Core state machine state (used by pure transition functions)
+ *
+ * This interface represents only the core state machine logic, excluding
+ * UI-specific state like `isSaving` and `saveSuccess`. Transition functions
+ * operate on this core state to maintain separation of concerns:
+ * - State machine logic is pure and synchronous
+ * - UI state is managed by component handlers around async operations
+ *
+ * This type is used by transition functions in transitions.ts to ensure
+ * they remain pure and testable.
+ *
+ * @see Issue #97: Extract State Machine Logic
+ * @see transitions.ts for state transition functions
+ */
+export interface CoreSegmentBuilderState {
+  /** Currently selected station (null when not selected) */
+  currentStation: StationResponse | null
+
+  /** Currently selected line for travel (null when not selected) */
+  selectedLine: LineResponse | null
+
+  /** Next station selected on the current line (null when not selected) */
+  nextStation: StationResponse | null
+
+  /** Current step in the segment building state machine */
+  step: Step
+
+  /** Error message to display to user (null when no error) */
+  error: string | null
+}
+
+/**
  * Complete state for the SegmentBuilder component
  *
- * This interface aggregates all state variables used in the SegmentBuilder.
- * Currently used for documentation purposes. In future refactoring phases
- * (issues #96-98), this will be used by state transition functions and
- * a custom hook to manage state centrally.
+ * This interface aggregates all state variables used in the SegmentBuilder,
+ * including both core state machine state and UI-specific state.
+ *
+ * The component uses individual useState hooks for each field. In future
+ * refactoring (issue #98), this will be consolidated into a custom hook.
  *
  * @see Issue #96: Extract Segment Building Logic
  * @see Issue #97: Extract State Machine Logic
