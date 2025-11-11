@@ -14,7 +14,7 @@ from contextlib import suppress
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, TypedDict
 from unittest.mock import AsyncMock
 from urllib.parse import quote_plus, urlunparse
 
@@ -29,6 +29,7 @@ from app.main import app
 from app.models.admin import AdminRole, AdminUser
 
 # Import for type hints in test factories
+from app.models.tfl import Line, Station, StationConnection
 from app.models.user import User
 from app.services.alert_service import AlertService
 from fastapi.testclient import TestClient
@@ -41,6 +42,17 @@ from sqlalchemy.orm.session import SessionTransaction
 from sqlalchemy.pool import NullPool
 
 from tests.helpers.jwt_helpers import MockJWTGenerator
+from tests.helpers.railway_network import TestRailwayNetwork
+
+
+class RailwayNetworkFixture(TypedDict):
+    """Type definition for test_railway_network fixture return value."""
+
+    stations: dict[str, Station]
+    lines: dict[str, Line]
+    hubs: dict[str, list[Station]]
+    connections: list[StationConnection]
+    stats: dict[str, int]
 
 
 @dataclass
@@ -523,3 +535,182 @@ def settings_fixture() -> Settings:
 
 # Test data factories and shared test railway network
 # TestRailwayNetwork and create_test_station are imported at the top of this file
+
+
+def _build_connections_from_routes(line: Line, station_id_map: dict[str, uuid.UUID]) -> list[StationConnection]:
+    """
+    Build bidirectional StationConnection records from a line's route sequences.
+
+    Processes all route variants for a line and creates connections between
+    consecutive stations. Uses a set to deduplicate connections that appear
+    in multiple routes (e.g., shared trunk sections).
+
+    Args:
+        line: Line object with routes JSON containing station sequences
+        station_id_map: Mapping of tfl_id (str) to station.id (UUID)
+
+    Returns:
+        List of StationConnection objects (bidirectional, deduplicated)
+    """
+    connections_set: set[tuple[uuid.UUID, uuid.UUID, uuid.UUID]] = set()
+
+    for route in line.routes["routes"]:
+        stations = route["stations"]
+        for i in range(len(stations) - 1):
+            from_tfl_id = stations[i]
+            to_tfl_id = stations[i + 1]
+
+            # Get UUIDs from mapping
+            from_id = station_id_map[from_tfl_id]
+            to_id = station_id_map[to_tfl_id]
+
+            # Create bidirectional connections
+            connections_set.add((from_id, to_id, line.id))
+            connections_set.add((to_id, from_id, line.id))
+
+    # Convert set to list of StationConnection objects
+    return [
+        StationConnection(from_station_id=from_id, to_station_id=to_id, line_id=line_id)
+        for from_id, to_id, line_id in connections_set
+    ]
+
+
+@pytest.fixture
+async def test_railway_network(db_session: AsyncSession) -> RailwayNetworkFixture:
+    """
+    Create and persist complete test railway network to database (function-scoped).
+
+    Builds the full TestRailwayNetwork with all stations, lines, and StationConnection
+    graph. This fixture is function-scoped to maintain test isolation - each test gets
+    a fresh network instance that is rolled back after the test.
+
+    Network structure:
+    - 49 stations (deprecated + new network)
+    - 8 lines across 4 modes (tube, overground, dlr, elizabeth-line)
+    - 2 hubs (HUB_NORTH: 4-mode, HUB_CENTRAL: 2-mode)
+    - ~72 bidirectional StationConnection records
+
+    Returns:
+        Dictionary with structure:
+        {
+            "stations": dict[tfl_id -> Station],
+            "lines": dict[tfl_id -> Line],
+            "hubs": dict[hub_code -> list[Station]],
+            "connections": list[StationConnection],
+            "stats": {stations_count, lines_count, hubs_count, connections_count}
+        }
+    """
+    # 1. Create all stations
+    stations_list = [
+        # Deprecated stations (for backward compatibility)
+        TestRailwayNetwork.create_hub_alpha_tube(),
+        TestRailwayNetwork.create_hub_alpha_rail(),
+        TestRailwayNetwork.create_hub_beta_child1(),
+        TestRailwayNetwork.create_hub_beta_child2(),
+        TestRailwayNetwork.create_standalone_charlie(),
+        TestRailwayNetwork.create_standalone_delta(),
+        # New comprehensive network stations
+        TestRailwayNetwork.create_parallel_north(),
+        TestRailwayNetwork.create_hubnorth_overground(),
+        TestRailwayNetwork.create_hubnorth_elizabeth(),
+        TestRailwayNetwork.create_hubnorth_bus(),
+        TestRailwayNetwork.create_fork_mid_1(),
+        TestRailwayNetwork.create_hubcentral_dlr(),
+        TestRailwayNetwork.create_fork_junction(),
+        TestRailwayNetwork.create_parallel_split(),
+        TestRailwayNetwork.create_parallel_rejoin(),
+        TestRailwayNetwork.create_shared_station(),
+        TestRailwayNetwork.create_west_fork_2(),
+        TestRailwayNetwork.create_west_fork(),
+        TestRailwayNetwork.create_east_fork_2(),
+        TestRailwayNetwork.create_east_fork(),
+        TestRailwayNetwork.create_fork_mid_2(),
+        TestRailwayNetwork.create_fork_south_end(),
+        TestRailwayNetwork.create_via_bank_1(),
+        TestRailwayNetwork.create_via_bank_2(),
+        TestRailwayNetwork.create_via_charing_1(),
+        TestRailwayNetwork.create_via_charing_2(),
+        TestRailwayNetwork.create_parallel_south(),
+        TestRailwayNetwork.create_asym_west(),
+        TestRailwayNetwork.create_asym_regular_1(),
+        TestRailwayNetwork.create_asym_skip_station(),
+        TestRailwayNetwork.create_asym_regular_2(),
+        TestRailwayNetwork.create_asym_east(),
+        TestRailwayNetwork.create_twostop_west(),
+        TestRailwayNetwork.create_twostop_east(),
+        TestRailwayNetwork.create_shareda_1(),
+        TestRailwayNetwork.create_shareda_2(),
+        TestRailwayNetwork.create_shareda_4(),
+        TestRailwayNetwork.create_shareda_5(),
+        TestRailwayNetwork.create_sharedb_1(),
+        TestRailwayNetwork.create_sharedb_2(),
+        TestRailwayNetwork.create_sharedb_4(),
+        TestRailwayNetwork.create_sharedb_5(),
+        TestRailwayNetwork.create_sharedc_1(),
+        TestRailwayNetwork.create_sharedc_2(),
+        TestRailwayNetwork.create_sharedc_4(),
+        TestRailwayNetwork.create_sharedc_5(),
+        TestRailwayNetwork.create_elizabeth_west(),
+        TestRailwayNetwork.create_elizabeth_mid(),
+        TestRailwayNetwork.create_elizabeth_east(),
+    ]
+
+    # 2. Create all lines
+    lines_list = [
+        TestRailwayNetwork.create_forkedline(),
+        TestRailwayNetwork.create_parallelline(),
+        TestRailwayNetwork.create_asymmetricline(),
+        TestRailwayNetwork.create_2stopline(),
+        TestRailwayNetwork.create_sharedline_a(),
+        TestRailwayNetwork.create_sharedline_b(),
+        TestRailwayNetwork.create_sharedline_c(),
+        TestRailwayNetwork.create_elizabethline(),
+    ]
+
+    # 3. Add to session and flush to get IDs
+    db_session.add_all(stations_list)
+    db_session.add_all(lines_list)
+    await db_session.flush()
+
+    # 4. Build station ID mapping (tfl_id -> UUID)
+    station_id_map = {station.tfl_id: station.id for station in stations_list}
+
+    # 5. Build StationConnection graph
+    all_connections = []
+    for line in lines_list:
+        connections = _build_connections_from_routes(line, station_id_map)
+        all_connections.extend(connections)
+
+    # 6. Add connections to session
+    db_session.add_all(all_connections)
+
+    # 7. Flush to make data available (will be rolled back after test)
+    await db_session.flush()
+
+    # 8. Organize return structure
+    stations_dict = {station.tfl_id: station for station in stations_list}
+    lines_dict = {line.tfl_id: line for line in lines_list}
+
+    # 9. Group stations by hub
+    hubs_dict: dict[str, list[Station]] = {}
+    for station in stations_list:
+        if station.hub_naptan_code:
+            if station.hub_naptan_code not in hubs_dict:
+                hubs_dict[station.hub_naptan_code] = []
+            hubs_dict[station.hub_naptan_code].append(station)
+
+    # 10. Calculate stats
+    stats = {
+        "stations_count": len(stations_list),
+        "lines_count": len(lines_list),
+        "hubs_count": len(hubs_dict),
+        "connections_count": len(all_connections),
+    }
+
+    return {
+        "stations": stations_dict,
+        "lines": lines_dict,
+        "hubs": hubs_dict,
+        "connections": all_connections,
+        "stats": stats,
+    }

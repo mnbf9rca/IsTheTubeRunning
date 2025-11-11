@@ -16,6 +16,8 @@ from httpx import AsyncClient
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from tests.conftest import RailwayNetworkFixture
+
 
 class TestRoutesAPI:
     """Test cases for routes API endpoints."""
@@ -1662,157 +1664,32 @@ class TestRouteSegmentsWithHubCodes:
         yield
         app.dependency_overrides.clear()
 
-    @pytest.fixture
-    async def hub_test_data(self, db_session: AsyncSession) -> dict[str, Station | Line]:
-        """Create simple hub test data with clear conceptual model.
-
-        Hub "HUBTEST" has two stations:
-        - line1-hub-station (serves line1)
-        - line2-hub-station (serves line2)
-
-        Routes:
-        - Line1: line1-start → line1-hub-station → line1-end
-        - Line2: line2-start → line2-hub-station → line2-end
-        """
-        # Hub stations (same physical location, different modes/lines)
-        line1_hub_station = Station(
-            tfl_id="line1-hub-station",
-            name="Test Hub Line 1 Station",
-            latitude=51.5,
-            longitude=-0.1,
-            lines=["line1"],
-            hub_naptan_code="HUBTEST",
-            hub_common_name="Test Hub",
-            last_updated=datetime.now(UTC),
-        )
-        line2_hub_station = Station(
-            tfl_id="line2-hub-station",
-            name="Test Hub Line 2 Station",
-            latitude=51.5,
-            longitude=-0.1,
-            lines=["line2"],
-            hub_naptan_code="HUBTEST",
-            hub_common_name="Test Hub",
-            last_updated=datetime.now(UTC),
-        )
-
-        # Other stations on line1
-        line1_start = Station(
-            tfl_id="line1-start",
-            name="Line 1 Start",
-            latitude=51.4,
-            longitude=-0.1,
-            lines=["line1"],
-            last_updated=datetime.now(UTC),
-        )
-        line1_end = Station(
-            tfl_id="line1-end",
-            name="Line 1 End",
-            latitude=51.6,
-            longitude=-0.1,
-            lines=["line1"],
-            last_updated=datetime.now(UTC),
-        )
-
-        # Other stations on line2
-        line2_start = Station(
-            tfl_id="line2-start",
-            name="Line 2 Start",
-            latitude=51.5,
-            longitude=-0.2,
-            lines=["line2"],
-            last_updated=datetime.now(UTC),
-        )
-        line2_end = Station(
-            tfl_id="line2-end",
-            name="Line 2 End",
-            latitude=51.5,
-            longitude=0.0,
-            lines=["line2"],
-            last_updated=datetime.now(UTC),
-        )
-
-        # Lines with route sequences
-        line1 = Line(
-            tfl_id="line1",
-            name="Line 1",
-            mode="tube",
-            last_updated=datetime.now(UTC),
-            routes={
-                "routes": [
-                    {
-                        "name": "Line 1 Route",
-                        "stations": ["line1-start", "line1-hub-station", "line1-end"],
-                    }
-                ]
-            },
-        )
-        line2 = Line(
-            tfl_id="line2",
-            name="Line 2",
-            mode="overground",
-            last_updated=datetime.now(UTC),
-            routes={
-                "routes": [
-                    {
-                        "name": "Line 2 Route",
-                        "stations": ["line2-start", "line2-hub-station", "line2-end"],
-                    }
-                ]
-            },
-        )
-
-        db_session.add_all(
-            [
-                line1_hub_station,
-                line2_hub_station,
-                line1_start,
-                line1_end,
-                line2_start,
-                line2_end,
-                line1,
-                line2,
-            ]
-        )
-        await db_session.commit()
-
-        return {
-            "line1_hub_station": line1_hub_station,
-            "line2_hub_station": line2_hub_station,
-            "line1_start": line1_start,
-            "line1_end": line1_end,
-            "line2_start": line2_start,
-            "line2_end": line2_end,
-            "line1": line1,
-            "line2": line2,
-        }
-
     async def test_create_route_with_hub_codes(
         self,
         async_client: AsyncClient,
         auth_headers_for_user: dict[str, str],
         test_user: User,
         db_session: AsyncSession,
-        hub_test_data: dict[str, Station | Line],
+        test_railway_network: RailwayNetworkFixture,
     ) -> None:
         """Test creating route segments using hub NaPTAN codes instead of station IDs.
 
-        Route: line1-start → HUBTEST (via line1) → line2-end
-        - Start on line1
-        - Use hub code "HUBTEST" to specify interchange (resolves to line2-hub-station with line2 context)
-        - Destination on line2
+        Route: parallel-split → HUBNORTH (via elizabethline) → elizabeth-east
+        - Start on parallelline
+        - Use hub code "HUBNORTH" to specify interchange (resolves to hubnorth-elizabeth with elizabethline context)
+        - Destination on elizabethline
         """
         # Create route
         route = Route(user_id=test_user.id, name="Cross-Mode Hub Route", active=True)
         db_session.add(route)
         await db_session.commit()
 
-        # Upsert segments using hub code "HUBTEST" instead of specific station ID
+        # Upsert segments using hub code "HUBNORTH" instead of specific station ID
         segments_data = {
             "segments": [
-                {"sequence": 0, "station_tfl_id": "line1-start", "line_tfl_id": "line1"},
-                {"sequence": 1, "station_tfl_id": "HUBTEST", "line_tfl_id": "line2"},  # Hub code!
-                {"sequence": 2, "station_tfl_id": "line2-end", "line_tfl_id": None},
+                {"sequence": 0, "station_tfl_id": "parallel-split", "line_tfl_id": "parallelline"},
+                {"sequence": 1, "station_tfl_id": "HUBNORTH", "line_tfl_id": "elizabethline"},  # Hub code!
+                {"sequence": 2, "station_tfl_id": "elizabeth-east", "line_tfl_id": None},
             ]
         }
 
@@ -1827,8 +1704,8 @@ class TestRouteSegmentsWithHubCodes:
 
         # Response should canonicalize to hub code (normalize on read)
         assert len(data) == 3
-        assert data[1]["station_tfl_id"] == "HUBTEST"  # Canonical representation
-        assert data[1]["line_tfl_id"] == "line2"
+        assert data[1]["station_tfl_id"] == "HUBNORTH"  # Canonical representation
+        assert data[1]["line_tfl_id"] == "elizabethline"
 
     async def test_create_route_with_mixed_hub_and_station_ids(
         self,
@@ -1836,7 +1713,7 @@ class TestRouteSegmentsWithHubCodes:
         auth_headers_for_user: dict[str, str],
         test_user: User,
         db_session: AsyncSession,
-        hub_test_data: dict[str, Station | Line],
+        test_railway_network: RailwayNetworkFixture,
     ) -> None:
         """Test creating route with mix of hub codes and regular station IDs."""
         route = Route(user_id=test_user.id, name="Mixed Route", active=True)
@@ -1845,8 +1722,8 @@ class TestRouteSegmentsWithHubCodes:
 
         segments_data = {
             "segments": [
-                {"sequence": 0, "station_tfl_id": "HUBTEST", "line_tfl_id": "line1"},  # Hub code
-                {"sequence": 1, "station_tfl_id": "line1-end", "line_tfl_id": None},  # Station ID
+                {"sequence": 0, "station_tfl_id": "HUBNORTH", "line_tfl_id": "parallelline"},  # Hub code
+                {"sequence": 1, "station_tfl_id": "parallel-south", "line_tfl_id": None},  # Station ID
             ]
         }
 
@@ -1858,8 +1735,8 @@ class TestRouteSegmentsWithHubCodes:
 
         assert response.status_code == status.HTTP_200_OK
         data = response.json()
-        assert data[0]["station_tfl_id"] == "HUBTEST"  # Has hub, returns hub code
-        assert data[1]["station_tfl_id"] == "line1-end"  # No hub, returns station ID
+        assert data[0]["station_tfl_id"] == "HUBNORTH"  # Has hub, returns hub code
+        assert data[1]["station_tfl_id"] == "parallel-south"  # No hub, returns station ID
 
     async def test_create_route_hub_code_invalid_line(
         self,
@@ -1867,7 +1744,7 @@ class TestRouteSegmentsWithHubCodes:
         auth_headers_for_user: dict[str, str],
         test_user: User,
         db_session: AsyncSession,
-        hub_test_data: dict[str, Station | Line],
+        test_railway_network: RailwayNetworkFixture,
     ) -> None:
         """Test error when hub code used with line that doesn't serve it."""
         # Create a line3 that doesn't serve the hub
@@ -1895,7 +1772,7 @@ class TestRouteSegmentsWithHubCodes:
 
         segments_data = {
             "segments": [
-                {"sequence": 0, "station_tfl_id": "HUBTEST", "line_tfl_id": "line3"},  # Hub doesn't serve line3
+                {"sequence": 0, "station_tfl_id": "HUBNORTH", "line_tfl_id": "line3"},  # Hub doesn't serve line3
                 {"sequence": 1, "station_tfl_id": "other-station", "line_tfl_id": None},
             ]
         }
@@ -1907,7 +1784,7 @@ class TestRouteSegmentsWithHubCodes:
         )
 
         assert response.status_code == status.HTTP_404_NOT_FOUND
-        assert "HUBTEST" in response.json()["detail"]
+        assert "HUBNORTH" in response.json()["detail"]
         assert "line3" in response.json()["detail"]
 
     async def test_update_segment_with_hub_code(
@@ -1916,18 +1793,18 @@ class TestRouteSegmentsWithHubCodes:
         auth_headers_for_user: dict[str, str],
         test_user: User,
         db_session: AsyncSession,
-        hub_test_data: dict[str, Station | Line],
+        test_railway_network: RailwayNetworkFixture,
     ) -> None:
         """Test updating an existing segment to use a hub code."""
         route = Route(user_id=test_user.id, name="Update Test Route", active=True)
         db_session.add(route)
         await db_session.commit()
 
-        # Create initial segments: line1-start → line1-hub-station → line1-end (all on line1)
+        # Create initial segments: parallel-split → parallel-south (all on parallelline)
         segments_data = {
             "segments": [
-                {"sequence": 0, "station_tfl_id": "line1-start", "line_tfl_id": "line1"},
-                {"sequence": 1, "station_tfl_id": "line1-end", "line_tfl_id": None},
+                {"sequence": 0, "station_tfl_id": "parallel-split", "line_tfl_id": "parallelline"},
+                {"sequence": 1, "station_tfl_id": "parallel-south", "line_tfl_id": None},
             ]
         }
         await async_client.put(
@@ -1937,7 +1814,7 @@ class TestRouteSegmentsWithHubCodes:
         )
 
         # Update first segment to use hub code (changes the station at the start)
-        update_data = {"station_tfl_id": "HUBTEST"}  # Keep line1, just change station to hub
+        update_data = {"station_tfl_id": "HUBNORTH"}  # Keep parallelline, just change station to hub
 
         response = await async_client.patch(
             f"/api/v1/routes/{route.id}/segments/0",
@@ -1947,8 +1824,8 @@ class TestRouteSegmentsWithHubCodes:
 
         assert response.status_code == status.HTTP_200_OK
         data = response.json()
-        assert data["station_tfl_id"] == "HUBTEST"  # Returns hub code
-        assert data["line_tfl_id"] == "line1"
+        assert data["station_tfl_id"] == "HUBNORTH"  # Returns hub code
+        assert data["line_tfl_id"] == "parallelline"
 
     async def test_get_route_returns_canonical_hub_codes(
         self,
@@ -1956,18 +1833,22 @@ class TestRouteSegmentsWithHubCodes:
         auth_headers_for_user: dict[str, str],
         test_user: User,
         db_session: AsyncSession,
-        hub_test_data: dict[str, Station | Line],
+        test_railway_network: RailwayNetworkFixture,
     ) -> None:
         """Test GET route returns hub codes (canonicalize on read)."""
         route = Route(user_id=test_user.id, name="Canonical Test Route", active=True)
         db_session.add(route)
         await db_session.commit()
 
-        # Create segments using station ID (line2-hub-station)
+        # Create segments using station ID (hubnorth-elizabeth)
         segments_data = {
             "segments": [
-                {"sequence": 0, "station_tfl_id": "line2-hub-station", "line_tfl_id": "line2"},  # Station ID with hub
-                {"sequence": 1, "station_tfl_id": "line2-end", "line_tfl_id": None},
+                {
+                    "sequence": 0,
+                    "station_tfl_id": "hubnorth-elizabeth",
+                    "line_tfl_id": "elizabethline",
+                },  # Station ID with hub
+                {"sequence": 1, "station_tfl_id": "elizabeth-east", "line_tfl_id": None},
             ]
         }
         await async_client.put(
@@ -1985,7 +1866,7 @@ class TestRouteSegmentsWithHubCodes:
         assert response.status_code == status.HTTP_200_OK
         data = response.json()
         assert len(data["segments"]) == 2
-        assert data["segments"][0]["station_tfl_id"] == "HUBTEST"  # Canonicalized to hub code
+        assert data["segments"][0]["station_tfl_id"] == "HUBNORTH"  # Canonicalized to hub code
 
     async def test_backward_compatibility_station_ids_still_work(
         self,
@@ -1993,7 +1874,7 @@ class TestRouteSegmentsWithHubCodes:
         auth_headers_for_user: dict[str, str],
         test_user: User,
         db_session: AsyncSession,
-        hub_test_data: dict[str, Station | Line],
+        test_railway_network: RailwayNetworkFixture,
     ) -> None:
         """Test that existing routes using station IDs continue to work."""
         route = Route(user_id=test_user.id, name="Backward Compat Route", active=True)
@@ -2003,8 +1884,8 @@ class TestRouteSegmentsWithHubCodes:
         # Use station IDs directly (no hub codes)
         segments_data = {
             "segments": [
-                {"sequence": 0, "station_tfl_id": "line1-start", "line_tfl_id": "line1"},
-                {"sequence": 1, "station_tfl_id": "line1-end", "line_tfl_id": None},
+                {"sequence": 0, "station_tfl_id": "parallel-split", "line_tfl_id": "parallelline"},
+                {"sequence": 1, "station_tfl_id": "parallel-south", "line_tfl_id": None},
             ]
         }
 
@@ -2017,5 +1898,5 @@ class TestRouteSegmentsWithHubCodes:
         assert response.status_code == status.HTTP_200_OK
         data = response.json()
         # No hubs involved, should return station IDs
-        assert data[0]["station_tfl_id"] == "line1-start"
-        assert data[1]["station_tfl_id"] == "line1-end"
+        assert data[0]["station_tfl_id"] == "parallel-split"
+        assert data[1]["station_tfl_id"] == "parallel-south"
