@@ -23,7 +23,7 @@ class TestRailwayNetwork:
 
     Network structure:
     - 8 lines across 4 modes (tube, overground, dlr, elizabeth-line)
-    - 2 multi-mode hubs (HUB_NORTH: 4 children including bus, HUB_CENTRAL: 2 children)
+    - 2 multi-mode hubs (HUB_NORTH: 4-mode hub with 4 children, HUB_CENTRAL: 2-mode hub with 2 children)
     - ~46 stations covering:
       * Y-shaped forks (forkedline)
       * Parallel paths that rejoin (parallelline)
@@ -91,7 +91,7 @@ class TestRailwayNetwork:
     # -----------------------------------------------------------------------------
     # Hub Constants (2 multi-mode interchanges)
     # -----------------------------------------------------------------------------
-    HUB_NORTH = "HUBNORTH"  # 3-mode hub
+    HUB_NORTH = "HUBNORTH"  # 4-mode hub (tube, overground, elizabeth-line, bus)
     HUB_NORTH_NAME = "North Interchange"
     HUB_CENTRAL = "HUBCENTRAL"  # 2-mode hub
     HUB_CENTRAL_NAME = "Central Hub"

@@ -20,7 +20,7 @@ This fictional network makes tests self-documenting and easier to understand. In
 ### Full Network Overview
 
 ```
-HUB_NORTH (3-mode interchange)
+HUB_NORTH (4-mode interchange)
 ├─ parallel-north (Tube - parallelline)
 ├─ hubnorth-overground (Overground - asymmetricline)
 ├─ hubnorth-elizabeth (Elizabeth line - elizabethline)
@@ -232,7 +232,7 @@ elizabeth-west → hubnorth-elizabeth (at HUB_NORTH) → elizabeth-mid → eliza
 
 Hubs are multi-mode interchanges where passengers transfer between different transport modes.
 
-**HUB_NORTH (3-mode hub):**
+**HUB_NORTH (4-mode hub):**
 - NaPTAN Code: `HUBNORTH`
 - Common Name: "North Interchange"
 - Children:
@@ -527,7 +527,7 @@ for route in routes:
 
 **Example Test:**
 ```python
-# 3-mode hub with 4 children
+# 4-mode hub with 4 children
 tube = TestRailwayNetwork.create_parallel_north()
 overground = TestRailwayNetwork.create_hubnorth_overground()
 elizabeth = TestRailwayNetwork.create_hubnorth_elizabeth()
