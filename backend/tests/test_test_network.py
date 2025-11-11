@@ -1,102 +1,140 @@
 """Unit tests for TestRailwayNetwork factory methods."""
 
+import pytest
+
 from tests.helpers.railway_network import TestRailwayNetwork
 
 
 class TestHubChildrenFactories:
     """Tests for hub children station factories."""
 
-    def test_create_parallel_north(self) -> None:
-        """Test parallel-north station (HUB_NORTH tube child)."""
-        station = TestRailwayNetwork.create_parallel_north()
+    @pytest.mark.parametrize(
+        (
+            "factory_method",
+            "expected_tfl_id",
+            "expected_name",
+            "expected_lines",
+            "expected_hub_naptan",
+            "expected_hub_name",
+        ),
+        [
+            (
+                "create_parallel_north",
+                TestRailwayNetwork.STATION_PARALLEL_NORTH,
+                "North Interchange (Tube)",
+                [TestRailwayNetwork.LINE_PARALLELLINE],
+                TestRailwayNetwork.HUB_NORTH,
+                TestRailwayNetwork.HUB_NORTH_NAME,
+            ),
+            (
+                "create_hubnorth_overground",
+                TestRailwayNetwork.STATION_HUBNORTH_OVERGROUND,
+                "North Interchange (Overground)",
+                [TestRailwayNetwork.LINE_ASYMMETRICLINE],
+                TestRailwayNetwork.HUB_NORTH,
+                TestRailwayNetwork.HUB_NORTH_NAME,
+            ),
+            (
+                "create_hubnorth_elizabeth",
+                TestRailwayNetwork.STATION_HUBNORTH_ELIZABETH,
+                "North Interchange (Elizabeth line)",
+                [TestRailwayNetwork.LINE_ELIZABETHLINE],
+                TestRailwayNetwork.HUB_NORTH,
+                TestRailwayNetwork.HUB_NORTH_NAME,
+            ),
+            (
+                "create_hubnorth_bus",
+                TestRailwayNetwork.STATION_HUBNORTH_BUS,
+                "North Interchange (Bus)",
+                [],  # No line - bus mode not in network
+                TestRailwayNetwork.HUB_NORTH,
+                TestRailwayNetwork.HUB_NORTH_NAME,
+            ),
+            (
+                "create_fork_mid_1",
+                TestRailwayNetwork.STATION_FORK_MID_1,
+                "Central Hub (Tube)",
+                [TestRailwayNetwork.LINE_FORKEDLINE],
+                TestRailwayNetwork.HUB_CENTRAL,
+                TestRailwayNetwork.HUB_CENTRAL_NAME,
+            ),
+            (
+                "create_hubcentral_dlr",
+                TestRailwayNetwork.STATION_HUBCENTRAL_DLR,
+                "Central Hub (DLR)",
+                [TestRailwayNetwork.LINE_2STOPLINE],
+                TestRailwayNetwork.HUB_CENTRAL,
+                TestRailwayNetwork.HUB_CENTRAL_NAME,
+            ),
+        ],
+        ids=[
+            "parallel-north",
+            "hubnorth-overground",
+            "hubnorth-elizabeth",
+            "hubnorth-bus",
+            "fork-mid-1",
+            "hubcentral-dlr",
+        ],
+    )
+    def test_hub_children(
+        self,
+        factory_method: str,
+        expected_tfl_id: str,
+        expected_name: str,
+        expected_lines: list[str],
+        expected_hub_naptan: str,
+        expected_hub_name: str,
+    ) -> None:
+        """Test hub children stations have correct hub attributes."""
+        station = getattr(TestRailwayNetwork, factory_method)()
 
-        assert station.tfl_id == TestRailwayNetwork.STATION_PARALLEL_NORTH
-        assert station.name == "North Interchange (Tube)"
-        assert station.lines == [TestRailwayNetwork.LINE_PARALLELLINE]
-        assert station.hub_naptan_code == TestRailwayNetwork.HUB_NORTH
-        assert station.hub_common_name == TestRailwayNetwork.HUB_NORTH_NAME
-
-    def test_create_hubnorth_overground(self) -> None:
-        """Test hubnorth-overground station (HUB_NORTH overground child)."""
-        station = TestRailwayNetwork.create_hubnorth_overground()
-
-        assert station.tfl_id == TestRailwayNetwork.STATION_HUBNORTH_OVERGROUND
-        assert station.name == "North Interchange (Overground)"
-        assert station.lines == [TestRailwayNetwork.LINE_ASYMMETRICLINE]
-        assert station.hub_naptan_code == TestRailwayNetwork.HUB_NORTH
-        assert station.hub_common_name == TestRailwayNetwork.HUB_NORTH_NAME
-
-    def test_create_hubnorth_elizabeth(self) -> None:
-        """Test hubnorth-elizabeth station (HUB_NORTH elizabeth-line child)."""
-        station = TestRailwayNetwork.create_hubnorth_elizabeth()
-
-        assert station.tfl_id == TestRailwayNetwork.STATION_HUBNORTH_ELIZABETH
-        assert station.name == "North Interchange (Elizabeth line)"
-        assert station.lines == [TestRailwayNetwork.LINE_ELIZABETHLINE]
-        assert station.hub_naptan_code == TestRailwayNetwork.HUB_NORTH
-        assert station.hub_common_name == TestRailwayNetwork.HUB_NORTH_NAME
-
-    def test_create_hubnorth_bus(self) -> None:
-        """Test hubnorth-bus station (HUB_NORTH bus child with no line)."""
-        station = TestRailwayNetwork.create_hubnorth_bus()
-
-        assert station.tfl_id == TestRailwayNetwork.STATION_HUBNORTH_BUS
-        assert station.name == "North Interchange (Bus)"
-        assert station.lines == []  # No line - bus mode not in network
-        assert station.hub_naptan_code == TestRailwayNetwork.HUB_NORTH
-        assert station.hub_common_name == TestRailwayNetwork.HUB_NORTH_NAME
-
-    def test_create_fork_mid_1(self) -> None:
-        """Test fork-mid-1 station (HUB_CENTRAL tube child)."""
-        station = TestRailwayNetwork.create_fork_mid_1()
-
-        assert station.tfl_id == TestRailwayNetwork.STATION_FORK_MID_1
-        assert station.name == "Central Hub (Tube)"
-        assert station.lines == [TestRailwayNetwork.LINE_FORKEDLINE]
-        assert station.hub_naptan_code == TestRailwayNetwork.HUB_CENTRAL
-        assert station.hub_common_name == TestRailwayNetwork.HUB_CENTRAL_NAME
-
-    def test_create_hubcentral_dlr(self) -> None:
-        """Test hubcentral-dlr station (HUB_CENTRAL dlr child)."""
-        station = TestRailwayNetwork.create_hubcentral_dlr()
-
-        assert station.tfl_id == TestRailwayNetwork.STATION_HUBCENTRAL_DLR
-        assert station.name == "Central Hub (DLR)"
-        assert station.lines == [TestRailwayNetwork.LINE_2STOPLINE]
-        assert station.hub_naptan_code == TestRailwayNetwork.HUB_CENTRAL
-        assert station.hub_common_name == TestRailwayNetwork.HUB_CENTRAL_NAME
+        assert station.tfl_id == expected_tfl_id
+        assert station.name == expected_name
+        assert station.lines == expected_lines
+        assert station.hub_naptan_code == expected_hub_naptan
+        assert station.hub_common_name == expected_hub_name
 
 
 class TestBranchJunctionFactories:
     """Tests for branch junction station factories (NOT hubs)."""
 
-    def test_create_fork_junction(self) -> None:
-        """Test fork-junction station (branch convergence, NOT a hub)."""
-        station = TestRailwayNetwork.create_fork_junction()
+    @pytest.mark.parametrize(
+        ("factory_method", "expected_tfl_id", "expected_name", "expected_lines"),
+        [
+            (
+                "create_fork_junction",
+                TestRailwayNetwork.STATION_FORK_JUNCTION,
+                "Fork Junction",
+                [TestRailwayNetwork.LINE_FORKEDLINE],
+            ),
+            (
+                "create_parallel_split",
+                TestRailwayNetwork.STATION_PARALLEL_SPLIT,
+                "Parallel Split",
+                [TestRailwayNetwork.LINE_PARALLELLINE],
+            ),
+            (
+                "create_parallel_rejoin",
+                TestRailwayNetwork.STATION_PARALLEL_REJOIN,
+                "Parallel Rejoin",
+                [TestRailwayNetwork.LINE_PARALLELLINE],
+            ),
+        ],
+        ids=["fork-junction", "parallel-split", "parallel-rejoin"],
+    )
+    def test_branch_junctions(
+        self,
+        factory_method: str,
+        expected_tfl_id: str,
+        expected_name: str,
+        expected_lines: list[str],
+    ) -> None:
+        """Test branch junction stations are NOT hubs."""
+        station = getattr(TestRailwayNetwork, factory_method)()
 
-        assert station.tfl_id == TestRailwayNetwork.STATION_FORK_JUNCTION
-        assert station.name == "Fork Junction"
-        assert station.lines == [TestRailwayNetwork.LINE_FORKEDLINE]
-        assert station.hub_naptan_code is None  # NOT a hub
-        assert station.hub_common_name is None
-
-    def test_create_parallel_split(self) -> None:
-        """Test parallel-split station (branch split, NOT a hub)."""
-        station = TestRailwayNetwork.create_parallel_split()
-
-        assert station.tfl_id == TestRailwayNetwork.STATION_PARALLEL_SPLIT
-        assert station.name == "Parallel Split"
-        assert station.lines == [TestRailwayNetwork.LINE_PARALLELLINE]
-        assert station.hub_naptan_code is None  # NOT a hub
-        assert station.hub_common_name is None
-
-    def test_create_parallel_rejoin(self) -> None:
-        """Test parallel-rejoin station (branch rejoin, NOT a hub)."""
-        station = TestRailwayNetwork.create_parallel_rejoin()
-
-        assert station.tfl_id == TestRailwayNetwork.STATION_PARALLEL_REJOIN
-        assert station.name == "Parallel Rejoin"
-        assert station.lines == [TestRailwayNetwork.LINE_PARALLELLINE]
+        assert station.tfl_id == expected_tfl_id
+        assert station.name == expected_name
+        assert station.lines == expected_lines
         assert station.hub_naptan_code is None  # NOT a hub
         assert station.hub_common_name is None
 
@@ -118,281 +156,345 @@ class TestSharedStationFactory:
         assert station.hub_common_name is None
 
 
-class TestForkedlineStationFactories:
-    """Tests for forkedline standalone station factories."""
-
-    def test_create_west_fork_2(self) -> None:
-        """Test west-fork-2 station (west branch terminus)."""
-        station = TestRailwayNetwork.create_west_fork_2()
-
-        assert station.tfl_id == TestRailwayNetwork.STATION_WEST_FORK_2
-        assert station.name == "West Fork 2"
-        assert station.lines == [TestRailwayNetwork.LINE_FORKEDLINE]
-        assert station.hub_naptan_code is None
-
-    def test_create_west_fork(self) -> None:
-        """Test west-fork station."""
-        station = TestRailwayNetwork.create_west_fork()
-
-        assert station.tfl_id == TestRailwayNetwork.STATION_WEST_FORK
-        assert station.name == "West Fork"
-        assert station.lines == [TestRailwayNetwork.LINE_FORKEDLINE]
-
-    def test_create_east_fork_2(self) -> None:
-        """Test east-fork-2 station (east branch terminus)."""
-        station = TestRailwayNetwork.create_east_fork_2()
-
-        assert station.tfl_id == TestRailwayNetwork.STATION_EAST_FORK_2
-        assert station.name == "East Fork 2"
-        assert station.lines == [TestRailwayNetwork.LINE_FORKEDLINE]
-
-    def test_create_east_fork(self) -> None:
-        """Test east-fork station."""
-        station = TestRailwayNetwork.create_east_fork()
-
-        assert station.tfl_id == TestRailwayNetwork.STATION_EAST_FORK
-        assert station.name == "East Fork"
-        assert station.lines == [TestRailwayNetwork.LINE_FORKEDLINE]
-
-    def test_create_fork_mid_2(self) -> None:
-        """Test fork-mid-2 station (trunk)."""
-        station = TestRailwayNetwork.create_fork_mid_2()
-
-        assert station.tfl_id == TestRailwayNetwork.STATION_FORK_MID_2
-        assert station.name == "Fork Mid 2"
-        assert station.lines == [TestRailwayNetwork.LINE_FORKEDLINE]
-
-    def test_create_fork_south_end(self) -> None:
-        """Test fork-south-end station (southern terminus)."""
-        station = TestRailwayNetwork.create_fork_south_end()
-
-        assert station.tfl_id == TestRailwayNetwork.STATION_FORK_SOUTH_END
-        assert station.name == "Fork South End"
-        assert station.lines == [TestRailwayNetwork.LINE_FORKEDLINE]
-
-
-class TestParallellineStationFactories:
-    """Tests for parallelline standalone station factories."""
-
-    def test_create_via_bank_1(self) -> None:
-        """Test via-bank-1 station."""
-        station = TestRailwayNetwork.create_via_bank_1()
-
-        assert station.tfl_id == TestRailwayNetwork.STATION_VIA_BANK_1
-        assert station.name == "Via Bank 1"
-        assert station.lines == [TestRailwayNetwork.LINE_PARALLELLINE]
-
-    def test_create_via_bank_2(self) -> None:
-        """Test via-bank-2 station."""
-        station = TestRailwayNetwork.create_via_bank_2()
-
-        assert station.tfl_id == TestRailwayNetwork.STATION_VIA_BANK_2
-        assert station.name == "Via Bank 2"
-        assert station.lines == [TestRailwayNetwork.LINE_PARALLELLINE]
-
-    def test_create_via_charing_1(self) -> None:
-        """Test via-charing-1 station."""
-        station = TestRailwayNetwork.create_via_charing_1()
-
-        assert station.tfl_id == TestRailwayNetwork.STATION_VIA_CHARING_1
-        assert station.name == "Via Charing 1"
-        assert station.lines == [TestRailwayNetwork.LINE_PARALLELLINE]
-
-    def test_create_via_charing_2(self) -> None:
-        """Test via-charing-2 station."""
-        station = TestRailwayNetwork.create_via_charing_2()
-
-        assert station.tfl_id == TestRailwayNetwork.STATION_VIA_CHARING_2
-        assert station.name == "Via Charing 2"
-        assert station.lines == [TestRailwayNetwork.LINE_PARALLELLINE]
-
-    def test_create_parallel_south(self) -> None:
-        """Test parallel-south station (southern terminus)."""
-        station = TestRailwayNetwork.create_parallel_south()
-
-        assert station.tfl_id == TestRailwayNetwork.STATION_PARALLEL_SOUTH
-        assert station.name == "Parallel South"
-        assert station.lines == [TestRailwayNetwork.LINE_PARALLELLINE]
-
-
-class TestAsymmetriclineStationFactories:
-    """Tests for asymmetricline standalone station factories."""
-
-    def test_create_asym_west(self) -> None:
-        """Test asym-west station (western terminus)."""
-        station = TestRailwayNetwork.create_asym_west()
-
-        assert station.tfl_id == TestRailwayNetwork.STATION_ASYM_WEST
-        assert station.name == "Asym West"
-        assert station.lines == [TestRailwayNetwork.LINE_ASYMMETRICLINE]
-
-    def test_create_asym_regular_1(self) -> None:
-        """Test asym-regular-1 station (serves both directions)."""
-        station = TestRailwayNetwork.create_asym_regular_1()
-
-        assert station.tfl_id == TestRailwayNetwork.STATION_ASYM_REGULAR_1
-        assert station.name == "Asym Regular 1"
-        assert station.lines == [TestRailwayNetwork.LINE_ASYMMETRICLINE]
-
-    def test_create_asym_skip_station(self) -> None:
-        """Test asym-skip-station (eastbound only)."""
-        station = TestRailwayNetwork.create_asym_skip_station()
-
-        assert station.tfl_id == TestRailwayNetwork.STATION_ASYM_SKIP_STATION
-        assert station.name == "Asym Skip Station"
-        assert station.lines == [TestRailwayNetwork.LINE_ASYMMETRICLINE]
-
-    def test_create_asym_regular_2(self) -> None:
-        """Test asym-regular-2 station (serves both directions)."""
-        station = TestRailwayNetwork.create_asym_regular_2()
-
-        assert station.tfl_id == TestRailwayNetwork.STATION_ASYM_REGULAR_2
-        assert station.name == "Asym Regular 2"
-        assert station.lines == [TestRailwayNetwork.LINE_ASYMMETRICLINE]
-
-    def test_create_asym_east(self) -> None:
-        """Test asym-east station (eastern terminus)."""
-        station = TestRailwayNetwork.create_asym_east()
-
-        assert station.tfl_id == TestRailwayNetwork.STATION_ASYM_EAST
-        assert station.name == "Asym East"
-        assert station.lines == [TestRailwayNetwork.LINE_ASYMMETRICLINE]
-
-
-class TestTwoStoplineStationFactories:
-    """Tests for 2stopline standalone station factories."""
-
-    def test_create_twostop_west(self) -> None:
-        """Test twostop-west station (western terminus)."""
-        station = TestRailwayNetwork.create_twostop_west()
-
-        assert station.tfl_id == TestRailwayNetwork.STATION_TWOSTOP_WEST
-        assert station.name == "TwoStop West"
-        assert station.lines == [TestRailwayNetwork.LINE_2STOPLINE]
-
-    def test_create_twostop_east(self) -> None:
-        """Test twostop-east station (eastern terminus)."""
-        station = TestRailwayNetwork.create_twostop_east()
-
-        assert station.tfl_id == TestRailwayNetwork.STATION_TWOSTOP_EAST
-        assert station.name == "TwoStop East"
-        assert station.lines == [TestRailwayNetwork.LINE_2STOPLINE]
-
-
-class TestSharedlineAStationFactories:
-    """Tests for sharedline-a standalone station factories."""
-
-    def test_create_shareda_1(self) -> None:
-        """Test shareda-1 station."""
-        station = TestRailwayNetwork.create_shareda_1()
-
-        assert station.tfl_id == TestRailwayNetwork.STATION_SHAREDA_1
-        assert station.name == "SharedA 1"
-        assert station.lines == [TestRailwayNetwork.LINE_SHAREDLINE_A]
-
-    def test_create_shareda_2(self) -> None:
-        """Test shareda-2 station."""
-        station = TestRailwayNetwork.create_shareda_2()
-
-        assert station.tfl_id == TestRailwayNetwork.STATION_SHAREDA_2
-        assert station.name == "SharedA 2"
-        assert station.lines == [TestRailwayNetwork.LINE_SHAREDLINE_A]
-
-    def test_create_shareda_4(self) -> None:
-        """Test shareda-4 station."""
-        station = TestRailwayNetwork.create_shareda_4()
-
-        assert station.tfl_id == TestRailwayNetwork.STATION_SHAREDA_4
-        assert station.name == "SharedA 4"
-        assert station.lines == [TestRailwayNetwork.LINE_SHAREDLINE_A]
-
-
-class TestSharedlineBStationFactories:
-    """Tests for sharedline-b standalone station factories."""
-
-    def test_create_sharedb_1(self) -> None:
-        """Test sharedb-1 station."""
-        station = TestRailwayNetwork.create_sharedb_1()
-
-        assert station.tfl_id == TestRailwayNetwork.STATION_SHAREDB_1
-        assert station.name == "SharedB 1"
-        assert station.lines == [TestRailwayNetwork.LINE_SHAREDLINE_B]
-
-    def test_create_sharedb_2(self) -> None:
-        """Test sharedb-2 station."""
-        station = TestRailwayNetwork.create_sharedb_2()
-
-        assert station.tfl_id == TestRailwayNetwork.STATION_SHAREDB_2
-        assert station.name == "SharedB 2"
-        assert station.lines == [TestRailwayNetwork.LINE_SHAREDLINE_B]
-
-    def test_create_sharedb_4(self) -> None:
-        """Test sharedb-4 station."""
-        station = TestRailwayNetwork.create_sharedb_4()
-
-        assert station.tfl_id == TestRailwayNetwork.STATION_SHAREDB_4
-        assert station.name == "SharedB 4"
-        assert station.lines == [TestRailwayNetwork.LINE_SHAREDLINE_B]
-
-
-class TestSharedlineCStationFactories:
-    """Tests for sharedline-c standalone station factories."""
-
-    def test_create_sharedc_1(self) -> None:
-        """Test sharedc-1 station."""
-        station = TestRailwayNetwork.create_sharedc_1()
-
-        assert station.tfl_id == TestRailwayNetwork.STATION_SHAREDC_1
-        assert station.name == "SharedC 1"
-        assert station.lines == [TestRailwayNetwork.LINE_SHAREDLINE_C]
-
-    def test_create_sharedc_2(self) -> None:
-        """Test sharedc-2 station."""
-        station = TestRailwayNetwork.create_sharedc_2()
-
-        assert station.tfl_id == TestRailwayNetwork.STATION_SHAREDC_2
-        assert station.name == "SharedC 2"
-        assert station.lines == [TestRailwayNetwork.LINE_SHAREDLINE_C]
-
-    def test_create_sharedc_4(self) -> None:
-        """Test sharedc-4 station."""
-        station = TestRailwayNetwork.create_sharedc_4()
-
-        assert station.tfl_id == TestRailwayNetwork.STATION_SHAREDC_4
-        assert station.name == "SharedC 4"
-        assert station.lines == [TestRailwayNetwork.LINE_SHAREDLINE_C]
-
-
-class TestElizabethlineStationFactories:
-    """Tests for elizabethline standalone station factories."""
-
-    def test_create_elizabeth_west(self) -> None:
-        """Test elizabeth-west station (western terminus)."""
-        station = TestRailwayNetwork.create_elizabeth_west()
-
-        assert station.tfl_id == TestRailwayNetwork.STATION_ELIZABETH_WEST
-        assert station.name == "Elizabeth West"
-        assert station.lines == [TestRailwayNetwork.LINE_ELIZABETHLINE]
-
-    def test_create_elizabeth_mid(self) -> None:
-        """Test elizabeth-mid station."""
-        station = TestRailwayNetwork.create_elizabeth_mid()
-
-        assert station.tfl_id == TestRailwayNetwork.STATION_ELIZABETH_MID
-        assert station.name == "Elizabeth Mid"
-        assert station.lines == [TestRailwayNetwork.LINE_ELIZABETHLINE]
-
-    def test_create_elizabeth_east(self) -> None:
-        """Test elizabeth-east station (eastern terminus)."""
-        station = TestRailwayNetwork.create_elizabeth_east()
-
-        assert station.tfl_id == TestRailwayNetwork.STATION_ELIZABETH_EAST
-        assert station.name == "Elizabeth East"
-        assert station.lines == [TestRailwayNetwork.LINE_ELIZABETHLINE]
-
-
-class TestLineFactories:
-    """Tests for line factory methods."""
+class TestStandaloneStationFactories:
+    """Tests for standalone station factories (non-hub stations)."""
+
+    @pytest.mark.parametrize(
+        ("factory_method", "expected_tfl_id", "expected_name", "expected_lines"),
+        [
+            # Forkedline stations
+            (
+                "create_west_fork_2",
+                TestRailwayNetwork.STATION_WEST_FORK_2,
+                "West Fork 2",
+                [TestRailwayNetwork.LINE_FORKEDLINE],
+            ),
+            (
+                "create_west_fork",
+                TestRailwayNetwork.STATION_WEST_FORK,
+                "West Fork",
+                [TestRailwayNetwork.LINE_FORKEDLINE],
+            ),
+            (
+                "create_east_fork_2",
+                TestRailwayNetwork.STATION_EAST_FORK_2,
+                "East Fork 2",
+                [TestRailwayNetwork.LINE_FORKEDLINE],
+            ),
+            (
+                "create_east_fork",
+                TestRailwayNetwork.STATION_EAST_FORK,
+                "East Fork",
+                [TestRailwayNetwork.LINE_FORKEDLINE],
+            ),
+            (
+                "create_fork_mid_2",
+                TestRailwayNetwork.STATION_FORK_MID_2,
+                "Fork Mid 2",
+                [TestRailwayNetwork.LINE_FORKEDLINE],
+            ),
+            (
+                "create_fork_south_end",
+                TestRailwayNetwork.STATION_FORK_SOUTH_END,
+                "Fork South End",
+                [TestRailwayNetwork.LINE_FORKEDLINE],
+            ),
+            # Parallelline stations
+            (
+                "create_via_bank_1",
+                TestRailwayNetwork.STATION_VIA_BANK_1,
+                "Via Bank 1",
+                [TestRailwayNetwork.LINE_PARALLELLINE],
+            ),
+            (
+                "create_via_bank_2",
+                TestRailwayNetwork.STATION_VIA_BANK_2,
+                "Via Bank 2",
+                [TestRailwayNetwork.LINE_PARALLELLINE],
+            ),
+            (
+                "create_via_charing_1",
+                TestRailwayNetwork.STATION_VIA_CHARING_1,
+                "Via Charing 1",
+                [TestRailwayNetwork.LINE_PARALLELLINE],
+            ),
+            (
+                "create_via_charing_2",
+                TestRailwayNetwork.STATION_VIA_CHARING_2,
+                "Via Charing 2",
+                [TestRailwayNetwork.LINE_PARALLELLINE],
+            ),
+            (
+                "create_parallel_south",
+                TestRailwayNetwork.STATION_PARALLEL_SOUTH,
+                "Parallel South",
+                [TestRailwayNetwork.LINE_PARALLELLINE],
+            ),
+            # Asymmetricline stations
+            (
+                "create_asym_west",
+                TestRailwayNetwork.STATION_ASYM_WEST,
+                "Asym West",
+                [TestRailwayNetwork.LINE_ASYMMETRICLINE],
+            ),
+            (
+                "create_asym_regular_1",
+                TestRailwayNetwork.STATION_ASYM_REGULAR_1,
+                "Asym Regular 1",
+                [TestRailwayNetwork.LINE_ASYMMETRICLINE],
+            ),
+            (
+                "create_asym_skip_station",
+                TestRailwayNetwork.STATION_ASYM_SKIP_STATION,
+                "Asym Skip Station",
+                [TestRailwayNetwork.LINE_ASYMMETRICLINE],
+            ),
+            (
+                "create_asym_regular_2",
+                TestRailwayNetwork.STATION_ASYM_REGULAR_2,
+                "Asym Regular 2",
+                [TestRailwayNetwork.LINE_ASYMMETRICLINE],
+            ),
+            (
+                "create_asym_east",
+                TestRailwayNetwork.STATION_ASYM_EAST,
+                "Asym East",
+                [TestRailwayNetwork.LINE_ASYMMETRICLINE],
+            ),
+            # TwoStopline stations
+            (
+                "create_twostop_west",
+                TestRailwayNetwork.STATION_TWOSTOP_WEST,
+                "TwoStop West",
+                [TestRailwayNetwork.LINE_2STOPLINE],
+            ),
+            (
+                "create_twostop_east",
+                TestRailwayNetwork.STATION_TWOSTOP_EAST,
+                "TwoStop East",
+                [TestRailwayNetwork.LINE_2STOPLINE],
+            ),
+            # SharedLine A stations
+            (
+                "create_shareda_1",
+                TestRailwayNetwork.STATION_SHAREDA_1,
+                "SharedA 1",
+                [TestRailwayNetwork.LINE_SHAREDLINE_A],
+            ),
+            (
+                "create_shareda_2",
+                TestRailwayNetwork.STATION_SHAREDA_2,
+                "SharedA 2",
+                [TestRailwayNetwork.LINE_SHAREDLINE_A],
+            ),
+            (
+                "create_shareda_4",
+                TestRailwayNetwork.STATION_SHAREDA_4,
+                "SharedA 4",
+                [TestRailwayNetwork.LINE_SHAREDLINE_A],
+            ),
+            # SharedLine B stations
+            (
+                "create_sharedb_1",
+                TestRailwayNetwork.STATION_SHAREDB_1,
+                "SharedB 1",
+                [TestRailwayNetwork.LINE_SHAREDLINE_B],
+            ),
+            (
+                "create_sharedb_2",
+                TestRailwayNetwork.STATION_SHAREDB_2,
+                "SharedB 2",
+                [TestRailwayNetwork.LINE_SHAREDLINE_B],
+            ),
+            (
+                "create_sharedb_4",
+                TestRailwayNetwork.STATION_SHAREDB_4,
+                "SharedB 4",
+                [TestRailwayNetwork.LINE_SHAREDLINE_B],
+            ),
+            # SharedLine C stations
+            (
+                "create_sharedc_1",
+                TestRailwayNetwork.STATION_SHAREDC_1,
+                "SharedC 1",
+                [TestRailwayNetwork.LINE_SHAREDLINE_C],
+            ),
+            (
+                "create_sharedc_2",
+                TestRailwayNetwork.STATION_SHAREDC_2,
+                "SharedC 2",
+                [TestRailwayNetwork.LINE_SHAREDLINE_C],
+            ),
+            (
+                "create_sharedc_4",
+                TestRailwayNetwork.STATION_SHAREDC_4,
+                "SharedC 4",
+                [TestRailwayNetwork.LINE_SHAREDLINE_C],
+            ),
+            # Elizabethline stations
+            (
+                "create_elizabeth_west",
+                TestRailwayNetwork.STATION_ELIZABETH_WEST,
+                "Elizabeth West",
+                [TestRailwayNetwork.LINE_ELIZABETHLINE],
+            ),
+            (
+                "create_elizabeth_mid",
+                TestRailwayNetwork.STATION_ELIZABETH_MID,
+                "Elizabeth Mid",
+                [TestRailwayNetwork.LINE_ELIZABETHLINE],
+            ),
+            (
+                "create_elizabeth_east",
+                TestRailwayNetwork.STATION_ELIZABETH_EAST,
+                "Elizabeth East",
+                [TestRailwayNetwork.LINE_ELIZABETHLINE],
+            ),
+        ],
+        ids=[
+            "west-fork-2",
+            "west-fork",
+            "east-fork-2",
+            "east-fork",
+            "fork-mid-2",
+            "fork-south-end",
+            "via-bank-1",
+            "via-bank-2",
+            "via-charing-1",
+            "via-charing-2",
+            "parallel-south",
+            "asym-west",
+            "asym-regular-1",
+            "asym-skip-station",
+            "asym-regular-2",
+            "asym-east",
+            "twostop-west",
+            "twostop-east",
+            "shareda-1",
+            "shareda-2",
+            "shareda-4",
+            "sharedb-1",
+            "sharedb-2",
+            "sharedb-4",
+            "sharedc-1",
+            "sharedc-2",
+            "sharedc-4",
+            "elizabeth-west",
+            "elizabeth-mid",
+            "elizabeth-east",
+        ],
+    )
+    def test_standalone_stations(
+        self,
+        factory_method: str,
+        expected_tfl_id: str,
+        expected_name: str,
+        expected_lines: list[str],
+    ) -> None:
+        """Test standalone station factories have correct basic attributes."""
+        station = getattr(TestRailwayNetwork, factory_method)()
+
+        assert station.tfl_id == expected_tfl_id
+        assert station.name == expected_name
+        assert station.lines == expected_lines
+
+
+class TestSimpleLineFactories:
+    """Tests for line factory methods with simple route structures."""
+
+    @pytest.mark.parametrize(
+        (
+            "factory_method",
+            "expected_tfl_id",
+            "expected_name",
+            "expected_mode",
+            "expected_route_count",
+            "expected_route_names",
+        ),
+        [
+            (
+                "create_2stopline",
+                TestRailwayNetwork.LINE_2STOPLINE,
+                "2 Stop Line",
+                "dlr",
+                2,
+                {"Eastbound", "Westbound"},
+            ),
+            (
+                "create_sharedline_a",
+                TestRailwayNetwork.LINE_SHAREDLINE_A,
+                "SharedLine A",
+                "tube",
+                2,
+                {"Eastbound", "Westbound"},
+            ),
+            (
+                "create_sharedline_b",
+                TestRailwayNetwork.LINE_SHAREDLINE_B,
+                "SharedLine B",
+                "tube",
+                2,
+                {"Eastbound", "Westbound"},
+            ),
+            (
+                "create_sharedline_c",
+                TestRailwayNetwork.LINE_SHAREDLINE_C,
+                "SharedLine C",
+                "tube",
+                2,
+                {"Eastbound", "Westbound"},
+            ),
+            (
+                "create_asymmetricline",
+                TestRailwayNetwork.LINE_ASYMMETRICLINE,
+                "Asymmetric Line",
+                "overground",
+                2,
+                {"Eastbound", "Westbound"},
+            ),
+            (
+                "create_elizabethline",
+                TestRailwayNetwork.LINE_ELIZABETHLINE,
+                "Elizabeth Line",
+                "elizabeth-line",
+                2,
+                {"Eastbound", "Westbound"},
+            ),
+        ],
+        ids=[
+            "2stopline",
+            "sharedline-a",
+            "sharedline-b",
+            "sharedline-c",
+            "asymmetricline",
+            "elizabethline",
+        ],
+    )
+    def test_simple_line_factories(
+        self,
+        factory_method: str,
+        expected_tfl_id: str,
+        expected_name: str,
+        expected_mode: str,
+        expected_route_count: int,
+        expected_route_names: set[str],
+    ) -> None:
+        """Test line factories have correct basic attributes and route structure."""
+        line = getattr(TestRailwayNetwork, factory_method)()
+
+        assert line.tfl_id == expected_tfl_id
+        assert line.name == expected_name
+        assert line.mode == expected_mode
+        assert line.routes is not None
+        assert "routes" in line.routes
+        assert len(line.routes["routes"]) == expected_route_count
+
+        route_names = {route["name"] for route in line.routes["routes"]}
+        assert route_names == expected_route_names
+
+
+class TestComplexLineFactories:
+    """Tests for line factories with complex route structures requiring detailed validation."""
 
     def test_create_forkedline(self) -> None:
         """Test forkedline (tube) factory."""
@@ -484,21 +586,79 @@ class TestLineFactories:
             TestRailwayNetwork.STATION_PARALLEL_SOUTH,
         ]
 
-    def test_create_asymmetricline(self) -> None:
-        """Test asymmetricline (overground) factory."""
+
+class TestLineRouteDetails:
+    """Tests for specific line route details."""
+
+    def test_2stopline_route_sequences(self) -> None:
+        """Test 2stopline has correct station sequences."""
+        line = TestRailwayNetwork.create_2stopline()
+
+        assert line.routes is not None
+        eastbound = next(r for r in line.routes["routes"] if r["name"] == "Eastbound")
+        assert eastbound["stations"] == [
+            TestRailwayNetwork.STATION_TWOSTOP_WEST,
+            TestRailwayNetwork.STATION_TWOSTOP_EAST,
+        ]
+
+        assert line.routes is not None
+        westbound = next(r for r in line.routes["routes"] if r["name"] == "Westbound")
+        assert westbound["stations"] == [
+            TestRailwayNetwork.STATION_TWOSTOP_EAST,
+            TestRailwayNetwork.STATION_TWOSTOP_WEST,
+        ]
+
+    @pytest.mark.parametrize(
+        ("factory_method", "station_1", "station_2", "station_4", "station_5"),
+        [
+            (
+                "create_sharedline_a",
+                TestRailwayNetwork.STATION_SHAREDA_1,
+                TestRailwayNetwork.STATION_SHAREDA_2,
+                TestRailwayNetwork.STATION_SHAREDA_4,
+                TestRailwayNetwork.STATION_SHAREDA_5,
+            ),
+            (
+                "create_sharedline_b",
+                TestRailwayNetwork.STATION_SHAREDB_1,
+                TestRailwayNetwork.STATION_SHAREDB_2,
+                TestRailwayNetwork.STATION_SHAREDB_4,
+                TestRailwayNetwork.STATION_SHAREDB_5,
+            ),
+            (
+                "create_sharedline_c",
+                TestRailwayNetwork.STATION_SHAREDC_1,
+                TestRailwayNetwork.STATION_SHAREDC_2,
+                TestRailwayNetwork.STATION_SHAREDC_4,
+                TestRailwayNetwork.STATION_SHAREDC_5,
+            ),
+        ],
+        ids=["sharedline-a", "sharedline-b", "sharedline-c"],
+    )
+    def test_sharedlines_include_shared_station(
+        self,
+        factory_method: str,
+        station_1: str,
+        station_2: str,
+        station_4: str,
+        station_5: str,
+    ) -> None:
+        """Test sharedlines include shared-station at position 3."""
+        line = getattr(TestRailwayNetwork, factory_method)()
+
+        assert line.routes is not None
+        eastbound = next(r for r in line.routes["routes"] if r["name"] == "Eastbound")
+        assert eastbound["stations"] == [
+            station_1,
+            station_2,
+            TestRailwayNetwork.STATION_SHARED_STATION,
+            station_4,
+            station_5,
+        ]
+
+    def test_asymmetricline_route_sequences(self) -> None:
+        """Test asymmetricline has different eastbound/westbound sequences."""
         line = TestRailwayNetwork.create_asymmetricline()
-
-        assert line.tfl_id == TestRailwayNetwork.LINE_ASYMMETRICLINE
-        assert line.name == "Asymmetric Line"
-        assert line.mode == "overground"
-        assert line.routes is not None
-        assert "routes" in line.routes
-        assert len(line.routes["routes"]) == 2  # 2 route variants (eastbound, westbound)
-
-        # Verify route names
-        assert line.routes is not None
-        route_names = {route["name"] for route in line.routes["routes"]}
-        assert route_names == {"Eastbound", "Westbound"}
 
         # Verify Eastbound sequence (includes skip station)
         assert line.routes is not None
@@ -522,119 +682,9 @@ class TestLineFactories:
         ]
         assert TestRailwayNetwork.STATION_ASYM_SKIP_STATION not in westbound["stations"]
 
-    def test_create_2stopline(self) -> None:
-        """Test 2stopline (dlr) factory."""
-        line = TestRailwayNetwork.create_2stopline()
-
-        assert line.tfl_id == TestRailwayNetwork.LINE_2STOPLINE
-        assert line.name == "2 Stop Line"
-        assert line.mode == "dlr"
-        assert line.routes is not None
-        assert "routes" in line.routes
-        assert len(line.routes["routes"]) == 2  # 2 route variants (eastbound, westbound)
-
-        # Verify route names
-        assert line.routes is not None
-        route_names = {route["name"] for route in line.routes["routes"]}
-        assert route_names == {"Eastbound", "Westbound"}
-
-        # Verify Eastbound sequence
-        assert line.routes is not None
-        eastbound = next(r for r in line.routes["routes"] if r["name"] == "Eastbound")
-        assert eastbound["stations"] == [
-            TestRailwayNetwork.STATION_TWOSTOP_WEST,
-            TestRailwayNetwork.STATION_TWOSTOP_EAST,
-        ]
-
-        # Verify Westbound sequence
-        assert line.routes is not None
-        westbound = next(r for r in line.routes["routes"] if r["name"] == "Westbound")
-        assert westbound["stations"] == [
-            TestRailwayNetwork.STATION_TWOSTOP_EAST,
-            TestRailwayNetwork.STATION_TWOSTOP_WEST,
-        ]
-
-    def test_create_sharedline_a(self) -> None:
-        """Test sharedline-a (tube) factory."""
-        line = TestRailwayNetwork.create_sharedline_a()
-
-        assert line.tfl_id == TestRailwayNetwork.LINE_SHAREDLINE_A
-        assert line.name == "SharedLine A"
-        assert line.mode == "tube"
-        assert line.routes is not None
-        assert "routes" in line.routes
-        assert len(line.routes["routes"]) == 2  # 2 route variants (eastbound, westbound)
-
-        # Verify Eastbound sequence includes shared-station
-        assert line.routes is not None
-        eastbound = next(r for r in line.routes["routes"] if r["name"] == "Eastbound")
-        assert eastbound["stations"] == [
-            TestRailwayNetwork.STATION_SHAREDA_1,
-            TestRailwayNetwork.STATION_SHAREDA_2,
-            TestRailwayNetwork.STATION_SHARED_STATION,
-            TestRailwayNetwork.STATION_SHAREDA_4,
-            TestRailwayNetwork.STATION_SHAREDA_5,
-        ]
-
-    def test_create_sharedline_b(self) -> None:
-        """Test sharedline-b (tube) factory."""
-        line = TestRailwayNetwork.create_sharedline_b()
-
-        assert line.tfl_id == TestRailwayNetwork.LINE_SHAREDLINE_B
-        assert line.name == "SharedLine B"
-        assert line.mode == "tube"
-        assert line.routes is not None
-        assert "routes" in line.routes
-        assert len(line.routes["routes"]) == 2  # 2 route variants (eastbound, westbound)
-
-        # Verify Eastbound sequence includes shared-station
-        assert line.routes is not None
-        eastbound = next(r for r in line.routes["routes"] if r["name"] == "Eastbound")
-        assert eastbound["stations"] == [
-            TestRailwayNetwork.STATION_SHAREDB_1,
-            TestRailwayNetwork.STATION_SHAREDB_2,
-            TestRailwayNetwork.STATION_SHARED_STATION,
-            TestRailwayNetwork.STATION_SHAREDB_4,
-            TestRailwayNetwork.STATION_SHAREDB_5,
-        ]
-
-    def test_create_sharedline_c(self) -> None:
-        """Test sharedline-c (tube) factory."""
-        line = TestRailwayNetwork.create_sharedline_c()
-
-        assert line.tfl_id == TestRailwayNetwork.LINE_SHAREDLINE_C
-        assert line.name == "SharedLine C"
-        assert line.mode == "tube"
-        assert line.routes is not None
-        assert "routes" in line.routes
-        assert len(line.routes["routes"]) == 2  # 2 route variants (eastbound, westbound)
-
-        # Verify Eastbound sequence includes shared-station
-        assert line.routes is not None
-        eastbound = next(r for r in line.routes["routes"] if r["name"] == "Eastbound")
-        assert eastbound["stations"] == [
-            TestRailwayNetwork.STATION_SHAREDC_1,
-            TestRailwayNetwork.STATION_SHAREDC_2,
-            TestRailwayNetwork.STATION_SHARED_STATION,
-            TestRailwayNetwork.STATION_SHAREDC_4,
-            TestRailwayNetwork.STATION_SHAREDC_5,
-        ]
-
-    def test_create_elizabethline(self) -> None:
-        """Test elizabethline (elizabeth-line) factory."""
+    def test_elizabethline_route_sequences(self) -> None:
+        """Test elizabethline has correct station sequences."""
         line = TestRailwayNetwork.create_elizabethline()
-
-        assert line.tfl_id == TestRailwayNetwork.LINE_ELIZABETHLINE
-        assert line.name == "Elizabeth Line"
-        assert line.mode == "elizabeth-line"
-        assert line.routes is not None
-        assert "routes" in line.routes
-        assert len(line.routes["routes"]) == 2  # 2 route variants (eastbound, westbound)
-
-        # Verify route names
-        assert line.routes is not None
-        route_names = {route["name"] for route in line.routes["routes"]}
-        assert route_names == {"Eastbound", "Westbound"}
 
         # Verify Eastbound sequence
         assert line.routes is not None
@@ -660,31 +710,40 @@ class TestLineFactories:
 class TestNetworkValidation:
     """Tests validating network structure and hub consistency."""
 
-    def test_hub_north_children_share_naptan_code(self) -> None:
-        """Test all HUB_NORTH children have same hub_naptan_code."""
-        hub_north_children = [
-            TestRailwayNetwork.create_parallel_north(),
-            TestRailwayNetwork.create_hubnorth_overground(),
-            TestRailwayNetwork.create_hubnorth_elizabeth(),
-            TestRailwayNetwork.create_hubnorth_bus(),
-        ]
+    @pytest.mark.parametrize(
+        ("factory_methods", "expected_hub_naptan", "expected_hub_name"),
+        [
+            (
+                [
+                    "create_parallel_north",
+                    "create_hubnorth_overground",
+                    "create_hubnorth_elizabeth",
+                    "create_hubnorth_bus",
+                ],
+                TestRailwayNetwork.HUB_NORTH,
+                TestRailwayNetwork.HUB_NORTH_NAME,
+            ),
+            (
+                ["create_fork_mid_1", "create_hubcentral_dlr"],
+                TestRailwayNetwork.HUB_CENTRAL,
+                TestRailwayNetwork.HUB_CENTRAL_NAME,
+            ),
+        ],
+        ids=["hub-north", "hub-central"],
+    )
+    def test_hub_children_share_naptan_code(
+        self,
+        factory_methods: list[str],
+        expected_hub_naptan: str,
+        expected_hub_name: str,
+    ) -> None:
+        """Test all hub children have correct hub_naptan_code and hub_common_name."""
+        hub_children = [getattr(TestRailwayNetwork, method)() for method in factory_methods]
 
-        # All must have HUB_NORTH naptan code
-        for station in hub_north_children:
-            assert station.hub_naptan_code == TestRailwayNetwork.HUB_NORTH
-            assert station.hub_common_name == TestRailwayNetwork.HUB_NORTH_NAME
-
-    def test_hub_central_children_share_naptan_code(self) -> None:
-        """Test all HUB_CENTRAL children have same hub_naptan_code."""
-        hub_central_children = [
-            TestRailwayNetwork.create_fork_mid_1(),
-            TestRailwayNetwork.create_hubcentral_dlr(),
-        ]
-
-        # All must have HUB_CENTRAL naptan code
-        for station in hub_central_children:
-            assert station.hub_naptan_code == TestRailwayNetwork.HUB_CENTRAL
-            assert station.hub_common_name == TestRailwayNetwork.HUB_CENTRAL_NAME
+        # All must have the expected hub naptan code and name
+        for station in hub_children:
+            assert station.hub_naptan_code == expected_hub_naptan
+            assert station.hub_common_name == expected_hub_name
 
     def test_branch_junctions_are_not_hubs(self) -> None:
         """Test branch junctions have NO hub_naptan_code (they are NOT hubs)."""

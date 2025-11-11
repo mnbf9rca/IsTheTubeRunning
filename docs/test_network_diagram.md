@@ -2,7 +2,7 @@
 
 ## Overview
 
-The `TestRailwayNetwork` class in `/backend/tests/conftest.py` provides a comprehensive fictional railway network for testing all TfL routing patterns without requiring knowledge of real London Underground geography.
+The `TestRailwayNetwork` class in `/backend/tests/helpers/railway_network.py` provides a comprehensive fictional railway network for testing all TfL routing patterns without requiring knowledge of real London Underground geography.
 
 **Network Statistics:**
 - **8 lines** across 4 modes (tube, overground, dlr, elizabeth-line)
