@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState } from 'react'
 import { X, AlertCircle, Check, Trash2 } from 'lucide-react'
 import { Button } from '../../ui/button'
 import { Alert, AlertDescription } from '../../ui/alert'
@@ -8,7 +8,6 @@ import { StationCombobox } from '../StationCombobox'
 import { LineButton } from '../LineButton'
 import { DestinationButton } from '../DestinationButton'
 import { SegmentList } from '../SegmentList'
-import { sortLines } from '../../../lib/tfl-colors'
 import type {
   SegmentResponse,
   LineResponse,
@@ -16,28 +15,8 @@ import type {
   SegmentRequest,
   RouteValidationResponse,
 } from '../../../lib/api'
-import type { Step, CoreSegmentBuilderState } from './types'
-import {
-  MAX_ROUTE_SEGMENTS,
-  validateNotDuplicate,
-  validateMaxSegments,
-  validateCanDeleteSegment,
-  isStationLastInRoute,
-} from './validation'
-import { isSameLine } from './utils'
-import {
-  buildSegmentsForContinue,
-  buildSegmentsForDestination,
-  deleteSegmentAndResequence,
-} from './segments'
-import {
-  transitionToSelectStation,
-  transitionToSelectNextStation,
-  transitionToChooseAction,
-  transitionBackFromChooseAction,
-  transitionToResumeFromSegments,
-  computeStateAfterStationSelect,
-} from './transitions'
+import { MAX_ROUTE_SEGMENTS } from './validation'
+import { useSegmentBuilderState } from './hooks/useSegmentBuilderState'
 
 export interface SegmentBuilderProps {
   /**
@@ -120,213 +99,56 @@ export function SegmentBuilder({
   onSave,
   onCancel,
 }: SegmentBuilderProps) {
-  // Local state for segments being built
-  const [localSegments, setLocalSegments] = useState<SegmentRequest[]>(
-    initialSegments.map((seg) => ({
-      sequence: seg.sequence,
-      station_tfl_id: seg.station_tfl_id,
-      line_tfl_id: seg.line_tfl_id,
-    }))
-  )
+  // ===== Custom Hook (All State Management) =====
 
-  // State for building current segment
-  const [currentStation, setCurrentStation] = useState<StationResponse | null>(null)
-  const [selectedLine, setSelectedLine] = useState<LineResponse | null>(null)
-  const [nextStation, setNextStation] = useState<StationResponse | null>(null)
+  const {
+    localSegments,
+    currentStation,
+    selectedLine,
+    nextStation,
+    step,
+    error,
+    setError,
+    handleStationSelect,
+    handleLineClick,
+    handleNextStationSelect,
+    handleContinueJourney,
+    handleMarkAsDestination,
+    handleBackFromChooseAction,
+    handleEditRoute,
+    handleDeleteSegment,
+    handleCancel: hookHandleCancel,
+    getCurrentStationLines,
+    getNextStationLines,
+    hasMaxSegments,
+    isRouteComplete,
+  } = useSegmentBuilderState({
+    initialSegments,
+    lines,
+    stations,
+    getLinesForStation,
+  })
 
-  // UI state
-  const [step, setStep] = useState<Step>('select-station')
+  // ===== Local State (Save Operation Only) =====
+
   const [isSaving, setIsSaving] = useState(false)
   const [saveSuccess, setSaveSuccess] = useState(false)
-  const [error, setError] = useState<string | null>(null)
+
+  // ===== Handlers (Save Operation) =====
 
   /**
-   * Helper to apply a state transition to component state
-   * Takes a CoreSegmentBuilderState and applies it to individual setters
+   * Handle mark as destination with save operation
    */
-  const applyTransition = (newState: CoreSegmentBuilderState) => {
-    setCurrentStation(newState.currentStation)
-    setSelectedLine(newState.selectedLine)
-    setNextStation(newState.nextStation)
-    setStep(newState.step)
-    setError(newState.error)
-  }
+  const handleMarkAsDestinationAndSave = async () => {
+    // Get final segments from hook (validation happens inside)
+    const finalSegments = handleMarkAsDestination()
 
-  // Get available lines for current station
-  const getCurrentStationLines = useCallback((): LineResponse[] => {
-    if (!currentStation) return []
-    const stationLines = getLinesForStation(currentStation.tfl_id)
-    return sortLines(stationLines)
-  }, [currentStation, getLinesForStation])
-
-  // Get available lines for next station (for action buttons)
-  const getNextStationLines = useCallback((): LineResponse[] => {
-    if (!nextStation) return []
-    const stationLines = getLinesForStation(nextStation.tfl_id)
-    return sortLines(stationLines)
-  }, [nextStation, getLinesForStation])
-
-  // Auto-advance logic when station selected
-  useEffect(() => {
-    if (step === 'select-station' && currentStation) {
-      const stationLines = getCurrentStationLines()
-      const newState = computeStateAfterStationSelect(currentStation, stationLines)
-      applyTransition(newState)
-    }
-  }, [currentStation, step, getCurrentStationLines])
-
-  const handleStationSelect = (stationId: string | undefined) => {
-    if (!stationId) {
-      const newState = transitionToSelectStation()
-      applyTransition(newState)
-      return
-    }
-
-    const station = stations.find((s) => s.id === stationId)
-    if (station) {
-      setCurrentStation(station)
-      setError(null)
-      // Auto-advance logic will trigger in useEffect
-    }
-  }
-
-  const handleLineClick = (line: LineResponse) => {
-    if (!currentStation) return
-    const newState = transitionToSelectNextStation(currentStation, line)
-    applyTransition(newState)
-  }
-
-  const handleNextStationSelect = (stationId: string | undefined) => {
-    // Guard clause: missing required state (shouldn't happen in normal operation)
-    if (!currentStation || !selectedLine) return
-
-    // If combobox cleared, go back to select-next-station step
-    if (!stationId) {
-      const newState = transitionBackFromChooseAction(currentStation, selectedLine)
-      applyTransition(newState)
-      return
-    }
-
-    const station = stations.find((s) => s.id === stationId)
-    if (!station) {
-      // Station lookup failed - stay in current state with warning
-      if (import.meta.env.DEV) {
-        console.warn('[SegmentBuilder] Station not found:', stationId)
-      }
-      return
-    }
-
-    const newState = transitionToChooseAction(currentStation, selectedLine, station)
-    applyTransition(newState)
-  }
-
-  const handleContinueJourney = (line: LineResponse) => {
-    if (!currentStation || !selectedLine || !nextStation) return
-
-    // Clear any previous errors
-    setError(null)
-
-    // Check for duplicate stations (acyclic enforcement)
-    // Allow currentStation if it's the last segment (junction we're continuing from)
-    const validation = validateNotDuplicate(currentStation, localSegments, { allowLast: true })
-    if (!validation.valid) {
-      setError(validation.error)
-      return
-    }
-
-    // Determine how many segments will be added
-    const isChangingLines = !isSameLine(line, selectedLine)
-    const isCurrentStationLast = isStationLastInRoute(currentStation, localSegments)
-
-    // Calculate actual segments to be added based on junction scenario
-    let additionalSegments: number
-    if (isCurrentStationLast) {
-      // Current station already in route - won't be added again
-      additionalSegments = isChangingLines ? 1 : 0
-    } else {
-      // Current station will be added
-      additionalSegments = isChangingLines ? 2 : 1
-    }
-
-    // Check max segments limit before building
-    const maxSegmentsValidation = validateMaxSegments(localSegments.length, additionalSegments)
-    if (!maxSegmentsValidation.valid) {
-      setError(maxSegmentsValidation.error)
-      return
-    }
-
-    // If changing lines, validate nextStation is not a duplicate
-    if (isChangingLines) {
-      const nextValidation = validateNotDuplicate(nextStation, localSegments)
-      if (!nextValidation.valid) {
-        setError(nextValidation.error)
-        return
-      }
-    }
-
-    // Build segments using pure function
-    const updatedSegments = buildSegmentsForContinue({
-      currentStation,
-      selectedLine,
-      nextStation,
-      currentSegments: localSegments,
-      continueLine: line,
-    })
-
-    setLocalSegments(updatedSegments)
-
-    // Set up for next segment using transition function
-    const newState = transitionToSelectNextStation(nextStation, line)
-    applyTransition(newState)
-  }
-
-  const handleMarkAsDestination = async () => {
-    if (!currentStation || !selectedLine || !nextStation) return
-
-    // Clear any previous errors
-    setError(null)
-
-    // Check for duplicate stations
-    // Allow currentStation if it's the last segment (junction we're continuing from)
-    const currentValidation = validateNotDuplicate(currentStation, localSegments, {
-      allowLast: true,
-    })
-    if (!currentValidation.valid) {
-      setError(currentValidation.error)
-      return
-    }
-
-    const nextValidation = validateNotDuplicate(nextStation, localSegments)
-    if (!nextValidation.valid) {
-      setError(nextValidation.error)
-      return
-    }
-
-    // Check max segments limit (will add 1 or 2 segments depending on whether current is last)
-    const isCurrentStationLast = isStationLastInRoute(currentStation, localSegments)
-    const additionalSegments = isCurrentStationLast ? 1 : 2
-    const maxSegmentsValidation = validateMaxSegments(localSegments.length, additionalSegments)
-    if (!maxSegmentsValidation.valid) {
-      setError(maxSegmentsValidation.error)
-      return
-    }
-
-    // Build final segments using pure function
-    const finalSegments = buildSegmentsForDestination({
-      currentStation,
-      selectedLine,
-      destinationStation: nextStation,
-      currentSegments: localSegments,
-    })
-
-    // Reset UI state using transition function
-    const newState = transitionToSelectStation()
-    applyTransition(newState)
+    // If validation failed, segments weren't updated - check error state
+    if (error) return
 
     // Auto-save the route
     try {
       setIsSaving(true)
-      setLocalSegments(finalSegments)
 
       // Validate route (backend checks connections)
       const validation = await onValidate(finalSegments)
@@ -358,97 +180,36 @@ export function SegmentBuilder({
   }
 
   /**
-   * Go back from choose-action step to select-next-station
-   * Allows user to re-select the next station if they made a mistake
-   * When in edit mode (saveSuccess is false and we have local segments), stay in edit mode
+   * Handle edit route and clear save success state
    */
-  const handleBackFromChooseAction = () => {
-    if (!currentStation || !selectedLine) return
-
-    const newState = transitionBackFromChooseAction(currentStation, selectedLine)
-    applyTransition(newState)
-    // Don't exit edit mode - keep saveSuccess as false so we stay in editing state
+  const handleEditRouteAndClearSuccess = () => {
+    handleEditRoute()
+    setSaveSuccess(false)
   }
 
   /**
-   * Enter edit mode for a completed route
-   * Sets state to show the destination station with action buttons (line selection + mark as destination)
+   * Handle cancel and clear save success state
    */
-  const handleEditRoute = () => {
-    // Find the destination segment (line_tfl_id === null) to get the destination station
-    const destinationSegment = localSegments.find((seg) => seg.line_tfl_id === null)
-    if (!destinationSegment || localSegments.length < 2) {
-      return
-    }
-
-    // Get the segment before the destination to find the line we arrived on
-    const segmentBeforeDestination = localSegments[localSegments.length - 2]
-    const prevStation = stations.find((s) => s.tfl_id === segmentBeforeDestination.station_tfl_id)
-    const destinationStation = stations.find((s) => s.tfl_id === destinationSegment.station_tfl_id)
-    const arrivalLine = lines.find((l) => l.tfl_id === segmentBeforeDestination.line_tfl_id)
-
-    if (prevStation && destinationStation && arrivalLine) {
-      // Set up state as if we just selected the destination as the "next station"
-      // This shows line buttons for interchanges + "Mark as Destination" button
-      const newState = transitionToChooseAction(prevStation, arrivalLine, destinationStation)
-      applyTransition(newState)
-    }
-
+  const handleCancelAndClearSuccess = () => {
+    hookHandleCancel(onCancel)
     setSaveSuccess(false)
   }
 
-  const handleDeleteSegment = (sequence: number) => {
-    // Clear any previous errors
-    setError(null)
+  // ===== Derived Values (For Rendering) =====
 
-    // Validate deletion (prevents deleting destination, validates bounds)
-    const deleteValidation = validateCanDeleteSegment(sequence, localSegments)
-    if (!deleteValidation.valid) {
-      setError(deleteValidation.error)
-      return
+  const currentStationLines = getCurrentStationLines()
+  const nextStationLines = getNextStationLines()
+
+  // Get the current traveling line (for display purposes)
+  const currentTravelingLine = (() => {
+    if (selectedLine) return selectedLine
+    // Fallback: Get line from last segment when selectedLine is null (e.g., after Edit Route)
+    const lastSegment = localSegments[localSegments.length - 1]
+    if (lastSegment?.line_tfl_id) {
+      return lines.find((l) => l.tfl_id === lastSegment.line_tfl_id)
     }
-
-    // Delete segment and get truncation context using enhanced pure function
-    const deletionResult = deleteSegmentAndResequence(sequence, localSegments, stations, lines)
-
-    setLocalSegments(deletionResult.segments)
-
-    // Resume from truncation point using the provided context
-    const newState = transitionToResumeFromSegments(
-      deletionResult.resumeFrom.station,
-      deletionResult.resumeFrom.line
-    )
-    applyTransition(newState)
-  }
-
-  const handleCancel = () => {
-    setLocalSegments(
-      initialSegments.map((seg) => ({
-        sequence: seg.sequence,
-        station_tfl_id: seg.station_tfl_id,
-        line_tfl_id: seg.line_tfl_id,
-      }))
-    )
-
-    // Reset state using transition function
-    const newState = transitionToSelectStation()
-    applyTransition(newState)
-
-    setSaveSuccess(false)
-    onCancel()
-  }
-
-  const hasMaxSegments = localSegments.length >= MAX_ROUTE_SEGMENTS
-
-  // Check if route is complete (has destination segment with line_tfl_id: null)
-  // When in choose-action mode, select-next-station with currentStation, or nextStation is set,
-  // we're editing the route, so it's not "complete" for UI purposes
-  const isRouteComplete =
-    localSegments.length >= 2 &&
-    localSegments[localSegments.length - 1].line_tfl_id === null &&
-    step !== 'choose-action' &&
-    !(step === 'select-next-station' && currentStation) &&
-    !nextStation
+    return null
+  })()
 
   // Convert local segments to SegmentResponse format for display
   // When in choose-action step with a complete route, hide the destination marker
@@ -465,6 +226,22 @@ export function SegmentBuilder({
       id: `temp-${seg.sequence}`, // Temporary ID for display
       ...seg,
     }))
+
+  // Get all available stations (for first segment, all stations; otherwise, only reachable stations)
+  const availableStations = (() => {
+    if (localSegments.length === 0 && step === 'select-station') {
+      // First station: show all stations alphabetically
+      return [...stations].sort((a, b) => a.name.localeCompare(b.name))
+    }
+    if (step === 'select-next-station') {
+      if (currentTravelingLine && currentStation) {
+        // Subsequent stations: show only reachable stations from current position on this line
+        // This prevents selecting stations on different branches (e.g., Bank -> Charing Cross on Northern)
+        return getNextStations(currentStation.tfl_id, currentTravelingLine.tfl_id)
+      }
+    }
+    return []
+  })()
 
   // Instructions based on current step
   const getInstructions = () => {
@@ -489,35 +266,7 @@ export function SegmentBuilder({
     return 'Build your route by selecting stations and lines.'
   }
 
-  const currentStationLines = getCurrentStationLines()
-  const nextStationLines = getNextStationLines()
-
-  // Get the current traveling line (for display purposes)
-  const currentTravelingLine = (() => {
-    if (selectedLine) return selectedLine
-    // Fallback: Get line from last segment when selectedLine is null (e.g., after Edit Route)
-    const lastSegment = localSegments[localSegments.length - 1]
-    if (lastSegment?.line_tfl_id) {
-      return lines.find((l) => l.tfl_id === lastSegment.line_tfl_id)
-    }
-    return null
-  })()
-
-  // Get all available stations (for first segment, all stations; otherwise, only reachable stations)
-  const availableStations = (() => {
-    if (localSegments.length === 0 && step === 'select-station') {
-      // First station: show all stations alphabetically
-      return [...stations].sort((a, b) => a.name.localeCompare(b.name))
-    }
-    if (step === 'select-next-station') {
-      if (currentTravelingLine && currentStation) {
-        // Subsequent stations: show only reachable stations from current position on this line
-        // This prevents selecting stations on different branches (e.g., Bank -> Charing Cross on Northern)
-        return getNextStations(currentStation.tfl_id, currentTravelingLine.tfl_id)
-      }
-    }
-    return []
-  })()
+  // ===== Render =====
 
   return (
     <div className="space-y-6">
@@ -639,7 +388,7 @@ export function SegmentBuilder({
                       onClick={() => handleContinueJourney(line)}
                     />
                   ))}
-                  <DestinationButton onClick={handleMarkAsDestination} />
+                  <DestinationButton onClick={handleMarkAsDestinationAndSave} />
                 </div>
               </div>
             )}
@@ -667,14 +416,14 @@ export function SegmentBuilder({
 
       {/* Edit Route Button (shown when route is complete) */}
       {isRouteComplete && (
-        <Button variant="outline" onClick={handleEditRoute} disabled={isSaving}>
+        <Button variant="outline" onClick={handleEditRouteAndClearSuccess} disabled={isSaving}>
           Edit Route
         </Button>
       )}
 
       {/* Cancel Button (always shown during route building) */}
       {!isRouteComplete && (
-        <Button variant="outline" onClick={handleCancel} disabled={isSaving}>
+        <Button variant="outline" onClick={handleCancelAndClearSuccess} disabled={isSaving}>
           <X className="mr-2 h-4 w-4" />
           Cancel
         </Button>
