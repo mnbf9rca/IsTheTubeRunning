@@ -197,16 +197,27 @@ export function SegmentBuilder({
   }
 
   const handleNextStationSelect = (stationId: string | undefined) => {
-    if (!stationId || !currentStation || !selectedLine) {
-      setNextStation(null)
+    // Guard clause: missing required state (shouldn't happen in normal operation)
+    if (!currentStation || !selectedLine) return
+
+    // If combobox cleared, go back to select-next-station step
+    if (!stationId) {
+      const newState = transitionBackFromChooseAction(currentStation, selectedLine)
+      applyTransition(newState)
       return
     }
 
     const station = stations.find((s) => s.id === stationId)
-    if (station) {
-      const newState = transitionToChooseAction(currentStation, selectedLine, station)
-      applyTransition(newState)
+    if (!station) {
+      // Station lookup failed - stay in current state with warning
+      if (import.meta.env.DEV) {
+        console.warn('[SegmentBuilder] Station not found:', stationId)
+      }
+      return
     }
+
+    const newState = transitionToChooseAction(currentStation, selectedLine, station)
+    applyTransition(newState)
   }
 
   const handleContinueJourney = (line: LineResponse) => {

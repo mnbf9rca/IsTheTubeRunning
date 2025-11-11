@@ -26,11 +26,25 @@ import { isSameLine } from './utils'
 export interface DeletionResult {
   /** Remaining segments after deletion (resequenced) */
   segments: SegmentRequest[]
-  /** Context for resuming route building after truncation */
+  /**
+   * Context for resuming route building after truncation
+   *
+   * Both fields are null when:
+   * - Deleting from sequence 0 (clears all segments)
+   * - Station/line lookup fails for remaining segments
+   *
+   * When null, UI should transition back to initial state (select-station)
+   */
   resumeFrom: {
-    /** Station to resume from (from last remaining segment) */
+    /**
+     * Station to resume from (from last remaining segment).
+     * Null if no segments remain after deletion.
+     */
     station: StationResponse | null
-    /** Line to resume on (from last remaining segment) */
+    /**
+     * Line to resume on (from last remaining segment).
+     * Null if no segments remain after deletion.
+     */
     line: LineResponse | null
   }
 }
