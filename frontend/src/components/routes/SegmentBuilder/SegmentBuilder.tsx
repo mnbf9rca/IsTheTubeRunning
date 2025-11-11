@@ -141,10 +141,10 @@ export function SegmentBuilder({
    */
   const handleMarkAsDestinationAndSave = async () => {
     // Get final segments from hook (validation happens inside)
-    const finalSegments = handleMarkAsDestination()
+    const { segments: finalSegments, error: validationError } = handleMarkAsDestination()
 
-    // If validation failed, segments weren't updated - check error state
-    if (error) return
+    // If validation failed, error is already set by hook
+    if (validationError) return
 
     // Auto-save the route
     try {
@@ -233,12 +233,10 @@ export function SegmentBuilder({
       // First station: show all stations alphabetically
       return [...stations].sort((a, b) => a.name.localeCompare(b.name))
     }
-    if (step === 'select-next-station') {
-      if (currentTravelingLine && currentStation) {
-        // Subsequent stations: show only reachable stations from current position on this line
-        // This prevents selecting stations on different branches (e.g., Bank -> Charing Cross on Northern)
-        return getNextStations(currentStation.tfl_id, currentTravelingLine.tfl_id)
-      }
+    if (step === 'select-next-station' && currentTravelingLine && currentStation) {
+      // Subsequent stations: show only reachable stations from current position on this line
+      // This prevents selecting stations on different branches (e.g., Bank -> Charing Cross on Northern)
+      return getNextStations(currentStation.tfl_id, currentTravelingLine.tfl_id)
     }
     return []
   })()

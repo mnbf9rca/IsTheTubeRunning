@@ -12,7 +12,7 @@
  * @see Issue #95: Extract Validation & Types Module from SegmentBuilder
  */
 
-import type { StationResponse } from '../../../lib/api'
+import type { StationResponse, LineResponse } from '../../../lib/api'
 import type { SegmentRequest, ValidationResult } from './types'
 
 /**
@@ -195,4 +195,49 @@ export function validateCanDeleteSegment(
   }
 
   return { valid: true }
+}
+
+/**
+ * Calculate how many additional segments will be added based on junction scenario
+ *
+ * When continuing a journey or marking a destination, we may need to add:
+ * - 0 segments: Already at junction, continuing on same line
+ * - 1 segment: Either adding first station OR already at junction but changing lines
+ * - 2 segments: Adding station + line change (current station + interchange)
+ *
+ * @param currentStation - The current station being added
+ * @param currentLine - The line we're currently traveling on
+ * @param nextLine - The line we want to continue on
+ * @param segments - Current route segments
+ * @returns Number of segments that will be added (0, 1, or 2)
+ *
+ * @example
+ * // At Leicester Square, continuing on same Piccadilly line: 0 segments
+ * calculateAdditionalSegments(leicesterSq, piccadilly, piccadilly, [...]) // => 0
+ *
+ * // At Leicester Square, changing to Northern line: 1 segment (interchange)
+ * calculateAdditionalSegments(leicesterSq, piccadilly, northern, [...]) // => 1
+ *
+ * // Adding new station on same line: 1 segment
+ * calculateAdditionalSegments(newStation, piccadilly, piccadilly, [...]) // => 1
+ *
+ * // Adding new station with line change: 2 segments
+ * calculateAdditionalSegments(newStation, piccadilly, northern, [...]) // => 2
+ */
+export function calculateAdditionalSegments(
+  currentStation: StationResponse,
+  currentLine: LineResponse,
+  nextLine: LineResponse,
+  segments: SegmentRequest[]
+): number {
+  const isChangingLines = currentLine.tfl_id !== nextLine.tfl_id
+  const isCurrentStationLast = isStationLastInRoute(currentStation, segments)
+
+  if (isCurrentStationLast) {
+    // Current station already in route - won't be added again
+    return isChangingLines ? 1 : 0
+  } else {
+    // Current station will be added
+    return isChangingLines ? 2 : 1
+  }
 }

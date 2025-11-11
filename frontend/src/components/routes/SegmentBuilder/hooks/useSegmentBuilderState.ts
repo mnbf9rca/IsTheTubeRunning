@@ -22,9 +22,8 @@ import {
   validateNotDuplicate,
   validateMaxSegments,
   validateCanDeleteSegment,
-  isStationLastInRoute,
+  calculateAdditionalSegments,
 } from '../validation'
-import { isSameLine } from '../utils'
 import {
   buildSegmentsForContinue,
   buildSegmentsForDestination,
@@ -79,7 +78,7 @@ export interface UseSegmentBuilderStateReturn {
   handleLineClick: (line: LineResponse) => void
   handleNextStationSelect: (stationId: string | undefined) => void
   handleContinueJourney: (line: LineResponse) => void
-  handleMarkAsDestination: () => SegmentRequest[]
+  handleMarkAsDestination: () => { segments: SegmentRequest[]; error: string | null }
   handleBackFromChooseAction: () => void
   handleEditRoute: () => void
   handleDeleteSegment: (sequence: number) => void
@@ -109,8 +108,7 @@ export interface UseSegmentBuilderStateReturn {
  *   initialSegments: route.segments,
  *   lines,
  *   stations,
- *   getLinesForStation,
- *   getNextStations
+ *   getLinesForStation
  * })
  * ```
  */
@@ -208,12 +206,14 @@ export function useSegmentBuilderState({
    */
   useEffect(() => {
     if (step === 'select-station' && currentStation) {
-      const stationLines = getCurrentStationLines()
-      const newState = computeStateAfterStationSelect(currentStation, stationLines)
-      // eslint-disable-next-line react-hooks/set-state-in-effect
+      // Inline the line fetching logic to avoid unnecessary dependencies
+      const stationLines = getLinesForStation(currentStation.tfl_id)
+      const sortedLines = sortLines(stationLines)
+      const newState = computeStateAfterStationSelect(currentStation, sortedLines)
       applyTransition(newState)
     }
-  }, [currentStation, step, getCurrentStationLines, applyTransition])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentStation, step, getLinesForStation])
 
   // ===== Handlers =====
 
@@ -298,19 +298,13 @@ export function useSegmentBuilderState({
         return
       }
 
-      // Determine how many segments will be added
-      const isChangingLines = !isSameLine(line, selectedLine)
-      const isCurrentStationLast = isStationLastInRoute(currentStation, localSegments)
-
-      // Calculate actual segments to be added based on junction scenario
-      let additionalSegments: number
-      if (isCurrentStationLast) {
-        // Current station already in route - won't be added again
-        additionalSegments = isChangingLines ? 1 : 0
-      } else {
-        // Current station will be added
-        additionalSegments = isChangingLines ? 2 : 1
-      }
+      // Calculate how many segments will be added based on junction scenario
+      const additionalSegments = calculateAdditionalSegments(
+        currentStation,
+        selectedLine,
+        line,
+        localSegments
+      )
 
       // Check max segments limit before building
       const maxSegmentsValidation = validateMaxSegments(localSegments.length, additionalSegments)
@@ -320,6 +314,7 @@ export function useSegmentBuilderState({
       }
 
       // If changing lines, validate nextStation is not a duplicate
+      const isChangingLines = selectedLine.tfl_id !== line.tfl_id
       if (isChangingLines) {
         const nextValidation = validateNotDuplicate(nextStation, localSegments)
         if (!nextValidation.valid) {
@@ -348,11 +343,22 @@ export function useSegmentBuilderState({
 
   /**
    * Handle mark as destination
-   * Returns the final segments without saving (component handles save)
+   * Builds final segments and returns them along with any validation error.
+   *
+   * @returns Object containing:
+   *   - segments: The final segments (unchanged if validation failed)
+   *   - error: Validation error message or null if successful
+   *
+   * Note: This function still updates local state (segments and UI state) even though
+   * it returns values. The return values are for the component's save operation to
+   * check before proceeding with async save.
    */
-  const handleMarkAsDestination = useCallback((): SegmentRequest[] => {
+  const handleMarkAsDestination = useCallback((): {
+    segments: SegmentRequest[]
+    error: string | null
+  } => {
     if (!currentStation || !selectedLine || !nextStation) {
-      return localSegments
+      return { segments: localSegments, error: null }
     }
 
     // Clear any previous errors
@@ -365,22 +371,26 @@ export function useSegmentBuilderState({
     })
     if (!currentValidation.valid) {
       setError(currentValidation.error)
-      return localSegments
+      return { segments: localSegments, error: currentValidation.error }
     }
 
     const nextValidation = validateNotDuplicate(nextStation, localSegments)
     if (!nextValidation.valid) {
       setError(nextValidation.error)
-      return localSegments
+      return { segments: localSegments, error: nextValidation.error }
     }
 
-    // Check max segments limit (will add 1 or 2 segments depending on whether current is last)
-    const isCurrentStationLast = isStationLastInRoute(currentStation, localSegments)
-    const additionalSegments = isCurrentStationLast ? 1 : 2
+    // Calculate how many segments will be added (destination always uses same line)
+    const additionalSegments = calculateAdditionalSegments(
+      currentStation,
+      selectedLine,
+      selectedLine, // Destination doesn't change lines
+      localSegments
+    )
     const maxSegmentsValidation = validateMaxSegments(localSegments.length, additionalSegments)
     if (!maxSegmentsValidation.valid) {
       setError(maxSegmentsValidation.error)
-      return localSegments
+      return { segments: localSegments, error: maxSegmentsValidation.error }
     }
 
     // Build final segments using pure function
@@ -398,7 +408,7 @@ export function useSegmentBuilderState({
     const newState = transitionToSelectStation()
     applyTransition(newState)
 
-    return finalSegments
+    return { segments: finalSegments, error: null }
   }, [currentStation, selectedLine, nextStation, localSegments, applyTransition])
 
   /**
@@ -470,7 +480,12 @@ export function useSegmentBuilderState({
 
   /**
    * Handle cancel
-   * Resets to initial segments and clears all state
+   * Resets to initial segments and clears all state, then invokes the provided callback.
+   *
+   * @param onCancel - Callback to invoke after state is reset (e.g., close modal, navigate away)
+   *
+   * Note: This hook intentionally invokes the callback directly for simplicity.
+   * The component passes its cleanup/navigation logic via this parameter.
    */
   const handleCancel = useCallback(
     (onCancel: () => void) => {

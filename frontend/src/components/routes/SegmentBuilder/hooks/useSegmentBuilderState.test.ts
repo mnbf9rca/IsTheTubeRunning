@@ -442,10 +442,14 @@ describe('useSegmentBuilderState', () => {
 
       // Mark as destination
       let finalSegments
+      let validationError
       act(() => {
-        finalSegments = result.current.handleMarkAsDestination()
+        const markResult = result.current.handleMarkAsDestination()
+        finalSegments = markResult.segments
+        validationError = markResult.error
       })
 
+      expect(validationError).toBeNull()
       expect(finalSegments).toHaveLength(2)
       expect(finalSegments![0].station_tfl_id).toBe('southgate')
       expect(finalSegments![0].line_tfl_id).toBe('piccadilly')
