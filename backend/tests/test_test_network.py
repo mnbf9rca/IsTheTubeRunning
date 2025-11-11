@@ -1,6 +1,6 @@
 """Unit tests for TestRailwayNetwork factory methods."""
 
-from tests.conftest import TestRailwayNetwork
+from tests.helpers.railway_network import TestRailwayNetwork
 
 
 class TestHubChildrenFactories:
