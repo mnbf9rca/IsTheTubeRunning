@@ -28,6 +28,7 @@ import {
   buildSegmentsForContinue,
   buildSegmentsForDestination,
   deleteSegmentAndResequence,
+  removeDestinationMarker,
 } from '../segments'
 import {
   transitionToSelectStation,
@@ -429,6 +430,9 @@ export function useSegmentBuilderState({
    * mark it as destination again.
    */
   const handleEditRoute = useCallback(() => {
+    // Clear any stale errors from previous operations
+    setError(null)
+
     // Find the destination segment (line_tfl_id === null) to get the destination station
     const destinationSegment = localSegments.find((seg) => seg.line_tfl_id === null)
     if (!destinationSegment || localSegments.length < 2) {
@@ -446,7 +450,7 @@ export function useSegmentBuilderState({
       // This makes prevStation the last segment, so handleContinueJourney's
       // validateNotDuplicate(currentStation, segments, { allowLast: true })
       // will pass (prevStation is now the last segment)
-      const segmentsWithoutDestination = localSegments.filter((seg) => seg.line_tfl_id !== null)
+      const segmentsWithoutDestination = removeDestinationMarker(localSegments)
       setLocalSegments(segmentsWithoutDestination)
 
       // Set up state as if we just selected the destination as the "next station"

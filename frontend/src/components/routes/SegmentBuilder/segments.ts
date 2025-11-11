@@ -238,6 +238,34 @@ export interface ResumeStateResult {
 }
 
 /**
+ * Removes destination marker segments from a route
+ *
+ * Destination markers are segments with line_tfl_id === null, which indicate
+ * the final destination of a route. This function filters them out and returns
+ * only the segments representing actual travel legs.
+ *
+ * This is commonly used when editing a route, where you want to:
+ * 1. Remove the destination marker
+ * 2. Continue building from the last actual travel segment
+ *
+ * @param segments - Route segments (may include destination markers)
+ * @returns New array with only non-destination segments (does not mutate input)
+ *
+ * @example
+ * ```typescript
+ * const segments = [
+ *   { sequence: 0, station_tfl_id: 'southgate', line_tfl_id: 'piccadilly' },
+ *   { sequence: 1, station_tfl_id: 'leicester-square', line_tfl_id: null }
+ * ]
+ * const result = removeDestinationMarker(segments)
+ * // Result: [{ sequence: 0, station_tfl_id: 'southgate', line_tfl_id: 'piccadilly' }]
+ * ```
+ */
+export function removeDestinationMarker(segments: SegmentRequest[]): SegmentRequest[] {
+  return segments.filter((seg) => seg.line_tfl_id !== null)
+}
+
+/**
  * Computes the station and line to resume from based on last segment
  *
  * This function is used when:

@@ -4,6 +4,7 @@ import {
   buildSegmentsForDestination,
   computeResumeState,
   deleteSegmentAndResequence,
+  removeDestinationMarker,
 } from './segments'
 import { StationResponse, LineResponse } from '@/lib/api'
 import { SegmentRequest } from './types'
@@ -923,6 +924,106 @@ describe('SegmentBuilder segments', () => {
         expect(result.resumeFrom.station?.tfl_id).toBe('station-a')
         expect(result.resumeFrom.line?.tfl_id).toBe('northern')
       })
+    })
+  })
+
+  describe('removeDestinationMarker', () => {
+    it('should remove destination marker segments (line_tfl_id === null)', () => {
+      const segments: SegmentRequest[] = [
+        {
+          sequence: 0,
+          station_tfl_id: 'station-a',
+          line_tfl_id: 'northern',
+        },
+        {
+          sequence: 1,
+          station_tfl_id: 'station-b',
+          line_tfl_id: null, // Destination marker
+        },
+      ]
+
+      const result = removeDestinationMarker(segments)
+
+      expect(result).toHaveLength(1)
+      expect(result[0].station_tfl_id).toBe('station-a')
+      expect(result[0].line_tfl_id).toBe('northern')
+    })
+
+    it('should keep all segments when there is no destination marker', () => {
+      const segments: SegmentRequest[] = [
+        {
+          sequence: 0,
+          station_tfl_id: 'station-a',
+          line_tfl_id: 'northern',
+        },
+        {
+          sequence: 1,
+          station_tfl_id: 'station-b',
+          line_tfl_id: 'northern',
+        },
+      ]
+
+      const result = removeDestinationMarker(segments)
+
+      expect(result).toHaveLength(2)
+      expect(result[0].station_tfl_id).toBe('station-a')
+      expect(result[1].station_tfl_id).toBe('station-b')
+    })
+
+    it('should return empty array for empty input', () => {
+      const segments: SegmentRequest[] = []
+
+      const result = removeDestinationMarker(segments)
+
+      expect(result).toHaveLength(0)
+    })
+
+    it('should not mutate the original array', () => {
+      const segments: SegmentRequest[] = [
+        {
+          sequence: 0,
+          station_tfl_id: 'station-a',
+          line_tfl_id: 'northern',
+        },
+        {
+          sequence: 1,
+          station_tfl_id: 'station-b',
+          line_tfl_id: null, // Destination marker
+        },
+      ]
+
+      const originalLength = segments.length
+      removeDestinationMarker(segments)
+
+      // Original array should remain unchanged
+      expect(segments).toHaveLength(originalLength)
+      expect(segments[1].line_tfl_id).toBeNull()
+    })
+
+    it('should handle multiple destination markers (edge case)', () => {
+      const segments: SegmentRequest[] = [
+        {
+          sequence: 0,
+          station_tfl_id: 'station-a',
+          line_tfl_id: 'northern',
+        },
+        {
+          sequence: 1,
+          station_tfl_id: 'station-b',
+          line_tfl_id: null,
+        },
+        {
+          sequence: 2,
+          station_tfl_id: 'station-c',
+          line_tfl_id: null,
+        },
+      ]
+
+      const result = removeDestinationMarker(segments)
+
+      // Should remove all destination markers
+      expect(result).toHaveLength(1)
+      expect(result[0].station_tfl_id).toBe('station-a')
     })
   })
 })
