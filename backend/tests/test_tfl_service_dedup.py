@@ -2,11 +2,15 @@
 
 import uuid
 from datetime import UTC, datetime
+from typing import TYPE_CHECKING
 
 import pytest
 from app.models.tfl import Station
 from app.services.tfl_service import TfLService
 from sqlalchemy.ext.asyncio import AsyncSession
+
+if TYPE_CHECKING:
+    from tests.helpers.types import RailwayNetworkFixture
 
 
 @pytest.fixture
@@ -18,43 +22,15 @@ def tfl_service(db_session: AsyncSession) -> TfLService:
 class TestDeduplicateStationsByHub:
     """Tests for deduplicate_stations_by_hub() service method (Issue #67)."""
 
-    def test_deduplicate_stations_by_hub_with_mixed_stations(self, tfl_service: TfLService) -> None:
+    def test_deduplicate_stations_by_hub_with_mixed_stations(
+        self, tfl_service: TfLService, test_railway_network: "RailwayNetworkFixture"
+    ) -> None:
         """Should group hub stations and preserve standalone stations."""
-        # Hub stations (Seven Sisters)
-        rail = Station(
-            id=uuid.uuid4(),
-            tfl_id="910GSEVNSIS",
-            name="Seven Sisters (Rail)",
-            latitude=51.58,
-            longitude=-0.07,
-            lines=["overground"],
-            last_updated=datetime(2025, 1, 1, tzinfo=UTC),
-            hub_naptan_code="HUBSVS",
-            hub_common_name="Seven Sisters",
-        )
-        tube = Station(
-            id=uuid.uuid4(),
-            tfl_id="940GZZLUSVS",
-            name="Seven Sisters",
-            latitude=51.58,
-            longitude=-0.07,
-            lines=["victoria"],
-            last_updated=datetime(2025, 1, 15, tzinfo=UTC),
-            hub_naptan_code="HUBSVS",
-            hub_common_name="Seven Sisters",
-        )
+        # Hub stations (HUBNORTH)
+        rail = test_railway_network.stations["hubnorth-overground"]
+        tube = test_railway_network.stations["parallel-north"]
         # Standalone station
-        standalone = Station(
-            id=uuid.uuid4(),
-            tfl_id="940GZZLUOXC",
-            name="Oxford Circus",
-            latitude=51.52,
-            longitude=-0.14,
-            lines=["bakerloo", "piccadilly"],  # Keep in sorted order like TfL data
-            last_updated=datetime(2025, 1, 10, tzinfo=UTC),
-            hub_naptan_code=None,
-            hub_common_name=None,
-        )
+        standalone = test_railway_network.stations["via-bank-1"]
 
         result = tfl_service.deduplicate_stations_by_hub([rail, tube, standalone])
 
@@ -62,146 +38,71 @@ class TestDeduplicateStationsByHub:
         assert len(result) == 2
 
         # Find hub representative (by tfl_id == hub code)
-        hub_rep = next(s for s in result if s.tfl_id == "HUBSVS")
-        assert hub_rep.name == "Seven Sisters"
-        assert hub_rep.lines == ["overground", "victoria"]  # Aggregated and sorted
-        assert hub_rep.last_updated == datetime(2025, 1, 15, tzinfo=UTC)  # Most recent
-        assert hub_rep.hub_naptan_code == "HUBSVS"
-        assert hub_rep.hub_common_name == "Seven Sisters"
+        hub_rep = next(s for s in result if s.tfl_id == "HUBNORTH")
+        assert hub_rep.name == "North Interchange"
+        assert set(hub_rep.lines) == {"asymmetricline", "parallelline"}  # Aggregated
+        assert hub_rep.hub_naptan_code == "HUBNORTH"
+        assert hub_rep.hub_common_name == "North Interchange"
 
         # Find standalone
-        standalone_result = next(s for s in result if s.tfl_id == "940GZZLUOXC")
-        assert standalone_result.name == "Oxford Circus"
-        assert standalone_result.lines == ["bakerloo", "piccadilly"]  # Unchanged from input
+        standalone_result = next(s for s in result if s.tfl_id == "via-bank-1")
+        assert standalone_result.name == "Via Bank 1"
+        assert standalone_result.lines == ["parallelline"]  # Unchanged from input
 
-    def test_deduplicate_stations_by_hub_all_standalone(self, tfl_service: TfLService) -> None:
+    def test_deduplicate_stations_by_hub_all_standalone(
+        self, tfl_service: TfLService, test_railway_network: "RailwayNetworkFixture"
+    ) -> None:
         """Should return all stations unchanged when none are in hubs."""
-        station1 = Station(
-            id=uuid.uuid4(),
-            tfl_id="940GZZLUOXC",
-            name="Oxford Circus",
-            latitude=51.52,
-            longitude=-0.14,
-            lines=["piccadilly"],
-            last_updated=datetime(2025, 1, 1, tzinfo=UTC),
-            hub_naptan_code=None,
-        )
-        station2 = Station(
-            id=uuid.uuid4(),
-            tfl_id="940GZZLUPCO",
-            name="Piccadilly Circus",
-            latitude=51.51,
-            longitude=-0.13,
-            lines=["piccadilly"],
-            last_updated=datetime(2025, 1, 1, tzinfo=UTC),
-            hub_naptan_code=None,
-        )
+        station1 = test_railway_network.stations["via-bank-1"]
+        station2 = test_railway_network.stations["via-charing-1"]
 
         result = tfl_service.deduplicate_stations_by_hub([station1, station2])
 
         # Should have both stations (no deduplication occurred)
         assert len(result) == 2
         tfl_ids = {s.tfl_id for s in result}
-        assert tfl_ids == {"940GZZLUOXC", "940GZZLUPCO"}
+        assert tfl_ids == {"via-bank-1", "via-charing-1"}
 
-    def test_deduplicate_stations_by_hub_all_hub_stations(self, tfl_service: TfLService) -> None:
+    def test_deduplicate_stations_by_hub_all_hub_stations(
+        self, tfl_service: TfLService, test_railway_network: "RailwayNetworkFixture"
+    ) -> None:
         """Should deduplicate when all stations are in hubs."""
-        rail = Station(
-            id=uuid.uuid4(),
-            tfl_id="910GSEVNSIS",
-            name="Seven Sisters (Rail)",
-            latitude=51.58,
-            longitude=-0.07,
-            lines=["overground"],
-            last_updated=datetime(2025, 1, 1, tzinfo=UTC),
-            hub_naptan_code="HUBSVS",
-            hub_common_name="Seven Sisters",
-        )
-        tube = Station(
-            id=uuid.uuid4(),
-            tfl_id="940GZZLUSVS",
-            name="Seven Sisters",
-            latitude=51.58,
-            longitude=-0.07,
-            lines=["victoria"],
-            last_updated=datetime(2025, 1, 15, tzinfo=UTC),
-            hub_naptan_code="HUBSVS",
-            hub_common_name="Seven Sisters",
-        )
+        rail = test_railway_network.stations["hubnorth-overground"]
+        tube = test_railway_network.stations["parallel-north"]
 
         result = tfl_service.deduplicate_stations_by_hub([rail, tube])
 
         # Should have 1 station (hub representative only)
         assert len(result) == 1
-        assert result[0].tfl_id == "HUBSVS"
-        assert result[0].name == "Seven Sisters"
-        assert result[0].lines == ["overground", "victoria"]
+        assert result[0].tfl_id == "HUBNORTH"
+        assert result[0].name == "North Interchange"
+        assert set(result[0].lines) == {"asymmetricline", "parallelline"}
 
-    def test_deduplicate_stations_by_hub_multiple_hubs(self, tfl_service: TfLService) -> None:
+    def test_deduplicate_stations_by_hub_multiple_hubs(
+        self, tfl_service: TfLService, test_railway_network: "RailwayNetworkFixture"
+    ) -> None:
         """Should correctly group multiple separate hubs."""
-        # Hub 1: Seven Sisters
-        hub1_station1 = Station(
-            id=uuid.uuid4(),
-            tfl_id="910GSEVNSIS",
-            name="Seven Sisters (Rail)",
-            latitude=51.58,
-            longitude=-0.07,
-            lines=["overground"],
-            last_updated=datetime(2025, 1, 1, tzinfo=UTC),
-            hub_naptan_code="HUBSVS",
-            hub_common_name="Seven Sisters",
-        )
-        hub1_station2 = Station(
-            id=uuid.uuid4(),
-            tfl_id="940GZZLUSVS",
-            name="Seven Sisters",
-            latitude=51.58,
-            longitude=-0.07,
-            lines=["victoria"],
-            last_updated=datetime(2025, 1, 2, tzinfo=UTC),
-            hub_naptan_code="HUBSVS",
-            hub_common_name="Seven Sisters",
-        )
-        # Hub 2: Canada Water (example - made up for testing)
-        hub2_station1 = Station(
-            id=uuid.uuid4(),
-            tfl_id="940GZZLUCWR",
-            name="Canada Water",
-            latitude=51.49,
-            longitude=-0.05,
-            lines=["jubilee"],
-            last_updated=datetime(2025, 1, 3, tzinfo=UTC),
-            hub_naptan_code="HUBCWR",
-            hub_common_name="Canada Water",
-        )
-        hub2_station2 = Station(
-            id=uuid.uuid4(),
-            tfl_id="910GCNDAW",
-            name="Canada Water (Rail)",
-            latitude=51.49,
-            longitude=-0.05,
-            lines=["overground"],
-            last_updated=datetime(2025, 1, 4, tzinfo=UTC),
-            hub_naptan_code="HUBCWR",
-            hub_common_name="Canada Water",
-        )
+        # Hub 1: HUBNORTH
+        hub1_station1 = test_railway_network.stations["hubnorth-overground"]
+        hub1_station2 = test_railway_network.stations["parallel-north"]
+        # Hub 2: HUBCENTRAL
+        hub2_station1 = test_railway_network.stations["fork-mid-1"]
+        hub2_station2 = test_railway_network.stations["hubcentral-dlr"]
 
         result = tfl_service.deduplicate_stations_by_hub([hub1_station1, hub1_station2, hub2_station1, hub2_station2])
 
         # Should have 2 stations (2 hub representatives)
         assert len(result) == 2
 
-        # Find Seven Sisters hub
-        seven_sisters = next(s for s in result if s.tfl_id == "HUBSVS")
-        assert seven_sisters.name == "Seven Sisters"
-        assert seven_sisters.lines == ["overground", "victoria"]
-        assert seven_sisters.last_updated == datetime(2025, 1, 2, tzinfo=UTC)  # Most recent
+        # Find North Hub
+        north_hub = next(s for s in result if s.tfl_id == "HUBNORTH")
+        assert north_hub.name == "North Interchange"
+        assert set(north_hub.lines) == {"asymmetricline", "parallelline"}
 
-        # Find Canada Water hub
-        canada_water = next(s for s in result if s.tfl_id == "HUBCWR")
-        assert canada_water.name == "Canada Water"
-        assert canada_water.lines == ["jubilee", "overground"]
-        assert canada_water.last_updated == datetime(2025, 1, 4, tzinfo=UTC)  # Most recent
+        # Find Central Hub
+        central_hub = next(s for s in result if s.tfl_id == "HUBCENTRAL")
+        assert central_hub.name == "Central Hub"
+        assert set(central_hub.lines) == {"forkedline", "2stopline"}
 
     def test_deduplicate_stations_by_hub_sorting(self, tfl_service: TfLService) -> None:
         """Should return stations sorted alphabetically by name."""
@@ -251,23 +152,15 @@ class TestDeduplicateStationsByHub:
 
         assert result == []
 
-    def test_deduplicate_stations_by_hub_single_hub_child(self, tfl_service: TfLService) -> None:
+    def test_deduplicate_stations_by_hub_single_hub_child(
+        self, tfl_service: TfLService, test_railway_network: "RailwayNetworkFixture"
+    ) -> None:
         """Should still deduplicate hub even if only one child station."""
-        station = Station(
-            id=uuid.uuid4(),
-            tfl_id="940GZZLUSVS",
-            name="Seven Sisters",
-            latitude=51.58,
-            longitude=-0.07,
-            lines=["victoria"],
-            last_updated=datetime(2025, 1, 1, tzinfo=UTC),
-            hub_naptan_code="HUBSVS",
-            hub_common_name="Seven Sisters",
-        )
+        station = test_railway_network.stations["parallel-north"]
 
         result = tfl_service.deduplicate_stations_by_hub([station])
 
         assert len(result) == 1
-        assert result[0].tfl_id == "HUBSVS"  # Uses hub code even for single child
-        assert result[0].name == "Seven Sisters"
-        assert result[0].lines == ["victoria"]
+        assert result[0].tfl_id == "HUBNORTH"  # Uses hub code even for single child
+        assert result[0].name == "North Interchange"
+        assert result[0].lines == ["parallelline"]
