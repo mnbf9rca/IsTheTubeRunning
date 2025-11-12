@@ -1745,7 +1745,7 @@ async def test_fetch_disruptions_without_affected_routes(
     mock_get_loop: MagicMock,
     tfl_service: TfLService,
 ) -> None:
-    """Test fetching line statuses returns ALL severities (including Good Service)."""
+    """Test that fetching line statuses returns ALL severities (including Good Service)."""
     with freeze_time("2025-01-01 12:00:00"):
         # Mock fetch_lines to return two lines
         mock_line_victoria = Line(tfl_id="victoria", name="Victoria", mode="tube")

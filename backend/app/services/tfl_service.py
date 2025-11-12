@@ -996,17 +996,17 @@ class TfLService:
         line_data: TflLine,
     ) -> list[DisruptionResponse]:
         """
-        Process Line object containing LineStatus data into structured disruption responses.
+        Process Line object containing LineStatus data into structured line status responses.
 
-        Each Line can have multiple LineStatus objects representing different disruptions
-        (e.g., PlannedWork, RealTime issues). We filter to only include currently active
-        disruptions using the validityPeriods.isNow flag.
+        Each Line can have multiple LineStatus objects representing different statuses
+        (e.g., PlannedWork, RealTime issues, Good Service). We filter to only include
+        currently active statuses using the validityPeriods.isNow flag.
 
         Args:
             line_data: Line object from TfL API containing lineStatuses
 
         Returns:
-            List of disruption responses for currently active disruptions
+            List of line status responses for all currently active statuses (including Good Service and disruptions)
         """
         disruptions: list[DisruptionResponse] = []
         line_id = getattr(line_data, "id", "unknown")
@@ -1050,19 +1050,20 @@ class TfLService:
         use_cache: bool = True,
     ) -> list[DisruptionResponse]:
         """
-        Fetch current line-level disruptions from TfL API for specified modes.
+        Fetch current line status information from TfL API for specified modes.
 
         Uses the StatusByIds endpoint to get line status information with detailed
-        severity levels (0-20) directly from TfL API. This includes all disruptions
-        (RealTime, PlannedWork, etc.) with validity periods to determine active status.
+        severity levels (0-20) directly from TfL API. This includes all line statuses
+        (Good Service, disruptions, planned work, etc.) with validity periods to determine active status.
 
         Args:
-            modes: List of transport modes to fetch disruptions for.
+            modes: List of transport modes to fetch statuses for.
                    If None, defaults to ["tube", "overground", "dlr", "elizabeth-line"].
             use_cache: Whether to use Redis cache (default: True)
 
         Returns:
-            List of disruption responses for currently active disruptions (isNow=true)
+            List of line status responses (including both disruptions and good service)
+            for currently active statuses (isNow=true)
         """
         # Default to major transport modes if not specified
         if modes is None:
@@ -1081,7 +1082,6 @@ class TfLService:
 
         try:
             all_disruptions = []
-            ttl = DEFAULT_DISRUPTIONS_CACHE_TTL
             loop = asyncio.get_running_loop()
 
             # First, fetch all lines for the specified modes to get line IDs

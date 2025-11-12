@@ -156,7 +156,7 @@ Active (Issue #121, 2025-01-12)
 TfL API provides two endpoints for fetching disruption data: `/Line/Mode/{mode}/Disruption` and `/Line/{ids}/Status`. The Disruption endpoint returns only disruption objects, while Status provides `LineStatus` objects containing structured severity levels (0-20 scale) with `statusSeverity` and `statusSeverityDescription` fields. Initial implementation used Disruption endpoint which required hardcoded mapping from `closureText` strings ("severeDelays") to severity integers - this mapping was incomplete and incorrect.
 
 ### Decision
-Use `/Line/{ids}/Status` endpoint (`StatusByIdsByPathIdsQueryDetail`) instead of `/Line/Mode/{mode}/Disruption`. Fetch line IDs via `fetch_lines()`, join with commas, make single Status API call per request. Extract `statusSeverity` integer directly from `LineStatus` objects - no mapping needed. Filter disruptions by `validityPeriods[].isNow == true` for currently active issues. Filter lines with `statusSeverity >= 10` (Good Service).
+Use `/Line/{ids}/Status` endpoint (`StatusByIdsByPathIdsQueryDetail`) instead of `/Line/Mode/{mode}/Disruption`. Fetch line IDs via `fetch_lines()`, join with commas, make single Status API call per request. Extract `statusSeverity` integer directly from `LineStatus` objects - no mapping needed. Filter disruptions by `validityPeriods[].isNow == true` for currently active issues.
 
 ### Consequences
 **Easier:**
