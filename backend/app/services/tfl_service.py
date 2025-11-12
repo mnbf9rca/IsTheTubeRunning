@@ -695,7 +695,7 @@ class TfLService:
 
         # Type narrowing: _handle_api_error raises if response is ApiError, so it's safe here
         ttl = self._extract_cache_ttl(response) or DEFAULT_STATIONS_CACHE_TTL  # type: ignore[arg-type]
-        # response.content is a PlaceArray (RootModel), access via .root
+        # response.content is a StopPointArray (RootModel), access via .root
         stop_points = response.content.root  # type: ignore[union-attr]
 
         stations = []
@@ -937,13 +937,16 @@ class TfLService:
         # Sort alphabetically by name for consistent ordering
         return sorted(result, key=lambda s: s.name)
 
-    @staticmethod
-    def _map_closure_text_to_severity(closure_text: str | None) -> int:
+    def _map_closure_text_to_severity(self, closure_text: str | None) -> int:
         """
         Map TfL API closureText field to severity integer.
 
         The TfL API uses closureText instead of numeric severity levels.
         This mapping provides backward compatibility with the app's severity system.
+
+        TODO: Replace hardcoded mapping with LineClient.MetaSeverity() API call
+        to fetch official severity mappings from TfL and store in database.
+        See issue #121 for details.
 
         Args:
             closure_text: The closureText value from TfL Disruption API
@@ -961,7 +964,15 @@ class TfLService:
             "partSuspended": 2,
             "suspended": 1,
         }
-        return severity_mapping.get(closure_text or "", 0)
+        result = severity_mapping.get(closure_text or "", None)
+        if result is None:
+            logger.warning(
+                "unmapped_closure_text",
+                closure_text=closure_text,
+                message="Unknown closureText value from TfL API - returning severity 0",
+            )
+            return 0
+        return result
 
     def _extract_disruption_from_route(
         self,
@@ -1265,8 +1276,9 @@ class TfLService:
 
                 # Process station disruptions using helper method
                 # response.content is a RootModel array of disruptions, access via .root
-                # Note: API returns DisruptedPointArray, but actual runtime data has affectedStops
-                # See issue #119 for proper resolution
+                # Note: pydantic-tfl-api type annotation (DisruptedPointArray) doesn't match
+                # actual runtime data structure (list[Disruption] with affectedStops field).
+                # The type: ignore comments below are needed due to this library limitation.
                 disruption_data_list = response.content.root  # type: ignore[union-attr]
                 mode_disruptions = await self._process_station_disruption_data(disruption_data_list)  # type: ignore[arg-type]
                 all_disruptions.extend(mode_disruptions)
@@ -2622,12 +2634,12 @@ class TfLService:
                     StationRouteInfo(
                         line_tfl_id=line.tfl_id,
                         line_name=line.name,
-                        route_name=route.get("name", "Unknown"),
-                        service_type=route.get("service_type", "Unknown"),
-                        direction=route.get("direction", "Unknown"),
+                        route_name=route["name"],
+                        service_type=route["service_type"],
+                        direction=route["direction"],
                     )
                     for route in routes
-                    if station_tfl_id in route.get("stations", [])
+                    if station_tfl_id in route["stations"]
                 )
 
             # Check if any routes were found

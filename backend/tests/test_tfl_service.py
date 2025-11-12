@@ -103,30 +103,17 @@ def create_mock_disruption(
     category: str = "PlannedWork",
     category_description: str = "Minor Delays",
     description: str = "Station improvements",
-    category_description_detail: int = 6,  # Maps to closureText severity
+    closure_text: str = "minorDelays",
     affected_routes: list[TflRouteSection] | None = None,
     affected_stops: list[TflStopPoint] | None = None,
     created: datetime | str | None = None,
-    closure_text: str | None = None,
     **kwargs: Any,  # noqa: ANN401
 ) -> TflDisruption:
     """Factory for TfL Disruption mocks using actual pydantic model.
 
-    Note: The category_description_detail parameter maps to closureText values
-    for backward compatibility with existing tests. The TfL API uses closureText
-    (e.g., 'severeDelays', 'minorDelays') which is mapped to severity integers
-    by tfl_service._map_closure_text_to_severity().
+    The TfL API uses closureText (e.g., 'severeDelays', 'minorDelays')
+    which is mapped to severity integers by tfl_service._map_closure_text_to_severity().
     """
-    # Map category_description_detail to closureText if not explicitly provided
-    if closure_text is None:
-        # Simple mapping for test compatibility
-        closure_text_map = {
-            5: "severeDelays",
-            6: "minorDelays",
-            10: "goodService",
-        }
-        closure_text = closure_text_map.get(category_description_detail, "unknown")
-
     # Convert created to string format if it's a datetime
     created_str = None
     if isinstance(created, datetime):
@@ -1515,7 +1502,7 @@ async def test_fetch_disruptions(
             create_mock_disruption(
                 category="RealTime",
                 category_description="Severe Delays",
-                category_description_detail=5,  # Severity level
+                closure_text="severeDelays",
                 description="Signal failure at King's Cross",
                 affected_routes=[create_mock_route_section(id="victoria", name="Victoria")],
                 created=datetime(2025, 1, 1, 11, 30, 0, tzinfo=UTC),
@@ -1523,7 +1510,7 @@ async def test_fetch_disruptions(
             create_mock_disruption(
                 category="RealTime",
                 category_description="Minor Delays",
-                category_description_detail=6,  # Severity level
+                closure_text="minorDelays",
                 description="Minor delays due to customer incident",
                 affected_routes=[create_mock_route_section(id="northern", name="Northern")],
                 created=datetime(2025, 1, 1, 11, 45, 0, tzinfo=UTC),
@@ -1565,7 +1552,7 @@ async def test_fetch_disruptions_multiple_lines_per_disruption(
             create_mock_disruption(
                 category="RealTime",
                 category_description="Severe Delays",
-                category_description_detail=5,  # Severity level
+                closure_text="severeDelays",
                 description="Signal failure affecting multiple lines",
                 affected_routes=[
                     create_mock_route_section(id="victoria", name="Victoria"),
@@ -1630,7 +1617,7 @@ async def test_fetch_disruptions_cache_miss(
             create_mock_disruption(
                 category="RealTime",
                 category_description="Severe Delays",
-                category_description_detail=5,  # Severity level
+                closure_text="severeDelays",
                 description="Signal failure",
                 affected_routes=[create_mock_route_section(id="victoria", name="Victoria")],
                 created=datetime(2025, 1, 1, 11, 30, 0, tzinfo=UTC),
@@ -1675,7 +1662,7 @@ async def test_fetch_disruptions_without_affected_routes(
             create_mock_disruption(
                 category="RealTime",
                 category_description="Severe Delays",
-                category_description_detail=5,  # Severity level
+                closure_text="severeDelays",
                 description="Signal failure",
                 affected_routes=[create_mock_route_section(id="victoria", name="Victoria")],
                 created=datetime(2025, 1, 1, 11, 30, 0, tzinfo=UTC),
@@ -1687,7 +1674,7 @@ async def test_fetch_disruptions_without_affected_routes(
             def __init__(self, category: str, description: str) -> None:
                 self.category = category
                 self.categoryDescription = "Information"
-                self.categoryDescriptionDetail = 0
+                self.closureText = "goodService"
                 self.description = description
                 # Intentionally no affectedRoutes attribute
 
@@ -1800,7 +1787,7 @@ async def test_fetch_disruptions_multiple_modes(
             create_mock_disruption(
                 category="RealTime",
                 category_description="Severe Delays",
-                category_description_detail=5,
+                closure_text="severeDelays",
                 description="Tube signal failure",
                 affected_routes=[create_mock_route_section(id="victoria", name="Victoria")],
                 created=datetime(2025, 1, 1, 11, 30, 0, tzinfo=UTC),
@@ -1810,7 +1797,7 @@ async def test_fetch_disruptions_multiple_modes(
             create_mock_disruption(
                 category="PlannedWork",
                 category_description="Minor Delays",
-                category_description_detail=6,
+                closure_text="minorDelays",
                 description="Overground engineering works",
                 affected_routes=[create_mock_route_section(id="overground", name="Overground")],
                 created=datetime(2025, 1, 1, 10, 0, 0, tzinfo=UTC),
@@ -1854,7 +1841,7 @@ async def test_fetch_disruptions_default_modes(
             create_mock_disruption(
                 category="RealTime",
                 category_description="Severe Delays",
-                category_description_detail=5,
+                closure_text="severeDelays",
                 description="Tube disruption",
                 affected_routes=[create_mock_route_section(id="victoria", name="Victoria")],
             ),
@@ -1863,7 +1850,7 @@ async def test_fetch_disruptions_default_modes(
             create_mock_disruption(
                 category="PlannedWork",
                 category_description="Part Closure",
-                category_description_detail=7,
+                closure_text="reducedService",
                 description="Overground works",
                 affected_routes=[create_mock_route_section(id="overground", name="Overground")],
             ),
@@ -1873,7 +1860,7 @@ async def test_fetch_disruptions_default_modes(
             create_mock_disruption(
                 category="RealTime",
                 category_description="Minor Delays",
-                category_description_detail=6,
+                closure_text="minorDelays",
                 description="Elizabeth line minor delays",
                 affected_routes=[create_mock_route_section(id="elizabeth", name="Elizabeth line")],
             ),

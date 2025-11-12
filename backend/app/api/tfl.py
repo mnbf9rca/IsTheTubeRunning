@@ -19,6 +19,7 @@ from app.schemas.tfl import (
     StationRouteResponse,
 )
 from app.services.tfl_service import TfLService
+from app.types.tfl_api import NetworkConnection
 
 router = APIRouter(prefix="/tfl", tags=["tfl"])
 
@@ -179,11 +180,11 @@ async def validate_route(
     )
 
 
-@router.get("/network-graph", response_model=dict[str, list[dict[str, Any]]])
+@router.get("/network-graph", response_model=dict[str, list[NetworkConnection]])
 async def get_network_graph(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
-) -> dict[str, list[dict[str, Any]]]:
+) -> dict[str, list[NetworkConnection]]:
     """
     Get the station network graph as an adjacency list.
 
