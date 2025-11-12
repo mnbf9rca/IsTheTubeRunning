@@ -110,70 +110,21 @@ Routes store explicit `timezone` field in IANA format (e.g., `"Europe/London"`).
 Active (Implemented 2025-11-07)
 
 ### Context
-Users create routes by selecting stations and lines conceptually as "From Station A, take Line X to Station B". The database initially required `line_id` for every segment, but the destination segment has no outgoing line - the journey terminates there. This created a mismatch:
-- Validation only uses `segment[i].line_id` to check connections to `segment[i+1]`
-- The last segment's `line_id` is never used in validation
-- Storing a line for the destination is semantically meaningless
-
-Four options considered:
-1. **Nullable line_id**: Allow NULL for destination (chosen)
-2. **Connection model**: Restructure to `{from_station, line, to_station}` per segment (too disruptive)
-3. **Status quo**: Keep workaround, store redundant data (technical debt)
-4. **Sentinel line**: Create fake "TERMINATES" line (pollutes domain model)
+Users conceptually create routes as "From Station A, take Line X to Station B". Database initially required `line_id` for every segment, but destination segments have no outgoing line - storing one is semantically meaningless. Validation only uses `segment[i].line_id` to check connections to `segment[i+1]`, so the last segment's line is never used.
 
 ### Decision
-Make `route_segments.line_id` nullable. NULL explicitly means "journey terminates here" (no outgoing line). Only the final segment can have NULL `line_id` - intermediate segments must have a line to travel on.
-
-Backend validation enforces this rule. Frontend automatically sets the last segment's `line_id` to NULL when saving routes.
+Make `route_segments.line_id` nullable. NULL explicitly means "journey terminates here". Only final segment can have NULL - intermediate segments must have a line. Backend validation enforces this. Rejected alternatives: connection model (too disruptive), sentinel "TERMINATES" line (pollutes domain), status quo (technical debt).
 
 ### Consequences
 **Easier:**
-- Data model matches conceptual model ("From A on Line X to B" followed by "Arrive at C")
-- Semantically correct: NULL means "no value" (standard SQL pattern)
-- No redundant data stored (DRY principle)
-- Clear validation rules prevent misuse
-- No fake/polluting data in domain model
-- Minimal disruption (single column constraint change)
+- Data model matches conceptual model
+- Semantically correct (NULL = no value)
+- No redundant data (DRY principle)
+- Minimal disruption (single column constraint)
 
 **More Difficult:**
-- Need NULL checks in validation and display logic
-- Slightly more complex queries (must handle NULL case)
-- Nullable fields require careful handling in TypeScript (but type system helps)
-
-### Implementation Details
-
-**Database:**
-- Migration `e5dfdd8388bc` makes `route_segments.line_id` nullable (UUID column)
-- Database constraint: `line_id uuid NULL`
-
-**Model Property:**
-- `RouteSegment.line_tfl_id` property returns `str | None`
-- Returns `self.line.tfl_id if self.line else None` to handle NULL line_id gracefully
-
-**API Schemas (Updated 2025-11-08):**
-- `SegmentRequest.line_tfl_id: str | None` - accepts NULL for destination segments
-- `SegmentResponse.line_tfl_id: str | None` - returns NULL when line_id is NULL
-- `RouteSegmentRequest.line_tfl_id: str | None` - validation schema accepts NULL
-- Field descriptions document: "NULL means destination segment (no onward travel)"
-
-**Validation Rules:**
-- Minimum 2 segments required (origin --line--> destination)
-- Segments 0 to len-2 (all except last) MUST have non-null line_tfl_id
-- Segment len-1 (final segment) MAY have NULL line_tfl_id (optional)
-- Validation error message: "Segment {i} must have a line_tfl_id. Only the final segment (destination) can have NULL line_tfl_id."
-- Implemented in `TfLService.validate_route()` (backend/app/services/tfl_service.py)
-
-**Service Layer Translation:**
-- `RouteService.upsert_segments()` conditionally fetches line only if line_tfl_id is not None
-- `line = await self.tfl_service.get_line_by_tfl_id(seg.line_tfl_id) if seg.line_tfl_id else None`
-- Sets `line_id=line.id if line else None` when creating RouteSegment instances
-- `RouteService._validate_route_segments()` already handles nullable line_tfl_id correctly
-
-**Test Coverage:**
-- `test_validate_route_with_null_destination_line_id` - validates NULL on final segment (valid)
-- `test_validate_route_with_null_intermediate_line_id` - validates NULL on intermediate segment (invalid)
-- `test_upsert_segments_with_null_destination_line` - API integration test with NULL destination
-- All tests achieve 100% coverage on nullable line_tfl_id logic
+- NULL checks in validation and display logic
+- Nullable fields require careful TypeScript handling
 
 ---
 

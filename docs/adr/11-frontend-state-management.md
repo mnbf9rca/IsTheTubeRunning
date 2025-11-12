@@ -124,3 +124,28 @@ Each extracted module must have **100% statement and branch coverage** before be
 - Takes time to write comprehensive tests (2-3 hours per module)
 - Must test edge cases (empty arrays, null values, boundaries)
 - 100% target is strict (must test error paths too)
+
+---
+
+## Route Builder State Machine Pattern
+
+### Status
+Active (Implemented in Phase 10 PR3)
+
+### Context
+SegmentBuilder component manages complex multi-step route creation workflow with 8+ state variables and 15+ handlers. Initial implementation had recurring bugs from improper state transitions causing UI inconsistencies (stations disappearing, buttons in wrong states).
+
+### Decision
+Build custom state machine with pure functions instead of using libraries like XState. Extract all logic into separate testable modules: validation, segments manipulation, state transitions, and React integration hook. Component becomes thin presentation layer.
+
+### Consequences
+**Easier:**
+- Debugging and testing (pure functions, 100% coverage)
+- Safe refactoring (tests catch regressions)
+- Code reuse across components
+- Clear workflow (explicit state machine)
+
+**More Difficult:**
+- More files to navigate (6 files vs 1)
+- Learning curve for pattern
+- Risk of over-engineering simple forms

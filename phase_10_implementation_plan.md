@@ -278,13 +278,14 @@ See [Authentication & Authorization ADRs](../../docs/adr/04-authentication.md) f
 ## PR3: Route Management
 
 > **⚠️ SPLIT DECISION**: This PR was split into PR3a and PR3b for manageability.
-> See `phase_10_pr3_implementation_plan.md` for detailed split plan.
 > - **PR3a**: Routes Foundation (metadata CRUD) - ✅ Complete - #26
 > - **PR3b**: Route Builder & Schedules (segments, TfL integration) - ✅ Complete - #40
+>
+> **NOTE**: Notification preferences were integrated during PR3 (not deferred to PR4 as originally planned). This was a positive deviation - better UX to configure notifications during route creation. Implemented in CreateRoute.tsx and RouteDetails.tsx.
 
 **Branch**: `feature/phase-10-pr3-routes` (original plan, see split branches)
 **Estimated Time**: 4-5 days (now split across 2 PRs)
-**Status**: Split - PR3a Complete ✅, PR3b Complete ✅
+**Status**: Complete ✅ (PR3a + PR3b + notification preferences)
 **Depends on**: PR2.5 (Backend Auth Architecture)
 
 ### Goals
@@ -392,12 +393,14 @@ See [Authentication & Authorization ADRs](../../docs/adr/04-authentication.md) f
 
 ---
 
-## PR4: Notification Preferences
+## PR4: Notification Enhancements
+
+> **⚠️ SCOPE CHANGE**: Basic notification preferences were integrated in PR3 (users can configure alert preferences during route creation). PR4 can now focus on notification enhancements: notification history/logs UI, notification testing features, notification customization options, or other notification-related improvements.
 
 **Branch**: `feature/phase-10-pr4-notifications`
 **Estimated Time**: 2-3 days
-**Status**: Not Started
-**Depends on**: PR2 (Contacts) + PR3 (Routes)
+**Status**: Awaiting Scope Definition (basic preferences completed in PR3)
+**Depends on**: PR3 (Routes with notification preferences)
 
 ### Goals
 - Configure alert preferences per route
@@ -635,7 +638,7 @@ npm run test:watch
 - [x] Users can authenticate with Auth0
 - [x] Users can manage email/phone contacts with verification
 - [x] Users can create complex multi-segment routes with TfL validation
-- [x] Users can configure notification preferences per route (via PR3b route builder)
+- [x] Users can configure notification preferences per route (integrated in PR3 - CreateRoute.tsx, RouteDetails.tsx)
 - [ ] Admins can view analytics dashboard (pending PR5)
 - [ ] Admins can manage users (pending PR5)
 - [ ] Admins can monitor alerts (pending PR5)
