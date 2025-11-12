@@ -4,6 +4,7 @@ import posixpath
 import uuid
 from collections.abc import AsyncGenerator
 from datetime import UTC, datetime
+from typing import TYPE_CHECKING
 from unittest.mock import AsyncMock, patch
 
 import pytest
@@ -14,6 +15,9 @@ from app.models.tfl import Station
 from app.models.user import User
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
+
+if TYPE_CHECKING:
+    from tests.helpers.types import RailwayNetworkFixture
 
 
 def build_api_url(endpoint: str) -> str:
@@ -61,44 +65,15 @@ class TestGetStationsDeduplicated:
     """Integration tests for GET /tfl/stations?deduplicated parameter."""
 
     @pytest.mark.asyncio
-    async def test_get_stations_deduplicated_false(self, async_client_with_auth: AsyncClient) -> None:
+    async def test_get_stations_deduplicated_false(
+        self, async_client_with_auth: AsyncClient, test_railway_network: "RailwayNetworkFixture"
+    ) -> None:
         """Should return all stations including hub children when deduplicated=false (default)."""
-        # Mock stations with hub children
-        mock_stations = [
-            Station(
-                id=uuid.uuid4(),
-                tfl_id="910GSEVNSIS",
-                name="Seven Sisters (Rail)",
-                latitude=51.58,
-                longitude=-0.07,
-                lines=["overground"],
-                last_updated=datetime(2025, 1, 1, tzinfo=UTC),
-                hub_naptan_code="HUBSVS",
-                hub_common_name="Seven Sisters",
-            ),
-            Station(
-                id=uuid.uuid4(),
-                tfl_id="940GZZLUSVS",
-                name="Seven Sisters",
-                latitude=51.58,
-                longitude=-0.07,
-                lines=["victoria"],
-                last_updated=datetime(2025, 1, 2, tzinfo=UTC),
-                hub_naptan_code="HUBSVS",
-                hub_common_name="Seven Sisters",
-            ),
-            Station(
-                id=uuid.uuid4(),
-                tfl_id="940GZZLUOXC",
-                name="Oxford Circus",
-                latitude=51.52,
-                longitude=-0.14,
-                lines=["piccadilly", "bakerloo"],
-                last_updated=datetime(2025, 1, 3, tzinfo=UTC),
-                hub_naptan_code=None,
-                hub_common_name=None,
-            ),
-        ]
+        # Use test network stations
+        rail = test_railway_network.stations["hubnorth-overground"]
+        tube = test_railway_network.stations["parallel-north"]
+        standalone = test_railway_network.stations["via-bank-1"]
+        mock_stations = [rail, tube, standalone]
 
         with patch("app.services.tfl_service.TfLService.fetch_stations", new_callable=AsyncMock) as mock_fetch:
             mock_fetch.return_value = mock_stations
@@ -115,47 +90,18 @@ class TestGetStationsDeduplicated:
 
             # Verify all original tfl_ids are present
             tfl_ids = {station["tfl_id"] for station in data}
-            assert tfl_ids == {"910GSEVNSIS", "940GZZLUSVS", "940GZZLUOXC"}
+            assert tfl_ids == {"hubnorth-overground", "parallel-north", "via-bank-1"}
 
     @pytest.mark.asyncio
-    async def test_get_stations_deduplicated_true(self, async_client_with_auth: AsyncClient) -> None:
+    async def test_get_stations_deduplicated_true(
+        self, async_client_with_auth: AsyncClient, test_railway_network: "RailwayNetworkFixture"
+    ) -> None:
         """Should return hub-grouped stations when deduplicated=true."""
-        # Mock stations with hub children
-        mock_stations = [
-            Station(
-                id=uuid.uuid4(),
-                tfl_id="910GSEVNSIS",
-                name="Seven Sisters (Rail)",
-                latitude=51.58,
-                longitude=-0.07,
-                lines=["overground"],
-                last_updated=datetime(2025, 1, 1, tzinfo=UTC),
-                hub_naptan_code="HUBSVS",
-                hub_common_name="Seven Sisters",
-            ),
-            Station(
-                id=uuid.uuid4(),
-                tfl_id="940GZZLUSVS",
-                name="Seven Sisters",
-                latitude=51.58,
-                longitude=-0.07,
-                lines=["victoria"],
-                last_updated=datetime(2025, 1, 2, tzinfo=UTC),
-                hub_naptan_code="HUBSVS",
-                hub_common_name="Seven Sisters",
-            ),
-            Station(
-                id=uuid.uuid4(),
-                tfl_id="940GZZLUOXC",
-                name="Oxford Circus",
-                latitude=51.52,
-                longitude=-0.14,
-                lines=["piccadilly", "bakerloo"],
-                last_updated=datetime(2025, 1, 3, tzinfo=UTC),
-                hub_naptan_code=None,
-                hub_common_name=None,
-            ),
-        ]
+        # Use test network stations
+        rail = test_railway_network.stations["hubnorth-overground"]
+        tube = test_railway_network.stations["parallel-north"]
+        standalone = test_railway_network.stations["via-bank-1"]
+        mock_stations = [rail, tube, standalone]
 
         with patch("app.services.tfl_service.TfLService.fetch_stations", new_callable=AsyncMock) as mock_fetch:
             mock_fetch.return_value = mock_stations
@@ -171,115 +117,66 @@ class TestGetStationsDeduplicated:
             assert len(data) == 2
 
             # Find hub representative
-            hub_station = next(s for s in data if s["tfl_id"] == "HUBSVS")
-            assert hub_station["name"] == "Seven Sisters"
-            assert hub_station["hub_naptan_code"] == "HUBSVS"
-            assert hub_station["hub_common_name"] == "Seven Sisters"
+            hub_station = next(s for s in data if s["tfl_id"] == "HUBNORTH")
+            assert hub_station["name"] == "North Interchange"
+            assert hub_station["hub_naptan_code"] == "HUBNORTH"
+            assert hub_station["hub_common_name"] == "North Interchange"
             # Lines should be aggregated and sorted
-            assert hub_station["lines"] == ["overground", "victoria"]
+            assert hub_station["lines"] == ["asymmetricline", "parallelline"]
 
             # Find standalone
-            standalone = next(s for s in data if s["tfl_id"] == "940GZZLUOXC")
-            assert standalone["name"] == "Oxford Circus"
-            assert standalone["hub_naptan_code"] is None
+            standalone_result = next(s for s in data if s["tfl_id"] == "via-bank-1")
+            assert standalone_result["name"] == "Via Bank 1"
+            assert standalone_result["hub_naptan_code"] is None
 
     @pytest.mark.asyncio
-    async def test_get_stations_deduplicated_with_line_filter(self, async_client_with_auth: AsyncClient) -> None:
+    async def test_get_stations_deduplicated_with_line_filter(
+        self, async_client_with_auth: AsyncClient, test_railway_network: "RailwayNetworkFixture"
+    ) -> None:
         """Should fetch all stations, deduplicate, then filter to show hubs with ALL their lines."""
-        # Mock ALL stations including hub children on different lines
-        mock_stations = [
-            # Seven Sisters hub - Tube station on Victoria line
-            Station(
-                id=uuid.uuid4(),
-                tfl_id="940GZZLUSVS",
-                name="Seven Sisters",
-                latitude=51.58,
-                longitude=-0.07,
-                lines=["victoria"],
-                last_updated=datetime(2025, 1, 2, tzinfo=UTC),
-                hub_naptan_code="HUBSVS",
-                hub_common_name="Seven Sisters",
-            ),
-            # Seven Sisters hub - Rail station on Weaver line
-            Station(
-                id=uuid.uuid4(),
-                tfl_id="910GSEVNSIS",
-                name="Seven Sisters (Rail)",
-                latitude=51.58,
-                longitude=-0.07,
-                lines=["weaver"],
-                last_updated=datetime(2025, 1, 1, tzinfo=UTC),
-                hub_naptan_code="HUBSVS",
-                hub_common_name="Seven Sisters",
-            ),
-            # Standalone station on Victoria line
-            Station(
-                id=uuid.uuid4(),
-                tfl_id="940GZZLUOXC",
-                name="Oxford Circus",
-                latitude=51.52,
-                longitude=-0.14,
-                lines=["victoria"],
-                last_updated=datetime(2025, 1, 3, tzinfo=UTC),
-                hub_naptan_code=None,
-                hub_common_name=None,
-            ),
-        ]
+        # Use test network stations - hub with stations on different lines
+        tube = test_railway_network.stations["parallel-north"]  # parallelline
+        rail = test_railway_network.stations["hubnorth-overground"]  # asymmetricline
+        standalone = test_railway_network.stations["via-bank-1"]  # parallelline
+        mock_stations = [tube, rail, standalone]
 
         with patch("app.services.tfl_service.TfLService.fetch_stations", new_callable=AsyncMock) as mock_fetch:
             mock_fetch.return_value = mock_stations
 
-            # Execute with both line_id and deduplicated
+            # Execute with both line_id and deduplicated (filter by parallelline)
             response = await async_client_with_auth.get(
-                build_api_url("/tfl/stations?line_id=victoria&deduplicated=true")
+                build_api_url("/tfl/stations?line_id=parallelline&deduplicated=true")
             )
 
             # Verify
             assert response.status_code == 200
             data = response.json()
 
-            # Should return 2 stations: Seven Sisters hub (serves victoria) + Oxford Circus
+            # Should return 2 stations: North Interchange hub (serves parallelline) + Via Bank 1
             assert len(data) == 2
 
-            # Find Seven Sisters hub in results
-            seven_sisters = next(s for s in data if s["tfl_id"] == "HUBSVS")
-            # Hub should show ALL lines (victoria + weaver), not just victoria
-            assert set(seven_sisters["lines"]) == {"victoria", "weaver"}
-            assert seven_sisters["name"] == "Seven Sisters"
+            # Find North Interchange hub in results
+            north_hub = next(s for s in data if s["tfl_id"] == "HUBNORTH")
+            # Hub should show ALL lines (parallelline + asymmetricline), not just parallelline
+            assert set(north_hub["lines"]) == {"parallelline", "asymmetricline"}
+            assert north_hub["name"] == "North Interchange"
 
-            # Find Oxford Circus
-            oxford_circus = next(s for s in data if s["tfl_id"] == "940GZZLUOXC")
-            assert oxford_circus["lines"] == ["victoria"]
+            # Find Via Bank 1
+            via_bank = next(s for s in data if s["tfl_id"] == "via-bank-1")
+            assert via_bank["lines"] == ["parallelline"]
 
             # Verify fetch_stations was called with line_tfl_id=None (fetch all for deduplication)
             mock_fetch.assert_called_once_with(line_tfl_id=None)
 
     @pytest.mark.asyncio
-    async def test_get_stations_deduplicated_all_standalone(self, async_client_with_auth: AsyncClient) -> None:
+    async def test_get_stations_deduplicated_all_standalone(
+        self, async_client_with_auth: AsyncClient, test_railway_network: "RailwayNetworkFixture"
+    ) -> None:
         """Should return all stations when none are in hubs."""
-        # Mock only standalone stations
-        mock_stations = [
-            Station(
-                id=uuid.uuid4(),
-                tfl_id="940GZZLUOXC",
-                name="Oxford Circus",
-                latitude=51.52,
-                longitude=-0.14,
-                lines=["piccadilly"],
-                last_updated=datetime(2025, 1, 1, tzinfo=UTC),
-                hub_naptan_code=None,
-            ),
-            Station(
-                id=uuid.uuid4(),
-                tfl_id="940GZZLUPCO",
-                name="Piccadilly Circus",
-                latitude=51.51,
-                longitude=-0.13,
-                lines=["piccadilly"],
-                last_updated=datetime(2025, 1, 1, tzinfo=UTC),
-                hub_naptan_code=None,
-            ),
-        ]
+        # Use test network standalone stations
+        station1 = test_railway_network.stations["via-bank-1"]
+        station2 = test_railway_network.stations["via-charing-1"]
+        mock_stations = [station1, station2]
 
         with patch("app.services.tfl_service.TfLService.fetch_stations", new_callable=AsyncMock) as mock_fetch:
             mock_fetch.return_value = mock_stations
@@ -294,7 +191,7 @@ class TestGetStationsDeduplicated:
             # Should return all 2 stations (no hubs to deduplicate)
             assert len(data) == 2
             tfl_ids = {s["tfl_id"] for s in data}
-            assert tfl_ids == {"940GZZLUOXC", "940GZZLUPCO"}
+            assert tfl_ids == {"via-bank-1", "via-charing-1"}
 
     @pytest.mark.asyncio
     async def test_get_stations_deduplicated_empty_list(self, async_client_with_auth: AsyncClient) -> None:
