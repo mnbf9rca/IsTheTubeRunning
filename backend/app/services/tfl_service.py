@@ -13,6 +13,13 @@ from aiocache.serializers import PickleSerializer
 from fastapi import HTTPException, status
 from pydantic_tfl_api import LineClient, StopPointClient
 from pydantic_tfl_api.core import ApiError, ResponseModel
+from pydantic_tfl_api.models import (
+    Disruption,
+    MatchedStop,
+    RouteSection,
+    RouteSequence,
+    StopPoint,
+)
 from sqlalchemy import delete, func, or_, select
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -47,6 +54,13 @@ from app.models.tfl import (
     StopType,
 )
 from app.schemas.tfl import DisruptionResponse, RouteSegmentRequest, StationDisruptionResponse
+from app.types.tfl_api import (
+    LineRoutesResponse,
+    NetworkConnection,
+    RouteVariant,
+    StationRouteInfo,
+    StationRoutesResponse,
+)
 
 logger = structlog.get_logger(__name__)
 
@@ -558,7 +572,7 @@ class TfLService:
                 detail="Failed to fetch stop types from TfL API.",
             ) from e
 
-    async def _extract_hub_fields(self, stop_point: Any) -> tuple[str | None, str | None]:  # noqa: ANN401
+    async def _extract_hub_fields(self, stop_point: StopPoint) -> tuple[str | None, str | None]:
         """
         Extract hub NaPTAN code and fetch hub common name from TfL API.
 
@@ -626,7 +640,7 @@ class TfLService:
 
     def _create_new_station(
         self,
-        stop_point: Any,  # noqa: ANN401
+        stop_point: StopPoint,
         line_tfl_id: str,
         hub_code: str | None,
         hub_name: str | None,
@@ -681,7 +695,7 @@ class TfLService:
 
         # Type narrowing: _handle_api_error raises if response is ApiError, so it's safe here
         ttl = self._extract_cache_ttl(response) or DEFAULT_STATIONS_CACHE_TTL  # type: ignore[arg-type]
-        # response.content is a PlaceArray (RootModel), access via .root
+        # response.content is a StopPointArray (RootModel), access via .root
         stop_points = response.content.root  # type: ignore[union-attr]
 
         stations = []
@@ -923,10 +937,47 @@ class TfLService:
         # Sort alphabetically by name for consistent ordering
         return sorted(result, key=lambda s: s.name)
 
+    def _map_closure_text_to_severity(self, closure_text: str | None) -> int:
+        """
+        Map TfL API closureText field to severity integer.
+
+        The TfL API uses closureText instead of numeric severity levels.
+        This mapping provides backward compatibility with the app's severity system.
+
+        TODO: Replace hardcoded mapping with LineClient.MetaSeverity() API call
+        to fetch official severity mappings from TfL and store in database.
+        See issue #121 for details.
+
+        Args:
+            closure_text: The closureText value from TfL Disruption API
+
+        Returns:
+            Severity level as integer (0-10, higher is better)
+        """
+        severity_mapping = {
+            "severeDelays": 5,
+            "minorDelays": 6,
+            "reducedService": 7,
+            "goodService": 10,
+            "partClosure": 4,
+            "plannedClosure": 3,
+            "partSuspended": 2,
+            "suspended": 1,
+        }
+        result = severity_mapping.get(closure_text or "", None)
+        if result is None:
+            logger.warning(
+                "unmapped_closure_text",
+                closure_text=closure_text,
+                message="Unknown closureText value from TfL API - returning severity 0",
+            )
+            return 0
+        return result
+
     def _extract_disruption_from_route(
         self,
-        disruption_data: Any,  # noqa: ANN401
-        route: Any,  # noqa: ANN401
+        disruption_data: Disruption,
+        route: RouteSection,
     ) -> DisruptionResponse:
         """
         Extract disruption information for a specific route.
@@ -944,7 +995,7 @@ class TfLService:
         return DisruptionResponse(
             line_id=line_id,
             line_name=line_name,
-            status_severity=getattr(disruption_data, "categoryDescriptionDetail", 0),
+            status_severity=self._map_closure_text_to_severity(getattr(disruption_data, "closureText", None)),
             status_severity_description=getattr(disruption_data, "category", "Unknown"),
             reason=getattr(disruption_data, "description", None),
             created_at=getattr(disruption_data, "created", datetime.now(UTC)),
@@ -952,7 +1003,7 @@ class TfLService:
 
     def _process_disruption_data(
         self,
-        disruption_data_list: list[Any],
+        disruption_data_list: list[Disruption],
     ) -> list[DisruptionResponse]:
         """
         Process raw disruption data into structured responses.
@@ -1062,7 +1113,7 @@ class TfLService:
     async def _create_station_disruption(
         self,
         station: Station,
-        disruption_data: Any,  # noqa: ANN401
+        disruption_data: Disruption,
     ) -> StationDisruptionResponse:
         """
         Create station disruption in database and return response.
@@ -1104,7 +1155,7 @@ class TfLService:
             created_at_source=created_at_source,
         )
 
-    async def _lookup_station_for_disruption(self, stop: Any) -> Station | None:  # noqa: ANN401
+    async def _lookup_station_for_disruption(self, stop: StopPoint | MatchedStop) -> Station | None:
         """
         Look up station in database for a disruption stop.
 
@@ -1134,7 +1185,7 @@ class TfLService:
 
     async def _process_station_disruption_data(
         self,
-        disruption_data_list: list[Any],
+        disruption_data_list: list[Disruption],
     ) -> list[StationDisruptionResponse]:
         """
         Process disruption data for a single mode.
@@ -1225,8 +1276,11 @@ class TfLService:
 
                 # Process station disruptions using helper method
                 # response.content is a RootModel array of disruptions, access via .root
+                # Note: pydantic-tfl-api type annotation (DisruptedPointArray) doesn't match
+                # actual runtime data structure (list[Disruption] with affectedStops field).
+                # The type: ignore comments below are needed due to this library limitation.
                 disruption_data_list = response.content.root  # type: ignore[union-attr]
-                mode_disruptions = await self._process_station_disruption_data(disruption_data_list)
+                mode_disruptions = await self._process_station_disruption_data(disruption_data_list)  # type: ignore[arg-type]
                 all_disruptions.extend(mode_disruptions)
 
                 logger.debug("mode_station_disruptions_processed", mode=mode)
@@ -1255,7 +1309,7 @@ class TfLService:
                 detail=f"Failed to fetch station disruptions from TfL API for modes: {modes}",
             ) from e
 
-    def _get_stop_ids(self, stop: Any) -> str | None:  # noqa: ANN401
+    def _get_stop_ids(self, stop: StopPoint | MatchedStop) -> str | None:
         """
         Extract stop ID from stop point data.
 
@@ -1340,8 +1394,8 @@ class TfLService:
 
     async def _process_station_pair(
         self,
-        current_stop: Any,  # noqa: ANN401
-        next_stop: Any,  # noqa: ANN401
+        current_stop: MatchedStop,
+        next_stop: MatchedStop,
         line: Line,
         stations_set: set[str],
         pending_connections: set[tuple[uuid.UUID, uuid.UUID, uuid.UUID]],
@@ -1407,7 +1461,7 @@ class TfLService:
         self,
         line_tfl_id: str,
         direction: str,
-    ) -> Any:  # noqa: ANN401
+    ) -> RouteSequence:
         """
         Fetch route sequence for a line and direction from TfL API.
 
@@ -1443,7 +1497,7 @@ class TfLService:
         direction: str,
         stations_set: set[str],
         pending_connections: set[tuple[uuid.UUID, uuid.UUID, uuid.UUID]],
-    ) -> tuple[int, Any]:
+    ) -> tuple[int, RouteSequence | None]:
         """
         Process route sequence for a line and direction.
 
@@ -1496,8 +1550,8 @@ class TfLService:
     def _store_line_routes(
         self,
         line: Line,
-        inbound_route_data: Any | None,  # noqa: ANN401
-        outbound_route_data: Any | None,  # noqa: ANN401
+        inbound_route_data: RouteSequence | None,
+        outbound_route_data: RouteSequence | None,
     ) -> None:
         """
         Extract and store route variants from RouteSequence data.
@@ -1695,7 +1749,7 @@ class TfLService:
                 detail="Failed to build station graph.",
             ) from e
 
-    async def get_network_graph(self) -> dict[str, list[dict[str, Any]]]:
+    async def get_network_graph(self) -> dict[str, list[NetworkConnection]]:
         """
         Get the station network graph as an adjacency list for GUI route building.
 
@@ -1745,7 +1799,7 @@ class TfLService:
             connections = result.all()
 
             # Build adjacency list
-            graph: dict[str, list[dict[str, Any]]] = {}
+            graph: dict[str, list[NetworkConnection]] = {}
 
             for connection_row in connections:
                 # Access aliased stations using index positions (StationConnection, FromStation, ToStation, Line)
@@ -1759,14 +1813,14 @@ class TfLService:
 
                 # Add connection
                 graph[from_station.tfl_id].append(
-                    {
-                        "station_id": str(to_station.id),
-                        "station_tfl_id": to_station.tfl_id,
-                        "station_name": to_station.name,
-                        "line_id": str(line.id),
-                        "line_tfl_id": line.tfl_id,
-                        "line_name": line.name,
-                    }
+                    NetworkConnection(
+                        station_id=str(to_station.id),
+                        station_tfl_id=to_station.tfl_id,
+                        station_name=to_station.name,
+                        line_id=str(line.id),
+                        line_tfl_id=line.tfl_id,
+                        line_name=line.name,
+                    )
                 )
 
             logger.info("network_graph_fetched", stations_count=len(graph))
@@ -2478,7 +2532,7 @@ class TfLService:
             )
         return False
 
-    async def get_line_routes(self, line_tfl_id: str) -> dict[str, Any] | None:
+    async def get_line_routes(self, line_tfl_id: str) -> LineRoutesResponse | None:
         """
         Get route variants for a specific line.
 
@@ -2512,10 +2566,12 @@ class TfLService:
                 )
 
             # Return line routes data
-            return {
-                "line_tfl_id": line.tfl_id,
-                "routes": line.routes.get("routes", []),
-            }
+            routes_data = line.routes.get("routes", [])
+            route_variants = [RouteVariant(**route) for route in routes_data]
+            return LineRoutesResponse(
+                line_tfl_id=line.tfl_id,
+                routes=route_variants,
+            )
 
         except HTTPException:
             raise
@@ -2526,7 +2582,7 @@ class TfLService:
                 detail=f"Failed to fetch routes for line '{line_tfl_id}'.",
             ) from e
 
-    async def get_station_routes(self, station_tfl_id: str) -> dict[str, Any] | None:
+    async def get_station_routes(self, station_tfl_id: str) -> StationRoutesResponse | None:
         """
         Get all routes passing through a specific station.
 
@@ -2557,33 +2613,33 @@ class TfLService:
             line_tfl_ids = station.lines
             if not line_tfl_ids:
                 # Station exists but has no lines (shouldn't happen, but handle gracefully)
-                return {
-                    "station_tfl_id": station.tfl_id,
-                    "station_name": station.name,
-                    "routes": [],
-                }
+                return StationRoutesResponse(
+                    station_tfl_id=station.tfl_id,
+                    station_name=station.name,
+                    routes=[],
+                )
 
             # Fetch all lines that serve this station
             lines_result = await self.db.execute(select(Line).where(Line.tfl_id.in_(line_tfl_ids)))
             lines: list[Line] = list(lines_result.scalars().all())
 
             # Collect routes that pass through this station
-            station_routes: list[dict[str, str]] = []
+            station_routes: list[StationRouteInfo] = []
             for line in lines:
                 if line.routes is None:
                     continue
 
                 routes = line.routes.get("routes", [])
                 station_routes.extend(
-                    {
-                        "line_tfl_id": line.tfl_id,
-                        "line_name": line.name,
-                        "route_name": route.get("name", "Unknown"),
-                        "service_type": route.get("service_type", "Unknown"),
-                        "direction": route.get("direction", "Unknown"),
-                    }
+                    StationRouteInfo(
+                        line_tfl_id=line.tfl_id,
+                        line_name=line.name,
+                        route_name=route["name"],
+                        service_type=route["service_type"],
+                        direction=route["direction"],
+                    )
                     for route in routes
-                    if station_tfl_id in route.get("stations", [])
+                    if station_tfl_id in route["stations"]
                 )
 
             # Check if any routes were found
@@ -2594,11 +2650,11 @@ class TfLService:
                     detail="Route data has not been built yet. Please contact administrator.",
                 )
 
-            return {
-                "station_tfl_id": station.tfl_id,
-                "station_name": station.name,
-                "routes": station_routes,
-            }
+            return StationRoutesResponse(
+                station_tfl_id=station.tfl_id,
+                station_name=station.name,
+                routes=station_routes,
+            )
 
         except HTTPException:
             raise

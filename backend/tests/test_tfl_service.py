@@ -21,6 +21,9 @@ from fastapi import HTTPException, status
 from freezegun import freeze_time
 from pydantic_tfl_api.core import ApiError
 from pydantic_tfl_api.models import (
+    Disruption as TflDisruption,
+)
+from pydantic_tfl_api.models import (
     Line as TflLine,
 )
 from pydantic_tfl_api.models import (
@@ -100,40 +103,34 @@ def create_mock_disruption(
     category: str = "PlannedWork",
     category_description: str = "Minor Delays",
     description: str = "Station improvements",
-    category_description_detail: int = 6,
+    closure_text: str = "minorDelays",
     affected_routes: list[TflRouteSection] | None = None,
     affected_stops: list[TflStopPoint] | None = None,
     created: datetime | str | None = None,
     **kwargs: Any,  # noqa: ANN401
-) -> Any:  # noqa: ANN401
-    """Factory for TfL Disruption mocks.
+) -> TflDisruption:
+    """Factory for TfL Disruption mocks using actual pydantic model.
 
-    Note: Uses a custom mock class because pydantic_tfl_api.models.Disruption
-    doesn't have the categoryDescriptionDetail field that the TfL service expects.
+    The TfL API uses closureText (e.g., 'severeDelays', 'minorDelays')
+    which is mapped to severity integers by tfl_service._map_closure_text_to_severity().
     """
+    # Convert created to string format if it's a datetime
+    created_str = None
+    if isinstance(created, datetime):
+        created_str = created.isoformat()
+    elif created is not None:
+        created_str = str(created)
 
-    class MockDisruption:
-        """Mock disruption with categoryDescriptionDetail field."""
-
-        def __init__(self) -> None:
-            self.category = category
-            self.categoryDescription = category_description
-            self.categoryDescriptionDetail = category_description_detail
-            self.description = description
-            self.affectedRoutes = affected_routes or []
-            self.affectedStops = affected_stops or []
-            if isinstance(created, datetime):
-                self.created = created
-            elif created is None:
-                self.created = datetime.now(UTC)
-            else:
-                # Assume it's a string, parse it
-                self.created = datetime.fromisoformat(created)
-            # Add any additional kwargs as attributes
-            for key, value in kwargs.items():
-                setattr(self, key, value)
-
-    return MockDisruption()
+    return TflDisruption(
+        category=category,
+        categoryDescription=category_description,
+        closureText=closure_text,
+        description=description,
+        affectedRoutes=affected_routes or [],
+        affectedStops=affected_stops or [],
+        created=created_str,
+        **kwargs,
+    )
 
 
 def create_mock_severity_code(
@@ -1505,7 +1502,7 @@ async def test_fetch_disruptions(
             create_mock_disruption(
                 category="RealTime",
                 category_description="Severe Delays",
-                category_description_detail=5,  # Severity level
+                closure_text="severeDelays",
                 description="Signal failure at King's Cross",
                 affected_routes=[create_mock_route_section(id="victoria", name="Victoria")],
                 created=datetime(2025, 1, 1, 11, 30, 0, tzinfo=UTC),
@@ -1513,7 +1510,7 @@ async def test_fetch_disruptions(
             create_mock_disruption(
                 category="RealTime",
                 category_description="Minor Delays",
-                category_description_detail=6,  # Severity level
+                closure_text="minorDelays",
                 description="Minor delays due to customer incident",
                 affected_routes=[create_mock_route_section(id="northern", name="Northern")],
                 created=datetime(2025, 1, 1, 11, 45, 0, tzinfo=UTC),
@@ -1555,7 +1552,7 @@ async def test_fetch_disruptions_multiple_lines_per_disruption(
             create_mock_disruption(
                 category="RealTime",
                 category_description="Severe Delays",
-                category_description_detail=5,  # Severity level
+                closure_text="severeDelays",
                 description="Signal failure affecting multiple lines",
                 affected_routes=[
                     create_mock_route_section(id="victoria", name="Victoria"),
@@ -1620,7 +1617,7 @@ async def test_fetch_disruptions_cache_miss(
             create_mock_disruption(
                 category="RealTime",
                 category_description="Severe Delays",
-                category_description_detail=5,  # Severity level
+                closure_text="severeDelays",
                 description="Signal failure",
                 affected_routes=[create_mock_route_section(id="victoria", name="Victoria")],
                 created=datetime(2025, 1, 1, 11, 30, 0, tzinfo=UTC),
@@ -1665,7 +1662,7 @@ async def test_fetch_disruptions_without_affected_routes(
             create_mock_disruption(
                 category="RealTime",
                 category_description="Severe Delays",
-                category_description_detail=5,  # Severity level
+                closure_text="severeDelays",
                 description="Signal failure",
                 affected_routes=[create_mock_route_section(id="victoria", name="Victoria")],
                 created=datetime(2025, 1, 1, 11, 30, 0, tzinfo=UTC),
@@ -1677,7 +1674,7 @@ async def test_fetch_disruptions_without_affected_routes(
             def __init__(self, category: str, description: str) -> None:
                 self.category = category
                 self.categoryDescription = "Information"
-                self.categoryDescriptionDetail = 0
+                self.closureText = "goodService"
                 self.description = description
                 # Intentionally no affectedRoutes attribute
 
@@ -1714,16 +1711,16 @@ def test_extract_disruption_from_route(tfl_service: TfLService) -> None:
     # Create mock objects using factory functions
     route = create_mock_route_section(id="victoria", name="Victoria")
 
-    class MockDisruptionWithDetail:
-        """Mock disruption with categoryDescriptionDetail field."""
+    class MockDisruptionWithClosureText:
+        """Mock disruption with closureText field."""
 
         def __init__(self) -> None:
-            self.categoryDescriptionDetail = 5
+            self.closureText = "severeDelays"  # Maps to severity 5
             self.category = "Minor Delays"
             self.description = "Signal failure"
             self.created = datetime(2025, 1, 1, 12, 0, 0, tzinfo=UTC)
 
-    disruption = MockDisruptionWithDetail()
+    disruption = MockDisruptionWithClosureText()
 
     result = tfl_service._extract_disruption_from_route(disruption, route)
 
@@ -1790,7 +1787,7 @@ async def test_fetch_disruptions_multiple_modes(
             create_mock_disruption(
                 category="RealTime",
                 category_description="Severe Delays",
-                category_description_detail=5,
+                closure_text="severeDelays",
                 description="Tube signal failure",
                 affected_routes=[create_mock_route_section(id="victoria", name="Victoria")],
                 created=datetime(2025, 1, 1, 11, 30, 0, tzinfo=UTC),
@@ -1800,7 +1797,7 @@ async def test_fetch_disruptions_multiple_modes(
             create_mock_disruption(
                 category="PlannedWork",
                 category_description="Minor Delays",
-                category_description_detail=6,
+                closure_text="minorDelays",
                 description="Overground engineering works",
                 affected_routes=[create_mock_route_section(id="overground", name="Overground")],
                 created=datetime(2025, 1, 1, 10, 0, 0, tzinfo=UTC),
@@ -1844,7 +1841,7 @@ async def test_fetch_disruptions_default_modes(
             create_mock_disruption(
                 category="RealTime",
                 category_description="Severe Delays",
-                category_description_detail=5,
+                closure_text="severeDelays",
                 description="Tube disruption",
                 affected_routes=[create_mock_route_section(id="victoria", name="Victoria")],
             ),
@@ -1853,7 +1850,7 @@ async def test_fetch_disruptions_default_modes(
             create_mock_disruption(
                 category="PlannedWork",
                 category_description="Part Closure",
-                category_description_detail=7,
+                closure_text="reducedService",
                 description="Overground works",
                 affected_routes=[create_mock_route_section(id="overground", name="Overground")],
             ),
@@ -1863,7 +1860,7 @@ async def test_fetch_disruptions_default_modes(
             create_mock_disruption(
                 category="RealTime",
                 category_description="Minor Delays",
-                category_description_detail=6,
+                closure_text="minorDelays",
                 description="Elizabeth line minor delays",
                 affected_routes=[create_mock_route_section(id="elizabeth", name="Elizabeth line")],
             ),
@@ -4386,17 +4383,17 @@ async def test_get_network_graph_success(
     assert "940GZZLUVIC" in graph
     victoria_connections = graph["940GZZLUVIC"]
     assert len(victoria_connections) == 1
-    assert victoria_connections[0]["station_tfl_id"] == "940GZZLUGPK"
-    assert victoria_connections[0]["station_name"] == "Green Park"
-    assert victoria_connections[0]["line_tfl_id"] == "victoria"
-    assert victoria_connections[0]["line_name"] == "Victoria"
+    assert victoria_connections[0].station_tfl_id == "940GZZLUGPK"
+    assert victoria_connections[0].station_name == "Green Park"
+    assert victoria_connections[0].line_tfl_id == "victoria"
+    assert victoria_connections[0].line_name == "Victoria"
 
     # Verify Green Park station connections
     assert "940GZZLUGPK" in graph
     green_park_connections = graph["940GZZLUGPK"]
     assert len(green_park_connections) == 1
-    assert green_park_connections[0]["station_tfl_id"] == "940GZZLUKSX"
-    assert green_park_connections[0]["line_tfl_id"] == "northern"
+    assert green_park_connections[0].station_tfl_id == "940GZZLUKSX"
+    assert green_park_connections[0].line_tfl_id == "northern"
 
 
 async def test_get_network_graph_no_graph_built(
@@ -5028,12 +5025,12 @@ async def test_get_line_routes_success(db_session: AsyncSession) -> None:
 
     # Verify
     assert result is not None
-    assert result["line_tfl_id"] == "victoria"
-    assert len(result["routes"]) == 1
-    assert result["routes"][0]["name"] == "Route 1"
-    assert result["routes"][0]["service_type"] == "Regular"
-    assert result["routes"][0]["direction"] == "inbound"
-    assert result["routes"][0]["stations"] == ["940GZZLUVIC", "940GZZLUGPK"]
+    assert result.line_tfl_id == "victoria"
+    assert len(result.routes) == 1
+    assert result.routes[0].name == "Route 1"
+    assert result.routes[0].service_type == "Regular"
+    assert result.routes[0].direction == "inbound"
+    assert result.routes[0].stations == ["940GZZLUVIC", "940GZZLUGPK"]
 
 
 async def test_get_line_routes_line_not_found(db_session: AsyncSession) -> None:
@@ -5091,8 +5088,8 @@ async def test_get_line_routes_empty_routes(db_session: AsyncSession) -> None:
 
     # Verify - should return empty routes list
     assert result is not None
-    assert result["line_tfl_id"] == "victoria"
-    assert result["routes"] == []
+    assert result.line_tfl_id == "victoria"
+    assert result.routes == []
 
 
 @patch("app.services.tfl_service.logger")
@@ -5173,25 +5170,25 @@ async def test_get_station_routes_success(db_session: AsyncSession) -> None:
 
     # Verify
     assert result is not None
-    assert result["station_tfl_id"] == "940GZZLUVIC"
-    assert result["station_name"] == "Victoria"
-    assert len(result["routes"]) == 2
+    assert result.station_tfl_id == "940GZZLUVIC"
+    assert result.station_name == "Victoria"
+    assert len(result.routes) == 2
 
     # Find routes by line
-    victoria_route = next(r for r in result["routes"] if r["line_tfl_id"] == "victoria")
-    district_route = next(r for r in result["routes"] if r["line_tfl_id"] == "district")
+    victoria_route = next(r for r in result.routes if r.line_tfl_id == "victoria")
+    district_route = next(r for r in result.routes if r.line_tfl_id == "district")
 
     # Verify Victoria route
-    assert victoria_route["line_name"] == "Victoria"
-    assert victoria_route["route_name"] == "Route 1"
-    assert victoria_route["service_type"] == "Regular"
-    assert victoria_route["direction"] == "inbound"
+    assert victoria_route.line_name == "Victoria"
+    assert victoria_route.route_name == "Route 1"
+    assert victoria_route.service_type == "Regular"
+    assert victoria_route.direction == "inbound"
 
     # Verify District route
-    assert district_route["line_name"] == "District"
-    assert district_route["route_name"] == "Route 2"
-    assert district_route["service_type"] == "Regular"
-    assert district_route["direction"] == "outbound"
+    assert district_route.line_name == "District"
+    assert district_route.route_name == "Route 2"
+    assert district_route.service_type == "Regular"
+    assert district_route.direction == "outbound"
 
 
 async def test_get_station_routes_station_not_found(db_session: AsyncSession) -> None:
@@ -5227,9 +5224,9 @@ async def test_get_station_routes_no_lines(db_session: AsyncSession) -> None:
 
     # Verify - should return empty routes
     assert result is not None
-    assert result["station_tfl_id"] == "940GZZLUVIC"
-    assert result["station_name"] == "Victoria"
-    assert result["routes"] == []
+    assert result.station_tfl_id == "940GZZLUVIC"
+    assert result.station_name == "Victoria"
+    assert result.routes == []
 
 
 async def test_get_station_routes_not_built(db_session: AsyncSession) -> None:
@@ -5346,8 +5343,8 @@ async def test_get_station_routes_multiple_routes_same_line(db_session: AsyncSes
 
     # Verify - should return both routes
     assert result is not None
-    assert len(result["routes"]) == 2
-    route_names = [r["route_name"] for r in result["routes"]]
+    assert len(result.routes) == 2
+    route_names = [r.route_name for r in result.routes]
     assert "Edgware → Morden via Bank" in route_names
     assert "High Barnet → Morden via Bank" in route_names
 
