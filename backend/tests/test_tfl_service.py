@@ -27,6 +27,9 @@ from pydantic_tfl_api.models import (
     Line as TflLine,
 )
 from pydantic_tfl_api.models import (
+    LineStatus as TflLineStatus,
+)
+from pydantic_tfl_api.models import (
     Place as TflPlace,
 )
 from pydantic_tfl_api.models import (
@@ -37,6 +40,9 @@ from pydantic_tfl_api.models import (
 )
 from pydantic_tfl_api.models import (
     StopPoint as TflStopPoint,
+)
+from pydantic_tfl_api.models import (
+    ValidityPeriod as TflValidityPeriod,
 )
 from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -142,6 +148,87 @@ def create_mock_severity_code(
     return TflStatusSeverity(
         severityLevel=severity_level,
         description=description,
+        **kwargs,
+    )
+
+
+def create_mock_validity_period(
+    is_now: bool = True,
+    from_date: str | None = None,
+    to_date: str | None = None,
+    **kwargs: Any,  # noqa: ANN401
+) -> TflValidityPeriod:
+    """Factory for TfL ValidityPeriod mocks using actual pydantic model."""
+    return TflValidityPeriod(
+        isNow=is_now,
+        fromDate=from_date,
+        toDate=to_date,
+        **kwargs,
+    )
+
+
+def create_mock_line_status(
+    status_severity: int = 10,
+    status_severity_description: str = "Good Service",
+    disruption: TflDisruption | None = None,
+    validity_periods: list[TflValidityPeriod] | None = None,
+    reason: str | None = None,
+    created: datetime | str | None = None,
+    **kwargs: Any,  # noqa: ANN401
+) -> TflLineStatus:
+    """Factory for TfL LineStatus mocks using actual pydantic model.
+
+    Args:
+        status_severity: Numeric severity (0-20, with 10 = Good Service)
+        status_severity_description: Human-readable severity description
+        disruption: Optional nested disruption object
+        validity_periods: List of validity periods (defaults to isNow=True if None)
+        reason: Optional reason text
+        created: Creation timestamp
+    """
+    # Convert created to string format if it's a datetime
+    created_str = None
+    if isinstance(created, datetime):
+        created_str = created.isoformat()
+    elif created is not None:
+        created_str = str(created)
+
+    # Default to isNow=True if no validity periods provided
+    if validity_periods is None:
+        validity_periods = [create_mock_validity_period(is_now=True)]
+
+    return TflLineStatus(
+        statusSeverity=status_severity,
+        statusSeverityDescription=status_severity_description,
+        disruption=disruption,
+        validityPeriods=validity_periods,
+        reason=reason,
+        created=created_str,
+        **kwargs,
+    )
+
+
+def create_mock_line_with_status(
+    line_id: str = "victoria",
+    line_name: str = "Victoria",
+    line_statuses: list[TflLineStatus] | None = None,
+    **kwargs: Any,  # noqa: ANN401
+) -> TflLine:
+    """Factory for TfL Line mocks with LineStatus using actual pydantic model.
+
+    Args:
+        line_id: Line ID (e.g., "victoria", "northern")
+        line_name: Line display name
+        line_statuses: List of LineStatus objects (defaults to Good Service if None)
+    """
+    # Default to Good Service if no statuses provided
+    if line_statuses is None:
+        line_statuses = [create_mock_line_status()]
+
+    return TflLine(
+        id=line_id,
+        name=line_name,
+        lineStatuses=line_statuses,
         **kwargs,
     )
 
@@ -1495,29 +1582,60 @@ async def test_fetch_disruptions(
     mock_get_loop: MagicMock,
     tfl_service: TfLService,
 ) -> None:
-    """Test fetching line disruptions from TfL API for a single mode."""
+    """Test fetching line disruptions from TfL API using StatusByIds endpoint."""
     with freeze_time("2025-01-01 12:00:00"):
-        # Setup mock response with disruptions
-        mock_disruptions = [
-            create_mock_disruption(
-                category="RealTime",
-                category_description="Severe Delays",
-                closure_text="severeDelays",
-                description="Signal failure at King's Cross",
-                affected_routes=[create_mock_route_section(id="victoria", name="Victoria")],
-                created=datetime(2025, 1, 1, 11, 30, 0, tzinfo=UTC),
+        # Mock fetch_lines to return line data
+        mock_line_victoria = Line(
+            tfl_id="victoria",
+            name="Victoria",
+            mode="tube",
+        )
+        mock_line_northern = Line(
+            tfl_id="northern",
+            name="Northern",
+            mode="tube",
+        )
+        tfl_service.fetch_lines = AsyncMock(return_value=[mock_line_victoria, mock_line_northern])
+
+        # Setup mock Line objects with LineStatus (from StatusByIds endpoint)
+        mock_lines = [
+            create_mock_line_with_status(
+                line_id="victoria",
+                line_name="Victoria",
+                line_statuses=[
+                    create_mock_line_status(
+                        status_severity=6,
+                        status_severity_description="Severe Delays",
+                        disruption=create_mock_disruption(
+                            category="RealTime",
+                            description="Signal failure at King's Cross",
+                            created=datetime(2025, 1, 1, 11, 30, 0, tzinfo=UTC),
+                        ),
+                        validity_periods=[create_mock_validity_period(is_now=True)],
+                        created=datetime(2025, 1, 1, 11, 30, 0, tzinfo=UTC),
+                    )
+                ],
             ),
-            create_mock_disruption(
-                category="RealTime",
-                category_description="Minor Delays",
-                closure_text="minorDelays",
-                description="Minor delays due to customer incident",
-                affected_routes=[create_mock_route_section(id="northern", name="Northern")],
-                created=datetime(2025, 1, 1, 11, 45, 0, tzinfo=UTC),
+            create_mock_line_with_status(
+                line_id="northern",
+                line_name="Northern",
+                line_statuses=[
+                    create_mock_line_status(
+                        status_severity=9,
+                        status_severity_description="Minor Delays",
+                        disruption=create_mock_disruption(
+                            category="RealTime",
+                            description="Minor delays due to customer incident",
+                            created=datetime(2025, 1, 1, 11, 45, 0, tzinfo=UTC),
+                        ),
+                        validity_periods=[create_mock_validity_period(is_now=True)],
+                        created=datetime(2025, 1, 1, 11, 45, 0, tzinfo=UTC),
+                    )
+                ],
             ),
         ]
         mock_response = MockResponse(
-            data=mock_disruptions,
+            data=mock_lines,
             shared_expires=datetime(2025, 1, 1, 12, 2, 0, tzinfo=UTC),  # 2 minutes TTL
         )
 
@@ -1532,53 +1650,12 @@ async def test_fetch_disruptions(
         # Verify
         assert len(disruptions) == 2
         assert disruptions[0].line_id == "victoria"
-        assert disruptions[0].status_severity == 5
-        assert disruptions[0].status_severity_description == "RealTime"
+        assert disruptions[0].status_severity == 6  # Direct from API
+        assert disruptions[0].status_severity_description == "Severe Delays"
         assert disruptions[0].reason == "Signal failure at King's Cross"
         assert disruptions[1].line_id == "northern"
-        assert disruptions[1].status_severity == 6
-        assert disruptions[1].status_severity_description == "RealTime"
-
-
-@patch("asyncio.get_running_loop")
-async def test_fetch_disruptions_multiple_lines_per_disruption(
-    mock_get_loop: MagicMock,
-    tfl_service: TfLService,
-) -> None:
-    """Test that disruptions affecting multiple lines create separate responses for each line."""
-    with freeze_time("2025-01-01 12:00:00"):
-        # Setup mock response with one disruption affecting multiple lines
-        mock_disruptions = [
-            create_mock_disruption(
-                category="RealTime",
-                category_description="Severe Delays",
-                closure_text="severeDelays",
-                description="Signal failure affecting multiple lines",
-                affected_routes=[
-                    create_mock_route_section(id="victoria", name="Victoria"),
-                    create_mock_route_section(id="northern", name="Northern"),
-                ],
-                created=datetime(2025, 1, 1, 11, 30, 0, tzinfo=UTC),
-            ),
-        ]
-        mock_response = MockResponse(
-            data=mock_disruptions,
-            shared_expires=datetime(2025, 1, 1, 12, 2, 0, tzinfo=UTC),
-        )
-
-        # Mock the event loop and executor
-        mock_loop = AsyncMock()
-        mock_loop.run_in_executor = AsyncMock(return_value=mock_response)
-        mock_get_loop.return_value = mock_loop
-
-        # Execute with single mode
-        disruptions = await tfl_service.fetch_line_disruptions(modes=["tube"], use_cache=False)
-
-        # Verify - should create separate disruption response for each affected line
-        assert len(disruptions) == 2
-        line_ids = {d.line_id for d in disruptions}
-        assert "victoria" in line_ids
-        assert "northern" in line_ids
+        assert disruptions[1].status_severity == 9  # Direct from API
+        assert disruptions[1].status_severity_description == "Minor Delays"
 
 
 async def test_fetch_disruptions_cache_hit(tfl_service: TfLService) -> None:
@@ -1612,19 +1689,32 @@ async def test_fetch_disruptions_cache_miss(
 ) -> None:
     """Test fetching line disruptions from API when cache is enabled but empty (single mode)."""
     with freeze_time("2025-01-01 12:00:00"):
-        # Setup mock response
-        mock_disruptions = [
-            create_mock_disruption(
-                category="RealTime",
-                category_description="Severe Delays",
-                closure_text="severeDelays",
-                description="Signal failure",
-                affected_routes=[create_mock_route_section(id="victoria", name="Victoria")],
-                created=datetime(2025, 1, 1, 11, 30, 0, tzinfo=UTC),
-            ),
+        # Mock fetch_lines
+        mock_line = Line(tfl_id="victoria", name="Victoria", mode="tube")
+        tfl_service.fetch_lines = AsyncMock(return_value=[mock_line])
+
+        # Setup mock Line with LineStatus
+        mock_lines = [
+            create_mock_line_with_status(
+                line_id="victoria",
+                line_name="Victoria",
+                line_statuses=[
+                    create_mock_line_status(
+                        status_severity=6,
+                        status_severity_description="Severe Delays",
+                        disruption=create_mock_disruption(
+                            category="RealTime",
+                            description="Signal failure",
+                            created=datetime(2025, 1, 1, 11, 30, 0, tzinfo=UTC),
+                        ),
+                        validity_periods=[create_mock_validity_period(is_now=True)],
+                        created=datetime(2025, 1, 1, 11, 30, 0, tzinfo=UTC),
+                    )
+                ],
+            )
         ]
         mock_response = MockResponse(
-            data=mock_disruptions,
+            data=mock_lines,
             shared_expires=datetime(2025, 1, 1, 12, 2, 0, tzinfo=UTC),
         )
 
@@ -1655,40 +1745,45 @@ async def test_fetch_disruptions_without_affected_routes(
     mock_get_loop: MagicMock,
     tfl_service: TfLService,
 ) -> None:
-    """Test fetching disruptions when some disruptions don't have affectedRoutes."""
+    """Test fetching line statuses returns ALL severities (including Good Service)."""
     with freeze_time("2025-01-01 12:00:00"):
-        # Setup mock response with mix of disruptions with/without affectedRoutes
-        mock_disruptions = [
-            create_mock_disruption(
-                category="RealTime",
-                category_description="Severe Delays",
-                closure_text="severeDelays",
-                description="Signal failure",
-                affected_routes=[create_mock_route_section(id="victoria", name="Victoria")],
-                created=datetime(2025, 1, 1, 11, 30, 0, tzinfo=UTC),
+        # Mock fetch_lines to return two lines
+        mock_line_victoria = Line(tfl_id="victoria", name="Victoria", mode="tube")
+        mock_line_central = Line(tfl_id="central", name="Central", mode="tube")
+        tfl_service.fetch_lines = AsyncMock(return_value=[mock_line_victoria, mock_line_central])
+
+        # Setup mock: Victoria has disruption, Central has Good Service
+        mock_lines = [
+            create_mock_line_with_status(
+                line_id="victoria",
+                line_name="Victoria",
+                line_statuses=[
+                    create_mock_line_status(
+                        status_severity=6,
+                        status_severity_description="Severe Delays",
+                        disruption=create_mock_disruption(
+                            category="RealTime",
+                            description="Signal failure",
+                            created=datetime(2025, 1, 1, 11, 30, 0, tzinfo=UTC),
+                        ),
+                        validity_periods=[create_mock_validity_period(is_now=True)],
+                    )
+                ],
+            ),
+            create_mock_line_with_status(
+                line_id="central",
+                line_name="Central",
+                line_statuses=[
+                    create_mock_line_status(
+                        status_severity=10,  # Good Service - also returned
+                        status_severity_description="Good Service",
+                        validity_periods=[create_mock_validity_period(is_now=True)],
+                    )
+                ],
             ),
         ]
-
-        # Create a disruption without affectedRoutes attribute
-        class DisruptionWithoutRoutes:
-            def __init__(self, category: str, description: str) -> None:
-                self.category = category
-                self.categoryDescription = "Information"
-                self.closureText = "goodService"
-                self.description = description
-                # Intentionally no affectedRoutes attribute
-
-        central_disruption = DisruptionWithoutRoutes(
-            category="Information",
-            description="Planned engineering works",
-        )
-
-        mock_status_data = [
-            mock_disruptions[0],  # Has affectedRoutes
-            central_disruption,  # No affectedRoutes attribute
-        ]
         mock_response = MockResponse(
-            data=mock_status_data,
+            data=mock_lines,
             shared_expires=datetime(2025, 1, 1, 12, 2, 0, tzinfo=UTC),
         )
 
@@ -1697,82 +1792,15 @@ async def test_fetch_disruptions_without_affected_routes(
         mock_loop.run_in_executor = AsyncMock(return_value=mock_response)
         mock_get_loop.return_value = mock_loop
 
-        # Execute with single mode
+        # Execute
         disruptions = await tfl_service.fetch_line_disruptions(modes=["tube"], use_cache=False)
 
-        # Verify - only disruption with affectedRoutes should be included
-        assert len(disruptions) == 1
+        # Verify - BOTH lines returned (no filtering by severity)
+        assert len(disruptions) == 2
         assert disruptions[0].line_id == "victoria"
-
-
-def test_extract_disruption_from_route(tfl_service: TfLService) -> None:
-    """Test extraction of single disruption from route data."""
-
-    # Create mock objects using factory functions
-    route = create_mock_route_section(id="victoria", name="Victoria")
-
-    class MockDisruptionWithClosureText:
-        """Mock disruption with closureText field."""
-
-        def __init__(self) -> None:
-            self.closureText = "severeDelays"  # Maps to severity 5
-            self.category = "Minor Delays"
-            self.description = "Signal failure"
-            self.created = datetime(2025, 1, 1, 12, 0, 0, tzinfo=UTC)
-
-    disruption = MockDisruptionWithClosureText()
-
-    result = tfl_service._extract_disruption_from_route(disruption, route)
-
-    assert result.line_id == "victoria"
-    assert result.line_name == "Victoria"
-    assert result.status_severity == 5
-    assert result.status_severity_description == "Minor Delays"
-    assert result.reason == "Signal failure"
-    assert result.created_at == datetime(2025, 1, 1, 12, 0, 0, tzinfo=UTC)
-
-
-def test_extract_disruption_from_route_missing_fields(tfl_service: TfLService) -> None:
-    """Test extraction handles missing optional fields gracefully."""
-
-    # Create mock objects with minimal attributes (no TfL API fields)
-    class EmptyMockRoute:
-        """Mock route with no fields."""
-
-        pass
-
-    class EmptyMockDisruption:
-        """Mock disruption with no fields."""
-
-        pass
-
-    route = EmptyMockRoute()
-    disruption = EmptyMockDisruption()
-
-    result = tfl_service._extract_disruption_from_route(disruption, route)
-
-    assert result.line_id == "unknown"
-    assert result.line_name == "Unknown"
-    assert result.status_severity == 0
-    assert result.status_severity_description == "Unknown"
-    assert result.reason is None
-    assert isinstance(result.created_at, datetime)
-
-
-def test_process_disruption_data_empty_list(tfl_service: TfLService) -> None:
-    """Test processing empty disruption list."""
-    result = tfl_service._process_disruption_data([])
-    assert result == []
-
-
-def test_process_disruption_data_no_affected_routes(tfl_service: TfLService) -> None:
-    """Test processing disruptions without affectedRoutes."""
-
-    class MockDisruption:
-        pass  # No affectedRoutes attribute
-
-    result = tfl_service._process_disruption_data([MockDisruption()])
-    assert result == []
+        assert disruptions[0].status_severity == 6
+        assert disruptions[1].line_id == "central"
+        assert disruptions[1].status_severity == 10
 
 
 @patch("asyncio.get_running_loop")
@@ -1782,36 +1810,54 @@ async def test_fetch_disruptions_multiple_modes(
 ) -> None:
     """Test fetching disruptions from multiple transport modes."""
     with freeze_time("2025-01-01 12:00:00"):
-        # Setup mock responses for each mode
-        mock_tube_disruptions = [
-            create_mock_disruption(
-                category="RealTime",
-                category_description="Severe Delays",
-                closure_text="severeDelays",
-                description="Tube signal failure",
-                affected_routes=[create_mock_route_section(id="victoria", name="Victoria")],
-                created=datetime(2025, 1, 1, 11, 30, 0, tzinfo=UTC),
-            ),
-        ]
-        mock_overground_disruptions = [
-            create_mock_disruption(
-                category="PlannedWork",
-                category_description="Minor Delays",
-                closure_text="minorDelays",
-                description="Overground engineering works",
-                affected_routes=[create_mock_route_section(id="overground", name="Overground")],
-                created=datetime(2025, 1, 1, 10, 0, 0, tzinfo=UTC),
-            ),
-        ]
+        # Mock fetch_lines to return lines from both modes
+        mock_line_victoria = Line(tfl_id="victoria", name="Victoria", mode="tube")
+        mock_line_overground = Line(tfl_id="london-overground", name="London Overground", mode="overground")
+        tfl_service.fetch_lines = AsyncMock(return_value=[mock_line_victoria, mock_line_overground])
 
-        mock_responses = [
-            MockResponse(data=mock_tube_disruptions, shared_expires=datetime(2025, 1, 1, 12, 2, 0, tzinfo=UTC)),
-            MockResponse(data=mock_overground_disruptions, shared_expires=datetime(2025, 1, 1, 12, 2, 0, tzinfo=UTC)),
+        # Setup mock with disruptions from both modes
+        mock_lines = [
+            create_mock_line_with_status(
+                line_id="victoria",
+                line_name="Victoria",
+                line_statuses=[
+                    create_mock_line_status(
+                        status_severity=6,
+                        status_severity_description="Severe Delays",
+                        disruption=create_mock_disruption(
+                            category="RealTime",
+                            description="Tube signal failure",
+                            created=datetime(2025, 1, 1, 11, 30, 0, tzinfo=UTC),
+                        ),
+                        validity_periods=[create_mock_validity_period(is_now=True)],
+                    )
+                ],
+            ),
+            create_mock_line_with_status(
+                line_id="london-overground",
+                line_name="London Overground",
+                line_statuses=[
+                    create_mock_line_status(
+                        status_severity=9,
+                        status_severity_description="Minor Delays",
+                        disruption=create_mock_disruption(
+                            category="PlannedWork",
+                            description="Overground engineering works",
+                            created=datetime(2025, 1, 1, 10, 0, 0, tzinfo=UTC),
+                        ),
+                        validity_periods=[create_mock_validity_period(is_now=True)],
+                    )
+                ],
+            ),
         ]
+        mock_response = MockResponse(
+            data=mock_lines,
+            shared_expires=datetime(2025, 1, 1, 12, 2, 0, tzinfo=UTC),
+        )
 
         # Mock the event loop and executor
         mock_loop = AsyncMock()
-        mock_loop.run_in_executor = AsyncMock(side_effect=mock_responses)
+        mock_loop.run_in_executor = AsyncMock(return_value=mock_response)
         mock_get_loop.return_value = mock_loop
 
         # Execute with multiple modes
@@ -1821,7 +1867,7 @@ async def test_fetch_disruptions_multiple_modes(
         assert len(disruptions) == 2
         line_ids = {d.line_id for d in disruptions}
         assert "victoria" in line_ids
-        assert "overground" in line_ids
+        assert "london-overground" in line_ids
 
         # Verify cache key includes both modes (sorted)
         expected_cache_key = "line_disruptions:modes:overground,tube"
@@ -1836,56 +1882,93 @@ async def test_fetch_disruptions_default_modes(
 ) -> None:
     """Test fetching disruptions with default modes (tube, overground, dlr, elizabeth-line)."""
     with freeze_time("2025-01-01 12:00:00"):
-        # Setup mock responses for all default modes
-        mock_tube = [
-            create_mock_disruption(
-                category="RealTime",
-                category_description="Severe Delays",
-                closure_text="severeDelays",
-                description="Tube disruption",
-                affected_routes=[create_mock_route_section(id="victoria", name="Victoria")],
-            ),
+        # Mock fetch_lines to return lines from all default modes
+        mock_lines_db = [
+            Line(tfl_id="victoria", name="Victoria", mode="tube"),
+            Line(tfl_id="london-overground", name="London Overground", mode="overground"),
+            Line(tfl_id="dlr", name="DLR", mode="dlr"),
+            Line(tfl_id="elizabeth", name="Elizabeth line", mode="elizabeth-line"),
         ]
-        mock_overground = [
-            create_mock_disruption(
-                category="PlannedWork",
-                category_description="Part Closure",
-                closure_text="reducedService",
-                description="Overground works",
-                affected_routes=[create_mock_route_section(id="overground", name="Overground")],
-            ),
-        ]
-        mock_dlr: list[Any] = []  # No disruptions on DLR
-        mock_elizabeth = [
-            create_mock_disruption(
-                category="RealTime",
-                category_description="Minor Delays",
-                closure_text="minorDelays",
-                description="Elizabeth line minor delays",
-                affected_routes=[create_mock_route_section(id="elizabeth", name="Elizabeth line")],
-            ),
-        ]
+        tfl_service.fetch_lines = AsyncMock(return_value=mock_lines_db)
 
-        mock_responses = [
-            MockResponse(data=mock_tube, shared_expires=datetime(2025, 1, 1, 12, 2, 0, tzinfo=UTC)),
-            MockResponse(data=mock_overground, shared_expires=datetime(2025, 1, 1, 12, 2, 0, tzinfo=UTC)),
-            MockResponse(data=mock_dlr, shared_expires=datetime(2025, 1, 1, 12, 2, 0, tzinfo=UTC)),
-            MockResponse(data=mock_elizabeth, shared_expires=datetime(2025, 1, 1, 12, 2, 0, tzinfo=UTC)),
+        # Setup mock LineStatus for all modes
+        mock_lines = [
+            create_mock_line_with_status(
+                line_id="victoria",
+                line_name="Victoria",
+                line_statuses=[
+                    create_mock_line_status(
+                        status_severity=6,
+                        status_severity_description="Severe Delays",
+                        disruption=create_mock_disruption(
+                            category="RealTime",
+                            description="Tube disruption",
+                        ),
+                        validity_periods=[create_mock_validity_period(is_now=True)],
+                    )
+                ],
+            ),
+            create_mock_line_with_status(
+                line_id="london-overground",
+                line_name="London Overground",
+                line_statuses=[
+                    create_mock_line_status(
+                        status_severity=7,
+                        status_severity_description="Reduced Service",
+                        disruption=create_mock_disruption(
+                            category="PlannedWork",
+                            description="Overground works",
+                        ),
+                        validity_periods=[create_mock_validity_period(is_now=True)],
+                    )
+                ],
+            ),
+            create_mock_line_with_status(
+                line_id="dlr",
+                line_name="DLR",
+                line_statuses=[
+                    create_mock_line_status(
+                        status_severity=10,  # Good Service
+                        status_severity_description="Good Service",
+                        validity_periods=[create_mock_validity_period(is_now=True)],
+                    )
+                ],
+            ),
+            create_mock_line_with_status(
+                line_id="elizabeth",
+                line_name="Elizabeth line",
+                line_statuses=[
+                    create_mock_line_status(
+                        status_severity=9,
+                        status_severity_description="Minor Delays",
+                        disruption=create_mock_disruption(
+                            category="RealTime",
+                            description="Elizabeth line minor delays",
+                        ),
+                        validity_periods=[create_mock_validity_period(is_now=True)],
+                    )
+                ],
+            ),
         ]
+        mock_response = MockResponse(
+            data=mock_lines,
+            shared_expires=datetime(2025, 1, 1, 12, 2, 0, tzinfo=UTC),
+        )
 
         # Mock the event loop and executor
         mock_loop = AsyncMock()
-        mock_loop.run_in_executor = AsyncMock(side_effect=mock_responses)
+        mock_loop.run_in_executor = AsyncMock(return_value=mock_response)
         mock_get_loop.return_value = mock_loop
 
         # Execute with default modes (None)
         disruptions = await tfl_service.fetch_line_disruptions(use_cache=False)
 
-        # Verify we got disruptions from all modes that have them
-        assert len(disruptions) == 3  # victoria, overground, elizabeth
+        # Verify we got statuses from ALL lines (including DLR Good Service)
+        assert len(disruptions) == 4  # victoria, overground, dlr, elizabeth
         line_ids = {d.line_id for d in disruptions}
         assert "victoria" in line_ids
-        assert "overground" in line_ids
+        assert "london-overground" in line_ids
+        assert "dlr" in line_ids
         assert "elizabeth" in line_ids
 
         # Verify cache key uses default modes (sorted)
@@ -5644,8 +5727,15 @@ async def test_fetch_line_disruptions_generic_exception(
     mock_get_loop: MagicMock,
     tfl_service: TfLService,
 ) -> None:
-    """Test fetch_line_disruptions wraps generic exceptions (covers lines 850-852)."""
-    # Mock executor to raise a generic exception
+    """Test fetch_line_disruptions wraps generic exceptions (covers lines 1140-1147)."""
+    # Mock fetch_lines to succeed
+    mock_lines_db = [
+        Line(tfl_id="victoria", name="Victoria", mode="tube"),
+        Line(tfl_id="dlr", name="DLR", mode="dlr"),
+    ]
+    tfl_service.fetch_lines = AsyncMock(return_value=mock_lines_db)
+
+    # Mock executor to raise a generic exception when calling StatusByIds
     mock_loop = AsyncMock()
     mock_loop.run_in_executor = AsyncMock(side_effect=ValueError("Invalid data format"))
     mock_get_loop.return_value = mock_loop

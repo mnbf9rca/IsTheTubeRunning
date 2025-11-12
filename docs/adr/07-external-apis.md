@@ -147,6 +147,31 @@ Extend TfL API integration to support multiple transport modes. Methods `fetch_l
 
 ---
 
+## StatusByIds over DisruptionByMode Endpoint
+
+### Status
+Active (Issue #121, 2025-01-12)
+
+### Context
+TfL API provides two endpoints for fetching disruption data: `/Line/Mode/{mode}/Disruption` and `/Line/{ids}/Status`. The Disruption endpoint returns only disruption objects, while Status provides `LineStatus` objects containing structured severity levels (0-20 scale) with `statusSeverity` and `statusSeverityDescription` fields. Initial implementation used Disruption endpoint which required hardcoded mapping from `closureText` strings ("severeDelays") to severity integers - this mapping was incomplete and incorrect.
+
+### Decision
+Use `/Line/{ids}/Status` endpoint (`StatusByIdsByPathIdsQueryDetail`) instead of `/Line/Mode/{mode}/Disruption`. Fetch line IDs via `fetch_lines()`, join with commas, make single Status API call per request. Extract `statusSeverity` integer directly from `LineStatus` objects - no mapping needed. Filter disruptions by `validityPeriods[].isNow == true` for currently active issues. Filter lines with `statusSeverity >= 10` (Good Service).
+
+### Consequences
+**Easier:**
+- No hardcoded severity mappings - API provides authoritative numeric values
+- Complete disruption data (Status endpoint returns PlannedWork + RealTime simultaneously)
+- Time validity filtering via `isNow` flag (know which disruptions are currently active)
+- Structured severity scale (0-20) matches TfL's official MetaSeverity codes
+- More accurate data (real-world testing showed Disruption endpoint missed planned closures)
+
+**More Difficult:**
+- Requires fetching line IDs first (extra `fetch_lines()` call)
+- Data structure is nested (`LineStatus.disruption` vs flat `Disruption`)
+- Test mocks more complex (mock Line with nested LineStatus and ValidityPeriod)
+- Different response shape requires updated test fixtures
+
 ## Route Sequence Validation for Branch-Aware Paths
 
 ### Status
