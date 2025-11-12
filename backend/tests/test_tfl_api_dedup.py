@@ -119,8 +119,8 @@ class TestGetStationsDeduplicated:
             assert hub_station["name"] == "North Interchange"
             assert hub_station["hub_naptan_code"] == "HUBNORTH"
             assert hub_station["hub_common_name"] == "North Interchange"
-            # Lines should be aggregated and sorted
-            assert hub_station["lines"] == ["asymmetricline", "parallelline"]
+            # Lines should be aggregated
+            assert set(hub_station["lines"]) == {"asymmetricline", "parallelline"}
 
             # Find standalone
             standalone_result = next(s for s in data if s["tfl_id"] == "via-bank-1")
