@@ -16,6 +16,7 @@ from httpx import AsyncClient
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from tests.helpers.railway_network import create_test_station
 from tests.helpers.types import RailwayNetworkFixture
 
 
@@ -36,13 +37,10 @@ class TestRoutesAPI:
     @pytest.fixture
     async def test_station1(self, db_session: AsyncSession) -> Station:
         """Create a test station."""
-        station = Station(
-            tfl_id="940GZZLUOXC",
-            name="Oxford Circus",
-            latitude=51.515,
-            longitude=-0.141,
-            lines=["central", "victoria"],
-            last_updated=datetime.now(UTC),
+        station = create_test_station(
+            tfl_id="test-station-1",
+            name="Test Station 1",
+            lines=["test-line-1", "test-line-2"],
         )
         db_session.add(station)
         await db_session.commit()
@@ -52,13 +50,10 @@ class TestRoutesAPI:
     @pytest.fixture
     async def test_station2(self, db_session: AsyncSession) -> Station:
         """Create a second test station."""
-        station = Station(
-            tfl_id="940GZZLUBND",
-            name="Bond Street",
-            latitude=51.514,
-            longitude=-0.149,
-            lines=["central", "jubilee"],
-            last_updated=datetime.now(UTC),
+        station = create_test_station(
+            tfl_id="test-station-2",
+            name="Test Station 2",
+            lines=["test-line-1", "test-line-3"],
         )
         db_session.add(station)
         await db_session.commit()
@@ -68,13 +63,10 @@ class TestRoutesAPI:
     @pytest.fixture
     async def test_station3(self, db_session: AsyncSession) -> Station:
         """Create a third test station."""
-        station = Station(
-            tfl_id="940GZZLUTCR",
-            name="Tottenham Court Road",
-            latitude=51.516,
-            longitude=-0.130,
-            lines=["central", "northern"],
-            last_updated=datetime.now(UTC),
+        station = create_test_station(
+            tfl_id="test-station-3",
+            name="Test Station 3",
+            lines=["test-line-1", "test-line-4"],
         )
         db_session.add(station)
         await db_session.commit()
