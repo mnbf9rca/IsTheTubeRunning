@@ -13,6 +13,8 @@ The `TestRailwayNetwork` class in `/backend/tests/helpers/railway_network.py` pr
 **Why This Network?**
 This fictional network makes tests self-documenting and easier to understand. Instead of memorizing real TfL station names and relationships, tests use descriptive station names like `fork-junction` and `parallel-split` that clearly indicate their purpose.
 
+Note: a "hub" is defined (in NaTPAN) as a multi-mode interchange (stations serving different transport modes), while "shared stations" serve multiple lines of the same mode. A station on multiple lines of the same mode is NOT a hub.
+
 ---
 
 ## Network Diagram
