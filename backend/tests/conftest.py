@@ -14,7 +14,7 @@ from contextlib import suppress
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, TypedDict
+from typing import Any
 from unittest.mock import AsyncMock
 from urllib.parse import quote_plus, urlunparse
 
@@ -29,7 +29,7 @@ from app.main import app
 from app.models.admin import AdminRole, AdminUser
 
 # Import for type hints in test factories
-from app.models.tfl import Line, Station, StationConnection
+from app.models.tfl import Station
 from app.models.user import User
 from app.services.alert_service import AlertService
 from fastapi.testclient import TestClient
@@ -42,17 +42,9 @@ from sqlalchemy.orm.session import SessionTransaction
 from sqlalchemy.pool import NullPool
 
 from tests.helpers.jwt_helpers import MockJWTGenerator
+from tests.helpers.network_helpers import build_connections_from_routes
 from tests.helpers.railway_network import TestRailwayNetwork
-
-
-class RailwayNetworkFixture(TypedDict):
-    """Type definition for test_railway_network fixture return value."""
-
-    stations: dict[str, Station]
-    lines: dict[str, Line]
-    hubs: dict[str, list[Station]]
-    connections: list[StationConnection]
-    stats: dict[str, int]
+from tests.helpers.types import RailwayNetworkFixture
 
 
 @dataclass
@@ -537,44 +529,6 @@ def settings_fixture() -> Settings:
 # TestRailwayNetwork and create_test_station are imported at the top of this file
 
 
-def _build_connections_from_routes(line: Line, station_id_map: dict[str, uuid.UUID]) -> list[StationConnection]:
-    """
-    Build bidirectional StationConnection records from a line's route sequences.
-
-    Processes all route variants for a line and creates connections between
-    consecutive stations. Uses a set to deduplicate connections that appear
-    in multiple routes (e.g., shared trunk sections).
-
-    Args:
-        line: Line object with routes JSON containing station sequences
-        station_id_map: Mapping of tfl_id (str) to station.id (UUID)
-
-    Returns:
-        List of StationConnection objects (bidirectional, deduplicated)
-    """
-    connections_set: set[tuple[uuid.UUID, uuid.UUID, uuid.UUID]] = set()
-
-    for route in line.routes["routes"]:
-        stations = route["stations"]
-        for i in range(len(stations) - 1):
-            from_tfl_id = stations[i]
-            to_tfl_id = stations[i + 1]
-
-            # Get UUIDs from mapping
-            from_id = station_id_map[from_tfl_id]
-            to_id = station_id_map[to_tfl_id]
-
-            # Create bidirectional connections
-            connections_set.add((from_id, to_id, line.id))
-            connections_set.add((to_id, from_id, line.id))
-
-    # Convert set to list of StationConnection objects
-    return [
-        StationConnection(from_station_id=from_id, to_station_id=to_id, line_id=line_id)
-        for from_id, to_id, line_id in connections_set
-    ]
-
-
 @pytest.fixture
 async def test_railway_network(db_session: AsyncSession) -> RailwayNetworkFixture:
     """
@@ -678,7 +632,7 @@ async def test_railway_network(db_session: AsyncSession) -> RailwayNetworkFixtur
     # 5. Build StationConnection graph
     all_connections = []
     for line in lines_list:
-        connections = _build_connections_from_routes(line, station_id_map)
+        connections = build_connections_from_routes(line, station_id_map)
         all_connections.extend(connections)
 
     # 6. Add connections to session
@@ -707,10 +661,10 @@ async def test_railway_network(db_session: AsyncSession) -> RailwayNetworkFixtur
         "connections_count": len(all_connections),
     }
 
-    return {
-        "stations": stations_dict,
-        "lines": lines_dict,
-        "hubs": hubs_dict,
-        "connections": all_connections,
-        "stats": stats,
-    }
+    return RailwayNetworkFixture(
+        stations=stations_dict,
+        lines=lines_dict,
+        hubs=hubs_dict,
+        connections=all_connections,
+        stats=stats,
+    )

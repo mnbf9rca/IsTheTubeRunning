@@ -16,7 +16,7 @@ from httpx import AsyncClient
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from tests.conftest import RailwayNetworkFixture
+from tests.helpers.types import RailwayNetworkFixture
 
 
 class TestRoutesAPI:

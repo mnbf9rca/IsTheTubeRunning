@@ -7,7 +7,6 @@ lines, hubs, and StationConnection graph as expected.
 
 import pytest
 
-from tests.conftest import RailwayNetworkFixture
 from tests.helpers.network_helpers import (
     get_connections_for_line,
     get_hub_stations,
@@ -16,6 +15,7 @@ from tests.helpers.network_helpers import (
     get_stations_on_line,
 )
 from tests.helpers.railway_network import TestRailwayNetwork
+from tests.helpers.types import RailwayNetworkFixture
 
 
 class TestRailwayNetworkFixture:
@@ -24,15 +24,15 @@ class TestRailwayNetworkFixture:
     def test_fixture_builds_successfully(self, test_railway_network: RailwayNetworkFixture):
         """Verify fixture builds without errors."""
         assert test_railway_network is not None
-        assert "stations" in test_railway_network
-        assert "lines" in test_railway_network
-        assert "hubs" in test_railway_network
-        assert "connections" in test_railway_network
-        assert "stats" in test_railway_network
+        assert test_railway_network.stations is not None
+        assert test_railway_network.lines is not None
+        assert test_railway_network.hubs is not None
+        assert test_railway_network.connections is not None
+        assert test_railway_network.stats is not None
 
     def test_network_has_expected_counts(self, test_railway_network: RailwayNetworkFixture):
         """Verify fixture contains expected number of entities."""
-        stats = test_railway_network["stats"]
+        stats = test_railway_network.stats
 
         # 49 stations (6 deprecated + 43 new network)
         assert stats["stations_count"] == 49
@@ -49,7 +49,7 @@ class TestRailwayNetworkFixture:
 
     def test_network_has_all_expected_stations(self, test_railway_network: RailwayNetworkFixture):
         """Verify all expected stations exist in network."""
-        stations = test_railway_network["stations"]
+        stations = test_railway_network.stations
 
         # Check new network stations (sample)
         assert "parallel-north" in stations
@@ -64,7 +64,7 @@ class TestRailwayNetworkFixture:
 
     def test_network_has_all_lines(self, test_railway_network: RailwayNetworkFixture):
         """Verify all 8 lines exist in network."""
-        lines = test_railway_network["lines"]
+        lines = test_railway_network.lines
 
         assert "forkedline" in lines
         assert "parallelline" in lines
@@ -77,7 +77,7 @@ class TestRailwayNetworkFixture:
 
     def test_hub_north_structure(self, test_railway_network: RailwayNetworkFixture):
         """Verify HUB_NORTH has correct child stations."""
-        hub_stations = test_railway_network["hubs"]["HUBNORTH"]
+        hub_stations = test_railway_network.hubs["HUBNORTH"]
 
         # HUB_NORTH should have 4 children (tube, overground, elizabeth, bus)
         assert len(hub_stations) == 4
@@ -91,13 +91,12 @@ class TestRailwayNetworkFixture:
         assert "hubnorth-bus" in station_ids  # bus
 
         # All should have same hub code and common name
-        for station in hub_stations:
-            assert station.hub_naptan_code == "HUBNORTH"
-            assert station.hub_common_name == "North Interchange"
+        assert all(s.hub_naptan_code == "HUBNORTH" for s in hub_stations)
+        assert all(s.hub_common_name == "North Interchange" for s in hub_stations)
 
     def test_hub_central_structure(self, test_railway_network: RailwayNetworkFixture):
         """Verify HUB_CENTRAL has correct child stations."""
-        hub_stations = test_railway_network["hubs"]["HUBCENTRAL"]
+        hub_stations = test_railway_network.hubs["HUBCENTRAL"]
 
         # HUB_CENTRAL should have 2 children (tube, dlr)
         assert len(hub_stations) == 2
@@ -107,45 +106,39 @@ class TestRailwayNetworkFixture:
         assert "fork-mid-1" in station_ids  # tube (forkedline)
         assert "hubcentral-dlr" in station_ids  # dlr (2stopline)
 
-        for station in hub_stations:
-            assert station.hub_naptan_code == "HUBCENTRAL"
-            assert station.hub_common_name == "Central Hub"
+        assert all(s.hub_naptan_code == "HUBCENTRAL" for s in hub_stations)
+        assert all(s.hub_common_name == "Central Hub" for s in hub_stations)
 
     def test_connections_are_bidirectional(self, test_railway_network: RailwayNetworkFixture):
         """Verify connections exist in both directions (sample check)."""
-        connections = test_railway_network["connections"]
+        connections = test_railway_network.connections
 
         # Get station IDs for testing
-        parallel_north = test_railway_network["stations"]["parallel-north"]
-        parallel_split = test_railway_network["stations"]["parallel-split"]
-        parallelline = test_railway_network["lines"]["parallelline"]
+        parallel_north = test_railway_network.stations["parallel-north"]
+        parallel_split = test_railway_network.stations["parallel-split"]
+        parallelline = test_railway_network.lines["parallelline"]
 
-        # Find connections between parallel-north and parallel-split
-        forward_conn = None
-        reverse_conn = None
+        # Verify forward connection exists (parallel-north -> parallel-split)
+        forward_exists = any(
+            conn.from_station_id == parallel_north.id
+            and conn.to_station_id == parallel_split.id
+            and conn.line_id == parallelline.id
+            for conn in connections
+        )
+        assert forward_exists, "Forward connection should exist"
 
-        for conn in connections:
-            if (
-                conn.from_station_id == parallel_north.id
-                and conn.to_station_id == parallel_split.id
-                and conn.line_id == parallelline.id
-            ):
-                forward_conn = conn
-
-            if (
-                conn.from_station_id == parallel_split.id
-                and conn.to_station_id == parallel_north.id
-                and conn.line_id == parallelline.id
-            ):
-                reverse_conn = conn
-
-        # Both directions should exist
-        assert forward_conn is not None, "Forward connection should exist"
-        assert reverse_conn is not None, "Reverse connection should exist"
+        # Verify reverse connection exists (parallel-split -> parallel-north)
+        reverse_exists = any(
+            conn.from_station_id == parallel_split.id
+            and conn.to_station_id == parallel_north.id
+            and conn.line_id == parallelline.id
+            for conn in connections
+        )
+        assert reverse_exists, "Reverse connection should exist"
 
     def test_shared_station_appears_on_multiple_lines(self, test_railway_network: RailwayNetworkFixture):
         """Verify shared-station serves 3 lines (sharedline-a, b, c)."""
-        shared_station = test_railway_network["stations"]["shared-station"]
+        shared_station = test_railway_network.stations["shared-station"]
 
         # Check station.lines contains all 3 line IDs
         assert "sharedline-a" in shared_station.lines
