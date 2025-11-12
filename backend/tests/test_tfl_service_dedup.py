@@ -2,15 +2,13 @@
 
 import uuid
 from datetime import UTC, datetime
-from typing import TYPE_CHECKING
 
 import pytest
 from app.models.tfl import Station
 from app.services.tfl_service import TfLService
 from sqlalchemy.ext.asyncio import AsyncSession
 
-if TYPE_CHECKING:
-    from tests.helpers.types import RailwayNetworkFixture
+from tests.helpers.types import RailwayNetworkFixture
 
 
 @pytest.fixture

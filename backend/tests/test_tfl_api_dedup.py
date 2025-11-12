@@ -4,7 +4,6 @@ import posixpath
 import uuid
 from collections.abc import AsyncGenerator
 from datetime import UTC, datetime
-from typing import TYPE_CHECKING
 from unittest.mock import AsyncMock, patch
 
 import pytest
@@ -16,8 +15,7 @@ from app.models.user import User
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
 
-if TYPE_CHECKING:
-    from tests.helpers.types import RailwayNetworkFixture
+from tests.helpers.types import RailwayNetworkFixture
 
 
 def build_api_url(endpoint: str) -> str:
