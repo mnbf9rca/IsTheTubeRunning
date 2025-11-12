@@ -1,6 +1,7 @@
 """TfL API service for fetching and caching transport data."""
 
 import asyncio
+import contextlib
 import uuid
 from datetime import UTC, datetime
 from functools import partial
@@ -15,10 +16,13 @@ from pydantic_tfl_api import LineClient, StopPointClient
 from pydantic_tfl_api.core import ApiError, ResponseModel
 from pydantic_tfl_api.models import (
     Disruption,
+    LineStatus,
     MatchedStop,
-    RouteSection,
     RouteSequence,
     StopPoint,
+)
+from pydantic_tfl_api.models import (
+    Line as TflLine,
 )
 from sqlalchemy import delete, func, or_, select
 from sqlalchemy.dialects.postgresql import insert
@@ -71,7 +75,6 @@ DEFAULT_DISRUPTIONS_CACHE_TTL = 120  # 2 minutes
 DEFAULT_METADATA_CACHE_TTL = 604800  # 7 days
 
 # TfL API constants
-TFL_GOOD_SERVICE_SEVERITY = 10  # Status severity value for "Good Service"
 MIN_ROUTE_SEGMENTS = 2  # Minimum number of segments required for route validation
 MAX_ROUTE_SEGMENTS = 20  # Maximum number of segments allowed for route validation
 DEFAULT_MODES = ["tube", "overground", "dlr", "elizabeth-line"]  # Default transport modes to fetch
@@ -937,92 +940,107 @@ class TfLService:
         # Sort alphabetically by name for consistent ordering
         return sorted(result, key=lambda s: s.name)
 
-    def _map_closure_text_to_severity(self, closure_text: str | None) -> int:
-        """
-        Map TfL API closureText field to severity integer.
-
-        The TfL API uses closureText instead of numeric severity levels.
-        This mapping provides backward compatibility with the app's severity system.
-
-        TODO: Replace hardcoded mapping with LineClient.MetaSeverity() API call
-        to fetch official severity mappings from TfL and store in database.
-        See issue #121 for details.
-
-        Args:
-            closure_text: The closureText value from TfL Disruption API
-
-        Returns:
-            Severity level as integer (0-10, higher is better)
-        """
-        severity_mapping = {
-            "severeDelays": 5,
-            "minorDelays": 6,
-            "reducedService": 7,
-            "goodService": 10,
-            "partClosure": 4,
-            "plannedClosure": 3,
-            "partSuspended": 2,
-            "suspended": 1,
-        }
-        result = severity_mapping.get(closure_text or "", None)
-        if result is None:
-            logger.warning(
-                "unmapped_closure_text",
-                closure_text=closure_text,
-                message="Unknown closureText value from TfL API - returning severity 0",
-            )
-            return 0
-        return result
-
-    def _extract_disruption_from_route(
+    def _extract_disruption_from_line_status(
         self,
-        disruption_data: Disruption,
-        route: RouteSection,
+        line_status: LineStatus,
+        line_id: str,
+        line_name: str,
     ) -> DisruptionResponse:
         """
-        Extract disruption information for a specific route.
+        Extract line status information from a LineStatus object.
+
+        Returns status for all severity levels (including Good Service) - filtering
+        is left to the caller or frontend.
 
         Args:
-            disruption_data: Raw disruption data from TfL API
-            route: Affected route data
+            line_status: LineStatus object from TfL API containing statusSeverity and nested disruption
+            line_id: ID of the line
+            line_name: Name of the line
 
         Returns:
-            DisruptionResponse object
+            DisruptionResponse object containing current line status
         """
-        line_id = getattr(route, "id", "unknown")
-        line_name = getattr(route, "name", "Unknown")
+        # Get severity from lineStatus (this is the authoritative source)
+        status_severity = getattr(line_status, "statusSeverity", 0)
+        status_severity_description = getattr(line_status, "statusSeverityDescription", "Unknown")
+
+        # Get disruption details (may be nested in disruption field)
+        disruption = getattr(line_status, "disruption", None)
+        reason = getattr(line_status, "reason", None)
+        created_str = getattr(line_status, "created", None)
+
+        # If disruption object exists, get details from there
+        if disruption:
+            if not reason:
+                reason = getattr(disruption, "description", None)
+            if not created_str:
+                created_str = getattr(disruption, "created", None)
+
+        # Parse created timestamp
+        created_at = datetime.now(UTC)
+        if created_str and created_str != "0001-01-01T00:00:00":
+            with contextlib.suppress(ValueError, AttributeError):
+                created_at = datetime.fromisoformat(created_str.replace("Z", "+00:00"))
 
         return DisruptionResponse(
             line_id=line_id,
             line_name=line_name,
-            status_severity=self._map_closure_text_to_severity(getattr(disruption_data, "closureText", None)),
-            status_severity_description=getattr(disruption_data, "category", "Unknown"),
-            reason=getattr(disruption_data, "description", None),
-            created_at=getattr(disruption_data, "created", datetime.now(UTC)),
+            status_severity=status_severity,
+            status_severity_description=status_severity_description,
+            reason=reason,
+            created_at=created_at,
         )
 
-    def _process_disruption_data(
+    def _process_line_status_data(
         self,
-        disruption_data_list: list[Disruption],
+        line_data: TflLine,
     ) -> list[DisruptionResponse]:
         """
-        Process raw disruption data into structured responses.
+        Process Line object containing LineStatus data into structured line status responses.
+
+        Each Line can have multiple LineStatus objects representing different statuses
+        (e.g., PlannedWork, RealTime issues, Good Service). We filter to only include
+        currently active statuses using the validityPeriods.isNow flag.
 
         Args:
-            disruption_data_list: List of raw disruption data from TfL API
+            line_data: Line object from TfL API containing lineStatuses
 
         Returns:
-            List of processed disruption responses
+            List of line status responses for all currently active statuses (including Good Service and disruptions)
         """
         disruptions: list[DisruptionResponse] = []
+        line_id = getattr(line_data, "id", "unknown")
+        line_name = getattr(line_data, "name", "Unknown")
+        line_statuses = getattr(line_data, "lineStatuses", None)
 
-        for disruption_data in disruption_data_list:
-            if not hasattr(disruption_data, "affectedRoutes") or not disruption_data.affectedRoutes:
+        if not line_statuses:
+            return disruptions
+
+        for line_status in line_statuses:
+            # Check if this status is currently active
+            validity_periods = getattr(line_status, "validityPeriods", None)
+            is_active = False
+
+            if validity_periods:
+                # Check if any validity period has isNow=True
+                for period in validity_periods:
+                    if getattr(period, "isNow", False):
+                        is_active = True
+                        break
+            else:
+                # If no validity periods specified, assume it's active
+                is_active = True
+
+            if not is_active:
                 continue
 
-            for route in disruption_data.affectedRoutes:
-                disruption = self._extract_disruption_from_route(disruption_data, route)
-                disruptions.append(disruption)
+            # Extract line status information
+            disruption = self._extract_disruption_from_line_status(
+                line_status,
+                line_id,
+                line_name,
+            )
+            disruptions.append(disruption)
 
         return disruptions
 
@@ -1032,18 +1050,20 @@ class TfLService:
         use_cache: bool = True,
     ) -> list[DisruptionResponse]:
         """
-        Fetch current line-level disruptions from TfL API for specified modes.
+        Fetch current line status information from TfL API for specified modes.
 
-        Uses the DisruptionByMode endpoint to get detailed disruption information
-        for all specified transport modes.
+        Uses the StatusByIds endpoint to get line status information with detailed
+        severity levels (0-20) directly from TfL API. This includes all line statuses
+        (Good Service, disruptions, planned work, etc.) with validity periods to determine active status.
 
         Args:
-            modes: List of transport modes to fetch disruptions for.
+            modes: List of transport modes to fetch statuses for.
                    If None, defaults to ["tube", "overground", "dlr", "elizabeth-line"].
             use_cache: Whether to use Redis cache (default: True)
 
         Returns:
-            List of disruption responses
+            List of line status responses (including both disruptions and good service)
+            for currently active statuses (isNow=true)
         """
         # Default to major transport modes if not specified
         if modes is None:
@@ -1062,33 +1082,43 @@ class TfLService:
 
         try:
             all_disruptions = []
-            ttl = DEFAULT_DISRUPTIONS_CACHE_TTL
             loop = asyncio.get_running_loop()
 
-            # Fetch disruptions for each mode
-            for mode in modes:
-                logger.debug("fetching_disruptions_for_mode", mode=mode)
+            # First, fetch all lines for the specified modes to get line IDs
+            lines = await self.fetch_lines(modes=modes, use_cache=use_cache)
+            line_ids = [line.tfl_id for line in lines if line.tfl_id]
 
-                response = await loop.run_in_executor(
-                    None,
-                    self.line_client.DisruptionByModeByPathModes,
-                    mode,
-                )
+            if not line_ids:
+                logger.warning("no_lines_found_for_modes", modes=modes)
+                return []
 
-                # Check for API error
-                self._handle_api_error(response)
+            # Join line IDs with commas for the StatusByIds endpoint
+            line_ids_str = ",".join(line_ids)
+            logger.debug("fetching_status_for_lines", line_count=len(line_ids), modes=modes)
 
-                # Extract cache TTL from response (use minimum TTL across all modes)
-                mode_ttl = self._extract_cache_ttl(response) or DEFAULT_DISRUPTIONS_CACHE_TTL  # type: ignore[arg-type]
-                ttl = min(ttl, mode_ttl)
+            # Fetch line status for all lines at once
+            response = await loop.run_in_executor(
+                None,
+                self.line_client.StatusByIdsByPathIdsQueryDetail,
+                line_ids_str,
+                True,  # detail=True to get disruption details
+            )
 
-                # Process disruptions using helper method
-                # response.content is a RootModel array of disruptions, access via .root
-                disruption_data_list = response.content.root  # type: ignore[union-attr]
-                mode_disruptions = self._process_disruption_data(disruption_data_list)
-                all_disruptions.extend(mode_disruptions)
+            # Check for API error
+            self._handle_api_error(response)
 
-                logger.debug("mode_disruptions_processed", mode=mode, count=len(mode_disruptions))
+            # Extract cache TTL from response
+            ttl = self._extract_cache_ttl(response) or DEFAULT_DISRUPTIONS_CACHE_TTL  # type: ignore[arg-type]
+
+            # Process line status data
+            # response.content is a RootModel array of Line objects, access via .root
+            line_data_list = response.content.root  # type: ignore[union-attr]
+
+            for line_data in line_data_list:
+                line_disruptions = self._process_line_status_data(line_data)
+                all_disruptions.extend(line_disruptions)
+
+            logger.debug("all_lines_processed", total_disruptions=len(all_disruptions))
 
             # Cache the results
             await self.cache.set(cache_key, all_disruptions, ttl=ttl)
