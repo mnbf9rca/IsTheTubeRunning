@@ -1599,25 +1599,18 @@ def test_parse_tfl_timestamp_valid() -> None:
     assert result == datetime(2025, 1, 1, 12, 0, 0, tzinfo=UTC)
 
 
-def test_parse_tfl_timestamp_none() -> None:
-    """Test parsing None timestamp returns current time."""
-    with freeze_time("2025-01-01 12:00:00"):
-        result = TfLService._parse_tfl_timestamp(None)
-        assert result == datetime(2025, 1, 1, 12, 0, 0, tzinfo=UTC)
-
-
-def test_parse_tfl_timestamp_invalid_default() -> None:
-    """Test parsing invalid default timestamp '0001-01-01T00:00:00' returns current time."""
-    with freeze_time("2025-01-01 12:00:00"):
-        result = TfLService._parse_tfl_timestamp("0001-01-01T00:00:00")
-        assert result == datetime(2025, 1, 1, 12, 0, 0, tzinfo=UTC)
-
-
-def test_parse_tfl_timestamp_invalid_format() -> None:
-    """Test parsing invalid format returns current time."""
-    with freeze_time("2025-01-01 12:00:00"):
-        result = TfLService._parse_tfl_timestamp("invalid-timestamp")
-        assert result == datetime(2025, 1, 1, 12, 0, 0, tzinfo=UTC)
+@pytest.mark.parametrize(
+    ("timestamp_str", "test_id"),
+    [
+        (None, "none"),
+        ("invalid-timestamp", "invalid_format"),
+        ("", "empty_string"),
+    ],
+)
+def test_parse_tfl_timestamp_invalid(timestamp_str: str | None, test_id: str) -> None:
+    """Test parsing invalid/missing timestamps returns None."""
+    result = TfLService._parse_tfl_timestamp(timestamp_str)
+    assert result is None
 
 
 def test_extract_naptan_id_from_stop_point_valid() -> None:
@@ -1634,6 +1627,16 @@ def test_extract_naptan_id_from_stop_point_valid() -> None:
 def test_extract_naptan_id_from_stop_point_none() -> None:
     """Test extracting NaPTAN ID from None StopPoint."""
     result = TfLService._extract_naptan_id_from_stop_point(None)
+    assert result is None
+
+
+def test_extract_naptan_id_from_stop_point_missing_naptan_id() -> None:
+    """Test extracting NaPTAN ID from StopPoint missing naptanId attribute."""
+    # Create a StopPoint without naptanId
+    stop_point = TflStopPoint(
+        commonName="King's Cross St. Pancras",
+    )
+    result = TfLService._extract_naptan_id_from_stop_point(stop_point)
     assert result is None
 
 
@@ -1661,6 +1664,18 @@ def test_extract_naptan_codes_from_sequence_empty() -> None:
     assert result == []
 
 
+def test_extract_naptan_codes_from_sequence_missing_data() -> None:
+    """Test extracting NaPTAN codes from sequence with missing stopPoint or naptanId."""
+    sequence = [
+        TflRouteSectionNaptanEntrySequence(stopPoint=None),
+        TflRouteSectionNaptanEntrySequence(stopPoint=TflStopPoint(commonName="Test")),
+        TflRouteSectionNaptanEntrySequence(stopPoint=TflStopPoint(naptanId="940GZZLUKSX")),
+    ]
+    result = TfLService._extract_naptan_codes_from_sequence(sequence)
+    # Should only extract the one valid NaPTAN ID
+    assert result == ["940GZZLUKSX"]
+
+
 def test_build_affected_route_info_valid() -> None:
     """Test building AffectedRouteInfo with valid data."""
     result = TfLService._build_affected_route_info(
@@ -1686,6 +1701,17 @@ def test_build_affected_route_info_no_stations() -> None:
     assert result is None
 
 
+def test_build_affected_route_info_none_stations() -> None:
+    """Test building AffectedRouteInfo with affected_stations=None returns None."""
+    result = TfLService._build_affected_route_info(
+        route_name="Cockfosters → Heathrow Terminal 5",
+        route_direction="outbound",
+        affected_stations=None,  # type: ignore[arg-type]
+    )
+
+    assert result is None
+
+
 def test_process_affected_route_valid() -> None:
     """Test processing valid affected route."""
     route = TflRouteSection(
@@ -1705,40 +1731,40 @@ def test_process_affected_route_valid() -> None:
     assert result.affected_stations == ["940GZZLUKSX", "940GZZLURSQ"]
 
 
-def test_process_affected_route_missing_name() -> None:
-    """Test processing affected route with missing name returns None."""
-    route = TflRouteSection(
-        direction="outbound",
-        routeSectionNaptanEntrySequence=[
-            TflRouteSectionNaptanEntrySequence(stopPoint=TflStopPoint(naptanId="940GZZLUKSX")),
-        ],
-    )
-
-    result = TfLService._process_affected_route(route)
-    assert result is None
-
-
-def test_process_affected_route_missing_direction() -> None:
-    """Test processing affected route with missing direction returns None."""
-    route = TflRouteSection(
-        name="Cockfosters → Heathrow Terminal 5",
-        routeSectionNaptanEntrySequence=[
-            TflRouteSectionNaptanEntrySequence(stopPoint=TflStopPoint(naptanId="940GZZLUKSX")),
-        ],
-    )
-
-    result = TfLService._process_affected_route(route)
-    assert result is None
-
-
-def test_process_affected_route_no_stations() -> None:
-    """Test processing affected route with no valid stations returns None."""
-    route = TflRouteSection(
-        name="Cockfosters → Heathrow Terminal 5",
-        direction="outbound",
-        routeSectionNaptanEntrySequence=[],
-    )
-
+@pytest.mark.parametrize(
+    ("route_kwargs", "test_id"),
+    [
+        (
+            {
+                "direction": "outbound",
+                "routeSectionNaptanEntrySequence": [
+                    TflRouteSectionNaptanEntrySequence(stopPoint=TflStopPoint(naptanId="940GZZLUKSX"))
+                ],
+            },
+            "missing_name",
+        ),
+        (
+            {
+                "name": "Cockfosters → Heathrow Terminal 5",
+                "routeSectionNaptanEntrySequence": [
+                    TflRouteSectionNaptanEntrySequence(stopPoint=TflStopPoint(naptanId="940GZZLUKSX"))
+                ],
+            },
+            "missing_direction",
+        ),
+        (
+            {
+                "name": "Cockfosters → Heathrow Terminal 5",
+                "direction": "outbound",
+                "routeSectionNaptanEntrySequence": [],
+            },
+            "no_stations",
+        ),
+    ],
+)
+def test_process_affected_route_invalid(route_kwargs: dict, test_id: str) -> None:
+    """Test processing affected route with missing required fields returns None."""
+    route = TflRouteSection(**route_kwargs)
     result = TfLService._process_affected_route(route)
     assert result is None
 
@@ -1772,16 +1798,15 @@ def test_extract_affected_routes_from_disruption_valid() -> None:
     assert result[1].name == "Heathrow Terminal 5 → Cockfosters"
 
 
-def test_extract_affected_routes_from_disruption_none() -> None:
-    """Test extracting affected routes from None disruption."""
-    result = TfLService._extract_affected_routes_from_disruption(None)
-    assert result is None
-
-
-def test_extract_affected_routes_from_disruption_no_routes() -> None:
-    """Test extracting affected routes from disruption with no affectedRoutes."""
-    disruption = TflDisruption()
-
+@pytest.mark.parametrize(
+    ("disruption", "test_id"),
+    [
+        (None, "none"),
+        (TflDisruption(), "no_affected_routes"),
+    ],
+)
+def test_extract_affected_routes_from_disruption_returns_none(disruption: TflDisruption | None, test_id: str) -> None:
+    """Test extracting affected routes returns None for invalid/missing data."""
     result = TfLService._extract_affected_routes_from_disruption(disruption)
     assert result is None
 

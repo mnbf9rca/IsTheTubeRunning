@@ -950,25 +950,27 @@ class TfLService:
     # ==================== Pure Functional Helpers for Disruption Extraction ====================
 
     @staticmethod
-    def _parse_tfl_timestamp(timestamp_str: str | None) -> datetime:
+    def _parse_tfl_timestamp(timestamp_str: str | None) -> datetime | None:
         """
         Parse TfL API timestamp string into datetime object.
 
-        Pure function: No side effects, deterministic output for given input.
+        Logs warnings for invalid/missing timestamps. Not purely functional due to logging side effects.
 
         Args:
             timestamp_str: ISO format timestamp string (may include "Z" suffix)
 
         Returns:
-            Parsed datetime object, or current UTC time if parsing fails
+            Parsed datetime object, or None if timestamp is missing/invalid
         """
-        if not timestamp_str or timestamp_str == "0001-01-01T00:00:00":
-            return datetime.now(UTC)
+        if not timestamp_str:
+            logger.warning("TfL timestamp is None or empty")
+            return None
 
         with contextlib.suppress(ValueError, AttributeError):
             return datetime.fromisoformat(timestamp_str.replace("Z", "+00:00"))
 
-        return datetime.now(UTC)
+        logger.warning("Failed to parse TfL timestamp", timestamp=timestamp_str)
+        return None
 
     @staticmethod
     def _extract_naptan_id_from_stop_point(stop_point: StopPoint | None) -> str | None:
@@ -983,9 +985,7 @@ class TfLService:
         Returns:
             NaPTAN ID string, or None if not found
         """
-        if not stop_point:
-            return None
-        return getattr(stop_point, "naptanId", None)
+        return None if not stop_point else getattr(stop_point, "naptanId", None)
 
     @staticmethod
     def _extract_naptan_codes_from_sequence(
@@ -1008,8 +1008,7 @@ class TfLService:
         naptan_codes = []
         for seq_item in sequence:
             stop_point = getattr(seq_item, "stopPoint", None)
-            naptan_id = TfLService._extract_naptan_id_from_stop_point(stop_point)
-            if naptan_id:
+            if naptan_id := TfLService._extract_naptan_id_from_stop_point(stop_point):
                 naptan_codes.append(naptan_id)
 
         return naptan_codes
@@ -1097,7 +1096,7 @@ class TfLService:
         ]
 
         # Return None if no valid routes were extracted
-        return valid_routes if valid_routes else None
+        return valid_routes or None
 
     @staticmethod
     def _extract_reason_from_sources(line_status: LineStatus, disruption: Disruption | None) -> str | None:
@@ -1113,9 +1112,8 @@ class TfLService:
         Returns:
             Reason string, or None if not found in either source
         """
-        reason: str | None = getattr(line_status, "reason", None)
-        if reason:
-            return reason
+        if (reason := getattr(line_status, "reason", None)) is not None:
+            return str(reason)
 
         if disruption:
             description: str | None = getattr(disruption, "description", None)
@@ -1137,9 +1135,8 @@ class TfLService:
         Returns:
             Timestamp string, or None if not found in either source
         """
-        created_str: str | None = getattr(line_status, "created", None)
-        if created_str:
-            return created_str
+        if (created_str := getattr(line_status, "created", None)) is not None:
+            return str(created_str)
 
         if disruption:
             created_from_disruption: str | None = getattr(disruption, "created", None)
