@@ -18,6 +18,8 @@ from pydantic_tfl_api.models import (
     Disruption,
     LineStatus,
     MatchedStop,
+    RouteSection,
+    RouteSectionNaptanEntrySequence,
     RouteSequence,
     StopPoint,
 )
@@ -57,7 +59,12 @@ from app.models.tfl import (
     StationDisruption,
     StopType,
 )
-from app.schemas.tfl import DisruptionResponse, RouteSegmentRequest, StationDisruptionResponse
+from app.schemas.tfl import (
+    AffectedRouteInfo,
+    DisruptionResponse,
+    RouteSegmentRequest,
+    StationDisruptionResponse,
+)
 from app.types.tfl_api import (
     LineRoutesResponse,
     NetworkConnection,
@@ -940,6 +947,208 @@ class TfLService:
         # Sort alphabetically by name for consistent ordering
         return sorted(result, key=lambda s: s.name)
 
+    # ==================== Pure Functional Helpers for Disruption Extraction ====================
+
+    @staticmethod
+    def _parse_tfl_timestamp(timestamp_str: str | None) -> datetime:
+        """
+        Parse TfL API timestamp string into datetime object.
+
+        Pure function: No side effects, deterministic output for given input.
+
+        Args:
+            timestamp_str: ISO format timestamp string (may include "Z" suffix)
+
+        Returns:
+            Parsed datetime object, or current UTC time if parsing fails
+        """
+        if not timestamp_str or timestamp_str == "0001-01-01T00:00:00":
+            return datetime.now(UTC)
+
+        with contextlib.suppress(ValueError, AttributeError):
+            return datetime.fromisoformat(timestamp_str.replace("Z", "+00:00"))
+
+        return datetime.now(UTC)
+
+    @staticmethod
+    def _extract_naptan_id_from_stop_point(stop_point: StopPoint | None) -> str | None:
+        """
+        Extract NaPTAN ID from a stop point object.
+
+        Pure function: No side effects, returns None if extraction fails.
+
+        Args:
+            stop_point: TfL API StopPoint object
+
+        Returns:
+            NaPTAN ID string, or None if not found
+        """
+        if not stop_point:
+            return None
+        return getattr(stop_point, "naptanId", None)
+
+    @staticmethod
+    def _extract_naptan_codes_from_sequence(
+        sequence: list[RouteSectionNaptanEntrySequence] | None,
+    ) -> list[str]:
+        """
+        Extract all valid NaPTAN codes from a route section sequence.
+
+        Pure function: No side effects, filters out invalid/missing codes.
+
+        Args:
+            sequence: List of route section entries containing stopPoint objects
+
+        Returns:
+            List of NaPTAN code strings (empty if sequence is None or contains no valid codes)
+        """
+        if not sequence:
+            return []
+
+        naptan_codes = []
+        for seq_item in sequence:
+            stop_point = getattr(seq_item, "stopPoint", None)
+            naptan_id = TfLService._extract_naptan_id_from_stop_point(stop_point)
+            if naptan_id:
+                naptan_codes.append(naptan_id)
+
+        return naptan_codes
+
+    @staticmethod
+    def _build_affected_route_info(
+        route_name: str, route_direction: str, affected_stations: list[str]
+    ) -> AffectedRouteInfo | None:
+        """
+        Build AffectedRouteInfo object if affected stations exist.
+
+        Pure function: No side effects, returns None if no affected stations.
+
+        Args:
+            route_name: Name of the affected route
+            route_direction: Direction of travel (inbound/outbound)
+            affected_stations: List of NaPTAN codes for affected stations
+
+        Returns:
+            AffectedRouteInfo object, or None if affected_stations is empty
+        """
+        if not affected_stations:
+            return None
+
+        return AffectedRouteInfo(
+            name=route_name,
+            direction=route_direction,
+            affected_stations=affected_stations,
+        )
+
+    @staticmethod
+    def _process_affected_route(route: RouteSection) -> AffectedRouteInfo | None:
+        """
+        Process a single affected route from TfL API into AffectedRouteInfo.
+
+        Pure function: No side effects, returns None if required fields are missing.
+
+        Args:
+            route: TfL API RouteSection object from disruption.affectedRoutes
+
+        Returns:
+            AffectedRouteInfo object, or None if route is invalid or incomplete
+        """
+        route_name: str | None = getattr(route, "name", None)
+        route_direction: str | None = getattr(route, "direction", None)
+        route_section_sequence: list[RouteSectionNaptanEntrySequence] | None = getattr(
+            route, "routeSectionNaptanEntrySequence", None
+        )
+
+        # Require all fields to be present
+        if not (route_name and route_direction and route_section_sequence):
+            return None
+
+        # Extract station codes
+        affected_stations = TfLService._extract_naptan_codes_from_sequence(route_section_sequence)
+
+        # Build route info (returns None if no valid stations)
+        return TfLService._build_affected_route_info(route_name, route_direction, affected_stations)
+
+    @staticmethod
+    def _extract_affected_routes_from_disruption(disruption: Disruption | None) -> list[AffectedRouteInfo] | None:
+        """
+        Extract all valid affected routes from a disruption object.
+
+        Pure function: No side effects, returns None if no valid routes found.
+
+        Args:
+            disruption: TfL API Disruption object containing affectedRoutes
+
+        Returns:
+            List of AffectedRouteInfo objects, or None if no valid routes exist
+        """
+        if not disruption:
+            return None
+
+        tfl_affected_routes = getattr(disruption, "affectedRoutes", None)
+        if not tfl_affected_routes:
+            return None
+
+        # Process all routes, filtering out None values
+        valid_routes = [
+            route_info
+            for route in tfl_affected_routes
+            if (route_info := TfLService._process_affected_route(route)) is not None
+        ]
+
+        # Return None if no valid routes were extracted
+        return valid_routes if valid_routes else None
+
+    @staticmethod
+    def _extract_reason_from_sources(line_status: LineStatus, disruption: Disruption | None) -> str | None:
+        """
+        Extract reason/description from line status or disruption object.
+
+        Pure function: No side effects, tries line_status first, then disruption.
+
+        Args:
+            line_status: TfL API LineStatus object
+            disruption: TfL API Disruption object (may be None)
+
+        Returns:
+            Reason string, or None if not found in either source
+        """
+        reason: str | None = getattr(line_status, "reason", None)
+        if reason:
+            return reason
+
+        if disruption:
+            description: str | None = getattr(disruption, "description", None)
+            return description
+
+        return None
+
+    @staticmethod
+    def _extract_created_timestamp(line_status: LineStatus, disruption: Disruption | None) -> str | None:
+        """
+        Extract created timestamp from line status or disruption object.
+
+        Pure function: No side effects, tries line_status first, then disruption.
+
+        Args:
+            line_status: TfL API LineStatus object
+            disruption: TfL API Disruption object (may be None)
+
+        Returns:
+            Timestamp string, or None if not found in either source
+        """
+        created_str: str | None = getattr(line_status, "created", None)
+        if created_str:
+            return created_str
+
+        if disruption:
+            created_from_disruption: str | None = getattr(disruption, "created", None)
+            return created_from_disruption
+
+        return None
+
+    # ==================== Main Disruption Extraction ====================
+
     def _extract_disruption_from_line_status(
         self,
         line_status: LineStatus,
@@ -960,27 +1169,20 @@ class TfLService:
         Returns:
             DisruptionResponse object containing current line status
         """
-        # Get severity from lineStatus (this is the authoritative source)
+        # Extract severity (authoritative source)
         status_severity = getattr(line_status, "statusSeverity", 0)
         status_severity_description = getattr(line_status, "statusSeverityDescription", "Unknown")
 
-        # Get disruption details (may be nested in disruption field)
+        # Get optional disruption details
         disruption = getattr(line_status, "disruption", None)
-        reason = getattr(line_status, "reason", None)
-        created_str = getattr(line_status, "created", None)
 
-        # If disruption object exists, get details from there
-        if disruption:
-            if not reason:
-                reason = getattr(disruption, "description", None)
-            if not created_str:
-                created_str = getattr(disruption, "created", None)
+        # Extract reason and timestamp using pure helpers
+        reason = self._extract_reason_from_sources(line_status, disruption)
+        created_str = self._extract_created_timestamp(line_status, disruption)
+        created_at = self._parse_tfl_timestamp(created_str)
 
-        # Parse created timestamp
-        created_at = datetime.now(UTC)
-        if created_str and created_str != "0001-01-01T00:00:00":
-            with contextlib.suppress(ValueError, AttributeError):
-                created_at = datetime.fromisoformat(created_str.replace("Z", "+00:00"))
+        # Extract affected routes using pure helper
+        affected_routes = self._extract_affected_routes_from_disruption(disruption)
 
         return DisruptionResponse(
             line_id=line_id,
@@ -989,6 +1191,7 @@ class TfLService:
             status_severity_description=status_severity_description,
             reason=reason,
             created_at=created_at,
+            affected_routes=affected_routes,
         )
 
     def _process_line_status_data(
