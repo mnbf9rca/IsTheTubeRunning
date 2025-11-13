@@ -1588,6 +1588,285 @@ async def test_fetch_stations_skip_validation_calls_api(
         assert stations[0].tfl_id == "940GZZLUVIC"
 
 
+# ==================== Pure Helper Function Tests ====================
+
+
+def test_parse_tfl_timestamp_valid() -> None:
+    """Test parsing valid TfL timestamp."""
+    timestamp_str = "2025-01-01T12:00:00Z"
+    result = TfLService._parse_tfl_timestamp(timestamp_str)
+
+    assert result == datetime(2025, 1, 1, 12, 0, 0, tzinfo=UTC)
+
+
+def test_parse_tfl_timestamp_none() -> None:
+    """Test parsing None timestamp returns current time."""
+    with freeze_time("2025-01-01 12:00:00"):
+        result = TfLService._parse_tfl_timestamp(None)
+        assert result == datetime(2025, 1, 1, 12, 0, 0, tzinfo=UTC)
+
+
+def test_parse_tfl_timestamp_invalid_default() -> None:
+    """Test parsing invalid default timestamp '0001-01-01T00:00:00' returns current time."""
+    with freeze_time("2025-01-01 12:00:00"):
+        result = TfLService._parse_tfl_timestamp("0001-01-01T00:00:00")
+        assert result == datetime(2025, 1, 1, 12, 0, 0, tzinfo=UTC)
+
+
+def test_parse_tfl_timestamp_invalid_format() -> None:
+    """Test parsing invalid format returns current time."""
+    with freeze_time("2025-01-01 12:00:00"):
+        result = TfLService._parse_tfl_timestamp("invalid-timestamp")
+        assert result == datetime(2025, 1, 1, 12, 0, 0, tzinfo=UTC)
+
+
+def test_extract_naptan_id_from_stop_point_valid() -> None:
+    """Test extracting NaPTAN ID from valid StopPoint."""
+    stop_point = TflStopPoint(
+        naptanId="940GZZLUKSX",
+        commonName="King's Cross St. Pancras",
+    )
+
+    result = TfLService._extract_naptan_id_from_stop_point(stop_point)
+    assert result == "940GZZLUKSX"
+
+
+def test_extract_naptan_id_from_stop_point_none() -> None:
+    """Test extracting NaPTAN ID from None StopPoint."""
+    result = TfLService._extract_naptan_id_from_stop_point(None)
+    assert result is None
+
+
+def test_extract_naptan_codes_from_sequence_valid() -> None:
+    """Test extracting NaPTAN codes from valid sequence."""
+    sequence = [
+        TflRouteSectionNaptanEntrySequence(stopPoint=TflStopPoint(naptanId="940GZZLUKSX")),
+        TflRouteSectionNaptanEntrySequence(stopPoint=TflStopPoint(naptanId="940GZZLURSQ")),
+        TflRouteSectionNaptanEntrySequence(stopPoint=TflStopPoint(naptanId="940GZZLUHBN")),
+    ]
+
+    result = TfLService._extract_naptan_codes_from_sequence(sequence)
+    assert result == ["940GZZLUKSX", "940GZZLURSQ", "940GZZLUHBN"]
+
+
+def test_extract_naptan_codes_from_sequence_none() -> None:
+    """Test extracting NaPTAN codes from None sequence."""
+    result = TfLService._extract_naptan_codes_from_sequence(None)
+    assert result == []
+
+
+def test_extract_naptan_codes_from_sequence_empty() -> None:
+    """Test extracting NaPTAN codes from empty sequence."""
+    result = TfLService._extract_naptan_codes_from_sequence([])
+    assert result == []
+
+
+def test_build_affected_route_info_valid() -> None:
+    """Test building AffectedRouteInfo with valid data."""
+    result = TfLService._build_affected_route_info(
+        route_name="Cockfosters → Heathrow Terminal 5",
+        route_direction="outbound",
+        affected_stations=["940GZZLUKSX", "940GZZLURSQ"],
+    )
+
+    assert result is not None
+    assert result.name == "Cockfosters → Heathrow Terminal 5"
+    assert result.direction == "outbound"
+    assert result.affected_stations == ["940GZZLUKSX", "940GZZLURSQ"]
+
+
+def test_build_affected_route_info_no_stations() -> None:
+    """Test building AffectedRouteInfo with no stations returns None."""
+    result = TfLService._build_affected_route_info(
+        route_name="Cockfosters → Heathrow Terminal 5",
+        route_direction="outbound",
+        affected_stations=[],
+    )
+
+    assert result is None
+
+
+def test_process_affected_route_valid() -> None:
+    """Test processing valid affected route."""
+    route = TflRouteSection(
+        name="Cockfosters → Heathrow Terminal 5",
+        direction="outbound",
+        routeSectionNaptanEntrySequence=[
+            TflRouteSectionNaptanEntrySequence(stopPoint=TflStopPoint(naptanId="940GZZLUKSX")),
+            TflRouteSectionNaptanEntrySequence(stopPoint=TflStopPoint(naptanId="940GZZLURSQ")),
+        ],
+    )
+
+    result = TfLService._process_affected_route(route)
+
+    assert result is not None
+    assert result.name == "Cockfosters → Heathrow Terminal 5"
+    assert result.direction == "outbound"
+    assert result.affected_stations == ["940GZZLUKSX", "940GZZLURSQ"]
+
+
+def test_process_affected_route_missing_name() -> None:
+    """Test processing affected route with missing name returns None."""
+    route = TflRouteSection(
+        direction="outbound",
+        routeSectionNaptanEntrySequence=[
+            TflRouteSectionNaptanEntrySequence(stopPoint=TflStopPoint(naptanId="940GZZLUKSX")),
+        ],
+    )
+
+    result = TfLService._process_affected_route(route)
+    assert result is None
+
+
+def test_process_affected_route_missing_direction() -> None:
+    """Test processing affected route with missing direction returns None."""
+    route = TflRouteSection(
+        name="Cockfosters → Heathrow Terminal 5",
+        routeSectionNaptanEntrySequence=[
+            TflRouteSectionNaptanEntrySequence(stopPoint=TflStopPoint(naptanId="940GZZLUKSX")),
+        ],
+    )
+
+    result = TfLService._process_affected_route(route)
+    assert result is None
+
+
+def test_process_affected_route_no_stations() -> None:
+    """Test processing affected route with no valid stations returns None."""
+    route = TflRouteSection(
+        name="Cockfosters → Heathrow Terminal 5",
+        direction="outbound",
+        routeSectionNaptanEntrySequence=[],
+    )
+
+    result = TfLService._process_affected_route(route)
+    assert result is None
+
+
+def test_extract_affected_routes_from_disruption_valid() -> None:
+    """Test extracting affected routes from disruption with valid routes."""
+    disruption = TflDisruption(
+        affectedRoutes=[
+            TflRouteSection(
+                name="Cockfosters → Heathrow Terminal 5",
+                direction="outbound",
+                routeSectionNaptanEntrySequence=[
+                    TflRouteSectionNaptanEntrySequence(stopPoint=TflStopPoint(naptanId="940GZZLUKSX")),
+                ],
+            ),
+            TflRouteSection(
+                name="Heathrow Terminal 5 → Cockfosters",
+                direction="inbound",
+                routeSectionNaptanEntrySequence=[
+                    TflRouteSectionNaptanEntrySequence(stopPoint=TflStopPoint(naptanId="940GZZLURSQ")),
+                ],
+            ),
+        ]
+    )
+
+    result = TfLService._extract_affected_routes_from_disruption(disruption)
+
+    assert result is not None
+    assert len(result) == 2
+    assert result[0].name == "Cockfosters → Heathrow Terminal 5"
+    assert result[1].name == "Heathrow Terminal 5 → Cockfosters"
+
+
+def test_extract_affected_routes_from_disruption_none() -> None:
+    """Test extracting affected routes from None disruption."""
+    result = TfLService._extract_affected_routes_from_disruption(None)
+    assert result is None
+
+
+def test_extract_affected_routes_from_disruption_no_routes() -> None:
+    """Test extracting affected routes from disruption with no affectedRoutes."""
+    disruption = TflDisruption()
+
+    result = TfLService._extract_affected_routes_from_disruption(disruption)
+    assert result is None
+
+
+def test_extract_affected_routes_from_disruption_invalid_routes() -> None:
+    """Test extracting affected routes filters out invalid routes."""
+    disruption = TflDisruption(
+        affectedRoutes=[
+            TflRouteSection(
+                name="Valid Route",
+                direction="outbound",
+                routeSectionNaptanEntrySequence=[
+                    TflRouteSectionNaptanEntrySequence(stopPoint=TflStopPoint(naptanId="940GZZLUKSX")),
+                ],
+            ),
+            TflRouteSection(
+                name="Invalid Route - No Direction",
+                routeSectionNaptanEntrySequence=[
+                    TflRouteSectionNaptanEntrySequence(stopPoint=TflStopPoint(naptanId="940GZZLURSQ")),
+                ],
+            ),
+        ]
+    )
+
+    result = TfLService._extract_affected_routes_from_disruption(disruption)
+
+    assert result is not None
+    assert len(result) == 1
+    assert result[0].name == "Valid Route"
+
+
+def test_extract_reason_from_sources_from_line_status() -> None:
+    """Test extracting reason from line status."""
+    line_status = TflLineStatus(reason="Signal failure at King's Cross")
+    disruption = TflDisruption(description="Alternative description")
+
+    result = TfLService._extract_reason_from_sources(line_status, disruption)
+    assert result == "Signal failure at King's Cross"
+
+
+def test_extract_reason_from_sources_from_disruption() -> None:
+    """Test extracting reason from disruption when line status has no reason."""
+    line_status = TflLineStatus()
+    disruption = TflDisruption(description="Signal failure at King's Cross")
+
+    result = TfLService._extract_reason_from_sources(line_status, disruption)
+    assert result == "Signal failure at King's Cross"
+
+
+def test_extract_reason_from_sources_none() -> None:
+    """Test extracting reason when neither source has reason."""
+    line_status = TflLineStatus()
+    disruption = TflDisruption()
+
+    result = TfLService._extract_reason_from_sources(line_status, disruption)
+    assert result is None
+
+
+def test_extract_created_timestamp_from_line_status() -> None:
+    """Test extracting created timestamp from line status."""
+    line_status = TflLineStatus(created="2025-01-01T12:00:00Z")
+    disruption = TflDisruption(created="2025-01-01T13:00:00Z")
+
+    result = TfLService._extract_created_timestamp(line_status, disruption)
+    assert result == "2025-01-01T12:00:00Z"
+
+
+def test_extract_created_timestamp_from_disruption() -> None:
+    """Test extracting created timestamp from disruption when line status has none."""
+    line_status = TflLineStatus()
+    disruption = TflDisruption(created="2025-01-01T12:00:00Z")
+
+    result = TfLService._extract_created_timestamp(line_status, disruption)
+    assert result == "2025-01-01T12:00:00Z"
+
+
+def test_extract_created_timestamp_none() -> None:
+    """Test extracting created timestamp when neither source has timestamp."""
+    line_status = TflLineStatus()
+    disruption = TflDisruption()
+
+    result = TfLService._extract_created_timestamp(line_status, disruption)
+    assert result is None
+
+
 # ==================== fetch_disruptions Tests ====================
 
 
