@@ -154,3 +154,27 @@ Fields are nullable because only major interchange stations with multiple modes 
 - Route validation must check both direct connections and hub-based connections
 - Hub data must be populated from TfL API
 - Must handle NULL values in validation and display logic
+
+---
+
+## Inverted Index for Route Station Lookups
+
+### Status
+Active (Implemented 2025-11-13, Issue #127 Phase 1)
+
+### Context
+Routes store only user-specified stations (sparse), but accurate disruption matching needs ALL intermediate stations. Alert system runs every 30 seconds and must answer: "Which routes pass through station X on line Y?" With thousands of routes, O(routes × disruptions) iteration doesn't scale.
+
+### Decision
+Create `route_station_index` table: `(route_id, line_tfl_id, station_naptan, line_data_version)` with composite index on `(line_tfl_id, station_naptan)`. Populated asynchronously when routes change. CASCADE delete cleans up automatically. No route_variant_id - station sequence matching handles branches.
+
+### Consequences
+**Easier:**
+- Accurate station-level disruption matching
+- O(disruptions) scaling with O(log n) lookups
+- Automatic cleanup and staleness detection
+
+**More Difficult:**
+- ~20 MB per 10k routes
+- Rebuild on route or TfL data changes
+- Requires background processing
