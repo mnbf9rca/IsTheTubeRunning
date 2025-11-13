@@ -17,6 +17,7 @@ from app.models import (
     Route,
     RouteSchedule,
     RouteSegment,
+    RouteStationIndex,
     Station,
     StationConnection,
     User,
@@ -766,3 +767,232 @@ class TestAdminModel:
 
         with pytest.raises(IntegrityError):
             await db_session.commit()
+
+
+class TestRouteStationIndex:
+    """Tests for RouteStationIndex model."""
+
+    @pytest.mark.asyncio
+    async def test_create_index_entry(self, db_session: AsyncSession) -> None:
+        """Test creating a route station index entry."""
+        user = User(external_id=make_unique_external_id("auth0|index_test"), auth_provider="auth0")
+        route = Route(user=user, name="Test Route", active=True)
+
+        db_session.add_all([user, route])
+        await db_session.commit()
+
+        # Create index entry
+        index_entry = RouteStationIndex(
+            route_id=route.id,
+            line_tfl_id="piccadilly",
+            station_naptan="940GZZLUKSX",
+            line_data_version=datetime.now(UTC),
+        )
+        db_session.add(index_entry)
+        await db_session.commit()
+
+        # Verify entry was saved
+        result = await db_session.execute(select(RouteStationIndex).where(RouteStationIndex.route_id == route.id))
+        saved_entry = result.scalar_one()
+
+        assert saved_entry.id is not None
+        assert saved_entry.route_id == route.id
+        assert saved_entry.line_tfl_id == "piccadilly"
+        assert saved_entry.station_naptan == "940GZZLUKSX"
+        assert saved_entry.line_data_version is not None
+        assert saved_entry.created_at is not None
+        assert saved_entry.updated_at is not None
+        assert saved_entry.deleted_at is None
+
+    @pytest.mark.asyncio
+    async def test_multiple_entries_same_station(self, db_session: AsyncSession) -> None:
+        """Test that multiple routes can have entries for the same (line, station) combination."""
+        user = User(external_id=make_unique_external_id("auth0|multi_routes"), auth_provider="auth0")
+        route1 = Route(user=user, name="Route 1", active=True)
+        route2 = Route(user=user, name="Route 2", active=True)
+
+        db_session.add_all([user, route1, route2])
+        await db_session.commit()
+
+        version = datetime.now(UTC)
+
+        # Create index entries for both routes for the same station
+        entry1 = RouteStationIndex(
+            route_id=route1.id,
+            line_tfl_id="piccadilly",
+            station_naptan="940GZZLUKSX",
+            line_data_version=version,
+        )
+        entry2 = RouteStationIndex(
+            route_id=route2.id,
+            line_tfl_id="piccadilly",
+            station_naptan="940GZZLUKSX",
+            line_data_version=version,
+        )
+
+        db_session.add_all([entry1, entry2])
+        await db_session.commit()
+
+        # Verify both entries exist
+        result = await db_session.execute(
+            select(RouteStationIndex).where(
+                RouteStationIndex.line_tfl_id == "piccadilly",
+                RouteStationIndex.station_naptan == "940GZZLUKSX",
+            )
+        )
+        entries = result.scalars().all()
+
+        assert len(entries) == 2
+        route_ids = {entry.route_id for entry in entries}
+        assert route_ids == {route1.id, route2.id}
+
+    @pytest.mark.asyncio
+    async def test_cascade_delete_on_route_deletion(self, db_session: AsyncSession) -> None:
+        """Test that index entries are deleted when the route is deleted."""
+        user = User(external_id=make_unique_external_id("auth0|cascade_test"), auth_provider="auth0")
+        route = Route(user=user, name="Test Route", active=True)
+
+        db_session.add_all([user, route])
+        await db_session.commit()
+
+        # Create multiple index entries for this route
+        version = datetime.now(UTC)
+        entry1 = RouteStationIndex(
+            route_id=route.id,
+            line_tfl_id="piccadilly",
+            station_naptan="940GZZLUKSX",
+            line_data_version=version,
+        )
+        entry2 = RouteStationIndex(
+            route_id=route.id,
+            line_tfl_id="piccadilly",
+            station_naptan="940GZZLURSQ",
+            line_data_version=version,
+        )
+
+        db_session.add_all([entry1, entry2])
+        await db_session.commit()
+
+        # Verify entries exist
+        result = await db_session.execute(select(RouteStationIndex).where(RouteStationIndex.route_id == route.id))
+        entries_before = result.scalars().all()
+        assert len(entries_before) == 2
+
+        # Delete the route
+        await db_session.delete(route)
+        await db_session.commit()
+
+        # Verify all index entries were CASCADE deleted
+        result = await db_session.execute(select(RouteStationIndex).where(RouteStationIndex.route_id == route.id))
+        entries_after = result.scalars().all()
+        assert len(entries_after) == 0
+
+    @pytest.mark.asyncio
+    async def test_index_relationship(self, db_session: AsyncSession) -> None:
+        """Test the relationship between RouteStationIndex and Route."""
+        user = User(external_id=make_unique_external_id("auth0|relationship_test"), auth_provider="auth0")
+        route = Route(user=user, name="Test Route", active=True)
+
+        db_session.add_all([user, route])
+        await db_session.commit()
+
+        # Create index entry
+        index_entry = RouteStationIndex(
+            route_id=route.id,
+            line_tfl_id="victoria",
+            station_naptan="940GZZLUVXL",
+            line_data_version=datetime.now(UTC),
+        )
+        db_session.add(index_entry)
+        await db_session.commit()
+
+        # Test relationship access
+        await db_session.refresh(index_entry, ["route"])
+        assert index_entry.route is not None
+        assert index_entry.route.id == route.id
+        assert index_entry.route.name == "Test Route"
+
+    @pytest.mark.asyncio
+    async def test_index_query_by_line_and_station(self, db_session: AsyncSession) -> None:
+        """Test querying index by line and station (the primary use case)."""
+        user = User(external_id=make_unique_external_id("auth0|query_test"), auth_provider="auth0")
+        route1 = Route(user=user, name="Route 1", active=True)
+        route2 = Route(user=user, name="Route 2", active=True)
+        route3 = Route(user=user, name="Route 3", active=True)
+
+        db_session.add_all([user, route1, route2, route3])
+        await db_session.commit()
+
+        version = datetime.now(UTC)
+
+        # Create index entries for different routes and stations
+        entries = [
+            RouteStationIndex(
+                route_id=route1.id, line_tfl_id="piccadilly", station_naptan="940GZZLUKSX", line_data_version=version
+            ),
+            RouteStationIndex(
+                route_id=route1.id, line_tfl_id="piccadilly", station_naptan="940GZZLURSQ", line_data_version=version
+            ),
+            RouteStationIndex(
+                route_id=route2.id, line_tfl_id="piccadilly", station_naptan="940GZZLUKSX", line_data_version=version
+            ),
+            RouteStationIndex(
+                route_id=route3.id, line_tfl_id="victoria", station_naptan="940GZZLUVXL", line_data_version=version
+            ),
+        ]
+
+        db_session.add_all(entries)
+        await db_session.commit()
+
+        # Query: Which routes pass through King's Cross (940GZZLUKSX) on Piccadilly line?
+        result = await db_session.execute(
+            select(RouteStationIndex).where(
+                RouteStationIndex.line_tfl_id == "piccadilly",
+                RouteStationIndex.station_naptan == "940GZZLUKSX",
+            )
+        )
+        matching_entries = result.scalars().all()
+
+        # Should match route1 and route2 (both pass through this station)
+        assert len(matching_entries) == 2
+        matching_route_ids = {entry.route_id for entry in matching_entries}
+        assert matching_route_ids == {route1.id, route2.id}
+
+    @pytest.mark.asyncio
+    async def test_index_staleness_query(self, db_session: AsyncSession) -> None:
+        """Test querying for stale index entries by line_data_version."""
+        user = User(external_id=make_unique_external_id("auth0|staleness_test"), auth_provider="auth0")
+        route1 = Route(user=user, name="Route 1", active=True)
+        route2 = Route(user=user, name="Route 2", active=True)
+
+        db_session.add_all([user, route1, route2])
+        await db_session.commit()
+
+        # Create entries with different line_data_version values
+        old_version = datetime.now(UTC) - timedelta(days=7)
+        new_version = datetime.now(UTC)
+
+        entry1 = RouteStationIndex(
+            route_id=route1.id,
+            line_tfl_id="piccadilly",
+            station_naptan="940GZZLUKSX",
+            line_data_version=old_version,
+        )
+        entry2 = RouteStationIndex(
+            route_id=route2.id,
+            line_tfl_id="piccadilly",
+            station_naptan="940GZZLURSQ",
+            line_data_version=new_version,
+        )
+
+        db_session.add_all([entry1, entry2])
+        await db_session.commit()
+
+        # Query for entries older than 1 day
+        cutoff = datetime.now(UTC) - timedelta(days=1)
+        result = await db_session.execute(select(RouteStationIndex).where(RouteStationIndex.line_data_version < cutoff))
+        stale_entries = result.scalars().all()
+
+        # Should only find entry1 (old_version)
+        assert len(stale_entries) == 1
+        assert stale_entries[0].route_id == route1.id
