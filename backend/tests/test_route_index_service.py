@@ -639,3 +639,213 @@ class TestRouteIndexService:
         assert len(index_entries) > 0
         for entry in index_entries:
             assert entry.line_data_version == line.last_updated
+
+
+# =============================================================================
+# Rebuild Routes Tests
+# =============================================================================
+
+
+class TestRebuildRoutes:
+    """Tests for rebuild_routes() method - shared logic for admin and celery tasks."""
+
+    @pytest.mark.asyncio
+    async def test_rebuild_single_route_success(
+        self,
+        db_session: AsyncSession,
+        test_user: User,
+    ) -> None:
+        """Test rebuilding index for a single route successfully."""
+        # Create test network
+        line = TestRailwayNetwork.create_2stopline()
+        station1 = TestRailwayNetwork.create_twostop_west()
+        station2 = TestRailwayNetwork.create_twostop_east()
+
+        db_session.add_all([line, station1, station2])
+        await db_session.flush()
+
+        # Create route
+        route = Route(user_id=test_user.id, name="Test Route", active=True)
+        db_session.add(route)
+        await db_session.flush()
+
+        segments = [
+            RouteSegment(route_id=route.id, sequence=1, station_id=station1.id, line_id=line.id),
+            RouteSegment(route_id=route.id, sequence=2, station_id=station2.id, line_id=None),
+        ]
+        db_session.add_all(segments)
+        await db_session.commit()
+
+        # Rebuild single route
+        service = RouteIndexService(db_session)
+        result = await service.rebuild_routes(route.id)
+
+        # Verify result
+        assert result["rebuilt_count"] == 1
+        assert result["failed_count"] == 0
+        assert result["errors"] == []
+
+        # Verify index was created
+        index_result = await db_session.execute(select(RouteStationIndex).where(RouteStationIndex.route_id == route.id))
+        assert len(index_result.scalars().all()) > 0
+
+    @pytest.mark.asyncio
+    async def test_rebuild_single_route_not_found(
+        self,
+        db_session: AsyncSession,
+    ) -> None:
+        """Test rebuilding index for non-existent route."""
+        service = RouteIndexService(db_session)
+        fake_route_id = uuid.uuid4()
+
+        result = await service.rebuild_routes(fake_route_id)
+
+        # Should track failure
+        assert result["rebuilt_count"] == 0
+        assert result["failed_count"] == 1
+        assert len(result["errors"]) == 1
+        assert str(fake_route_id) in result["errors"][0]
+
+    @pytest.mark.asyncio
+    async def test_rebuild_all_routes_success(
+        self,
+        db_session: AsyncSession,
+        test_user: User,
+    ) -> None:
+        """Test rebuilding indexes for all routes successfully."""
+        # Create test network
+        line = TestRailwayNetwork.create_2stopline()
+        station1 = TestRailwayNetwork.create_twostop_west()
+        station2 = TestRailwayNetwork.create_twostop_east()
+
+        db_session.add_all([line, station1, station2])
+        await db_session.flush()
+
+        # Create 3 routes
+        routes = []
+        for i in range(3):
+            route = Route(user_id=test_user.id, name=f"Route {i}", active=True)
+            db_session.add(route)
+            await db_session.flush()
+
+            segments = [
+                RouteSegment(route_id=route.id, sequence=1, station_id=station1.id, line_id=line.id),
+                RouteSegment(route_id=route.id, sequence=2, station_id=station2.id, line_id=None),
+            ]
+            db_session.add_all(segments)
+            routes.append(route)
+
+        await db_session.commit()
+
+        # Rebuild all routes
+        service = RouteIndexService(db_session)
+        result = await service.rebuild_routes()  # None = all routes
+
+        # Verify result
+        assert result["rebuilt_count"] == 3
+        assert result["failed_count"] == 0
+        assert result["errors"] == []
+
+        # Verify indexes created for all routes
+        for route in routes:
+            index_result = await db_session.execute(
+                select(RouteStationIndex).where(RouteStationIndex.route_id == route.id)
+            )
+            assert len(index_result.scalars().all()) > 0
+
+    @pytest.mark.asyncio
+    async def test_rebuild_all_routes_partial_failure(
+        self,
+        db_session: AsyncSession,
+        test_user: User,
+    ) -> None:
+        """Test rebuilding all routes with one failure (simulated via missing route)."""
+        # Create test network
+        line = TestRailwayNetwork.create_2stopline()
+        station1 = TestRailwayNetwork.create_twostop_west()
+        station2 = TestRailwayNetwork.create_twostop_east()
+
+        db_session.add_all([line, station1, station2])
+        await db_session.flush()
+
+        # Create 2 valid routes
+        valid_routes = []
+        for i in range(2):
+            route = Route(user_id=test_user.id, name=f"Valid Route {i}", active=True)
+            db_session.add(route)
+            await db_session.flush()
+
+            segments = [
+                RouteSegment(route_id=route.id, sequence=1, station_id=station1.id, line_id=line.id),
+                RouteSegment(route_id=route.id, sequence=2, station_id=station2.id, line_id=None),
+            ]
+            db_session.add_all(segments)
+            valid_routes.append(route)
+
+        await db_session.commit()
+
+        # Rebuild using service, but pass IDs including a non-existent one
+        # We'll call rebuild_routes multiple times to simulate the loop behavior
+        service = RouteIndexService(db_session)
+
+        # First rebuild the two valid routes
+        result1 = await service.rebuild_routes(valid_routes[0].id)
+        result2 = await service.rebuild_routes(valid_routes[1].id)
+
+        # Then try to rebuild a non-existent route
+        fake_route_id = uuid.uuid4()
+        result3 = await service.rebuild_routes(fake_route_id)
+
+        # Verify results
+        assert result1["rebuilt_count"] == 1
+        assert result1["failed_count"] == 0
+        assert result2["rebuilt_count"] == 1
+        assert result2["failed_count"] == 0
+        assert result3["rebuilt_count"] == 0
+        assert result3["failed_count"] == 1
+        assert len(result3["errors"]) == 1
+        assert str(fake_route_id) in result3["errors"][0]
+
+    @pytest.mark.asyncio
+    async def test_rebuild_all_routes_empty(
+        self,
+        db_session: AsyncSession,
+    ) -> None:
+        """Test rebuilding when no routes exist."""
+        service = RouteIndexService(db_session)
+        result = await service.rebuild_routes()
+
+        # Should succeed with no routes processed
+        assert result["rebuilt_count"] == 0
+        assert result["failed_count"] == 0
+        assert result["errors"] == []
+
+    @pytest.mark.asyncio
+    async def test_rebuild_routes_exception_handling(
+        self,
+        db_session: AsyncSession,
+        test_user: User,
+    ) -> None:
+        """Test that rebuild_routes handles different exception types consistently."""
+        # Create route with insufficient segments (will cause warning but not exception)
+        route = Route(user_id=test_user.id, name="Insufficient Segments", active=True)
+        db_session.add(route)
+        await db_session.flush()
+
+        # Only 1 segment (need at least 2)
+        line = TestRailwayNetwork.create_2stopline()
+        station = TestRailwayNetwork.create_twostop_west()
+        db_session.add_all([line, station])
+        await db_session.flush()
+
+        segment = RouteSegment(route_id=route.id, sequence=1, station_id=station.id, line_id=line.id)
+        db_session.add(segment)
+        await db_session.commit()
+
+        # This should succeed but create no entries (insufficient segments)
+        service = RouteIndexService(db_session)
+        result = await service.rebuild_routes(route.id)
+
+        # Should succeed (not fail) because insufficient segments just logs warning
+        assert result["rebuilt_count"] == 1
+        assert result["failed_count"] == 0
