@@ -52,7 +52,7 @@ class TestAdminRebuildIndexesEndpoint:
         self,
         async_client_with_db: AsyncClient,
         admin_user: User,
-        admin_auth_headers: dict[str, str],
+        admin_headers: dict[str, str],
     ) -> None:
         """Test rebuilding indexes for a single route successfully."""
         route_id = uuid4()
@@ -67,7 +67,7 @@ class TestAdminRebuildIndexesEndpoint:
 
             response = await async_client_with_db.post(
                 build_api_url(f"/admin/routes/rebuild-indexes?route_id={route_id}"),
-                headers=admin_auth_headers,
+                headers=admin_headers,
             )
 
             assert response.status_code == 200
@@ -85,7 +85,7 @@ class TestAdminRebuildIndexesEndpoint:
         self,
         async_client_with_db: AsyncClient,
         admin_user: User,
-        admin_auth_headers: dict[str, str],
+        admin_headers: dict[str, str],
     ) -> None:
         """Test rebuilding indexes for all routes successfully."""
         mock_result = {"rebuilt_count": 5, "failed_count": 0, "errors": []}
@@ -97,7 +97,7 @@ class TestAdminRebuildIndexesEndpoint:
 
             response = await async_client_with_db.post(
                 build_api_url("/admin/routes/rebuild-indexes"),
-                headers=admin_auth_headers,
+                headers=admin_headers,
             )
 
             assert response.status_code == 200
@@ -115,7 +115,7 @@ class TestAdminRebuildIndexesEndpoint:
         self,
         async_client_with_db: AsyncClient,
         admin_user: User,
-        admin_auth_headers: dict[str, str],
+        admin_headers: dict[str, str],
     ) -> None:
         """Test rebuilding indexes with some failures."""
         route_id = uuid4()
@@ -132,7 +132,7 @@ class TestAdminRebuildIndexesEndpoint:
 
             response = await async_client_with_db.post(
                 build_api_url(f"/admin/routes/rebuild-indexes?route_id={route_id}"),
-                headers=admin_auth_headers,
+                headers=admin_headers,
             )
 
             assert response.status_code == 200
@@ -147,12 +147,12 @@ class TestAdminRebuildIndexesEndpoint:
         self,
         async_client_with_db: AsyncClient,
         test_user: User,
-        test_auth_headers: dict[str, str],
+        auth_headers_for_user: dict[str, str],
     ) -> None:
         """Test that non-admin users cannot rebuild indexes."""
         response = await async_client_with_db.post(
             build_api_url("/admin/routes/rebuild-indexes"),
-            headers=test_auth_headers,
+            headers=auth_headers_for_user,
         )
 
         assert response.status_code == 403
@@ -162,7 +162,7 @@ class TestAdminRebuildIndexesEndpoint:
         self,
         async_client_with_db: AsyncClient,
         admin_user: User,
-        admin_auth_headers: dict[str, str],
+        admin_headers: dict[str, str],
     ) -> None:
         """Test that service exceptions are properly converted to HTTP errors."""
         with patch("app.api.admin.RouteIndexService") as mock_service_class:
@@ -172,7 +172,7 @@ class TestAdminRebuildIndexesEndpoint:
 
             response = await async_client_with_db.post(
                 build_api_url("/admin/routes/rebuild-indexes"),
-                headers=admin_auth_headers,
+                headers=admin_headers,
             )
 
             assert response.status_code == 500
