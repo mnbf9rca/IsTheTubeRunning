@@ -19,6 +19,7 @@ from app.schemas.routes import (
     UpdateSegmentRequest,
 )
 from app.schemas.tfl import RouteSegmentRequest
+from app.services.route_index_service import RouteIndexService
 from app.services.tfl_service import TfLService
 
 # Constants
@@ -238,6 +239,12 @@ class RouteService:
                 )
 
             self.db.add_all(new_segments)
+            await self.db.flush()  # Flush to make segments available for index building
+
+            # Build route station index (part of same transaction)
+            index_service = RouteIndexService(self.db)
+            await index_service.build_route_station_index(route_id, auto_commit=False)
+
             await self.db.commit()
 
             # Reload with relationships to support station_tfl_id and line_tfl_id properties
@@ -305,6 +312,12 @@ class RouteService:
         # Validate the entire route with the update
         await self._validate_route_segments(route.segments)
 
+        await self.db.flush()  # Flush to make changes available for index building
+
+        # Rebuild route station index (part of same transaction)
+        index_service = RouteIndexService(self.db)
+        await index_service.build_route_station_index(route_id, auto_commit=False)
+
         await self.db.commit()
 
         # Expire the segment to ensure fresh data is loaded
@@ -362,6 +375,12 @@ class RouteService:
         # Now resequence from 0 to ensure consecutive ordering
         for i, seg in enumerate(segments_to_update):
             seg.sequence = i
+
+        await self.db.flush()  # Flush to make changes available for index building
+
+        # Rebuild route station index (part of same transaction)
+        index_service = RouteIndexService(self.db)
+        await index_service.build_route_station_index(route_id, auto_commit=False)
 
         await self.db.commit()
 
