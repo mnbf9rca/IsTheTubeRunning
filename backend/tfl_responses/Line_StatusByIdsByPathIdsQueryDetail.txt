@@ -1,0 +1,729 @@
+HTTP/1.1 200 OK
+
+age: 0
+api-entity-payload: Line,LineStatus
+cache-control: public, must-revalidate, max-age=30, s-maxage=60
+content-encoding: gzip
+content-length: 1351
+content-type: application/json; charset=utf-8
+date: Thu, 13 Nov 2025 07:49:32 GMT
+server: cloudflare
+via: 1.1 varnish
+x-api: Line
+x-aspnet-version: 4.0.30319
+x-backend: api
+x-cache: MISS
+x-cacheable: Yes. Cacheable
+x-frame-options: deny
+x-operation: Line_StatusByIdsByPathIdsQueryDetail
+x-proxy-connection: unset
+x-ttl: 60.000
+x-ttl-rule: 0
+x-varnish: 665012965
+
+[{
+    "$type": "Tfl.Api.Presentation.Entities.Line, Tfl.Api.Presentation.Entities",
+    "id": "piccadilly",
+    "name": "Piccadilly",
+    "modeName": "tube",
+    "disruptions": [],
+    "created": "2025-11-05T16:17:11.813Z",
+    "modified": "2025-11-05T16:17:11.813Z",
+    "lineStatuses": [{
+        "$type": "Tfl.Api.Presentation.Entities.LineStatus, Tfl.Api.Presentation.Entities",
+        "id": 0,
+        "lineId": "piccadilly",
+        "statusSeverity": 3,
+        "statusSeverityDescription": "Part Suspended",
+        "reason": "Piccadilly Line: No service between Cockfosters and Arnos Grove while we fix a track fault. Tickets are valid on London Buses. GOOD SERVICE on the rest of the line.  ",
+        "created": "0001-01-01T00:00:00",
+        "validityPeriods": [{
+            "$type": "Tfl.Api.Presentation.Entities.ValidityPeriod, Tfl.Api.Presentation.Entities",
+            "fromDate": "2025-11-13T07:41:56Z",
+            "toDate": "2025-11-13T10:48:55Z",
+            "isNow": true
+        }],
+        "disruption": {
+            "$type": "Tfl.Api.Presentation.Entities.Disruption, Tfl.Api.Presentation.Entities",
+            "category": "RealTime",
+            "categoryDescription": "RealTime",
+            "description": "Piccadilly Line: No service between Cockfosters and Arnos Grove while we fix a track fault. Tickets are valid on London Buses. GOOD SERVICE on the rest of the line.  ",
+            "affectedRoutes": [{
+                "$type": "Tfl.Api.Presentation.Entities.DisruptedRoute, Tfl.Api.Presentation.Entities",
+                "id": "1817",
+                "name": "Cockfosters Underground Station - Uxbridge Underground Station",
+                "direction": "inbound",
+                "originationName": "Cockfosters Underground Station",
+                "destinationName": "Uxbridge Underground Station",
+                "isEntireRouteSection": false,
+                "routeSectionNaptanEntrySequence": [{
+                    "$type": "Tfl.Api.Presentation.Entities.RouteSectionNaptanEntrySequence, Tfl.Api.Presentation.Entities",
+                    "ordinal": 0,
+                    "stopPoint": {
+                        "$type": "Tfl.Api.Presentation.Entities.StopPoint, Tfl.Api.Presentation.Entities",
+                        "naptanId": "940GZZLUCKS",
+                        "modes": [],
+                        "icsCode": "1000053",
+                        "stationNaptan": "940GZZLUCKS",
+                        "lines": [],
+                        "lineGroup": [],
+                        "lineModeGroups": [],
+                        "status": true,
+                        "id": "940GZZLUCKS",
+                        "commonName": "Cockfosters Underground Station",
+                        "placeType": "StopPoint",
+                        "additionalProperties": [],
+                        "children": [],
+                        "lat": 0.0,
+                        "lon": 0.0
+                    }
+                }, {
+                    "$type": "Tfl.Api.Presentation.Entities.RouteSectionNaptanEntrySequence, Tfl.Api.Presentation.Entities",
+                    "ordinal": 1,
+                    "stopPoint": {
+                        "$type": "Tfl.Api.Presentation.Entities.StopPoint, Tfl.Api.Presentation.Entities",
+                        "naptanId": "940GZZLUOAK",
+                        "modes": [],
+                        "icsCode": "1000168",
+                        "stationNaptan": "940GZZLUOAK",
+                        "lines": [],
+                        "lineGroup": [],
+                        "lineModeGroups": [],
+                        "status": true,
+                        "id": "940GZZLUOAK",
+                        "commonName": "Oakwood Underground Station",
+                        "placeType": "StopPoint",
+                        "additionalProperties": [],
+                        "children": [],
+                        "lat": 0.0,
+                        "lon": 0.0
+                    }
+                }, {
+                    "$type": "Tfl.Api.Presentation.Entities.RouteSectionNaptanEntrySequence, Tfl.Api.Presentation.Entities",
+                    "ordinal": 2,
+                    "stopPoint": {
+                        "$type": "Tfl.Api.Presentation.Entities.StopPoint, Tfl.Api.Presentation.Entities",
+                        "naptanId": "940GZZLUSGT",
+                        "modes": [],
+                        "icsCode": "1000210",
+                        "stationNaptan": "940GZZLUSGT",
+                        "lines": [],
+                        "lineGroup": [],
+                        "lineModeGroups": [],
+                        "status": true,
+                        "id": "940GZZLUSGT",
+                        "commonName": "Southgate Underground Station",
+                        "placeType": "StopPoint",
+                        "additionalProperties": [],
+                        "children": [],
+                        "lat": 0.0,
+                        "lon": 0.0
+                    }
+                }, {
+                    "$type": "Tfl.Api.Presentation.Entities.RouteSectionNaptanEntrySequence, Tfl.Api.Presentation.Entities",
+                    "ordinal": 3,
+                    "stopPoint": {
+                        "$type": "Tfl.Api.Presentation.Entities.StopPoint, Tfl.Api.Presentation.Entities",
+                        "naptanId": "940GZZLUASG",
+                        "modes": [],
+                        "icsCode": "1000009",
+                        "stationNaptan": "940GZZLUASG",
+                        "lines": [],
+                        "lineGroup": [],
+                        "lineModeGroups": [],
+                        "status": true,
+                        "id": "940GZZLUASG",
+                        "commonName": "Arnos Grove Underground Station",
+                        "placeType": "StopPoint",
+                        "additionalProperties": [],
+                        "children": [],
+                        "lat": 0.0,
+                        "lon": 0.0
+                    }
+                }]
+            }, {
+                "$type": "Tfl.Api.Presentation.Entities.DisruptedRoute, Tfl.Api.Presentation.Entities",
+                "id": "1818",
+                "name": "Uxbridge Underground Station - Cockfosters Underground Station",
+                "direction": "outbound",
+                "originationName": "Uxbridge Underground Station",
+                "destinationName": "Cockfosters Underground Station",
+                "isEntireRouteSection": false,
+                "routeSectionNaptanEntrySequence": [{
+                    "$type": "Tfl.Api.Presentation.Entities.RouteSectionNaptanEntrySequence, Tfl.Api.Presentation.Entities",
+                    "ordinal": 38,
+                    "stopPoint": {
+                        "$type": "Tfl.Api.Presentation.Entities.StopPoint, Tfl.Api.Presentation.Entities",
+                        "naptanId": "940GZZLUASG",
+                        "modes": [],
+                        "icsCode": "1000009",
+                        "stationNaptan": "940GZZLUASG",
+                        "lines": [],
+                        "lineGroup": [],
+                        "lineModeGroups": [],
+                        "status": true,
+                        "id": "940GZZLUASG",
+                        "commonName": "Arnos Grove Underground Station",
+                        "placeType": "StopPoint",
+                        "additionalProperties": [],
+                        "children": [],
+                        "lat": 0.0,
+                        "lon": 0.0
+                    }
+                }, {
+                    "$type": "Tfl.Api.Presentation.Entities.RouteSectionNaptanEntrySequence, Tfl.Api.Presentation.Entities",
+                    "ordinal": 39,
+                    "stopPoint": {
+                        "$type": "Tfl.Api.Presentation.Entities.StopPoint, Tfl.Api.Presentation.Entities",
+                        "naptanId": "940GZZLUSGT",
+                        "modes": [],
+                        "icsCode": "1000210",
+                        "stationNaptan": "940GZZLUSGT",
+                        "lines": [],
+                        "lineGroup": [],
+                        "lineModeGroups": [],
+                        "status": true,
+                        "id": "940GZZLUSGT",
+                        "commonName": "Southgate Underground Station",
+                        "placeType": "StopPoint",
+                        "additionalProperties": [],
+                        "children": [],
+                        "lat": 0.0,
+                        "lon": 0.0
+                    }
+                }, {
+                    "$type": "Tfl.Api.Presentation.Entities.RouteSectionNaptanEntrySequence, Tfl.Api.Presentation.Entities",
+                    "ordinal": 40,
+                    "stopPoint": {
+                        "$type": "Tfl.Api.Presentation.Entities.StopPoint, Tfl.Api.Presentation.Entities",
+                        "naptanId": "940GZZLUOAK",
+                        "modes": [],
+                        "icsCode": "1000168",
+                        "stationNaptan": "940GZZLUOAK",
+                        "lines": [],
+                        "lineGroup": [],
+                        "lineModeGroups": [],
+                        "status": true,
+                        "id": "940GZZLUOAK",
+                        "commonName": "Oakwood Underground Station",
+                        "placeType": "StopPoint",
+                        "additionalProperties": [],
+                        "children": [],
+                        "lat": 0.0,
+                        "lon": 0.0
+                    }
+                }, {
+                    "$type": "Tfl.Api.Presentation.Entities.RouteSectionNaptanEntrySequence, Tfl.Api.Presentation.Entities",
+                    "ordinal": 41,
+                    "stopPoint": {
+                        "$type": "Tfl.Api.Presentation.Entities.StopPoint, Tfl.Api.Presentation.Entities",
+                        "naptanId": "940GZZLUCKS",
+                        "modes": [],
+                        "icsCode": "1000053",
+                        "stationNaptan": "940GZZLUCKS",
+                        "lines": [],
+                        "lineGroup": [],
+                        "lineModeGroups": [],
+                        "status": true,
+                        "id": "940GZZLUCKS",
+                        "commonName": "Cockfosters Underground Station",
+                        "placeType": "StopPoint",
+                        "additionalProperties": [],
+                        "children": [],
+                        "lat": 0.0,
+                        "lon": 0.0
+                    }
+                }]
+            }, {
+                "$type": "Tfl.Api.Presentation.Entities.DisruptedRoute, Tfl.Api.Presentation.Entities",
+                "id": "1819",
+                "name": "Cockfosters Underground Station - Heathrow Terminal 5 Underground Station",
+                "direction": "inbound",
+                "originationName": "Cockfosters Underground Station",
+                "destinationName": "Heathrow Terminal 5 Underground Station",
+                "isEntireRouteSection": false,
+                "routeSectionNaptanEntrySequence": [{
+                    "$type": "Tfl.Api.Presentation.Entities.RouteSectionNaptanEntrySequence, Tfl.Api.Presentation.Entities",
+                    "ordinal": 0,
+                    "stopPoint": {
+                        "$type": "Tfl.Api.Presentation.Entities.StopPoint, Tfl.Api.Presentation.Entities",
+                        "naptanId": "940GZZLUCKS",
+                        "modes": [],
+                        "icsCode": "1000053",
+                        "stationNaptan": "940GZZLUCKS",
+                        "lines": [],
+                        "lineGroup": [],
+                        "lineModeGroups": [],
+                        "status": true,
+                        "id": "940GZZLUCKS",
+                        "commonName": "Cockfosters Underground Station",
+                        "placeType": "StopPoint",
+                        "additionalProperties": [],
+                        "children": [],
+                        "lat": 0.0,
+                        "lon": 0.0
+                    }
+                }, {
+                    "$type": "Tfl.Api.Presentation.Entities.RouteSectionNaptanEntrySequence, Tfl.Api.Presentation.Entities",
+                    "ordinal": 1,
+                    "stopPoint": {
+                        "$type": "Tfl.Api.Presentation.Entities.StopPoint, Tfl.Api.Presentation.Entities",
+                        "naptanId": "940GZZLUOAK",
+                        "modes": [],
+                        "icsCode": "1000168",
+                        "stationNaptan": "940GZZLUOAK",
+                        "lines": [],
+                        "lineGroup": [],
+                        "lineModeGroups": [],
+                        "status": true,
+                        "id": "940GZZLUOAK",
+                        "commonName": "Oakwood Underground Station",
+                        "placeType": "StopPoint",
+                        "additionalProperties": [],
+                        "children": [],
+                        "lat": 0.0,
+                        "lon": 0.0
+                    }
+                }, {
+                    "$type": "Tfl.Api.Presentation.Entities.RouteSectionNaptanEntrySequence, Tfl.Api.Presentation.Entities",
+                    "ordinal": 2,
+                    "stopPoint": {
+                        "$type": "Tfl.Api.Presentation.Entities.StopPoint, Tfl.Api.Presentation.Entities",
+                        "naptanId": "940GZZLUSGT",
+                        "modes": [],
+                        "icsCode": "1000210",
+                        "stationNaptan": "940GZZLUSGT",
+                        "lines": [],
+                        "lineGroup": [],
+                        "lineModeGroups": [],
+                        "status": true,
+                        "id": "940GZZLUSGT",
+                        "commonName": "Southgate Underground Station",
+                        "placeType": "StopPoint",
+                        "additionalProperties": [],
+                        "children": [],
+                        "lat": 0.0,
+                        "lon": 0.0
+                    }
+                }, {
+                    "$type": "Tfl.Api.Presentation.Entities.RouteSectionNaptanEntrySequence, Tfl.Api.Presentation.Entities",
+                    "ordinal": 3,
+                    "stopPoint": {
+                        "$type": "Tfl.Api.Presentation.Entities.StopPoint, Tfl.Api.Presentation.Entities",
+                        "naptanId": "940GZZLUASG",
+                        "modes": [],
+                        "icsCode": "1000009",
+                        "stationNaptan": "940GZZLUASG",
+                        "lines": [],
+                        "lineGroup": [],
+                        "lineModeGroups": [],
+                        "status": true,
+                        "id": "940GZZLUASG",
+                        "commonName": "Arnos Grove Underground Station",
+                        "placeType": "StopPoint",
+                        "additionalProperties": [],
+                        "children": [],
+                        "lat": 0.0,
+                        "lon": 0.0
+                    }
+                }]
+            }, {
+                "$type": "Tfl.Api.Presentation.Entities.DisruptedRoute, Tfl.Api.Presentation.Entities",
+                "id": "1820",
+                "name": "Heathrow Terminal 4 Underground Station - Cockfosters Underground Station",
+                "direction": "outbound",
+                "originationName": "Heathrow Terminal 4 Underground Station",
+                "destinationName": "Cockfosters Underground Station",
+                "isEntireRouteSection": false,
+                "routeSectionNaptanEntrySequence": [{
+                    "$type": "Tfl.Api.Presentation.Entities.RouteSectionNaptanEntrySequence, Tfl.Api.Presentation.Entities",
+                    "ordinal": 34,
+                    "stopPoint": {
+                        "$type": "Tfl.Api.Presentation.Entities.StopPoint, Tfl.Api.Presentation.Entities",
+                        "naptanId": "940GZZLUASG",
+                        "modes": [],
+                        "icsCode": "1000009",
+                        "stationNaptan": "940GZZLUASG",
+                        "lines": [],
+                        "lineGroup": [],
+                        "lineModeGroups": [],
+                        "status": true,
+                        "id": "940GZZLUASG",
+                        "commonName": "Arnos Grove Underground Station",
+                        "placeType": "StopPoint",
+                        "additionalProperties": [],
+                        "children": [],
+                        "lat": 0.0,
+                        "lon": 0.0
+                    }
+                }, {
+                    "$type": "Tfl.Api.Presentation.Entities.RouteSectionNaptanEntrySequence, Tfl.Api.Presentation.Entities",
+                    "ordinal": 35,
+                    "stopPoint": {
+                        "$type": "Tfl.Api.Presentation.Entities.StopPoint, Tfl.Api.Presentation.Entities",
+                        "naptanId": "940GZZLUSGT",
+                        "modes": [],
+                        "icsCode": "1000210",
+                        "stationNaptan": "940GZZLUSGT",
+                        "lines": [],
+                        "lineGroup": [],
+                        "lineModeGroups": [],
+                        "status": true,
+                        "id": "940GZZLUSGT",
+                        "commonName": "Southgate Underground Station",
+                        "placeType": "StopPoint",
+                        "additionalProperties": [],
+                        "children": [],
+                        "lat": 0.0,
+                        "lon": 0.0
+                    }
+                }, {
+                    "$type": "Tfl.Api.Presentation.Entities.RouteSectionNaptanEntrySequence, Tfl.Api.Presentation.Entities",
+                    "ordinal": 36,
+                    "stopPoint": {
+                        "$type": "Tfl.Api.Presentation.Entities.StopPoint, Tfl.Api.Presentation.Entities",
+                        "naptanId": "940GZZLUOAK",
+                        "modes": [],
+                        "icsCode": "1000168",
+                        "stationNaptan": "940GZZLUOAK",
+                        "lines": [],
+                        "lineGroup": [],
+                        "lineModeGroups": [],
+                        "status": true,
+                        "id": "940GZZLUOAK",
+                        "commonName": "Oakwood Underground Station",
+                        "placeType": "StopPoint",
+                        "additionalProperties": [],
+                        "children": [],
+                        "lat": 0.0,
+                        "lon": 0.0
+                    }
+                }, {
+                    "$type": "Tfl.Api.Presentation.Entities.RouteSectionNaptanEntrySequence, Tfl.Api.Presentation.Entities",
+                    "ordinal": 37,
+                    "stopPoint": {
+                        "$type": "Tfl.Api.Presentation.Entities.StopPoint, Tfl.Api.Presentation.Entities",
+                        "naptanId": "940GZZLUCKS",
+                        "modes": [],
+                        "icsCode": "1000053",
+                        "stationNaptan": "940GZZLUCKS",
+                        "lines": [],
+                        "lineGroup": [],
+                        "lineModeGroups": [],
+                        "status": true,
+                        "id": "940GZZLUCKS",
+                        "commonName": "Cockfosters Underground Station",
+                        "placeType": "StopPoint",
+                        "additionalProperties": [],
+                        "children": [],
+                        "lat": 0.0,
+                        "lon": 0.0
+                    }
+                }]
+            }, {
+                "$type": "Tfl.Api.Presentation.Entities.DisruptedRoute, Tfl.Api.Presentation.Entities",
+                "id": "1821",
+                "name": "Heathrow Terminal 5 Underground Station - Cockfosters Underground Station",
+                "direction": "outbound",
+                "originationName": "Heathrow Terminal 5 Underground Station",
+                "destinationName": "Cockfosters Underground Station",
+                "isEntireRouteSection": false,
+                "routeSectionNaptanEntrySequence": [{
+                    "$type": "Tfl.Api.Presentation.Entities.RouteSectionNaptanEntrySequence, Tfl.Api.Presentation.Entities",
+                    "ordinal": 34,
+                    "stopPoint": {
+                        "$type": "Tfl.Api.Presentation.Entities.StopPoint, Tfl.Api.Presentation.Entities",
+                        "naptanId": "940GZZLUASG",
+                        "modes": [],
+                        "icsCode": "1000009",
+                        "stationNaptan": "940GZZLUASG",
+                        "lines": [],
+                        "lineGroup": [],
+                        "lineModeGroups": [],
+                        "status": true,
+                        "id": "940GZZLUASG",
+                        "commonName": "Arnos Grove Underground Station",
+                        "placeType": "StopPoint",
+                        "additionalProperties": [],
+                        "children": [],
+                        "lat": 0.0,
+                        "lon": 0.0
+                    }
+                }, {
+                    "$type": "Tfl.Api.Presentation.Entities.RouteSectionNaptanEntrySequence, Tfl.Api.Presentation.Entities",
+                    "ordinal": 35,
+                    "stopPoint": {
+                        "$type": "Tfl.Api.Presentation.Entities.StopPoint, Tfl.Api.Presentation.Entities",
+                        "naptanId": "940GZZLUSGT",
+                        "modes": [],
+                        "icsCode": "1000210",
+                        "stationNaptan": "940GZZLUSGT",
+                        "lines": [],
+                        "lineGroup": [],
+                        "lineModeGroups": [],
+                        "status": true,
+                        "id": "940GZZLUSGT",
+                        "commonName": "Southgate Underground Station",
+                        "placeType": "StopPoint",
+                        "additionalProperties": [],
+                        "children": [],
+                        "lat": 0.0,
+                        "lon": 0.0
+                    }
+                }, {
+                    "$type": "Tfl.Api.Presentation.Entities.RouteSectionNaptanEntrySequence, Tfl.Api.Presentation.Entities",
+                    "ordinal": 36,
+                    "stopPoint": {
+                        "$type": "Tfl.Api.Presentation.Entities.StopPoint, Tfl.Api.Presentation.Entities",
+                        "naptanId": "940GZZLUOAK",
+                        "modes": [],
+                        "icsCode": "1000168",
+                        "stationNaptan": "940GZZLUOAK",
+                        "lines": [],
+                        "lineGroup": [],
+                        "lineModeGroups": [],
+                        "status": true,
+                        "id": "940GZZLUOAK",
+                        "commonName": "Oakwood Underground Station",
+                        "placeType": "StopPoint",
+                        "additionalProperties": [],
+                        "children": [],
+                        "lat": 0.0,
+                        "lon": 0.0
+                    }
+                }, {
+                    "$type": "Tfl.Api.Presentation.Entities.RouteSectionNaptanEntrySequence, Tfl.Api.Presentation.Entities",
+                    "ordinal": 37,
+                    "stopPoint": {
+                        "$type": "Tfl.Api.Presentation.Entities.StopPoint, Tfl.Api.Presentation.Entities",
+                        "naptanId": "940GZZLUCKS",
+                        "modes": [],
+                        "icsCode": "1000053",
+                        "stationNaptan": "940GZZLUCKS",
+                        "lines": [],
+                        "lineGroup": [],
+                        "lineModeGroups": [],
+                        "status": true,
+                        "id": "940GZZLUCKS",
+                        "commonName": "Cockfosters Underground Station",
+                        "placeType": "StopPoint",
+                        "additionalProperties": [],
+                        "children": [],
+                        "lat": 0.0,
+                        "lon": 0.0
+                    }
+                }]
+            }, {
+                "$type": "Tfl.Api.Presentation.Entities.DisruptedRoute, Tfl.Api.Presentation.Entities",
+                "id": "1822",
+                "name": "Cockfosters Underground Station - Heathrow Terminal 4 Underground Station",
+                "direction": "inbound",
+                "originationName": "Cockfosters Underground Station",
+                "destinationName": "Heathrow Terminal 4 Underground Station",
+                "isEntireRouteSection": false,
+                "routeSectionNaptanEntrySequence": [{
+                    "$type": "Tfl.Api.Presentation.Entities.RouteSectionNaptanEntrySequence, Tfl.Api.Presentation.Entities",
+                    "ordinal": 0,
+                    "stopPoint": {
+                        "$type": "Tfl.Api.Presentation.Entities.StopPoint, Tfl.Api.Presentation.Entities",
+                        "naptanId": "940GZZLUCKS",
+                        "modes": [],
+                        "icsCode": "1000053",
+                        "stationNaptan": "940GZZLUCKS",
+                        "lines": [],
+                        "lineGroup": [],
+                        "lineModeGroups": [],
+                        "status": true,
+                        "id": "940GZZLUCKS",
+                        "commonName": "Cockfosters Underground Station",
+                        "placeType": "StopPoint",
+                        "additionalProperties": [],
+                        "children": [],
+                        "lat": 0.0,
+                        "lon": 0.0
+                    }
+                }, {
+                    "$type": "Tfl.Api.Presentation.Entities.RouteSectionNaptanEntrySequence, Tfl.Api.Presentation.Entities",
+                    "ordinal": 1,
+                    "stopPoint": {
+                        "$type": "Tfl.Api.Presentation.Entities.StopPoint, Tfl.Api.Presentation.Entities",
+                        "naptanId": "940GZZLUOAK",
+                        "modes": [],
+                        "icsCode": "1000168",
+                        "stationNaptan": "940GZZLUOAK",
+                        "lines": [],
+                        "lineGroup": [],
+                        "lineModeGroups": [],
+                        "status": true,
+                        "id": "940GZZLUOAK",
+                        "commonName": "Oakwood Underground Station",
+                        "placeType": "StopPoint",
+                        "additionalProperties": [],
+                        "children": [],
+                        "lat": 0.0,
+                        "lon": 0.0
+                    }
+                }, {
+                    "$type": "Tfl.Api.Presentation.Entities.RouteSectionNaptanEntrySequence, Tfl.Api.Presentation.Entities",
+                    "ordinal": 2,
+                    "stopPoint": {
+                        "$type": "Tfl.Api.Presentation.Entities.StopPoint, Tfl.Api.Presentation.Entities",
+                        "naptanId": "940GZZLUSGT",
+                        "modes": [],
+                        "icsCode": "1000210",
+                        "stationNaptan": "940GZZLUSGT",
+                        "lines": [],
+                        "lineGroup": [],
+                        "lineModeGroups": [],
+                        "status": true,
+                        "id": "940GZZLUSGT",
+                        "commonName": "Southgate Underground Station",
+                        "placeType": "StopPoint",
+                        "additionalProperties": [],
+                        "children": [],
+                        "lat": 0.0,
+                        "lon": 0.0
+                    }
+                }, {
+                    "$type": "Tfl.Api.Presentation.Entities.RouteSectionNaptanEntrySequence, Tfl.Api.Presentation.Entities",
+                    "ordinal": 3,
+                    "stopPoint": {
+                        "$type": "Tfl.Api.Presentation.Entities.StopPoint, Tfl.Api.Presentation.Entities",
+                        "naptanId": "940GZZLUASG",
+                        "modes": [],
+                        "icsCode": "1000009",
+                        "stationNaptan": "940GZZLUASG",
+                        "lines": [],
+                        "lineGroup": [],
+                        "lineModeGroups": [],
+                        "status": true,
+                        "id": "940GZZLUASG",
+                        "commonName": "Arnos Grove Underground Station",
+                        "placeType": "StopPoint",
+                        "additionalProperties": [],
+                        "children": [],
+                        "lat": 0.0,
+                        "lon": 0.0
+                    }
+                }]
+            }],
+            "affectedStops": [{
+                "$type": "Tfl.Api.Presentation.Entities.StopPoint, Tfl.Api.Presentation.Entities",
+                "naptanId": "940GZZLUASG",
+                "stationNaptan": "940GZZLUASG",
+                "status": true,
+                "id": "940GZZLUASG",
+                "commonName": "Arnos Grove Underground Station",
+                "lat": 0.0,
+                "lon": 0.0
+            }, {
+                "$type": "Tfl.Api.Presentation.Entities.StopPoint, Tfl.Api.Presentation.Entities",
+                "naptanId": "940GZZLUCKS",
+                "stationNaptan": "940GZZLUCKS",
+                "status": true,
+                "id": "940GZZLUCKS",
+                "commonName": "Cockfosters Underground Station",
+                "lat": 0.0,
+                "lon": 0.0
+            }, {
+                "$type": "Tfl.Api.Presentation.Entities.StopPoint, Tfl.Api.Presentation.Entities",
+                "naptanId": "940GZZLUOAK",
+                "stationNaptan": "940GZZLUOAK",
+                "status": true,
+                "id": "940GZZLUOAK",
+                "commonName": "Oakwood Underground Station",
+                "lat": 0.0,
+                "lon": 0.0
+            }, {
+                "$type": "Tfl.Api.Presentation.Entities.StopPoint, Tfl.Api.Presentation.Entities",
+                "naptanId": "940GZZLUSGT",
+                "stationNaptan": "940GZZLUSGT",
+                "status": true,
+                "id": "940GZZLUSGT",
+                "commonName": "Southgate Underground Station",
+                "lat": 0.0,
+                "lon": 0.0
+            }],
+            "closureText": "partSuspended"
+        }
+    }],
+    "routeSections": [{
+        "$type": "Tfl.Api.Presentation.Entities.MatchedRoute, Tfl.Api.Presentation.Entities",
+        "name": "Cockfosters Underground Station - Uxbridge Underground Station",
+        "direction": "inbound",
+        "originationName": "Cockfosters Underground Station",
+        "destinationName": "Uxbridge Underground Station",
+        "originator": "940GZZLUCKS",
+        "destination": "940GZZLUUXB",
+        "serviceType": "Regular",
+        "validTo": "2025-12-23T00:00:00Z",
+        "validFrom": "2025-11-01T00:00:00Z"
+    }, {
+        "$type": "Tfl.Api.Presentation.Entities.MatchedRoute, Tfl.Api.Presentation.Entities",
+        "name": "Uxbridge Underground Station - Cockfosters Underground Station",
+        "direction": "outbound",
+        "originationName": "Uxbridge Underground Station",
+        "destinationName": "Cockfosters Underground Station",
+        "originator": "940GZZLUUXB",
+        "destination": "940GZZLUCKS",
+        "serviceType": "Regular",
+        "validTo": "2025-12-23T00:00:00Z",
+        "validFrom": "2025-11-01T00:00:00Z"
+    }, {
+        "$type": "Tfl.Api.Presentation.Entities.MatchedRoute, Tfl.Api.Presentation.Entities",
+        "name": "Cockfosters Underground Station - Heathrow Terminal 5 Underground Station",
+        "direction": "inbound",
+        "originationName": "Cockfosters Underground Station",
+        "destinationName": "Heathrow Terminal 5 Underground Station",
+        "originator": "940GZZLUCKS",
+        "destination": "940GZZLUHR5",
+        "serviceType": "Regular",
+        "validTo": "2025-12-23T00:00:00Z",
+        "validFrom": "2025-11-01T00:00:00Z"
+    }, {
+        "$type": "Tfl.Api.Presentation.Entities.MatchedRoute, Tfl.Api.Presentation.Entities",
+        "name": "Heathrow Terminal 4 Underground Station - Cockfosters Underground Station",
+        "direction": "outbound",
+        "originationName": "Heathrow Terminal 4 Underground Station",
+        "destinationName": "Cockfosters Underground Station",
+        "originator": "940GZZLUHR4",
+        "destination": "940GZZLUCKS",
+        "serviceType": "Regular",
+        "validTo": "2025-12-23T00:00:00Z",
+        "validFrom": "2025-11-01T00:00:00Z"
+    }, {
+        "$type": "Tfl.Api.Presentation.Entities.MatchedRoute, Tfl.Api.Presentation.Entities",
+        "name": "Heathrow Terminal 5 Underground Station - Cockfosters Underground Station",
+        "direction": "outbound",
+        "originationName": "Heathrow Terminal 5 Underground Station",
+        "destinationName": "Cockfosters Underground Station",
+        "originator": "940GZZLUHR5",
+        "destination": "940GZZLUCKS",
+        "serviceType": "Regular",
+        "validTo": "2025-12-23T00:00:00Z",
+        "validFrom": "2025-11-01T00:00:00Z"
+    }, {
+        "$type": "Tfl.Api.Presentation.Entities.MatchedRoute, Tfl.Api.Presentation.Entities",
+        "name": "Cockfosters Underground Station - Heathrow Terminal 4 Underground Station",
+        "direction": "inbound",
+        "originationName": "Cockfosters Underground Station",
+        "destinationName": "Heathrow Terminal 4 Underground Station",
+        "originator": "940GZZLUCKS",
+        "destination": "940GZZLUHR4",
+        "serviceType": "Regular",
+        "validTo": "2025-12-23T00:00:00Z",
+        "validFrom": "2025-11-01T00:00:00Z"
+    }],
+    "serviceTypes": [{
+        "$type": "Tfl.Api.Presentation.Entities.LineServiceTypeInfo, Tfl.Api.Presentation.Entities",
+        "name": "Regular",
+        "uri": "/Line/Route?ids=Piccadilly&serviceTypes=Regular"
+    }, {
+        "$type": "Tfl.Api.Presentation.Entities.LineServiceTypeInfo, Tfl.Api.Presentation.Entities",
+        "name": "Night",
+        "uri": "/Line/Route?ids=Piccadilly&serviceTypes=Night"
+    }],
+    "crowding": {
+        "$type": "Tfl.Api.Presentation.Entities.Crowding, Tfl.Api.Presentation.Entities"
+    }
+}]
