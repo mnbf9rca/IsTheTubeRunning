@@ -53,6 +53,18 @@ class StationResponse(BaseModel):
     hub_common_name: str | None  # Hub common name (e.g., 'Seven Sisters')
 
 
+class AffectedRouteInfo(BaseModel):
+    """Route segment affected by disruption.
+
+    Contains affected stations for matching against user routes.
+    Does NOT include route variant IDs (not available in Line.routes data).
+    """
+
+    name: str  # e.g., "Cockfosters → Heathrow Terminal 5"
+    direction: str  # "inbound" or "outbound"
+    affected_stations: list[str]  # NaPTAN codes in sequence
+
+
 class DisruptionResponse(BaseModel):
     """Response schema for TfL disruption data."""
 
@@ -62,6 +74,7 @@ class DisruptionResponse(BaseModel):
     status_severity_description: str  # e.g., "Good Service", "Severe Delays"
     reason: str | None = None  # Description of disruption
     created_at: datetime | None = None  # When disruption started (if available)
+    affected_routes: list[AffectedRouteInfo] | None = None  # Affected route segments with station sequences
 
 
 class StationDisruptionResponse(BaseModel):
