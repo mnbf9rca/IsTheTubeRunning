@@ -6,6 +6,18 @@ from uuid import UUID
 from app.models.notification import NotificationMethod, NotificationStatus
 from pydantic import BaseModel, ConfigDict, Field
 
+# ==================== Route Index Management Schemas ====================
+
+
+class RebuildIndexesResponse(BaseModel):
+    """Response from rebuilding route station indexes."""
+
+    success: bool = Field(..., description="Whether the rebuild completed successfully")
+    rebuilt_count: int = Field(..., description="Number of routes rebuilt")
+    failed_count: int = Field(..., description="Number of routes that failed to rebuild")
+    errors: list[str] = Field(default_factory=list, description="Error messages for failed routes")
+
+
 # ==================== Alert Management Schemas ====================
 
 

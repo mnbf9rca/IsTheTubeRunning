@@ -6,7 +6,7 @@ from uuid import UUID
 
 import structlog
 from celery.app.control import Inspect
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import desc, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -23,6 +23,7 @@ from app.schemas.admin import (
     NotificationLogItem,
     NotificationStatMetrics,
     PaginatedUsersResponse,
+    RebuildIndexesResponse,
     RecentLogsResponse,
     RouteStatMetrics,
     TriggerCheckResponse,
@@ -34,6 +35,7 @@ from app.schemas.admin import (
 from app.schemas.tfl import BuildGraphResponse
 from app.services.admin_service import AdminService
 from app.services.alert_service import AlertService, get_redis_client
+from app.services.route_index_service import RouteIndexService
 from app.services.tfl_service import TfLService
 
 router = APIRouter(prefix="/admin", tags=["admin"])
@@ -515,3 +517,58 @@ async def get_engagement_metrics(
             ],
         ),
     )
+
+
+# ==================== Route Index Management ====================
+
+
+@router.post("/routes/rebuild-indexes", response_model=RebuildIndexesResponse)
+async def rebuild_route_indexes(
+    route_id: UUID | None = None,
+    admin_user: AdminUser = Depends(require_admin),
+    db: AsyncSession = Depends(get_db),
+) -> RebuildIndexesResponse:
+    """
+    Rebuild route station indexes for single route or all routes.
+
+    Rebuilds the inverted index that maps (line_tfl_id, station_naptan) → route_id.
+    This is useful after Line.routes data updates or for manual maintenance.
+
+    **Requires admin privileges.**
+
+    Args:
+        route_id: Optional route UUID. If provided, rebuilds only that route. If None, rebuilds all routes.
+        admin_user: Authenticated admin user
+        db: Database session
+
+    Returns:
+        Statistics about the rebuild operation. Individual route failures are reported
+        in the errors list rather than raising exceptions.
+
+    Raises:
+        HTTPException: 403 if not admin
+    """
+    index_service = RouteIndexService(db)
+
+    try:
+        # Use shared rebuild_routes method for consistent behavior
+        # Service layer handles errors gracefully and returns them in result dict
+        result = await index_service.rebuild_routes(route_id, auto_commit=True)
+
+        return RebuildIndexesResponse(
+            success=result["failed_count"] == 0,
+            rebuilt_count=result["rebuilt_count"],
+            failed_count=result["failed_count"],
+            errors=result["errors"],
+        )
+
+    except HTTPException:
+        # Re-raise HTTPExceptions to preserve correct status codes (e.g., 404, 403)
+        raise
+    except Exception as exc:
+        # Catch truly unexpected errors (e.g., database connection loss)
+        # Service-level errors are returned in result dict, not raised
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to rebuild indexes: {exc!s}",
+        ) from exc

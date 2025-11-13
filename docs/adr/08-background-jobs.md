@@ -97,3 +97,29 @@ Celery workers use separate async SQLAlchemy engine/session factory from FastAPI
 - Must maintain two database engines (app, worker)
 - More complex configuration
 - Need to ensure both engines use correct pool settings
+
+---
+
+## Route Index Rebuilding Strategy
+
+### Status
+Active
+
+### Context
+Route station indexes enable O(log n) lookup for disruption matching. Building indexes involves expanding sparse route segments to complete station lists (50-100ms per route). Need balance between consistency (index matches route data) and performance (fast API responses).
+
+### Decision
+Hybrid approach: synchronous for route CRUD operations (part of same transaction with `auto_commit=False`), asynchronous Celery task for bulk admin rebuilds. Route changes trigger immediate index rebuild within the transaction; admin bulk operations use `rebuild_route_indexes_task()`.
+
+### Consequences
+**Easier:**
+- Transactional safety (route + index are atomic, rollback on failure)
+- Fast API responses for route changes (<100ms including index rebuild)
+- Immediate consistency (no window where route exists without index)
+- Bulk rebuilds don't block API (run in background via Celery)
+- Automatic rebuild on every route change (no stale indexes)
+
+**More Difficult:**
+- Small latency cost on route CRUD operations (50-100ms per route)
+- Two code paths for rebuilding (sync vs async)
+- Must ensure both paths use same underlying service method
