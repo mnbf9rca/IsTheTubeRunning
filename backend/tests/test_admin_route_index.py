@@ -1,6 +1,8 @@
 """Tests for admin route index management endpoint."""
 
+import uuid
 from collections.abc import AsyncGenerator
+from datetime import UTC, datetime
 from unittest.mock import AsyncMock, patch
 from uuid import uuid4
 
@@ -8,8 +10,12 @@ import pytest
 from app.core.config import settings
 from app.core.database import get_db
 from app.main import app
+from app.models.route import Route, RouteSegment
+from app.models.route_index import RouteStationIndex
+from app.models.tfl import Line, Station
 from app.models.user import User
 from httpx import ASGITransport, AsyncClient
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 
@@ -177,3 +183,206 @@ class TestAdminRebuildIndexesEndpoint:
 
             assert response.status_code == 500
             assert "Failed to rebuild indexes" in response.json()["detail"]
+
+
+# =============================================================================
+# Integration Tests (No Mocks - Full Stack)
+# =============================================================================
+
+
+class TestAdminRebuildIndexesIntegration:
+    """Integration tests for rebuild indexes endpoint without mocks."""
+
+    @pytest.mark.asyncio
+    async def test_rebuild_indexes_integration_single_route(
+        self,
+        async_client_with_db: AsyncClient,
+        db_session: AsyncSession,
+        admin_user: User,
+        admin_headers: dict[str, str],
+    ) -> None:
+        """Integration test: Rebuild indexes for a single route with real database."""
+        # Unpack admin_user tuple (User, AdminUser)
+        user, _ = admin_user
+
+        # Create real test data
+        line = Line(
+            id=uuid.uuid4(),
+            tfl_id="testline-integration",
+            name="Test Line",
+            mode="tube",
+            last_updated=datetime.now(UTC),
+            routes={
+                "routes": [
+                    {
+                        "name": "Eastbound",
+                        "direction": "inbound",
+                        "stations": ["station-a", "station-b"],
+                    }
+                ]
+            },
+        )
+        station_a = Station(
+            id=uuid.uuid4(),
+            tfl_id="station-a",
+            name="Station A",
+            latitude=51.5,
+            longitude=-0.1,
+            lines=["testline-integration"],
+            last_updated=datetime.now(UTC),
+        )
+        station_b = Station(
+            id=uuid.uuid4(),
+            tfl_id="station-b",
+            name="Station B",
+            latitude=51.6,
+            longitude=-0.2,
+            lines=["testline-integration"],
+            last_updated=datetime.now(UTC),
+        )
+
+        db_session.add_all([line, station_a, station_b])
+        await db_session.flush()
+
+        # Create route with segments
+        route = Route(user_id=user.id, name="Integration Test Route", active=True)
+        db_session.add(route)
+        await db_session.flush()
+
+        segments = [
+            RouteSegment(route_id=route.id, sequence=1, station_id=station_a.id, line_id=line.id),
+            RouteSegment(route_id=route.id, sequence=2, station_id=station_b.id, line_id=None),
+        ]
+        db_session.add_all(segments)
+        await db_session.commit()
+
+        # Call the endpoint to rebuild indexes (NO MOCKS)
+        response = await async_client_with_db.post(
+            build_api_url(f"/admin/routes/rebuild-indexes?route_id={route.id}"),
+            headers=admin_headers,
+        )
+
+        # Verify response
+        assert response.status_code == 200
+        data = response.json()
+        assert data["success"] is True
+        assert data["rebuilt_count"] == 1
+        assert data["failed_count"] == 0
+
+        # Verify database state: check that RouteStationIndex entries were created
+        result = await db_session.execute(select(RouteStationIndex).where(RouteStationIndex.route_id == route.id))
+        index_entries = result.scalars().all()
+
+        assert len(index_entries) == 2  # Both stations indexed
+        station_naptans = {entry.station_naptan for entry in index_entries}
+        assert station_naptans == {"station-a", "station-b"}
+        assert all(entry.line_tfl_id == "testline-integration" for entry in index_entries)
+
+    @pytest.mark.asyncio
+    async def test_rebuild_indexes_integration_all_routes(
+        self,
+        async_client_with_db: AsyncClient,
+        db_session: AsyncSession,
+        admin_user: User,
+        admin_headers: dict[str, str],
+    ) -> None:
+        """Integration test: Rebuild indexes for all routes with real database."""
+        # Unpack admin_user tuple (User, AdminUser)
+        user, _ = admin_user
+
+        # Create real test data
+        line = Line(
+            id=uuid.uuid4(),
+            tfl_id="testline-multi",
+            name="Test Line Multi",
+            mode="tube",
+            last_updated=datetime.now(UTC),
+            routes={
+                "routes": [
+                    {
+                        "name": "Route 1",
+                        "direction": "inbound",
+                        "stations": ["station-x", "station-y", "station-z"],
+                    }
+                ]
+            },
+        )
+        station_x = Station(
+            id=uuid.uuid4(),
+            tfl_id="station-x",
+            name="Station X",
+            latitude=51.5,
+            longitude=-0.1,
+            lines=["testline-multi"],
+            last_updated=datetime.now(UTC),
+        )
+        station_y = Station(
+            id=uuid.uuid4(),
+            tfl_id="station-y",
+            name="Station Y",
+            latitude=51.6,
+            longitude=-0.2,
+            lines=["testline-multi"],
+            last_updated=datetime.now(UTC),
+        )
+        station_z = Station(
+            id=uuid.uuid4(),
+            tfl_id="station-z",
+            name="Station Z",
+            latitude=51.7,
+            longitude=-0.3,
+            lines=["testline-multi"],
+            last_updated=datetime.now(UTC),
+        )
+
+        db_session.add_all([line, station_x, station_y, station_z])
+        await db_session.flush()
+
+        # Create multiple routes
+        route1 = Route(user_id=user.id, name="Route 1", active=True)
+        route2 = Route(user_id=user.id, name="Route 2", active=True)
+        db_session.add_all([route1, route2])
+        await db_session.flush()
+
+        # Route 1: X → Y
+        segments1 = [
+            RouteSegment(route_id=route1.id, sequence=1, station_id=station_x.id, line_id=line.id),
+            RouteSegment(route_id=route1.id, sequence=2, station_id=station_y.id, line_id=None),
+        ]
+        # Route 2: Y → Z
+        segments2 = [
+            RouteSegment(route_id=route2.id, sequence=1, station_id=station_y.id, line_id=line.id),
+            RouteSegment(route_id=route2.id, sequence=2, station_id=station_z.id, line_id=None),
+        ]
+        db_session.add_all(segments1 + segments2)
+        await db_session.commit()
+
+        # Call the endpoint to rebuild ALL indexes (NO MOCKS)
+        response = await async_client_with_db.post(
+            build_api_url("/admin/routes/rebuild-indexes"),
+            headers=admin_headers,
+        )
+
+        # Verify response
+        assert response.status_code == 200
+        data = response.json()
+        assert data["success"] is True
+        assert data["rebuilt_count"] == 2  # Both routes rebuilt
+        assert data["failed_count"] == 0
+
+        # Verify database state: check that indexes were created for both routes
+        result = await db_session.execute(select(RouteStationIndex))
+        all_index_entries = result.scalars().all()
+
+        # Should have entries for both routes
+        route_ids_in_index = {entry.route_id for entry in all_index_entries}
+        assert route1.id in route_ids_in_index
+        assert route2.id in route_ids_in_index
+
+        # Route 1 should have 2 entries (X, Y)
+        route1_entries = [e for e in all_index_entries if e.route_id == route1.id]
+        assert len(route1_entries) == 2
+
+        # Route 2 should have 2 entries (Y, Z)
+        route2_entries = [e for e in all_index_entries if e.route_id == route2.id]
+        assert len(route2_entries) == 2

@@ -640,6 +640,69 @@ class TestRouteIndexService:
         for entry in index_entries:
             assert entry.line_data_version == line.last_updated
 
+    @pytest.mark.asyncio
+    async def test_build_index_auto_commit_false_success(
+        self,
+        db_session: AsyncSession,
+        test_user: User,
+    ) -> None:
+        """Test building index with auto_commit=False (no automatic commit)."""
+        # Create test network
+        line = TestRailwayNetwork.create_2stopline()
+        station1 = TestRailwayNetwork.create_twostop_west()
+        station2 = TestRailwayNetwork.create_twostop_east()
+
+        db_session.add_all([line, station1, station2])
+        await db_session.flush()
+
+        # Create route with 2 segments
+        route = Route(user_id=test_user.id, name="Test Route", active=True)
+        db_session.add(route)
+        await db_session.flush()
+
+        segments = [
+            RouteSegment(route_id=route.id, sequence=1, station_id=station1.id, line_id=line.id),
+            RouteSegment(route_id=route.id, sequence=2, station_id=station2.id, line_id=None),
+        ]
+        db_session.add_all(segments)
+        await db_session.commit()
+
+        # Build index with auto_commit=False
+        service = RouteIndexService(db_session)
+        result = await service.build_route_station_index(route.id, auto_commit=False)
+
+        # Verify result (but no commit yet)
+        assert result["segments_processed"] == 1
+        assert result["entries_created"] == 2
+
+        # Manually commit
+        await db_session.commit()
+
+        # Verify entries exist after manual commit
+        index_result = await db_session.execute(select(RouteStationIndex).where(RouteStationIndex.route_id == route.id))
+        index_entries = index_result.scalars().all()
+        assert len(index_entries) == 2
+
+    @pytest.mark.asyncio
+    async def test_build_index_auto_commit_false_with_error(
+        self,
+        db_session: AsyncSession,
+        test_user: User,
+    ) -> None:
+        """Test that auto_commit=False doesn't rollback on error (lets caller handle)."""
+        # Use a non-existent route ID to trigger ValueError
+        fake_route_id = uuid.uuid4()
+
+        # Build index with auto_commit=False (will fail with route not found)
+        service = RouteIndexService(db_session)
+
+        # This should raise ValueError for route not found
+        with pytest.raises(ValueError, match=f"Route {fake_route_id} not found"):
+            await service.build_route_station_index(fake_route_id, auto_commit=False)
+
+        # With auto_commit=False, no automatic rollback occurred
+        # The exception is re-raised for caller to handle
+
 
 # =============================================================================
 # Rebuild Routes Tests
@@ -849,3 +912,75 @@ class TestRebuildRoutes:
         # Should succeed (not fail) because insufficient segments just logs warning
         assert result["rebuilt_count"] == 1
         assert result["failed_count"] == 0
+
+    @pytest.mark.asyncio
+    async def test_expand_segment_with_empty_variant_stations(
+        self,
+        db_session: AsyncSession,
+        test_user: User,
+    ) -> None:
+        """Test handling of line variant with empty stations array."""
+        # Create line with variant containing empty stations array
+        line = Line(
+            id=uuid.uuid4(),
+            tfl_id="emptyvariantline",
+            name="Empty Variant Line",
+            mode="tube",
+            last_updated=datetime.now(UTC),
+            routes={
+                "routes": [
+                    {
+                        "name": "Route 1",
+                        "direction": "inbound",
+                        "stations": [],  # Empty stations array - should be skipped
+                    }
+                ]
+            },
+        )
+        station1 = TestRailwayNetwork.create_twostop_west()
+        station2 = TestRailwayNetwork.create_twostop_east()
+
+        db_session.add_all([line, station1, station2])
+        await db_session.flush()
+
+        # Create route
+        route = Route(user_id=test_user.id, name="Empty Variant Route", active=True)
+        db_session.add(route)
+        await db_session.flush()
+
+        # Add segments using this line
+        segments = [
+            RouteSegment(route_id=route.id, sequence=1, station_id=station1.id, line_id=line.id),
+            RouteSegment(route_id=route.id, sequence=2, station_id=station2.id, line_id=None),
+        ]
+        db_session.add_all(segments)
+        await db_session.commit()
+
+        # Build index - should handle empty variant gracefully
+        service = RouteIndexService(db_session)
+        result = await service.build_route_station_index(route.id)
+
+        # Should complete but create no entries (no valid variants)
+        assert result["segments_processed"] == 1
+        assert result["entries_created"] == 0
+
+    @pytest.mark.asyncio
+    async def test_rebuild_routes_single_route_with_exception(
+        self,
+        db_session: AsyncSession,
+        test_user: User,
+    ) -> None:
+        """Test rebuild_routes with single route that raises exception during processing."""
+        # Use non-existent route ID to trigger exception
+        fake_route_id = uuid.uuid4()
+
+        # Rebuild single route - should catch exception and return failure
+        service = RouteIndexService(db_session)
+        result = await service.rebuild_routes(fake_route_id)
+
+        # Should fail gracefully - exception caught and recorded
+        assert result["rebuilt_count"] == 0
+        assert result["failed_count"] == 1
+        assert len(result["errors"]) == 1
+        assert str(fake_route_id) in result["errors"][0]
+        assert "not found" in result["errors"][0]
