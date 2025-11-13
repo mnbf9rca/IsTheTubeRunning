@@ -93,7 +93,9 @@ def check_disruptions_and_alert(self: BoundTask) -> DisruptionCheckResult:
         Retry: If the task should be retried due to transient failure
     """
     try:
-        # Run async logic in the event loop
+        # asyncio.run() creates a new event loop for this worker thread.
+        # This is the standard pattern for Celery tasks calling async code.
+        # Not blocking since each task runs in its own worker thread.
         result = asyncio.run(_check_disruptions_async())
         logger.info(
             "check_disruptions_task_completed",
@@ -176,7 +178,9 @@ def rebuild_route_indexes_task(
         Retry: If the task should be retried due to transient failure
     """
     try:
-        # Run async logic in the event loop
+        # asyncio.run() creates a new event loop for this worker thread.
+        # This is the standard pattern for Celery tasks calling async code.
+        # Not blocking since each task runs in its own worker thread.
         result = asyncio.run(_rebuild_indexes_async(route_id))
         logger.info(
             "rebuild_indexes_task_completed",

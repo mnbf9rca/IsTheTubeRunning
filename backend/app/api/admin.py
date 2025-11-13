@@ -542,15 +542,17 @@ async def rebuild_route_indexes(
         db: Database session
 
     Returns:
-        Statistics about the rebuild operation
+        Statistics about the rebuild operation. Individual route failures are reported
+        in the errors list rather than raising exceptions.
 
     Raises:
-        HTTPException: 403 if not admin, 404 if route_id not found
+        HTTPException: 403 if not admin
     """
     index_service = RouteIndexService(db)
 
     try:
         # Use shared rebuild_routes method for consistent behavior
+        # Service layer handles errors gracefully and returns them in result dict
         result = await index_service.rebuild_routes(route_id, auto_commit=True)
 
         return RebuildIndexesResponse(
@@ -560,7 +562,12 @@ async def rebuild_route_indexes(
             errors=result["errors"],
         )
 
+    except HTTPException:
+        # Re-raise HTTPExceptions to preserve correct status codes (e.g., 404, 403)
+        raise
     except Exception as exc:
+        # Catch truly unexpected errors (e.g., database connection loss)
+        # Service-level errors are returned in result dict, not raised
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to rebuild indexes: {exc!s}",

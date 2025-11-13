@@ -271,6 +271,18 @@ class RouteIndexService:
                 )
                 continue
 
+            # Skip if either segment is missing station data
+            if not current_segment.station or not next_segment.station:
+                logger.warning(
+                    "skipping_segment_missing_station",
+                    route_id=str(route.id),
+                    current_sequence=current_segment.sequence,
+                    next_sequence=next_segment.sequence,
+                    current_station_missing=current_segment.station is None,
+                    next_station_missing=next_segment.station is None,
+                )
+                continue
+
             # Track that we're processing this pair
             pairs_processed += 1
 
