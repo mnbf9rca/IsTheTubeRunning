@@ -1,0 +1,42 @@
+HTTP/1.1 200 OK
+
+age: 0
+api-entity-payload: Disruption
+cache-control: public, must-revalidate, max-age=30, s-maxage=60
+content-encoding: gzip
+content-length: 350
+content-type: application/json; charset=utf-8
+date: Thu, 13 Nov 2025 07:49:24 GMT
+server: cloudflare
+via: 1.1 varnish
+x-api: Line
+x-aspnet-version: 4.0.30319
+x-backend: api
+x-cache: MISS
+x-cacheable: Yes. Cacheable
+x-frame-options: deny
+x-operation: Line_DisruptionByModeByPathModes
+x-proxy-connection: unset
+x-ttl: 60.000
+x-ttl-rule: 0
+x-varnish: 665010810
+
+[{
+    "$type": "Tfl.Api.Presentation.Entities.Disruption, Tfl.Api.Presentation.Entities",
+    "category": "RealTime",
+    "type": "routeInfo",
+    "categoryDescription": "RealTime",
+    "description": "Central Line: Minor delays between North Acton and West Ruislip due to train cancellations. GOOD SERVICE on the rest of the line.  ",
+    "affectedRoutes": [],
+    "affectedStops": [],
+    "closureText": "minorDelays"
+}, {
+    "$type": "Tfl.Api.Presentation.Entities.Disruption, Tfl.Api.Presentation.Entities",
+    "category": "RealTime",
+    "type": "routeBlocking",
+    "categoryDescription": "RealTime",
+    "description": "Piccadilly Line: No service between Cockfosters and Arnos Grove while we fix a track fault. Tickets are valid on London Buses. GOOD SERVICE on the rest of the line.  ",
+    "affectedRoutes": [],
+    "affectedStops": [],
+    "closureText": "partSuspended"
+}]

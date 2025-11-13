@@ -172,6 +172,29 @@ Use `/Line/{ids}/Status` endpoint (`StatusByIdsByPathIdsQueryDetail`) instead of
 - Test mocks more complex (mock Line with nested LineStatus and ValidityPeriod)
 - Different response shape requires updated test fixtures
 
+---
+
+## Capture Affected Routes Data from TfL API
+
+### Status
+Active (Issue #126, implemented 2025-11-13)
+
+### Context
+TfL API provides `affectedRoutes` with station sequences in disruption responses. Initial implementation discarded this data. Future inverted index (Issue #125) needs station-level data for accurate matching.
+
+### Decision
+Capture `affected_routes` field in `DisruptionResponse` containing route name, direction, and affected station NaPTAN codes. No route variant IDs (don't exist in Line.routes data).
+
+### Consequences
+**Easier:**
+- Station-level disruption matching vs whole-line alerts
+- Future inverted index implementation without schema migration
+
+**More Difficult:**
+- Larger response payloads with station lists
+
+---
+
 ## Route Sequence Validation for Branch-Aware Paths
 
 ### Status
