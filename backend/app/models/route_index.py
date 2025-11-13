@@ -38,7 +38,6 @@ class RouteStationIndex(BaseModel):
         UUID(as_uuid=True),
         ForeignKey("routes.id", ondelete="CASCADE"),
         nullable=False,
-        index=True,
         comment="User's route ID",
     )
     line_tfl_id: Mapped[str] = mapped_column(
@@ -58,7 +57,7 @@ class RouteStationIndex(BaseModel):
     )
 
     # Relationships
-    route: Mapped[Route] = relationship()
+    route: Mapped[Route] = relationship(back_populates="station_indexes")
 
     __table_args__ = (
         # Primary lookup: "Which routes pass through station X on line Y?"
