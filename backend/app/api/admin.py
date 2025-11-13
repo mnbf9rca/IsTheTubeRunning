@@ -15,7 +15,6 @@ from app.core.admin import require_admin
 from app.core.database import get_db
 from app.models.admin import AdminUser
 from app.models.notification import NotificationLog, NotificationStatus
-from app.models.route import Route
 from app.schemas.admin import (
     AnonymiseUserResponse,
     DailySignup,
@@ -550,37 +549,15 @@ async def rebuild_route_indexes(
     """
     index_service = RouteIndexService(db)
 
-    rebuilt_count = 0
-    failed_count = 0
-    errors: list[str] = []
-
     try:
-        if route_id:
-            # Rebuild single route
-            try:
-                await index_service.build_route_station_index(route_id, auto_commit=True)
-                rebuilt_count = 1
-            except ValueError as exc:
-                failed_count = 1
-                errors.append(f"Route {route_id}: {exc!s}")
-        else:
-            # Rebuild all routes
-            result = await db.execute(select(Route))
-            routes = result.scalars().all()
-
-            for route in routes:
-                try:
-                    await index_service.build_route_station_index(route.id, auto_commit=True)
-                    rebuilt_count += 1
-                except Exception as exc:
-                    failed_count += 1
-                    errors.append(f"Route {route.id}: {exc!s}")
+        # Use shared rebuild_routes method for consistent behavior
+        result = await index_service.rebuild_routes(route_id, auto_commit=True)
 
         return RebuildIndexesResponse(
-            success=failed_count == 0,
-            rebuilt_count=rebuilt_count,
-            failed_count=failed_count,
-            errors=errors,
+            success=result["failed_count"] == 0,
+            rebuilt_count=result["rebuilt_count"],
+            failed_count=result["failed_count"],
+            errors=result["errors"],
         )
 
     except Exception as exc:

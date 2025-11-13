@@ -1,5 +1,6 @@
 """Service for building and maintaining route station indexes."""
 
+from typing import TypedDict
 from uuid import UUID
 
 import structlog
@@ -12,6 +13,14 @@ from app.models.route_index import RouteStationIndex
 from app.models.tfl import Line
 
 logger = structlog.get_logger(__name__)
+
+
+class RebuildRoutesResult(TypedDict):
+    """Result from rebuild_routes operation."""
+
+    rebuilt_count: int
+    failed_count: int
+    errors: list[str]
 
 
 class RouteIndexService:
@@ -80,7 +89,7 @@ class RouteIndexService:
             await self._delete_existing_index(route_id)
 
             # Process segments and build index
-            entries_created = await self._process_segments(route)
+            entries_created, pairs_processed = await self._process_segments(route)
 
             # Commit transaction if requested
             if auto_commit:
@@ -90,13 +99,14 @@ class RouteIndexService:
                 "build_route_station_index_completed",
                 route_id=str(route_id),
                 entries_created=entries_created,
+                pairs_processed=pairs_processed,
                 segments_count=len(route.segments),
                 auto_commit=auto_commit,
             )
 
             return {
                 "entries_created": entries_created,
-                "segments_processed": len(route.segments) - 1,  # Pairs count
+                "segments_processed": pairs_processed,
             }
 
         except Exception as exc:
@@ -105,6 +115,87 @@ class RouteIndexService:
             logger.error(
                 "build_route_station_index_failed",
                 route_id=str(route_id),
+                error=str(exc),
+            )
+            raise
+
+    async def rebuild_routes(
+        self,
+        route_id: UUID | None = None,
+        *,
+        auto_commit: bool = True,
+    ) -> RebuildRoutesResult:
+        """
+        Rebuild route station indexes for single route or all routes.
+
+        This is a convenience method that wraps build_route_station_index()
+        with error handling and statistics collection. Used by both the admin
+        endpoint and Celery tasks to ensure consistent behavior.
+
+        Args:
+            route_id: Optional route UUID. If provided, rebuilds only that route.
+                      If None, rebuilds all routes.
+            auto_commit: If True, commits transactions. If False, caller must commit.
+
+        Returns:
+            Dictionary with statistics:
+                - rebuilt_count: Number of routes successfully rebuilt
+                - failed_count: Number of routes that failed to rebuild
+                - errors: List of error messages for failed rebuilds
+        """
+        rebuilt_count = 0
+        failed_count = 0
+        errors: list[str] = []
+
+        try:
+            if route_id:
+                # Rebuild single route
+                try:
+                    await self.build_route_station_index(route_id, auto_commit=auto_commit)
+                    rebuilt_count = 1
+                except Exception as exc:
+                    failed_count = 1
+                    errors.append(f"Route {route_id}: {exc!s}")
+                    logger.error(
+                        "rebuild_single_route_failed",
+                        route_id=str(route_id),
+                        error=str(exc),
+                    )
+            else:
+                # Rebuild all routes
+                result = await self.db.execute(select(Route))
+                routes = result.scalars().all()
+
+                for route in routes:
+                    try:
+                        await self.build_route_station_index(route.id, auto_commit=auto_commit)
+                        rebuilt_count += 1
+                    except Exception as exc:
+                        failed_count += 1
+                        errors.append(f"Route {route.id}: {exc!s}")
+                        logger.error(
+                            "rebuild_route_failed",
+                            route_id=str(route.id),
+                            error=str(exc),
+                        )
+
+            logger.info(
+                "rebuild_routes_completed",
+                route_id=str(route_id) if route_id else "all",
+                rebuilt_count=rebuilt_count,
+                failed_count=failed_count,
+            )
+
+            return {
+                "rebuilt_count": rebuilt_count,
+                "failed_count": failed_count,
+                "errors": errors,
+            }
+
+        except Exception as exc:
+            logger.error(
+                "rebuild_routes_failed",
+                route_id=str(route_id) if route_id else "all",
                 error=str(exc),
             )
             raise
@@ -139,7 +230,7 @@ class RouteIndexService:
         await self.db.execute(delete(RouteStationIndex).where(RouteStationIndex.route_id == route_id))
         logger.debug("deleted_existing_index", route_id=str(route_id))
 
-    async def _process_segments(self, route: Route) -> int:
+    async def _process_segments(self, route: Route) -> tuple[int, int]:
         """
         Process route segments and create index entries.
 
@@ -150,7 +241,9 @@ class RouteIndexService:
             route: Route instance with segments loaded
 
         Returns:
-            Number of index entries created
+            Tuple of (entries_created, pairs_processed) where:
+                - entries_created: Number of index entries created
+                - pairs_processed: Number of segment pairs actually processed
         """
         segments = route.segments
         if len(segments) < 2:  # noqa: PLR2004
@@ -159,9 +252,10 @@ class RouteIndexService:
                 route_id=str(route.id),
                 segment_count=len(segments),
             )
-            return 0
+            return 0, 0
 
         entries_created = 0
+        pairs_processed = 0
 
         # Process each consecutive segment pair
         for i in range(len(segments) - 1):
@@ -176,6 +270,9 @@ class RouteIndexService:
                     sequence=current_segment.sequence,
                 )
                 continue
+
+            # Track that we're processing this pair
+            pairs_processed += 1
 
             # Get station IDs for searching Line.routes (use actual tfl_id, not hub code)
             # Line.routes contains actual station TfL IDs, not hub codes
@@ -223,7 +320,7 @@ class RouteIndexService:
                 # Continue processing other segments rather than failing entire index build
                 continue
 
-        return entries_created
+        return entries_created, pairs_processed
 
     async def _expand_segment_to_stations(
         self,
@@ -275,10 +372,8 @@ class RouteIndexService:
             end_idx = max(from_idx, to_idx)
             variant_stations = stations[start_idx : end_idx + 1]
 
-            # Add stations from this variant (preserving order, deduplicating)
-            for station in variant_stations:
-                if station not in all_stations:
-                    all_stations.append(station)
+            # Collect stations from this variant (will deduplicate after loop)
+            all_stations.extend(variant_stations)
 
             variants_found += 1
             logger.debug(
@@ -294,16 +389,19 @@ class RouteIndexService:
             msg = f"No route variant on line {line.tfl_id} contains both {from_station_naptan} and {to_station_naptan}"
             raise ValueError(msg)
 
+        # Deduplicate stations while preserving order (using pure function)
+        unique_stations = deduplicate_preserving_order(all_stations)
+
         logger.debug(
             "expanded_segment_summary",
             line=line.tfl_id,
             from_station=from_station_naptan,
             to_station=to_station_naptan,
             variants_matched=variants_found,
-            total_unique_stations=len(all_stations),
+            total_unique_stations=len(unique_stations),
         )
 
-        return all_stations
+        return unique_stations
 
 
 # =============================================================================

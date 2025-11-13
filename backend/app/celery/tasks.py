@@ -9,11 +9,9 @@ from typing import Protocol, TypedDict
 from uuid import UUID
 
 import structlog
-from sqlalchemy import select
 
 from app.celery.app import celery_app
 from app.celery.database import worker_session_factory
-from app.models.route import Route
 from app.services.alert_service import AlertService, get_redis_client
 from app.services.route_index_service import RouteIndexService
 
@@ -215,37 +213,17 @@ async def _rebuild_indexes_async(route_id_str: str | None = None) -> RebuildInde
         session = worker_session_factory()
         index_service = RouteIndexService(session)
 
-        rebuilt_count = 0
-        failed_count = 0
-        errors: list[str] = []
+        # Parse route_id if provided
+        route_id = UUID(route_id_str) if route_id_str else None
 
-        if route_id_str:
-            # Rebuild single route
-            route_id = UUID(route_id_str)
-            try:
-                await index_service.build_route_station_index(route_id, auto_commit=True)
-                rebuilt_count = 1
-            except Exception as exc:
-                failed_count = 1
-                errors.append(f"Route {route_id}: {exc!s}")
-        else:
-            # Rebuild all routes
-            result = await session.execute(select(Route))
-            routes = result.scalars().all()
-
-            for route in routes:
-                try:
-                    await index_service.build_route_station_index(route.id, auto_commit=True)
-                    rebuilt_count += 1
-                except Exception as exc:
-                    failed_count += 1
-                    errors.append(f"Route {route.id}: {exc!s}")
+        # Use shared rebuild_routes method for consistent behavior
+        result = await index_service.rebuild_routes(route_id, auto_commit=True)
 
         return RebuildIndexesResult(
-            status="success" if failed_count == 0 else "partial_failure",
-            rebuilt_count=rebuilt_count,
-            failed_count=failed_count,
-            errors=errors,
+            status="success" if result["failed_count"] == 0 else "partial_failure",
+            rebuilt_count=result["rebuilt_count"],
+            failed_count=result["failed_count"],
+            errors=result["errors"],
         )
 
     finally:

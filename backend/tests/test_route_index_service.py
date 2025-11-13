@@ -339,7 +339,9 @@ class TestRouteIndexService:
         result = await service.build_route_station_index(route.id)
 
         # Verify result statistics
-        assert result["segments_processed"] == 3  # 4 segments = 3 pairs
+        # 4 segments = 3 potential pairs, but only 2 are actually processed
+        # (pair starting from segment 2 is skipped because segment 2 has line_id=None)
+        assert result["segments_processed"] == 2
 
         # Verify index entries
         index_result = await db_session.execute(select(RouteStationIndex).where(RouteStationIndex.route_id == route.id))
