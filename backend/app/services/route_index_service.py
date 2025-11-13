@@ -210,6 +210,10 @@ class RouteIndexService:
         Returns:
             Route instance or None if not found
         """
+        # Note: Segments MUST be ordered by sequence for _process_segments to work correctly.
+        # The ordering is enforced by the Route.segments relationship default (see route.py:68).
+        # This is critical - if segments are unordered, _process_segments would create incorrect
+        # index entries linking non-adjacent stations.
         result = await self.db.execute(
             select(Route)
             .where(Route.id == route_id)
@@ -380,6 +384,10 @@ class RouteIndexService:
                 continue
 
             # Extract all stations between from and to (inclusive)
+            # Note: We don't use find_stations_between() here because we need to:
+            # (1) search multiple route variants and collect results from ALL matches
+            # (2) continue searching if a variant doesn't contain both stations
+            # The inline logic is clearer for this multi-variant search pattern.
             start_idx = min(from_idx, to_idx)
             end_idx = max(from_idx, to_idx)
             variant_stations = stations[start_idx : end_idx + 1]
