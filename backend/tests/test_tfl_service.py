@@ -36,6 +36,9 @@ from pydantic_tfl_api.models import (
     RouteSection as TflRouteSection,
 )
 from pydantic_tfl_api.models import (
+    RouteSectionNaptanEntrySequence as TflRouteSectionNaptanEntrySequence,
+)
+from pydantic_tfl_api.models import (
     StatusSeverity as TflStatusSeverity,
 )
 from pydantic_tfl_api.models import (
@@ -103,6 +106,17 @@ def create_mock_stop_point(
     if "modes" not in kwargs:
         kwargs["modes"] = ["tube"]
     return TflStopPoint(id=id, commonName=common_name, **kwargs)
+
+
+def create_mock_route_section_sequence(
+    naptan_id: str,
+    common_name: str,
+    ordinal: int = 0,
+    **kwargs: Any,  # noqa: ANN401
+) -> TflRouteSectionNaptanEntrySequence:
+    """Factory for TfL RouteSectionNaptanEntrySequence mocks."""
+    stop_point = create_mock_stop_point(id=naptan_id, common_name=common_name, naptanId=naptan_id)
+    return TflRouteSectionNaptanEntrySequence(ordinal=ordinal, stopPoint=stop_point, **kwargs)
 
 
 def create_mock_disruption(
@@ -1741,6 +1755,117 @@ async def test_fetch_disruptions_cache_miss(
 
 
 @patch("asyncio.get_running_loop")
+async def test_fetch_disruptions_with_affected_routes(
+    mock_get_loop: MagicMock,
+    tfl_service: TfLService,
+) -> None:
+    """Test that affected routes with station sequences are correctly extracted from disruptions."""
+    with freeze_time("2025-01-01 12:00:00"):
+        # Mock fetch_lines
+        mock_line_piccadilly = Line(tfl_id="piccadilly", name="Piccadilly", mode="tube")
+        tfl_service.fetch_lines = AsyncMock(return_value=[mock_line_piccadilly])
+
+        # Create mock affected routes with station sequences
+        affected_route_1 = create_mock_route_section(
+            id="1817",
+            name="Cockfosters → Heathrow Terminal 5",
+            direction="outbound",
+            routeSectionNaptanEntrySequence=[
+                create_mock_route_section_sequence(
+                    naptan_id="940GZZLUCKS",
+                    common_name="Cockfosters",
+                    ordinal=0,
+                ),
+                create_mock_route_section_sequence(
+                    naptan_id="940GZZLUOAK",
+                    common_name="Oakwood",
+                    ordinal=1,
+                ),
+                create_mock_route_section_sequence(
+                    naptan_id="940GZZLUSGT",
+                    common_name="Southgate",
+                    ordinal=2,
+                ),
+            ],
+        )
+
+        affected_route_2 = create_mock_route_section(
+            id="1818",
+            name="Heathrow Terminal 5 → Cockfosters",
+            direction="inbound",
+            routeSectionNaptanEntrySequence=[
+                create_mock_route_section_sequence(
+                    naptan_id="940GZZLUHRC",
+                    common_name="Heathrow Terminal 5",
+                    ordinal=0,
+                ),
+                create_mock_route_section_sequence(
+                    naptan_id="940GZZLUHR4",
+                    common_name="Heathrow Terminal 4",
+                    ordinal=1,
+                ),
+            ],
+        )
+
+        # Setup mock with disruption containing affected routes
+        mock_lines = [
+            create_mock_line_with_status(
+                line_id="piccadilly",
+                line_name="Piccadilly",
+                line_statuses=[
+                    create_mock_line_status(
+                        status_severity=6,
+                        status_severity_description="Severe Delays",
+                        disruption=create_mock_disruption(
+                            category="RealTime",
+                            description="Signal failure between Cockfosters and Southgate",
+                            affected_routes=[affected_route_1, affected_route_2],
+                            created=datetime(2025, 1, 1, 11, 30, 0, tzinfo=UTC),
+                        ),
+                        validity_periods=[create_mock_validity_period(is_now=True)],
+                    )
+                ],
+            ),
+        ]
+        mock_response = MockResponse(
+            data=mock_lines,
+            shared_expires=datetime(2025, 1, 1, 12, 2, 0, tzinfo=UTC),
+        )
+
+        # Mock the event loop and executor
+        mock_loop = AsyncMock()
+        mock_loop.run_in_executor = AsyncMock(return_value=mock_response)
+        mock_get_loop.return_value = mock_loop
+
+        # Execute
+        disruptions = await tfl_service.fetch_line_disruptions(modes=["tube"], use_cache=False)
+
+        # Verify disruption data
+        assert len(disruptions) == 1
+        disruption = disruptions[0]
+        assert disruption.line_id == "piccadilly"
+        assert disruption.status_severity == 6
+
+        # Verify affected routes were extracted
+        assert disruption.affected_routes is not None
+        assert len(disruption.affected_routes) == 2
+
+        # Verify first affected route
+        route_1 = disruption.affected_routes[0]
+        assert route_1.name == "Cockfosters → Heathrow Terminal 5"
+        assert route_1.direction == "outbound"
+        assert len(route_1.affected_stations) == 3
+        assert route_1.affected_stations == ["940GZZLUCKS", "940GZZLUOAK", "940GZZLUSGT"]
+
+        # Verify second affected route
+        route_2 = disruption.affected_routes[1]
+        assert route_2.name == "Heathrow Terminal 5 → Cockfosters"
+        assert route_2.direction == "inbound"
+        assert len(route_2.affected_stations) == 2
+        assert route_2.affected_stations == ["940GZZLUHRC", "940GZZLUHR4"]
+
+
+@patch("asyncio.get_running_loop")
 async def test_fetch_disruptions_without_affected_routes(
     mock_get_loop: MagicMock,
     tfl_service: TfLService,
@@ -1799,8 +1924,206 @@ async def test_fetch_disruptions_without_affected_routes(
         assert len(disruptions) == 2
         assert disruptions[0].line_id == "victoria"
         assert disruptions[0].status_severity == 6
+        assert disruptions[0].affected_routes is None  # No affected routes in this disruption
         assert disruptions[1].line_id == "central"
         assert disruptions[1].status_severity == 10
+        assert disruptions[1].affected_routes is None  # No disruption at all
+
+
+@patch("asyncio.get_running_loop")
+async def test_fetch_disruptions_with_empty_affected_station_sequence(
+    mock_get_loop: MagicMock,
+    tfl_service: TfLService,
+) -> None:
+    """Test that affected routes with empty station sequences are filtered out."""
+    with freeze_time("2025-01-01 12:00:00"):
+        # Mock fetch_lines
+        mock_line = Line(tfl_id="victoria", name="Victoria", mode="tube")
+        tfl_service.fetch_lines = AsyncMock(return_value=[mock_line])
+
+        # Create affected route with empty station sequence
+        affected_route = create_mock_route_section(
+            id="123",
+            name="Victoria → Brixton",
+            direction="southbound",
+            routeSectionNaptanEntrySequence=[],  # Empty sequence
+        )
+
+        mock_lines = [
+            create_mock_line_with_status(
+                line_id="victoria",
+                line_name="Victoria",
+                line_statuses=[
+                    create_mock_line_status(
+                        status_severity=6,
+                        status_severity_description="Severe Delays",
+                        disruption=create_mock_disruption(
+                            category="RealTime",
+                            description="Signal failure",
+                            affected_routes=[affected_route],
+                            created=datetime(2025, 1, 1, 11, 30, 0, tzinfo=UTC),
+                        ),
+                        validity_periods=[create_mock_validity_period(is_now=True)],
+                    )
+                ],
+            ),
+        ]
+        mock_response = MockResponse(
+            data=mock_lines,
+            shared_expires=datetime(2025, 1, 1, 12, 2, 0, tzinfo=UTC),
+        )
+
+        mock_loop = AsyncMock()
+        mock_loop.run_in_executor = AsyncMock(return_value=mock_response)
+        mock_get_loop.return_value = mock_loop
+
+        # Execute
+        disruptions = await tfl_service.fetch_line_disruptions(modes=["tube"], use_cache=False)
+
+        # Verify - affected_routes is None because no valid stations were extracted
+        assert len(disruptions) == 1
+        assert disruptions[0].affected_routes is None
+
+
+@patch("asyncio.get_running_loop")
+async def test_fetch_disruptions_with_missing_stop_point_data(
+    mock_get_loop: MagicMock,
+    tfl_service: TfLService,
+) -> None:
+    """Test that route sequences with missing stopPoint data are handled gracefully."""
+    with freeze_time("2025-01-01 12:00:00"):
+        # Mock fetch_lines
+        mock_line = Line(tfl_id="northern", name="Northern", mode="tube")
+        tfl_service.fetch_lines = AsyncMock(return_value=[mock_line])
+
+        # Create route sequence with missing stopPoint
+        sequence_with_missing = TflRouteSectionNaptanEntrySequence(
+            ordinal=0,
+            stopPoint=None,  # Missing stopPoint
+        )
+        sequence_valid = create_mock_route_section_sequence(
+            naptan_id="940GZZLUMDN",
+            common_name="Morden",
+            ordinal=1,
+        )
+
+        affected_route = create_mock_route_section(
+            id="456",
+            name="Edgware → Morden",
+            direction="southbound",
+            routeSectionNaptanEntrySequence=[sequence_with_missing, sequence_valid],
+        )
+
+        mock_lines = [
+            create_mock_line_with_status(
+                line_id="northern",
+                line_name="Northern",
+                line_statuses=[
+                    create_mock_line_status(
+                        status_severity=6,
+                        status_severity_description="Severe Delays",
+                        disruption=create_mock_disruption(
+                            category="RealTime",
+                            description="Passenger incident",
+                            affected_routes=[affected_route],
+                            created=datetime(2025, 1, 1, 11, 30, 0, tzinfo=UTC),
+                        ),
+                        validity_periods=[create_mock_validity_period(is_now=True)],
+                    )
+                ],
+            ),
+        ]
+        mock_response = MockResponse(
+            data=mock_lines,
+            shared_expires=datetime(2025, 1, 1, 12, 2, 0, tzinfo=UTC),
+        )
+
+        mock_loop = AsyncMock()
+        mock_loop.run_in_executor = AsyncMock(return_value=mock_response)
+        mock_get_loop.return_value = mock_loop
+
+        # Execute
+        disruptions = await tfl_service.fetch_line_disruptions(modes=["tube"], use_cache=False)
+
+        # Verify - only the valid station is included
+        assert len(disruptions) == 1
+        assert disruptions[0].affected_routes is not None
+        assert len(disruptions[0].affected_routes) == 1
+        assert len(disruptions[0].affected_routes[0].affected_stations) == 1
+        assert disruptions[0].affected_routes[0].affected_stations[0] == "940GZZLUMDN"
+
+
+@patch("asyncio.get_running_loop")
+async def test_fetch_disruptions_with_missing_naptan_id(
+    mock_get_loop: MagicMock,
+    tfl_service: TfLService,
+) -> None:
+    """Test that stopPoints with missing naptanId are filtered out."""
+    with freeze_time("2025-01-01 12:00:00"):
+        # Mock fetch_lines
+        mock_line = Line(tfl_id="jubilee", name="Jubilee", mode="tube")
+        tfl_service.fetch_lines = AsyncMock(return_value=[mock_line])
+
+        # Create stop point without naptanId
+        stop_point_no_naptan = TflStopPoint(
+            id="940GZZLUSTJ",
+            commonName="St John's Wood",
+            # naptanId is missing
+        )
+        sequence_no_naptan = TflRouteSectionNaptanEntrySequence(
+            ordinal=0,
+            stopPoint=stop_point_no_naptan,
+        )
+        sequence_valid = create_mock_route_section_sequence(
+            naptan_id="940GZZLUSWP",
+            common_name="Swiss Cottage",
+            ordinal=1,
+        )
+
+        affected_route = create_mock_route_section(
+            id="789",
+            name="Stanmore → Stratford",
+            direction="eastbound",
+            routeSectionNaptanEntrySequence=[sequence_no_naptan, sequence_valid],
+        )
+
+        mock_lines = [
+            create_mock_line_with_status(
+                line_id="jubilee",
+                line_name="Jubilee",
+                line_statuses=[
+                    create_mock_line_status(
+                        status_severity=6,
+                        status_severity_description="Minor Delays",
+                        disruption=create_mock_disruption(
+                            category="RealTime",
+                            description="Train cancellation",
+                            affected_routes=[affected_route],
+                            created=datetime(2025, 1, 1, 11, 30, 0, tzinfo=UTC),
+                        ),
+                        validity_periods=[create_mock_validity_period(is_now=True)],
+                    )
+                ],
+            ),
+        ]
+        mock_response = MockResponse(
+            data=mock_lines,
+            shared_expires=datetime(2025, 1, 1, 12, 2, 0, tzinfo=UTC),
+        )
+
+        mock_loop = AsyncMock()
+        mock_loop.run_in_executor = AsyncMock(return_value=mock_response)
+        mock_get_loop.return_value = mock_loop
+
+        # Execute
+        disruptions = await tfl_service.fetch_line_disruptions(modes=["tube"], use_cache=False)
+
+        # Verify - only the station with naptanId is included
+        assert len(disruptions) == 1
+        assert disruptions[0].affected_routes is not None
+        assert len(disruptions[0].affected_routes) == 1
+        assert len(disruptions[0].affected_routes[0].affected_stations) == 1
+        assert disruptions[0].affected_routes[0].affected_stations[0] == "940GZZLUSWP"
 
 
 @patch("asyncio.get_running_loop")
