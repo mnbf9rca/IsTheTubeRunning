@@ -24,6 +24,7 @@ def test_check_disruptions_task_registered() -> None:
 
 
 @pytest.mark.asyncio
+@patch("app.celery.tasks.reset_worker_engine")
 @patch("app.celery.tasks.AlertService")
 @patch("app.celery.tasks.get_redis_client")
 @patch("app.celery.tasks.get_worker_session")
@@ -31,8 +32,10 @@ async def test_check_disruptions_async_success(
     mock_session_factory: MagicMock,
     mock_redis_func: MagicMock,
     mock_alert_class: MagicMock,
+    mock_reset_engine: MagicMock,
 ) -> None:
     """Test successful execution of _check_disruptions_async function."""
+    mock_reset_engine.return_value = AsyncMock()
     # Mock database session
     mock_session = AsyncMock()
     mock_session.close = AsyncMock()
@@ -71,6 +74,7 @@ async def test_check_disruptions_async_success(
 
 
 @pytest.mark.asyncio
+@patch("app.celery.tasks.reset_worker_engine")
 @patch("app.celery.tasks.AlertService")
 @patch("app.celery.tasks.get_redis_client")
 @patch("app.celery.tasks.get_worker_session")
@@ -78,8 +82,10 @@ async def test_check_disruptions_async_returns_stats(
     mock_session_factory: MagicMock,
     mock_redis_func: MagicMock,
     mock_alert_class: MagicMock,
+    mock_reset_engine: MagicMock,
 ) -> None:
     """Test that async function returns correct statistics structure."""
+    mock_reset_engine.return_value = AsyncMock()
     # Mock database session
     mock_session = AsyncMock()
     mock_session.close = AsyncMock()
@@ -113,6 +119,7 @@ async def test_check_disruptions_async_returns_stats(
 
 
 @pytest.mark.asyncio
+@patch("app.celery.tasks.reset_worker_engine")
 @patch("app.celery.tasks.get_redis_client")
 @patch("app.celery.tasks.AlertService")
 @patch("app.celery.tasks.get_worker_session")
@@ -120,6 +127,7 @@ async def test_check_disruptions_async_closes_resources(
     mock_session_factory: MagicMock,
     mock_alert_class: MagicMock,
     mock_redis_func: MagicMock,
+    mock_reset_engine: MagicMock,
 ) -> None:
     """Test that async function properly closes Redis and database connections."""
     # Mock database session
@@ -152,6 +160,7 @@ async def test_check_disruptions_async_closes_resources(
 
 
 @pytest.mark.asyncio
+@patch("app.celery.tasks.reset_worker_engine")
 @patch("app.celery.tasks.get_redis_client")
 @patch("app.celery.tasks.AlertService")
 @patch("app.celery.tasks.get_worker_session")
@@ -159,6 +168,7 @@ async def test_check_disruptions_async_closes_resources_on_error(
     mock_session_factory: MagicMock,
     mock_alert_class: MagicMock,
     mock_redis_func: MagicMock,
+    mock_reset_engine: MagicMock,
 ) -> None:
     """Test that async function closes resources even when error occurs."""
     # Mock database session
@@ -186,6 +196,7 @@ async def test_check_disruptions_async_closes_resources_on_error(
 
 
 @pytest.mark.asyncio
+@patch("app.celery.tasks.reset_worker_engine")
 @patch("app.celery.tasks.get_redis_client")
 @patch("app.celery.tasks.AlertService")
 @patch("app.celery.tasks.get_worker_session")
@@ -193,6 +204,7 @@ async def test_check_disruptions_async_no_routes_checked(
     mock_session_factory: MagicMock,
     mock_alert_class: MagicMock,
     mock_redis_func: MagicMock,
+    mock_reset_engine: MagicMock,
 ) -> None:
     """Test async function when no routes are checked (no active routes)."""
     # Mock database session
@@ -227,6 +239,7 @@ async def test_check_disruptions_async_no_routes_checked(
 
 
 @pytest.mark.asyncio
+@patch("app.celery.tasks.reset_worker_engine")
 @patch("app.celery.tasks.get_redis_client")
 @patch("app.celery.tasks.AlertService")
 @patch("app.celery.tasks.get_worker_session")
@@ -234,6 +247,7 @@ async def test_check_disruptions_async_with_errors(
     mock_session_factory: MagicMock,
     mock_alert_class: MagicMock,
     mock_redis_func: MagicMock,
+    mock_reset_engine: MagicMock,
 ) -> None:
     """Test async function when some routes have errors but function completes."""
     # Mock database session
@@ -268,11 +282,11 @@ async def test_check_disruptions_async_with_errors(
 
 
 @pytest.mark.asyncio
+@patch("app.celery.tasks.reset_worker_engine")
 @patch("app.celery.tasks.get_redis_client")
 @patch("app.celery.tasks.get_worker_session")
 async def test_check_disruptions_async_closes_session_when_redis_fails(
-    mock_session_factory: MagicMock,
-    mock_redis_func: MagicMock,
+    mock_session_factory: MagicMock, mock_redis_func: MagicMock, mock_reset_engine: MagicMock
 ) -> None:
     """Test that session is closed even when Redis client creation fails."""
     # Mock database session
@@ -292,6 +306,7 @@ async def test_check_disruptions_async_closes_session_when_redis_fails(
 
 
 @pytest.mark.asyncio
+@patch("app.celery.tasks.reset_worker_engine")
 @patch("app.celery.tasks.AlertService")
 @patch("app.celery.tasks.get_redis_client")
 @patch("app.celery.tasks.get_worker_session")
@@ -299,6 +314,7 @@ async def test_check_disruptions_async_closes_redis_when_service_fails(
     mock_session_factory: MagicMock,
     mock_redis_func: MagicMock,
     mock_alert_class: MagicMock,
+    mock_reset_engine: MagicMock,
 ) -> None:
     """Test that Redis is closed even when AlertService instantiation fails."""
     # Mock database session
@@ -343,7 +359,7 @@ def test_check_disruptions_task_success_path(mock_run_async_task: MagicMock) -> 
 @patch("app.celery.tasks.run_in_isolated_loop")
 def test_check_disruptions_task_retry_on_error(mock_run_async_task: MagicMock) -> None:
     """Test that task retries on exception (lines 55-63)."""
-    # Mock asyncio.run to raise an exception
+    # Mock run_in_isolated_loop to raise an exception
     mock_run_async_task.side_effect = RuntimeError("Database connection lost")
 
     # Create a mock Celery task instance with retry method
@@ -401,11 +417,11 @@ def test_rebuild_indexes_task_registered() -> None:
 
 
 @pytest.mark.asyncio
+@patch("app.celery.tasks.reset_worker_engine")
 @patch("app.celery.tasks.RouteIndexService")
 @patch("app.celery.tasks.get_worker_session")
 async def test_rebuild_indexes_async_success_single_route(
-    mock_session_factory: MagicMock,
-    mock_service_class: MagicMock,
+    mock_session_factory: MagicMock, mock_service_class: MagicMock, mock_reset_engine: MagicMock
 ) -> None:
     """Test successful execution for a single route."""
     # Mock database session
@@ -445,11 +461,11 @@ async def test_rebuild_indexes_async_success_single_route(
 
 
 @pytest.mark.asyncio
+@patch("app.celery.tasks.reset_worker_engine")
 @patch("app.celery.tasks.RouteIndexService")
 @patch("app.celery.tasks.get_worker_session")
 async def test_rebuild_indexes_async_success_all_routes(
-    mock_session_factory: MagicMock,
-    mock_service_class: MagicMock,
+    mock_session_factory: MagicMock, mock_service_class: MagicMock, mock_reset_engine: MagicMock
 ) -> None:
     """Test successful execution for all routes."""
     # Mock database session
@@ -485,11 +501,11 @@ async def test_rebuild_indexes_async_success_all_routes(
 
 
 @pytest.mark.asyncio
+@patch("app.celery.tasks.reset_worker_engine")
 @patch("app.celery.tasks.RouteIndexService")
 @patch("app.celery.tasks.get_worker_session")
 async def test_rebuild_indexes_async_partial_failure(
-    mock_session_factory: MagicMock,
-    mock_service_class: MagicMock,
+    mock_session_factory: MagicMock, mock_service_class: MagicMock, mock_reset_engine: MagicMock
 ) -> None:
     """Test async function when some routes fail."""
     # Mock database session
@@ -519,9 +535,10 @@ async def test_rebuild_indexes_async_partial_failure(
 
 
 @pytest.mark.asyncio
+@patch("app.celery.tasks.reset_worker_engine")
 @patch("app.celery.tasks.get_worker_session")
 async def test_rebuild_indexes_async_invalid_uuid(
-    mock_session_factory: MagicMock,
+    mock_session_factory: MagicMock, mock_reset_engine: MagicMock
 ) -> None:
     """Test that invalid UUID string raises ValueError."""
     # Mock database session
@@ -538,11 +555,11 @@ async def test_rebuild_indexes_async_invalid_uuid(
 
 
 @pytest.mark.asyncio
+@patch("app.celery.tasks.reset_worker_engine")
 @patch("app.celery.tasks.RouteIndexService")
 @patch("app.celery.tasks.get_worker_session")
 async def test_rebuild_indexes_async_closes_session_on_success(
-    mock_session_factory: MagicMock,
-    mock_service_class: MagicMock,
+    mock_session_factory: MagicMock, mock_service_class: MagicMock, mock_reset_engine: MagicMock
 ) -> None:
     """Test that async function properly closes database connection."""
     # Mock database session
@@ -569,11 +586,11 @@ async def test_rebuild_indexes_async_closes_session_on_success(
 
 
 @pytest.mark.asyncio
+@patch("app.celery.tasks.reset_worker_engine")
 @patch("app.celery.tasks.RouteIndexService")
 @patch("app.celery.tasks.get_worker_session")
 async def test_rebuild_indexes_async_closes_session_on_error(
-    mock_session_factory: MagicMock,
-    mock_service_class: MagicMock,
+    mock_session_factory: MagicMock, mock_service_class: MagicMock, mock_reset_engine: MagicMock
 ) -> None:
     """Test that async function closes session even when error occurs."""
     # Mock database session
@@ -595,11 +612,11 @@ async def test_rebuild_indexes_async_closes_session_on_error(
 
 
 @pytest.mark.asyncio
+@patch("app.celery.tasks.reset_worker_engine")
 @patch("app.celery.tasks.RouteIndexService")
 @patch("app.celery.tasks.get_worker_session")
 async def test_rebuild_indexes_async_closes_session_when_service_fails(
-    mock_session_factory: MagicMock,
-    mock_service_class: MagicMock,
+    mock_session_factory: MagicMock, mock_service_class: MagicMock, mock_reset_engine: MagicMock
 ) -> None:
     """Test that session is closed even when RouteIndexService instantiation fails."""
     # Mock database session
@@ -638,7 +655,7 @@ def test_rebuild_indexes_task_success_path(mock_run_async_task: MagicMock) -> No
 @patch("app.celery.tasks.run_in_isolated_loop")
 def test_rebuild_indexes_task_retry_on_error(mock_run_async_task: MagicMock) -> None:
     """Test that task retries on exception."""
-    # Mock asyncio.run to raise an exception
+    # Mock run_in_isolated_loop to raise an exception
     mock_run_async_task.side_effect = RuntimeError("Database connection lost")
 
     # Create a mock Celery task instance with retry method
@@ -767,6 +784,7 @@ async def test_find_stale_route_ids_query_uses_distinct() -> None:
 
 
 @pytest.mark.asyncio
+@patch("app.celery.tasks.reset_worker_engine")
 @patch("app.celery.tasks.rebuild_route_indexes_task")
 @patch("app.celery.tasks.find_stale_route_ids")
 @patch("app.celery.tasks.get_worker_session")
@@ -774,6 +792,7 @@ async def test_detect_stale_routes_async_no_stale_routes(
     mock_session_factory: MagicMock,
     mock_find_stale: MagicMock,
     mock_rebuild_task: MagicMock,
+    mock_reset_engine: MagicMock,
 ) -> None:
     """Test async function when no stale routes found."""
     # Mock database session
@@ -801,6 +820,7 @@ async def test_detect_stale_routes_async_no_stale_routes(
 
 
 @pytest.mark.asyncio
+@patch("app.celery.tasks.reset_worker_engine")
 @patch("app.celery.tasks.rebuild_route_indexes_task")
 @patch("app.celery.tasks.find_stale_route_ids")
 @patch("app.celery.tasks.get_worker_session")
@@ -808,6 +828,7 @@ async def test_detect_stale_routes_async_single_stale_route(
     mock_session_factory: MagicMock,
     mock_find_stale: MagicMock,
     mock_rebuild_task: MagicMock,
+    mock_reset_engine: MagicMock,
 ) -> None:
     """Test async function with single stale route."""
     # Mock database session
@@ -839,6 +860,7 @@ async def test_detect_stale_routes_async_single_stale_route(
 
 
 @pytest.mark.asyncio
+@patch("app.celery.tasks.reset_worker_engine")
 @patch("app.celery.tasks.rebuild_route_indexes_task")
 @patch("app.celery.tasks.find_stale_route_ids")
 @patch("app.celery.tasks.get_worker_session")
@@ -846,6 +868,7 @@ async def test_detect_stale_routes_async_multiple_stale_routes(
     mock_session_factory: MagicMock,
     mock_find_stale: MagicMock,
     mock_rebuild_task: MagicMock,
+    mock_reset_engine: MagicMock,
 ) -> None:
     """Test async function with multiple stale routes."""
     # Mock database session
@@ -879,6 +902,7 @@ async def test_detect_stale_routes_async_multiple_stale_routes(
 
 
 @pytest.mark.asyncio
+@patch("app.celery.tasks.reset_worker_engine")
 @patch("app.celery.tasks.rebuild_route_indexes_task")
 @patch("app.celery.tasks.find_stale_route_ids")
 @patch("app.celery.tasks.get_worker_session")
@@ -886,6 +910,7 @@ async def test_detect_stale_routes_async_partial_trigger_failure(
     mock_session_factory: MagicMock,
     mock_find_stale: MagicMock,
     mock_rebuild_task: MagicMock,
+    mock_reset_engine: MagicMock,
 ) -> None:
     """Test async function when some rebuild task triggers fail."""
     # Mock database session
@@ -927,6 +952,7 @@ async def test_detect_stale_routes_async_partial_trigger_failure(
 
 
 @pytest.mark.asyncio
+@patch("app.celery.tasks.reset_worker_engine")
 @patch("app.celery.tasks.rebuild_route_indexes_task")
 @patch("app.celery.tasks.find_stale_route_ids")
 @patch("app.celery.tasks.get_worker_session")
@@ -934,6 +960,7 @@ async def test_detect_stale_routes_async_all_triggers_fail(
     mock_session_factory: MagicMock,
     mock_find_stale: MagicMock,
     mock_rebuild_task: MagicMock,
+    mock_reset_engine: MagicMock,
 ) -> None:
     """Test async function when all rebuild task triggers fail."""
     # Mock database session
@@ -963,11 +990,11 @@ async def test_detect_stale_routes_async_all_triggers_fail(
 
 
 @pytest.mark.asyncio
+@patch("app.celery.tasks.reset_worker_engine")
 @patch("app.celery.tasks.find_stale_route_ids")
 @patch("app.celery.tasks.get_worker_session")
 async def test_detect_stale_routes_async_closes_session_on_error(
-    mock_session_factory: MagicMock,
-    mock_find_stale: MagicMock,
+    mock_session_factory: MagicMock, mock_find_stale: MagicMock, mock_reset_engine: MagicMock
 ) -> None:
     """Test that async function closes session even when error occurs."""
     # Mock database session
@@ -987,6 +1014,7 @@ async def test_detect_stale_routes_async_closes_session_on_error(
 
 
 @pytest.mark.asyncio
+@patch("app.celery.tasks.reset_worker_engine")
 @patch("app.celery.tasks.rebuild_route_indexes_task")
 @patch("app.celery.tasks.find_stale_route_ids")
 @patch("app.celery.tasks.get_worker_session")
@@ -994,6 +1022,7 @@ async def test_detect_stale_routes_async_returns_correct_structure(
     mock_session_factory: MagicMock,
     mock_find_stale: MagicMock,
     mock_rebuild_task: MagicMock,
+    mock_reset_engine: MagicMock,
 ) -> None:
     """Test that async function returns correct DetectStaleRoutesResult structure."""
     # Mock database session
@@ -1039,7 +1068,7 @@ def test_detect_stale_routes_task_success_path(mock_run_async_task: MagicMock) -
 @patch("app.celery.tasks.run_in_isolated_loop")
 def test_detect_stale_routes_task_retry_on_error(mock_run_async_task: MagicMock) -> None:
     """Test that task retries on exception."""
-    # Mock asyncio.run to raise an exception
+    # Mock run_in_isolated_loop to raise an exception
     mock_run_async_task.side_effect = RuntimeError("Database connection lost")
 
     # Create a mock Celery task instance with retry method
