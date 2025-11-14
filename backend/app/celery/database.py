@@ -118,7 +118,7 @@ async def get_worker_session_context() -> AsyncGenerator[AsyncSession]:
     Get a database session for worker tasks with context manager support.
 
     This is a helper function for creating sessions in worker tasks.
-    Properly handles session lifecycle with automatic cleanup.
+    Properly handles session lifecycle with automatic cleanup via async context manager.
 
     Yields:
         AsyncSession: Database session for worker task
@@ -130,7 +130,4 @@ async def get_worker_session_context() -> AsyncGenerator[AsyncSession]:
             await session.commit()
     """
     async with get_worker_session() as session:
-        try:
-            yield session
-        finally:
-            await session.close()
+        yield session
