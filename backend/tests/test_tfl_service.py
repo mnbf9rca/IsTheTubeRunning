@@ -16,10 +16,18 @@ from app.models.tfl import (
     StopType,
 )
 from app.schemas.tfl import DisruptionResponse, RouteSegmentRequest, StationDisruptionResponse
-from app.services.tfl_service import TfLService
+from app.services.tfl_service import (
+    TfLService,
+    _extract_station_atco_code,
+    _generate_station_disruption_tfl_id,
+    _parse_tfl_timestamp,
+)
 from fastapi import HTTPException, status
 from freezegun import freeze_time
 from pydantic_tfl_api.core import ApiError
+from pydantic_tfl_api.models import (
+    DisruptedPoint,
+)
 from pydantic_tfl_api.models import (
     Disruption as TflDisruption,
 )
@@ -341,24 +349,7 @@ class MockResponse:
         self.content_expires = content_expires
 
 
-class MockStationDisruption:
-    """Mock TfL station disruption data (not in pydantic_tfl_api)."""
-
-    def __init__(
-        self,
-        id: str,
-        category: str,
-        categoryDescription: str,  # noqa: N803
-        description: str,
-        affectedStops: list[TflStopPoint],  # noqa: N803
-        created: datetime | None = None,
-    ) -> None:
-        self.id = id
-        self.category = category
-        self.categoryDescription = categoryDescription
-        self.description = description
-        self.affectedStops = affectedStops
-        self.created = created or datetime.now(UTC)
+# MockStationDisruption class removed - use DisruptedPoint from pydantic_tfl_api instead
 
 
 @pytest.fixture
@@ -522,6 +513,138 @@ async def assert_api_failure(
 
         assert exc_info.value.status_code == 503
         assert expected_error_message in exc_info.value.detail
+
+
+# ==================== Pure Helper Function Tests ====================
+
+
+def test_generate_station_disruption_tfl_id() -> None:
+    """Test TfL ID generation is deterministic and unique."""
+    # Same inputs should produce same hash
+    hash1 = _generate_station_disruption_tfl_id(
+        "940GZZLUEUS",
+        datetime(2025, 11, 14, 10, 0, 0, tzinfo=UTC),
+        datetime(2025, 11, 15, 10, 0, 0, tzinfo=UTC),
+        "Test disruption",
+    )
+    hash2 = _generate_station_disruption_tfl_id(
+        "940GZZLUEUS",
+        datetime(2025, 11, 14, 10, 0, 0, tzinfo=UTC),
+        datetime(2025, 11, 15, 10, 0, 0, tzinfo=UTC),
+        "Test disruption",
+    )
+    assert hash1 == hash2, "Same inputs should produce same hash"
+    assert len(hash1) == 16, "Hash should be 16 characters"
+    assert hash1.isalnum(), "Hash should be hexadecimal"
+
+    # Different descriptions should produce different hashes
+    hash3 = _generate_station_disruption_tfl_id(
+        "940GZZLUEUS",
+        datetime(2025, 11, 14, 10, 0, 0, tzinfo=UTC),
+        datetime(2025, 11, 15, 10, 0, 0, tzinfo=UTC),
+        "Different disruption",
+    )
+    assert hash1 != hash3, "Different descriptions should produce different hashes"
+
+    # Different from_dates should produce different hashes
+    hash4 = _generate_station_disruption_tfl_id(
+        "940GZZLUEUS",
+        datetime(2025, 11, 15, 10, 0, 0, tzinfo=UTC),  # Different date
+        datetime(2025, 11, 15, 10, 0, 0, tzinfo=UTC),
+        "Test disruption",
+    )
+    assert hash1 != hash4, "Different from_dates should produce different hashes"
+
+    # Different to_dates should produce different hashes
+    hash5 = _generate_station_disruption_tfl_id(
+        "940GZZLUEUS",
+        datetime(2025, 11, 14, 10, 0, 0, tzinfo=UTC),
+        datetime(2025, 11, 16, 10, 0, 0, tzinfo=UTC),  # Different end date
+        "Test disruption",
+    )
+    assert hash1 != hash5, "Different to_dates should produce different hashes"
+
+    # Handle None end_date
+    hash6 = _generate_station_disruption_tfl_id(
+        "940GZZLUEUS",
+        datetime(2025, 11, 14, 10, 0, 0, tzinfo=UTC),
+        None,
+        "Test disruption",
+    )
+    assert len(hash6) == 16, "Hash with None end_date should still be 16 characters"
+    assert hash6 != hash1, "None end_date should produce different hash than actual date"
+
+    # Different station codes should produce different hashes
+    hash7 = _generate_station_disruption_tfl_id(
+        "940GZZLUKWG",  # Different station
+        datetime(2025, 11, 14, 10, 0, 0, tzinfo=UTC),
+        datetime(2025, 11, 15, 10, 0, 0, tzinfo=UTC),
+        "Test disruption",
+    )
+    assert hash1 != hash7, "Different station codes should produce different hashes"
+
+
+def test_parse_tfl_timestamp() -> None:
+    """Test TfL timestamp parsing."""
+    # Valid ISO timestamp with Z suffix
+    result = _parse_tfl_timestamp("2025-11-14T10:30:00Z")
+    assert result == datetime(2025, 11, 14, 10, 30, 0, tzinfo=UTC)
+
+    # Valid ISO timestamp with +00:00 suffix
+    result = _parse_tfl_timestamp("2025-11-14T10:30:00+00:00")
+    assert result == datetime(2025, 11, 14, 10, 30, 0, tzinfo=UTC)
+
+    # Valid timestamp with fractional seconds
+    result = _parse_tfl_timestamp("2025-11-14T10:30:00.123456Z")
+    assert result == datetime(2025, 11, 14, 10, 30, 0, 123456, tzinfo=UTC)
+
+    # None input
+    result = _parse_tfl_timestamp(None)
+    assert result is None, "None input should return None"
+
+    # Invalid format
+    result = _parse_tfl_timestamp("invalid")
+    assert result is None, "Invalid format should return None"
+
+    # Empty string
+    result = _parse_tfl_timestamp("")
+    assert result is None, "Empty string should return None"
+
+
+def test_extract_station_atco_code() -> None:
+    """Test ATCO code extraction from DisruptedPoint."""
+    # DisruptedPoint with stationAtcoCode
+    point1 = DisruptedPoint(
+        stationAtcoCode="940GZZLUEUS",
+        atcoCode="940GZZLUXYZ",  # Different value to test precedence
+        commonName="Euston",
+        description="Test",
+        mode="tube",
+        type="Information",
+        appearance="Information",
+    )
+    assert _extract_station_atco_code(point1) == "940GZZLUEUS", "Should prefer stationAtcoCode"
+
+    # DisruptedPoint with only atcoCode
+    point2 = DisruptedPoint(
+        atcoCode="940GZZLUKWG",
+        commonName="Kew Gardens",
+        description="Test",
+        mode="tube",
+        type="Information",
+        appearance="Information",
+    )
+    assert _extract_station_atco_code(point2) == "940GZZLUKWG", "Should fall back to atcoCode"
+
+    # DisruptedPoint with both as None (edge case)
+    point3 = DisruptedPoint(
+        commonName="Unknown Station",
+        description="Test",
+        mode="tube",
+        type="Information",
+        appearance="Information",
+    )
+    assert _extract_station_atco_code(point3) is None, "Should return None if both codes missing"
 
 
 # ==================== fetch_available_modes Tests ====================
@@ -1600,28 +1723,6 @@ async def test_fetch_stations_skip_validation_calls_api(
 
 
 # ==================== Pure Helper Function Tests ====================
-
-
-def test_parse_tfl_timestamp_valid() -> None:
-    """Test parsing valid TfL timestamp."""
-    timestamp_str = "2025-01-01T12:00:00Z"
-    result = TfLService._parse_tfl_timestamp(timestamp_str)
-
-    assert result == datetime(2025, 1, 1, 12, 0, 0, tzinfo=UTC)
-
-
-@pytest.mark.parametrize(
-    ("timestamp_str", "test_id"),
-    [
-        (None, "none"),
-        ("invalid-timestamp", "invalid_format"),
-        ("", "empty_string"),
-    ],
-)
-def test_parse_tfl_timestamp_invalid(timestamp_str: str | None, test_id: str) -> None:
-    """Test parsing invalid/missing timestamps returns None."""
-    result = TfLService._parse_tfl_timestamp(timestamp_str)
-    assert result is None
 
 
 def test_extract_naptan_id_from_stop_point_valid() -> None:
@@ -2872,7 +2973,6 @@ async def test_fetch_stop_types_api_failure(
 # ==================== fetch_station_disruptions Tests ====================
 
 
-@pytest.mark.skip(reason="Station disruption processing disabled - see issue #139")
 @patch("asyncio.get_running_loop")
 async def test_fetch_station_disruptions(
     mock_get_loop: MagicMock,
@@ -2903,27 +3003,27 @@ async def test_fetch_station_disruptions(
         await db_session.refresh(station1)
         await db_session.refresh(station2)
 
-        # Setup mock response with station disruptions
+        # Setup mock response with station disruptions using DisruptedPoint
         mock_disruptions = [
-            MockStationDisruption(
-                id="disruption-1",
-                category="RealTime",
-                categoryDescription="Lift Closure",
+            DisruptedPoint(
+                stationAtcoCode="940GZZLUKSX",
+                type="Interchange Message",
+                appearance="RealTime",
                 description="Lift out of service",
-                affectedStops=[
-                    create_mock_stop_point(id="940GZZLUKSX", common_name="King's Cross"),
-                ],
-                created=datetime(2025, 1, 1, 11, 30, 0, tzinfo=UTC),
+                fromDate="2025-01-01T11:30:00Z",
+                toDate="2025-01-02T00:00:00Z",
+                commonName="King's Cross",
+                mode="tube",
             ),
-            MockStationDisruption(
-                id="disruption-2",
-                category="PlannedWork",
-                categoryDescription="Station Closure",
+            DisruptedPoint(
+                stationAtcoCode="940GZZLUOXC",
+                type="Information",
+                appearance="PlannedWork",
                 description="Station closed for maintenance",
-                affectedStops=[
-                    create_mock_stop_point(id="940GZZLUOXC", common_name="Oxford Circus"),
-                ],
-                created=datetime(2025, 1, 1, 10, 0, 0, tzinfo=UTC),
+                fromDate="2025-01-01T10:00:00Z",
+                toDate="2025-01-01T23:59:00Z",
+                commonName="Oxford Circus",
+                mode="tube",
             ),
         ]
         mock_response = MockResponse(
@@ -2939,33 +3039,44 @@ async def test_fetch_station_disruptions(
         # Execute
         disruptions = await tfl_service.fetch_station_disruptions(modes=["tube"], use_cache=False)
 
-        # Verify
+        # Verify responses
         assert len(disruptions) == 2
         assert disruptions[0].station_tfl_id == "940GZZLUKSX"
-        assert disruptions[0].disruption_category == "RealTime"
-        assert disruptions[0].severity == "Lift Closure"
+        assert disruptions[0].type == "Interchange Message"
+        assert disruptions[0].appearance == "RealTime"
+        assert disruptions[0].description == "Lift out of service"
+        assert disruptions[0].end_date == datetime(2025, 1, 2, 0, 0, 0, tzinfo=UTC)
+
         assert disruptions[1].station_tfl_id == "940GZZLUOXC"
-        assert disruptions[1].disruption_category == "PlannedWork"
+        assert disruptions[1].type == "Information"
+        assert disruptions[1].appearance == "PlannedWork"
+        assert disruptions[1].description == "Station closed for maintenance"
 
         # Verify station disruptions were created in database
         result = await db_session.execute(select(StationDisruption))
         db_disruptions = result.scalars().all()
         assert len(db_disruptions) == 2
 
+        # Verify hash-based tfl_id generation worked
+        for disruption in db_disruptions:
+            assert len(disruption.tfl_id) == 16, "tfl_id should be 16-character hash"
+            assert disruption.tfl_id.isalnum(), "tfl_id should be hexadecimal"
+
 
 async def test_fetch_station_disruptions_cache_hit(tfl_service: TfLService) -> None:
     """Test fetching station disruptions from cache when available."""
-    # Setup cached disruptions
+    # Setup cached disruptions with new field names
     cached_disruptions = [
         StationDisruptionResponse(
             station_id=uuid.uuid4(),
             station_tfl_id="940GZZLUKSX",
             station_name="King's Cross",
-            disruption_category="RealTime",
+            type="Interchange Message",
             description="Lift out of service",
-            severity="Lift Closure",
-            tfl_id="disruption-1",
+            appearance="RealTime",
+            tfl_id="abc123def4567890",
             created_at_source=datetime.now(UTC),
+            end_date=datetime.now(UTC),
         ),
     ]
     tfl_service.cache.get = AsyncMock(return_value=cached_disruptions)
@@ -2978,7 +3089,6 @@ async def test_fetch_station_disruptions_cache_hit(tfl_service: TfLService) -> N
     tfl_service.cache.get.assert_called_once_with("station_disruptions:modes:tube")
 
 
-@pytest.mark.skip(reason="Station disruption processing disabled - see issue #139")
 @patch("asyncio.get_running_loop")
 async def test_fetch_station_disruptions_cache_miss(
     mock_get_loop: MagicMock,
@@ -3000,17 +3110,17 @@ async def test_fetch_station_disruptions_cache_miss(
         await db_session.commit()
         await db_session.refresh(station)
 
-        # Setup mock response
+        # Setup mock response using DisruptedPoint
         mock_disruptions = [
-            MockStationDisruption(
-                id="disruption-1",
-                category="RealTime",
-                categoryDescription="Lift Closure",
+            DisruptedPoint(
+                stationAtcoCode="940GZZLUKSX",
+                type="Interchange Message",
+                appearance="RealTime",
                 description="Lift out of service",
-                affectedStops=[
-                    create_mock_stop_point(id="940GZZLUKSX", common_name="King's Cross"),
-                ],
-                created=datetime(2025, 1, 1, 11, 30, 0, tzinfo=UTC),
+                fromDate="2025-01-01T11:30:00Z",
+                toDate="2025-01-02T00:00:00Z",
+                commonName="King's Cross",
+                mode="tube",
             ),
         ]
         mock_response = MockResponse(
@@ -3059,7 +3169,6 @@ async def test_fetch_station_disruptions_api_failure(
     assert "Failed to fetch station disruptions from TfL API" in exc_info.value.detail
 
 
-@pytest.mark.skip(reason="Station disruption processing disabled - see issue #139")
 @patch("asyncio.get_running_loop")
 async def test_fetch_station_disruptions_multiple_modes(
     mock_get_loop: MagicMock,
@@ -3090,29 +3199,29 @@ async def test_fetch_station_disruptions_multiple_modes(
         await db_session.refresh(station_kx)
         await db_session.refresh(station_stfd)
 
-        # Setup mock responses for tube and dlr modes
+        # Setup mock responses for tube and dlr modes using DisruptedPoint
         mock_tube_disruptions = [
-            MockStationDisruption(
-                id="disruption-tube-1",
-                category="RealTime",
-                categoryDescription="Lift Closure",
+            DisruptedPoint(
+                stationAtcoCode="940GZZLUKSX",
+                type="Interchange Message",
+                appearance="RealTime",
                 description="Lift out of service at King's Cross",
-                affectedStops=[
-                    create_mock_stop_point(id="940GZZLUKSX", common_name="King's Cross"),
-                ],
-                created=datetime(2025, 1, 1, 11, 30, 0, tzinfo=UTC),
+                fromDate="2025-01-01T11:30:00Z",
+                toDate="2025-01-02T00:00:00Z",
+                commonName="King's Cross",
+                mode="tube",
             ),
         ]
         mock_dlr_disruptions = [
-            MockStationDisruption(
-                id="disruption-dlr-1",
-                category="RealTime",
-                categoryDescription="Platform Closure",
+            DisruptedPoint(
+                stationAtcoCode="910GSTFD",
+                type="Information",
+                appearance="RealTime",
                 description="Platform 2 closed at Stratford",
-                affectedStops=[
-                    create_mock_stop_point(id="910GSTFD", common_name="Stratford"),
-                ],
-                created=datetime(2025, 1, 1, 11, 45, 0, tzinfo=UTC),
+                fromDate="2025-01-01T11:45:00Z",
+                toDate="2025-01-01T23:59:00Z",
+                commonName="Stratford",
+                mode="dlr",
             ),
         ]
 
@@ -3163,17 +3272,17 @@ async def test_fetch_station_disruptions_unknown_station(
     with freeze_time("2025-01-01 12:00:00"):
         # Don't create any stations in database
 
-        # Setup mock response with disruption for unknown station
+        # Setup mock response with disruption for unknown station using DisruptedPoint
         mock_disruptions = [
-            MockStationDisruption(
-                id="disruption-1",
-                category="RealTime",
-                categoryDescription="Lift Closure",
+            DisruptedPoint(
+                stationAtcoCode="UNKNOWN_STATION",
+                type="Interchange Message",
+                appearance="RealTime",
                 description="Lift out of service",
-                affectedStops=[
-                    create_mock_stop_point(id="UNKNOWN_STATION", common_name="Unknown Station"),
-                ],
-                created=datetime(2025, 1, 1, 11, 30, 0, tzinfo=UTC),
+                fromDate="2025-01-01T11:30:00Z",
+                toDate="2025-01-02T00:00:00Z",
+                commonName="Unknown Station",
+                mode="tube",
             ),
         ]
         mock_response = MockResponse(
@@ -3207,38 +3316,45 @@ async def test_create_station_disruption(db_session: AsyncSession) -> None:
     db_session.add(station)
     await db_session.commit()
 
-    # Create mock disruption data (mimics TfL API structure)
-    class MockDisruptionData:
-        """Mock TfL API disruption data."""
-
-        def __init__(self) -> None:
-            self.category = "PlannedWork"
-            self.description = "Station improvements"
-            self.categoryDescription = "Minor"
-            self.id = "disruption-123"
-            self.created = datetime(2025, 1, 1, 10, 0, 0, tzinfo=UTC)
+    # Create DisruptedPoint data (TfL API structure)
+    disrupted_point = DisruptedPoint(
+        stationAtcoCode="940GZZLUVIC",
+        type="Information",
+        appearance="PlannedWork",
+        description="Station improvements",
+        fromDate="2025-01-01T10:00:00Z",
+        toDate="2025-01-02T10:00:00Z",
+        commonName="Victoria",
+        mode="tube",
+    )
 
     # Test creation
     tfl_service = TfLService(db_session)
-    result = await tfl_service._create_station_disruption(station, MockDisruptionData())
+    result = await tfl_service._create_station_disruption_from_point(station, disrupted_point)
 
     # Verify response
     assert result.station_id == station.id
     assert result.station_tfl_id == "940GZZLUVIC"
     assert result.station_name == "Victoria"
-    assert result.disruption_category == "PlannedWork"
+    assert result.type == "Information"
     assert result.description == "Station improvements"
-    assert result.severity == "Minor"
-    assert result.tfl_id == "disruption-123"
+    assert result.appearance == "PlannedWork"
     assert result.created_at_source == datetime(2025, 1, 1, 10, 0, 0, tzinfo=UTC)
+    assert result.end_date == datetime(2025, 1, 2, 10, 0, 0, tzinfo=UTC)
+    assert isinstance(result.tfl_id, str)  # Hash-based ID
+    assert len(result.tfl_id) == 16  # 16-char hash
+    # Verify deterministic hash (ensures hash function stability)
+    assert result.tfl_id == "66c2012ca97f6293"
 
     # Verify database record was created
     await db_session.commit()
-    result_db = await db_session.execute(select(StationDisruption).where(StationDisruption.tfl_id == "disruption-123"))
+    result_db = await db_session.execute(select(StationDisruption).where(StationDisruption.tfl_id == result.tfl_id))
     disruption = result_db.scalar_one_or_none()
     assert disruption is not None
     assert disruption.station_id == station.id
-    assert disruption.disruption_category == "PlannedWork"
+    assert disruption.type == "Information"
+    assert disruption.appearance == "PlannedWork"
+    assert disruption.end_date == datetime(2025, 1, 2, 10, 0, 0, tzinfo=UTC)
 
 
 async def test_create_station_disruption_missing_fields(db_session: AsyncSession) -> None:
@@ -3255,79 +3371,72 @@ async def test_create_station_disruption_missing_fields(db_session: AsyncSession
     db_session.add(station)
     await db_session.commit()
 
-    # Create mock disruption data with minimal fields (tests default handling)
-    class EmptyMockDisruption:
-        """Mock disruption with no fields to test defaults."""
-
-        pass
+    # Create DisruptedPoint with minimal fields (tests default handling)
+    disrupted_point = DisruptedPoint(
+        stationAtcoCode="940GZZLUVIC",
+        commonName="Victoria",
+        mode="tube",
+        # No type, appearance, fromDate, toDate, or description
+    )
 
     # Test creation with defaults
     tfl_service = TfLService(db_session)
-    result = await tfl_service._create_station_disruption(station, EmptyMockDisruption())
+    result = await tfl_service._create_station_disruption_from_point(station, disrupted_point)
 
     # Verify defaults were used
     assert result.station_id == station.id
-    assert result.disruption_category is None
+    assert result.type is None
     assert result.description == "No description available"
-    assert result.severity is None
-    assert isinstance(result.tfl_id, str)  # UUID generated
-    assert isinstance(result.created_at_source, datetime)
+    assert result.appearance is None
+    assert result.end_date is None  # No toDate provided
+    assert isinstance(result.tfl_id, str)  # Hash-based ID
+    assert len(result.tfl_id) == 16  # 16-char hash
+    assert isinstance(result.created_at_source, datetime)  # Generated from current time
 
 
-@pytest.mark.skip(reason="Station disruption processing disabled - see issue #139")
-async def test_fetch_station_disruptions_uses_helpers(
-    db_session: AsyncSession,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """Test that fetch_station_disruptions uses the helper methods."""
-    # Create line and station
-    line = Line(tfl_id="victoria", name="Victoria", last_updated=datetime.now(UTC))
+async def test_create_station_disruption_missing_atco_code(db_session: AsyncSession) -> None:
+    """Test station disruption creation falls back to station.tfl_id when ATCO code missing."""
+    # Create station
     station = Station(
-        tfl_id="940GZZLUVIC",
-        name="Victoria",
+        tfl_id="940GZZLUWLO",
+        name="Waterloo",
         latitude=51.5,
         longitude=-0.1,
-        lines=["victoria"],
+        lines=["bakerloo", "northern", "jubilee"],
         last_updated=datetime.now(UTC),
     )
-    db_session.add_all([line, station])
+    db_session.add(station)
     await db_session.commit()
 
-    # Create mock disruption data (mimics TfL API structure)
-    class MockStopData:
-        """Mock TfL API stop data."""
+    # Create DisruptedPoint WITHOUT stationAtcoCode or atcoCode
+    # This simulates edge case where TfL API returns disruption without ATCO code
+    disrupted_point = DisruptedPoint(
+        commonName="Waterloo",
+        mode="tube",
+        description="Temporary closure",
+        type="Information",
+        appearance="RealTime",
+        fromDate="2025-11-14T10:00:00Z",
+    )
 
-        def __init__(self) -> None:
-            self.id = "940GZZLUVIC"
-
-    class MockStationDisruptionData:
-        """Mock TfL API station disruption data."""
-
-        def __init__(self) -> None:
-            self.category = "PlannedWork"
-            self.description = "Station improvements"
-            self.categoryDescription = "Minor"
-            self.id = "disruption-123"
-            self.created = datetime(2025, 1, 1, 10, 0, 0, tzinfo=UTC)
-            self.affectedStops = [MockStopData()]
-
-    # Mock API response
-    mock_response = MagicMock()
-    mock_response.content.root = [MockStationDisruptionData()]
-
-    # Mock asyncio.get_running_loop
-    mock_loop = AsyncMock()
-    mock_loop.run_in_executor = AsyncMock(return_value=mock_response)
-    monkeypatch.setattr("asyncio.get_running_loop", lambda: mock_loop)
-
-    # Test fetch
+    # Test creation - should use station.tfl_id as fallback
     tfl_service = TfLService(db_session)
-    results = await tfl_service.fetch_station_disruptions(modes=["tube"], use_cache=False)
+    result = await tfl_service._create_station_disruption_from_point(station, disrupted_point)
 
-    # Verify helpers were used (result should contain the disruption)
-    assert len(results) == 1
-    assert results[0].station_tfl_id == "940GZZLUVIC"
-    assert results[0].disruption_category == "PlannedWork"
+    # Verify disruption was created successfully using station.tfl_id as fallback
+    assert result.station_id == station.id
+    assert result.station_tfl_id == station.tfl_id
+    assert result.description == "Temporary closure"
+    assert result.type == "Information"
+    assert isinstance(result.tfl_id, str)
+    assert len(result.tfl_id) == 16
+
+    # Verify database record
+    await db_session.commit()
+    result_db = await db_session.execute(select(StationDisruption).where(StationDisruption.tfl_id == result.tfl_id))
+    disruption = result_db.scalar_one_or_none()
+    assert disruption is not None
+    assert disruption.station_id == station.id
 
 
 # ==================== build_station_graph Tests ====================
@@ -5227,7 +5336,7 @@ async def test_fetch_station_disruptions_stop_without_id(
     tfl_service: TfLService,
     db_session: AsyncSession,
 ) -> None:
-    """Test fetch_station_disruptions handles stops without ID fields (covers lines 760-761)."""
+    """Test fetch_station_disruptions handles DisruptedPoint without station ATCO code."""
     with freeze_time("2025-01-01 12:00:00"):
         # Create valid station to ensure we can test the missing ID path
         station = Station(
@@ -5241,21 +5350,19 @@ async def test_fetch_station_disruptions_stop_without_id(
         db_session.add(station)
         await db_session.commit()
 
-        # Create mock stop without id or stationId
-        class MockStopNoId:
-            pass  # No id or stationId
+        # Create DisruptedPoint without stationAtcoCode or atcoCode
+        # This should be skipped by _process_station_disruption_data
+        disrupted_point = DisruptedPoint(
+            commonName="Unknown Station",
+            mode="tube",
+            description="Lift issue",
+            type="Information",
+            appearance="RealTime",
+            fromDate="2025-01-01T12:00:00Z",
+            # No stationAtcoCode or atcoCode - should be skipped
+        )
 
-        # Mock disruption with stop missing ID
-        class MockDisruptionNoId:
-            def __init__(self) -> None:
-                self.category = "RealTime"
-                self.categoryDescription = "Lift Closure"
-                self.description = "Lift issue"
-                self.id = "disruption-1"
-                self.created = datetime.now(UTC)
-                self.affectedStops = [MockStopNoId()]
-
-        mock_disruptions = [MockDisruptionNoId()]
+        mock_disruptions = [disrupted_point]
         mock_response = MockResponse(
             data=mock_disruptions,
             shared_expires=datetime(2025, 1, 1, 12, 2, 0, tzinfo=UTC),
@@ -5268,7 +5375,7 @@ async def test_fetch_station_disruptions_stop_without_id(
         # Execute
         disruptions = await tfl_service.fetch_station_disruptions(use_cache=False)
 
-        # Should skip disruption with missing stop ID (warning logged)
+        # Should skip disruption without station ATCO code (warning logged)
         assert len(disruptions) == 0
 
 
