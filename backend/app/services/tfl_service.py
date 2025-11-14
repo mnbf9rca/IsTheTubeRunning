@@ -129,7 +129,7 @@ def _generate_station_disruption_tfl_id(
         ...     datetime(2025, 11, 15, 18, 0, tzinfo=UTC),
         ...     "Lift out of service"
         ... )
-        'a1b2c3d4e5f6g7h8'
+        'a1b2c3d4e5f67890'
     """
     # Build stable content string with pipe delimiters
     to_date_str = to_date.isoformat() if to_date else "no-end-date"
@@ -1494,11 +1494,27 @@ class TfLService:
         from_date_str: str | None = getattr(disrupted_point, "fromDate", None)
         to_date_str: str | None = getattr(disrupted_point, "toDate", None)
 
-        created_at_source = _parse_tfl_timestamp(from_date_str) or datetime.now(UTC)
+        created_at_source = _parse_tfl_timestamp(from_date_str)
+        if created_at_source is None:
+            logger.warning(
+                "disruption_missing_from_date",
+                from_date_str=from_date_str,
+                disrupted_point=str(disrupted_point)[:200],
+            )
+            created_at_source = datetime.now(UTC)
         end_date = _parse_tfl_timestamp(to_date_str)
 
         # Generate TfL ID using pure helper function
-        station_atco = _extract_station_atco_code(disrupted_point) or ""
+        # Use station.tfl_id (ATCO code) from database - already validated by caller
+        station_atco = _extract_station_atco_code(disrupted_point)
+        if not station_atco:
+            logger.warning(
+                "disruption_missing_atco_code",
+                station_tfl_id=station.tfl_id,
+                disrupted_point=str(disrupted_point)[:200],
+            )
+            # Use station.tfl_id as fallback (already validated by caller)
+            station_atco = station.tfl_id
         tfl_id = _generate_station_disruption_tfl_id(
             station_atco,
             created_at_source,

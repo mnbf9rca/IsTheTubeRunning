@@ -3074,7 +3074,7 @@ async def test_fetch_station_disruptions_cache_hit(tfl_service: TfLService) -> N
             type="Interchange Message",
             description="Lift out of service",
             appearance="RealTime",
-            tfl_id="abc123def456789",
+            tfl_id="abc123def4567890",
             created_at_source=datetime.now(UTC),
             end_date=datetime.now(UTC),
         ),
@@ -3343,6 +3343,8 @@ async def test_create_station_disruption(db_session: AsyncSession) -> None:
     assert result.end_date == datetime(2025, 1, 2, 10, 0, 0, tzinfo=UTC)
     assert isinstance(result.tfl_id, str)  # Hash-based ID
     assert len(result.tfl_id) == 16  # 16-char hash
+    # Verify deterministic hash (ensures hash function stability)
+    assert result.tfl_id == "66c2012ca97f6293"
 
     # Verify database record was created
     await db_session.commit()
@@ -3390,6 +3392,51 @@ async def test_create_station_disruption_missing_fields(db_session: AsyncSession
     assert isinstance(result.tfl_id, str)  # Hash-based ID
     assert len(result.tfl_id) == 16  # 16-char hash
     assert isinstance(result.created_at_source, datetime)  # Generated from current time
+
+
+async def test_create_station_disruption_missing_atco_code(db_session: AsyncSession) -> None:
+    """Test station disruption creation falls back to station.tfl_id when ATCO code missing."""
+    # Create station
+    station = Station(
+        tfl_id="940GZZLUWLO",
+        name="Waterloo",
+        latitude=51.5,
+        longitude=-0.1,
+        lines=["bakerloo", "northern", "jubilee"],
+        last_updated=datetime.now(UTC),
+    )
+    db_session.add(station)
+    await db_session.commit()
+
+    # Create DisruptedPoint WITHOUT stationAtcoCode or atcoCode
+    # This simulates edge case where TfL API returns disruption without ATCO code
+    disrupted_point = DisruptedPoint(
+        commonName="Waterloo",
+        mode="tube",
+        description="Temporary closure",
+        type="Information",
+        appearance="RealTime",
+        fromDate="2025-11-14T10:00:00Z",
+    )
+
+    # Test creation - should use station.tfl_id as fallback
+    tfl_service = TfLService(db_session)
+    result = await tfl_service._create_station_disruption_from_point(station, disrupted_point)
+
+    # Verify disruption was created successfully using station.tfl_id as fallback
+    assert result.station_id == station.id
+    assert result.station_tfl_id == station.tfl_id
+    assert result.description == "Temporary closure"
+    assert result.type == "Information"
+    assert isinstance(result.tfl_id, str)
+    assert len(result.tfl_id) == 16
+
+    # Verify database record
+    await db_session.commit()
+    result_db = await db_session.execute(select(StationDisruption).where(StationDisruption.tfl_id == result.tfl_id))
+    disruption = result_db.scalar_one_or_none()
+    assert disruption is not None
+    assert disruption.station_id == station.id
 
 
 # ==================== build_station_graph Tests ====================
