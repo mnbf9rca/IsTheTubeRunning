@@ -4,13 +4,14 @@ from typing import TypedDict
 from uuid import UUID
 
 import structlog
-from sqlalchemy import delete, select
+from sqlalchemy import cast, delete, select
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.models.route import Route, RouteSegment
 from app.models.route_index import RouteStationIndex
-from app.models.tfl import Line
+from app.models.tfl import Line, Station
 
 logger = structlog.get_logger(__name__)
 
@@ -234,6 +235,73 @@ class RouteIndexService:
         await self.db.execute(delete(RouteStationIndex).where(RouteStationIndex.route_id == route_id))
         logger.debug("deleted_existing_index", route_id=str(route_id))
 
+    async def _resolve_station_for_line(
+        self,
+        station: Station,
+        line: Line,
+    ) -> str:
+        """
+        Resolve station to hub-equivalent on the specified line.
+
+        If station is in a hub, returns the tfl_id of the hub station that serves
+        this line. Otherwise returns the station's own tfl_id.
+
+        This is deterministic - there's only one station in a hub that serves a
+        given line (stations in the same hub serve different lines/modes).
+
+        Args:
+            station: Station that may be in a hub
+            line: Line we're traveling on
+
+        Returns:
+            TfL ID of the station to use for Line.routes lookup
+        """
+        # If station not in a hub, use it directly
+        if not station.hub_naptan_code:
+            return station.tfl_id
+
+        # Query for station in this hub that serves this line
+        # Simple WHERE clause as user suggested - hub + line uniquely identifies station
+        # Use PostgreSQL JSONB containment operator (@>) for JSON array query
+        result = await self.db.execute(
+            select(Station)
+            .where(
+                Station.hub_naptan_code == station.hub_naptan_code,
+                cast(Station.lines, JSONB).contains([line.tfl_id]),
+            )
+            .limit(1)
+        )
+        hub_station = result.scalar_one_or_none()
+
+        if hub_station:
+            # Log when we resolve to a different station (hub interchange)
+            if hub_station.tfl_id != station.tfl_id:
+                logger.debug(
+                    "hub_station_resolved_for_index",
+                    original_station=station.tfl_id,
+                    resolved_station=hub_station.tfl_id,
+                    hub=station.hub_naptan_code,
+                    line=line.tfl_id,
+                )
+            return hub_station.tfl_id
+
+        # No hub station on this line - this is a data consistency error
+        # Should not happen if validation passed; indicates either:
+        # 1. Validation logic is broken
+        # 2. Data changed between validation and index building
+        # 3. Hub data is inconsistent
+        logger.error(
+            "hub_station_not_on_line",
+            station=station.tfl_id,
+            hub=station.hub_naptan_code,
+            line=line.tfl_id,
+        )
+        msg = (
+            f"Station {station.tfl_id} is in hub {station.hub_naptan_code} "
+            f"but no station in that hub serves line {line.tfl_id}"
+        )
+        raise ValueError(msg)
+
     async def _process_segments(self, route: Route) -> tuple[int, int]:
         """
         Process route segments and create index entries.
@@ -290,10 +358,17 @@ class RouteIndexService:
             # Track that we're processing this pair
             pairs_processed += 1
 
-            # Get station IDs for searching Line.routes (use actual tfl_id, not hub code)
-            # Line.routes contains actual station TfL IDs, not hub codes
-            from_station_search_id = current_segment.station.tfl_id
-            to_station_search_id = next_segment.station.tfl_id
+            # Resolve stations to hub-equivalents on the line if needed
+            # If a station is in a hub, we need to find the station in that hub
+            # that actually serves the line we're traveling on
+            from_station_search_id = await self._resolve_station_for_line(
+                current_segment.station,
+                current_segment.line,
+            )
+            to_station_search_id = await self._resolve_station_for_line(
+                next_segment.station,
+                current_segment.line,
+            )
 
             # Expand segment pair to intermediate stations
             try:
