@@ -21,6 +21,7 @@ from app.models.notification import (
     NotificationStatus,
 )
 from app.models.route import Route, RouteSchedule
+from app.models.route_index import RouteStationIndex
 from app.models.tfl import Line
 from app.models.user import EmailAddress, PhoneNumber, User
 from app.schemas.tfl import DisruptionResponse
@@ -28,6 +29,45 @@ from app.services.notification_service import NotificationService
 from app.services.tfl_service import TfLService
 
 logger = structlog.get_logger(__name__)
+
+
+# Pure helper functions for testability
+def extract_line_station_pairs(disruption: DisruptionResponse) -> list[tuple[str, str]]:
+    """
+    Extract (line_id, station_naptan) tuples from disruption data.
+
+    Pure function for easy testing without database dependencies.
+
+    Args:
+        disruption: Disruption response with optional affected_routes data
+
+    Returns:
+        List of (line_tfl_id, station_naptan) tuples to query index with.
+        Empty list if no affected_routes data available.
+
+    Example:
+        >>> disruption = DisruptionResponse(
+        ...     line_id="piccadilly",
+        ...     affected_routes=[
+        ...         AffectedRouteInfo(
+        ...             name="Cockfosters → Heathrow T5",
+        ...             direction="outbound",
+        ...             affected_stations=["940GZZLURSQ", "940GZZLUHBN"]
+        ...         )
+        ...     ]
+        ... )
+        >>> extract_line_station_pairs(disruption)
+        [('piccadilly', '940GZZLURSQ'), ('piccadilly', '940GZZLUHBN')]
+    """
+    if not disruption.affected_routes:
+        return []
+
+    pairs: list[tuple[str, str]] = []
+    for affected_route in disruption.affected_routes:
+        for station_naptan in affected_route.affected_stations:
+            pairs.append((disruption.line_id, station_naptan))
+
+    return pairs
 
 
 class RedisClientProtocol(Protocol):
@@ -289,18 +329,143 @@ class AlertService:
             )
             return None
 
+    async def _query_routes_by_index(
+        self,
+        line_station_pairs: list[tuple[str, str]],
+    ) -> set[UUID]:
+        """
+        Query inverted index for routes passing through (line, station) combinations.
+
+        Args:
+            line_station_pairs: List of (line_tfl_id, station_naptan) tuples
+
+        Returns:
+            Set of unique route IDs matching any of the pairs
+        """
+        if not line_station_pairs:
+            return set()
+
+        route_ids: set[UUID] = set()
+
+        for line_tfl_id, station_naptan in line_station_pairs:
+            result = await self.db.execute(
+                select(RouteStationIndex.route_id).where(
+                    RouteStationIndex.line_tfl_id == line_tfl_id,
+                    RouteStationIndex.station_naptan == station_naptan,
+                )
+            )
+            matching_route_ids = {row[0] for row in result.all()}
+            route_ids.update(matching_route_ids)
+
+            logger.debug(
+                "index_query_result",
+                line_tfl_id=line_tfl_id,
+                station_naptan=station_naptan,
+                matching_routes=len(matching_route_ids),
+            )
+
+        return route_ids
+
+    async def _get_affected_routes_for_disruption(
+        self,
+        disruption: DisruptionResponse,
+    ) -> set[UUID]:
+        """
+        Find routes affected by disruption using inverted index.
+
+        Algorithm:
+        1. If disruption.affected_routes exists (station-level data):
+           - Query index for each (line_id, station_naptan) combination
+           - Return union of matching route_ids (deduplication automatic via set)
+        2. Else (no detailed station data - SHOULD BE RARE):
+           - Fall back to line-level matching (current behavior)
+           - Log warning as this indicates missing TfL data
+
+        Complexity: O(affected_stations x log(index_size))
+        NOT O(routes) - key optimization!
+
+        Args:
+            disruption: Disruption response from TfL
+
+        Returns:
+            Set of route IDs affected by this disruption
+        """
+        # Extract (line, station) pairs from disruption
+        line_station_pairs = extract_line_station_pairs(disruption)
+
+        if line_station_pairs:
+            # Use inverted index for station-level matching
+            logger.debug(
+                "using_index_for_disruption_matching",
+                disruption_line=disruption.line_id,
+                station_count=len(line_station_pairs),
+            )
+
+            affected_route_ids = await self._query_routes_by_index(line_station_pairs)
+
+            logger.info(
+                "index_based_matching_completed",
+                disruption_line=disruption.line_id,
+                affected_stations=len(line_station_pairs),
+                matching_routes=len(affected_route_ids),
+            )
+
+            return affected_route_ids
+
+        # FALLBACK: No station-level data available
+        # This should be rare with current TfL API but can happen for some disruption types
+        logger.warning(
+            "no_station_data_falling_back_to_line_level",
+            disruption_line=disruption.line_id,
+            disruption_severity=disruption.status_severity_description,
+            reason=disruption.reason,
+        )
+
+        # Fall back to line-level matching: find all routes using this line
+        result = await self.db.execute(select(Line.id).where(Line.tfl_id == disruption.line_id))
+        line_db_id = result.scalar_one_or_none()
+
+        if not line_db_id:
+            logger.error(
+                "line_not_found_in_database",
+                disruption_line=disruption.line_id,
+            )
+            return set()
+
+        # Query all routes that have segments on this line
+        result = await self.db.execute(
+            select(Route.id)
+            .join(Route.segments)
+            .where(
+                Route.segments.any(line_id=line_db_id),
+                Route.active == True,  # noqa: E712
+                Route.deleted_at.is_(None),
+            )
+            .distinct()
+        )
+        affected_route_ids = {row[0] for row in result.all()}
+
+        logger.info(
+            "line_level_fallback_completed",
+            disruption_line=disruption.line_id,
+            matching_routes=len(affected_route_ids),
+        )
+
+        return affected_route_ids
+
     async def _get_route_disruptions(self, route: Route) -> tuple[list[DisruptionResponse], bool]:
         """
-        Get current disruptions affecting this route.
+        Get current disruptions affecting this route using inverted index.
 
-        Fetches disruptions from TfL and filters to lines used in route segments.
+        Uses station-level matching via RouteStationIndex for precision.
+        Falls back to line-level matching only when TfL doesn't provide station data.
 
         Args:
             route: Route to get disruptions for
 
         Returns:
             Tuple of (disruptions, error_occurred)
-            - disruptions: List of disruptions affecting the route's lines
+            - disruptions: List of disruptions affecting this specific route
             - error_occurred: True if an error occurred during processing
         """
         try:
@@ -310,21 +475,21 @@ class AlertService:
             # Fetch all line disruptions (uses cache automatically)
             all_disruptions = await tfl_service.fetch_line_disruptions(use_cache=True)
 
-            # Get unique line IDs from route segments
-            # Batch query to avoid N+1 problem
-            line_db_ids = {segment.line_id for segment in route.segments}
-            result = await self.db.execute(select(Line.tfl_id).where(Line.id.in_(line_db_ids)))
-            line_ids = {row[0] for row in result.all()}
+            # For each disruption, find affected routes using index
+            route_disruptions: list[DisruptionResponse] = []
 
-            # Filter disruptions to only those affecting route's lines
-            route_disruptions = [d for d in all_disruptions if d.line_id in line_ids]
+            for disruption in all_disruptions:
+                affected_route_ids = await self._get_affected_routes_for_disruption(disruption)
+
+                # Check if this route is in the affected set
+                if route.id in affected_route_ids:
+                    route_disruptions.append(disruption)
 
             logger.debug(
                 "route_disruptions_filtered",
                 route_id=str(route.id),
                 total_disruptions=len(all_disruptions),
                 route_disruptions=len(route_disruptions),
-                route_lines=list(line_ids),
             )
 
             return route_disruptions, False

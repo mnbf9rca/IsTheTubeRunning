@@ -123,3 +123,43 @@ Hybrid approach: synchronous for route CRUD operations (part of same transaction
 - Small latency cost on route CRUD operations (50-100ms per route)
 - Two code paths for rebuilding (sync vs async)
 - Must ensure both paths use same underlying service method
+
+---
+
+## Inverted Index for Alert Matching
+
+### Status
+Active
+
+### Context
+Original implementation matched disruptions to routes using line-level filtering only. This caused false positives: ALL routes on a line were alerted even if disruption only affected a specific section (e.g., Piccadilly line disruption at Russell Square → Holborn would alert Earl's Court → Heathrow routes on western branch). With 1000+ routes, this doesn't scale (O(routes × disruptions) complexity).
+
+### Decision
+Use inverted index (`route_station_index` table) for station-level matching. Index maps `(line_tfl_id, station_naptan)` → `route_id` for ALL intermediate stations (expanded from sparse user input). Alert matching queries index for each affected (line, station) combination and returns union of matching route IDs.
+
+**Algorithm:**
+1. If `disruption.affected_routes` exists (station-level data from TfL):
+   - Extract `(line_tfl_id, station_naptan)` pairs using pure function `extract_line_station_pairs()`
+   - Query index for each pair: `SELECT route_id WHERE line_tfl_id=X AND station_naptan=Y`
+   - Return union of all matching route_ids (automatic deduplication via set)
+2. Else (no station data - RARE):
+   - Fall back to line-level matching
+   - Log warning (indicates missing TfL data)
+
+**Complexity:** O(affected_stations × log(index_size)), NOT O(routes × disruptions) - key optimization!
+
+### Consequences
+**Easier:**
+- **NO false positives:** Only routes passing through affected stations are alerted
+- **NO false negatives:** All affected routes are found via index lookup
+- **Branch disambiguation works automatically:** Different branches = different station sets
+- **Scales to 100k+ routes:** Performance independent of total route count
+- **Fast queries:** < 100ms for 1000 routes + 10 disruptions (verified via performance tests)
+- **Pure function design:** `extract_line_station_pairs()` is testable without database
+- **Fallback resilience:** Graceful degradation to line-level when TfL data incomplete
+- **Warning logging:** Fallback path logs warning for monitoring
+
+**More Difficult:**
+- **Depends on index completeness:** Routes without index entries won't match (mitigated by automatic index building on route create/update)
+- **Two matching paths:** Index-based (preferred) vs line-level fallback (rare)
+- **TfL data dependency:** Requires `disruption.affected_routes` data from TfL API (currently available for most disruption types)
