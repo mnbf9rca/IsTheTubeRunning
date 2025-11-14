@@ -789,7 +789,6 @@ async def test_detect_stale_routes_async_no_stale_routes(
 
     # Verify result
     assert result["status"] == "success"
-    assert result["checked_count"] == 0
     assert result["stale_count"] == 0
     assert result["triggered_count"] == 0
     assert result["errors"] == []
@@ -828,7 +827,6 @@ async def test_detect_stale_routes_async_single_stale_route(
 
     # Verify result
     assert result["status"] == "success"
-    assert result["checked_count"] == 1
     assert result["stale_count"] == 1
     assert result["triggered_count"] == 1
     assert result["errors"] == []
@@ -867,7 +865,6 @@ async def test_detect_stale_routes_async_multiple_stale_routes(
 
     # Verify result
     assert result["status"] == "success"
-    assert result["checked_count"] == 3
     assert result["stale_count"] == 3
     assert result["triggered_count"] == 3
     assert result["errors"] == []
@@ -917,7 +914,6 @@ async def test_detect_stale_routes_async_partial_trigger_failure(
 
     # Verify result shows partial failure
     assert result["status"] == "partial_failure"
-    assert result["checked_count"] == 3
     assert result["stale_count"] == 3
     assert result["triggered_count"] == 2  # Only 2 succeeded
     assert len(result["errors"]) == 1
@@ -956,9 +952,8 @@ async def test_detect_stale_routes_async_all_triggers_fail(
     # Execute async function
     result = await _detect_stale_routes_async()
 
-    # Verify result shows partial failure
-    assert result["status"] == "partial_failure"
-    assert result["checked_count"] == 2
+    # Verify result shows total failure (0 triggers succeeded)
+    assert result["status"] == "failure"
     assert result["stale_count"] == 2
     assert result["triggered_count"] == 0  # None succeeded
     assert len(result["errors"]) == 2
@@ -1018,7 +1013,6 @@ async def test_detect_stale_routes_async_returns_correct_structure(
 
     # Verify result structure
     assert "status" in result
-    assert "checked_count" in result
     assert "stale_count" in result
     assert "triggered_count" in result
     assert "errors" in result
@@ -1030,7 +1024,6 @@ def test_detect_stale_routes_task_success_path(mock_asyncio_run: MagicMock) -> N
     """Test the synchronous task wrapper success path."""
     mock_result = {
         "status": "success",
-        "checked_count": 5,
         "stale_count": 5,
         "triggered_count": 5,
         "errors": [],
@@ -1062,7 +1055,6 @@ def test_detect_stale_routes_task_logs_on_success(mock_asyncio_run: MagicMock) -
     """Test that task logs completion."""
     mock_result = {
         "status": "success",
-        "checked_count": 3,
         "stale_count": 3,
         "triggered_count": 3,
         "errors": [],

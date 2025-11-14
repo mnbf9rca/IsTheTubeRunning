@@ -73,7 +73,6 @@ class DetectStaleRoutesResult(TypedDict):
     """Result from detect_and_rebuild_stale_routes task."""
 
     status: str
-    checked_count: int
     stale_count: int
     triggered_count: int
     errors: list[str]
@@ -294,8 +293,9 @@ def detect_and_rebuild_stale_routes(self: BoundTask) -> DetectStaleRoutesResult:
     """
     Detect routes with stale indexes and trigger rebuild tasks.
 
-    This task runs periodically (daily at 3 AM) to ensure route station indexes
-    stay accurate as TfL line data changes over time. When Line.routes JSON is
+    This task is event-driven and triggered after TfL graph builds, typically via
+    the `/admin/tfl/build-graph` endpoint. It ensures route station indexes stay
+    accurate as TfL line data changes over time. When Line.routes JSON is
     updated, the indexes built from that data become stale.
 
     Algorithm:
@@ -351,7 +351,6 @@ async def _detect_stale_routes_async() -> DetectStaleRoutesResult:
 
     Returns:
         DetectStaleRoutesResult: Execution statistics including:
-            - checked_count: Total routes examined
             - stale_count: Number of stale routes found
             - triggered_count: Number of rebuild tasks successfully triggered
             - errors: List of any errors encountered
@@ -389,11 +388,15 @@ async def _detect_stale_routes_async() -> DetectStaleRoutesResult:
                 errors.append(error_msg)
 
         # Determine overall status
-        status = "success" if triggered_count == len(stale_route_ids) else "partial_failure"
+        if triggered_count == len(stale_route_ids):
+            status = "success"
+        elif triggered_count == 0 and len(stale_route_ids) > 0:
+            status = "failure"
+        else:
+            status = "partial_failure"
 
         return DetectStaleRoutesResult(
             status=status,
-            checked_count=len(stale_route_ids),
             stale_count=len(stale_route_ids),
             triggered_count=triggered_count,
             errors=errors,
