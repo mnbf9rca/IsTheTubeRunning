@@ -5,7 +5,8 @@ periodic task that checks for TfL disruptions and sends alerts to users.
 """
 
 import asyncio
-from typing import Protocol, TypedDict
+from collections.abc import Awaitable, Callable
+from typing import Any, Protocol, TypedDict
 from uuid import UUID
 
 import structlog
@@ -13,13 +14,64 @@ from sqlalchemy import distinct, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.celery.app import celery_app
-from app.celery.database import worker_session_factory
+from app.celery.database import get_worker_session, reset_worker_engine
 from app.models.route_index import RouteStationIndex
 from app.models.tfl import Line
 from app.services.alert_service import AlertService, get_redis_client
 from app.services.route_index_service import RouteIndexService
 
 logger = structlog.get_logger(__name__)
+
+
+def run_in_isolated_loop[T](
+    coro_func: Callable[..., Awaitable[T]],
+    *args: Any,  # noqa: ANN401 - Pass-through args to async function
+    **kwargs: Any,  # noqa: ANN401 - Pass-through kwargs to async function
+) -> T:
+    """
+    Run an async function in a fresh, isolated event loop.
+
+    This function creates a new event loop, calls the async function within it,
+    and ensures proper cleanup. This is necessary for Celery workers using fork
+    pool to avoid event loop state contamination between task executions.
+
+    The pattern explicitly:
+    1. Creates a new event loop
+    2. Sets it as the current event loop
+    3. Calls the async function to create the coroutine
+    4. Runs the coroutine
+    5. Closes the loop
+    6. Sets event loop to None (cleanup)
+
+    This ensures each task execution has a completely isolated event loop,
+    preventing "Future attached to a different loop" errors.
+
+    Args:
+        coro_func: An async function (not coroutine) to execute
+        *args: Positional arguments to pass to the async function
+        **kwargs: Keyword arguments to pass to the async function
+
+    Returns:
+        The return value of the async function
+    """
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+    try:
+        # Create the coroutine INSIDE the fresh event loop
+        coro = coro_func(*args, **kwargs)
+        return loop.run_until_complete(coro)
+    finally:
+        try:
+            # Cancel any pending tasks
+            pending = asyncio.all_tasks(loop)
+            for task in pending:
+                task.cancel()
+            # Run loop once more to let tasks clean up
+            if pending:
+                loop.run_until_complete(asyncio.gather(*pending, return_exceptions=True))
+        finally:
+            loop.close()
+            asyncio.set_event_loop(None)
 
 
 # Protocol for Celery task request
@@ -106,10 +158,10 @@ def check_disruptions_and_alert(self: BoundTask) -> DisruptionCheckResult:
         Retry: If the task should be retried due to transient failure
     """
     try:
-        # asyncio.run() creates a new event loop for this worker thread.
-        # This is the standard pattern for Celery tasks calling async code.
-        # Not blocking since each task runs in its own worker thread.
-        result = asyncio.run(_check_disruptions_async())
+        # run_in_isolated_loop() creates a fresh event loop for this task.
+        # This is necessary for Celery workers using fork pool to avoid
+        # event loop state contamination between task executions.
+        result = run_in_isolated_loop(_check_disruptions_async)
         logger.info(
             "check_disruptions_task_completed",
             result=result,
@@ -138,11 +190,14 @@ async def _check_disruptions_async() -> DisruptionCheckResult:
     Returns:
         DisruptionCheckResult: Execution statistics including routes_checked, alerts_sent, and errors
     """
+    # Reset engine to bind asyncio primitives to this task's event loop
+    await reset_worker_engine()
+
     session = None
     redis_client = None
     try:
         # Create database session and Redis client for this task
-        session = worker_session_factory()
+        session = get_worker_session()
         redis_client = await get_redis_client()
 
         # Create AlertService instance and process all routes
@@ -191,10 +246,10 @@ def rebuild_route_indexes_task(
         Retry: If the task should be retried due to transient failure
     """
     try:
-        # asyncio.run() creates a new event loop for this worker thread.
-        # This is the standard pattern for Celery tasks calling async code.
-        # Not blocking since each task runs in its own worker thread.
-        result = asyncio.run(_rebuild_indexes_async(route_id))
+        # run_in_isolated_loop() creates a fresh event loop and calls the async function.
+        # This is necessary for Celery workers using fork pool to avoid
+        # event loop state contamination between task executions.
+        result = run_in_isolated_loop(_rebuild_indexes_async, route_id)
         logger.info(
             "rebuild_indexes_task_completed",
             route_id=route_id,
@@ -224,10 +279,13 @@ async def _rebuild_indexes_async(route_id_str: str | None = None) -> RebuildInde
     Returns:
         RebuildIndexesResult: Execution statistics including rebuilt_count, failed_count, and errors
     """
+    # Reset engine to bind asyncio primitives to this task's event loop
+    await reset_worker_engine()
+
     session = None
     try:
         # Create database session for this task
-        session = worker_session_factory()
+        session = get_worker_session()
         index_service = RouteIndexService(session)
 
         # Parse route_id if provided
@@ -319,10 +377,10 @@ def detect_and_rebuild_stale_routes(self: BoundTask) -> DetectStaleRoutesResult:
         Retry: If the task should be retried due to transient failure
     """
     try:
-        # asyncio.run() creates a new event loop for this worker thread.
-        # This is the standard pattern for Celery tasks calling async code.
-        # Not blocking since each task runs in its own worker thread.
-        result = asyncio.run(_detect_stale_routes_async())
+        # run_in_isolated_loop() creates a fresh event loop for this task.
+        # This is necessary for Celery workers using fork pool to avoid
+        # event loop state contamination between task executions.
+        result = run_in_isolated_loop(_detect_stale_routes_async)
         logger.info(
             "detect_stale_routes_task_completed",
             result=result,
@@ -355,13 +413,16 @@ async def _detect_stale_routes_async() -> DetectStaleRoutesResult:
             - triggered_count: Number of rebuild tasks successfully triggered
             - errors: List of any errors encountered
     """
+    # Reset engine to bind asyncio primitives to this task's event loop
+    await reset_worker_engine()
+
     session = None
     errors: list[str] = []
     triggered_count = 0
 
     try:
         # Create database session for this task
-        session = worker_session_factory()
+        session = get_worker_session()
 
         # Use pure helper function to find stale routes
         logger.info("detect_stale_routes_started")
