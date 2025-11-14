@@ -86,6 +86,8 @@ Celery workers need database access but share the same database as FastAPI app. 
 ### Decision
 Celery workers use separate async SQLAlchemy engine/session factory from FastAPI app. Uses NullPool in tests for isolation, QueuePool in production for connection reuse. Workers get sessions via `get_worker_session()` helper with proper cleanup.
 
+**See also:** "Worker Pool Fork Safety" below for how connection pooling is handled across forked worker processes.
+
 ### Consequences
 **Easier:**
 - Prevents connection pool conflicts
@@ -97,6 +99,40 @@ Celery workers use separate async SQLAlchemy engine/session factory from FastAPI
 - Must maintain two database engines (app, worker)
 - More complex configuration
 - Need to ensure both engines use correct pool settings
+
+---
+
+## Worker Pool Fork Safety
+
+### Status
+Active (Implemented 2025-11-14, Issue #147)
+
+### Context
+Celery workers using fork pool with SQLAlchemy async engine experience asyncpg InterfaceError ("cannot perform operation: another operation is in progress") and RuntimeError ("Future attached to a different loop"). Root cause: SQLAlchemy's async engine creates asyncio.Queue objects bound to the event loop that created them. With forked workers and per-task event loops, these Queue objects become bound to the wrong loop.
+
+**Related ADRs:**
+- ADR 10 "NullPool for Async Test Isolation" - Similar event loop binding issue in pytest-asyncio
+
+### Decision
+Use lazy engine initialization with per-task reset:
+1. Defer engine creation until first access (not at module import time)
+2. Reset engine globals at start of each task to force fresh engine creation
+3. Reset event loop policy after worker fork
+
+This ensures each task's engine binds asyncio primitives to the correct event loop.
+
+See `docs/celery-fork-safety.md` for implementation details.
+
+### Consequences
+**Easier:**
+- Connection pooling works in all environments without conditional logic
+- Complete event loop isolation between tasks and workers
+- No asyncpg InterfaceError or event loop conflicts
+
+**More Difficult:**
+- Engine recreated per task (small overhead, necessary for correctness)
+- Must call `reset_worker_engine()` at start of each new async task function
+- More complex initialization pattern than simple import-time creation
 
 ---
 

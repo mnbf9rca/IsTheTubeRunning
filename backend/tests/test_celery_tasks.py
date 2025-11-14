@@ -323,8 +323,8 @@ async def test_check_disruptions_async_closes_redis_when_service_fails(
     mock_session.close.assert_called_once()
 
 
-@patch("app.celery.tasks.asyncio.run")
-def test_check_disruptions_task_success_path(mock_asyncio_run: MagicMock) -> None:
+@patch("app.celery.tasks.run_async_task")
+def test_check_disruptions_task_success_path(mock_run_async_task: MagicMock) -> None:
     """Test the synchronous task wrapper success path."""
     mock_result = {
         "status": "success",
@@ -332,19 +332,19 @@ def test_check_disruptions_task_success_path(mock_asyncio_run: MagicMock) -> Non
         "alerts_sent": 2,
         "errors": 0,
     }
-    mock_asyncio_run.return_value = mock_result
+    mock_run_async_task.return_value = mock_result
 
     result = check_disruptions_and_alert()
 
     assert result == mock_result
-    mock_asyncio_run.assert_called_once()
+    mock_run_async_task.assert_called_once()
 
 
-@patch("app.celery.tasks.asyncio.run")
-def test_check_disruptions_task_retry_on_error(mock_asyncio_run: MagicMock) -> None:
+@patch("app.celery.tasks.run_async_task")
+def test_check_disruptions_task_retry_on_error(mock_run_async_task: MagicMock) -> None:
     """Test that task retries on exception (lines 55-63)."""
     # Mock asyncio.run to raise an exception
-    mock_asyncio_run.side_effect = RuntimeError("Database connection lost")
+    mock_run_async_task.side_effect = RuntimeError("Database connection lost")
 
     # Create a mock Celery task instance with retry method
     task_instance = check_disruptions_and_alert
@@ -354,8 +354,8 @@ def test_check_disruptions_task_retry_on_error(mock_asyncio_run: MagicMock) -> N
         task_instance()
 
 
-@patch("app.celery.tasks.asyncio.run")
-def test_check_disruptions_task_logs_on_success(mock_asyncio_run: MagicMock) -> None:
+@patch("app.celery.tasks.run_async_task")
+def test_check_disruptions_task_logs_on_success(mock_run_async_task: MagicMock) -> None:
     """Test that task logs completion (lines 49-52)."""
     mock_result = {
         "status": "success",
@@ -363,7 +363,7 @@ def test_check_disruptions_task_logs_on_success(mock_asyncio_run: MagicMock) -> 
         "alerts_sent": 1,
         "errors": 0,
     }
-    mock_asyncio_run.return_value = mock_result
+    mock_run_async_task.return_value = mock_result
 
     with patch("app.celery.tasks.logger") as mock_logger:
         result = check_disruptions_and_alert()
@@ -374,10 +374,10 @@ def test_check_disruptions_task_logs_on_success(mock_asyncio_run: MagicMock) -> 
         assert call_args[0][0] == "check_disruptions_task_completed"
 
 
-@patch("app.celery.tasks.asyncio.run")
-def test_check_disruptions_task_logs_on_error(mock_asyncio_run: MagicMock) -> None:
+@patch("app.celery.tasks.run_async_task")
+def test_check_disruptions_task_logs_on_error(mock_run_async_task: MagicMock) -> None:
     """Test that task logs errors before retry (lines 56-61)."""
-    mock_asyncio_run.side_effect = RuntimeError("Test error")
+    mock_run_async_task.side_effect = RuntimeError("Test error")
 
     task_instance = check_disruptions_and_alert
 
@@ -618,8 +618,8 @@ async def test_rebuild_indexes_async_closes_session_when_service_fails(
     mock_session.close.assert_called_once()
 
 
-@patch("app.celery.tasks.asyncio.run")
-def test_rebuild_indexes_task_success_path(mock_asyncio_run: MagicMock) -> None:
+@patch("app.celery.tasks.run_async_task")
+def test_rebuild_indexes_task_success_path(mock_run_async_task: MagicMock) -> None:
     """Test the synchronous task wrapper success path."""
     mock_result = {
         "status": "success",
@@ -627,19 +627,19 @@ def test_rebuild_indexes_task_success_path(mock_asyncio_run: MagicMock) -> None:
         "failed_count": 0,
         "errors": [],
     }
-    mock_asyncio_run.return_value = mock_result
+    mock_run_async_task.return_value = mock_result
 
     result = rebuild_route_indexes_task(route_id="550e8400-e29b-41d4-a716-446655440000")
 
     assert result == mock_result
-    mock_asyncio_run.assert_called_once()
+    mock_run_async_task.assert_called_once()
 
 
-@patch("app.celery.tasks.asyncio.run")
-def test_rebuild_indexes_task_retry_on_error(mock_asyncio_run: MagicMock) -> None:
+@patch("app.celery.tasks.run_async_task")
+def test_rebuild_indexes_task_retry_on_error(mock_run_async_task: MagicMock) -> None:
     """Test that task retries on exception."""
     # Mock asyncio.run to raise an exception
-    mock_asyncio_run.side_effect = RuntimeError("Database connection lost")
+    mock_run_async_task.side_effect = RuntimeError("Database connection lost")
 
     # Create a mock Celery task instance with retry method
     task_instance = rebuild_route_indexes_task
@@ -649,8 +649,8 @@ def test_rebuild_indexes_task_retry_on_error(mock_asyncio_run: MagicMock) -> Non
         task_instance(route_id=None)
 
 
-@patch("app.celery.tasks.asyncio.run")
-def test_rebuild_indexes_task_logs_on_success(mock_asyncio_run: MagicMock) -> None:
+@patch("app.celery.tasks.run_async_task")
+def test_rebuild_indexes_task_logs_on_success(mock_run_async_task: MagicMock) -> None:
     """Test that task logs completion."""
     mock_result = {
         "status": "success",
@@ -658,7 +658,7 @@ def test_rebuild_indexes_task_logs_on_success(mock_asyncio_run: MagicMock) -> No
         "failed_count": 0,
         "errors": [],
     }
-    mock_asyncio_run.return_value = mock_result
+    mock_run_async_task.return_value = mock_result
 
     with patch("app.celery.tasks.logger") as mock_logger:
         result = rebuild_route_indexes_task(route_id=None)
@@ -669,10 +669,10 @@ def test_rebuild_indexes_task_logs_on_success(mock_asyncio_run: MagicMock) -> No
         assert call_args[0][0] == "rebuild_indexes_task_completed"
 
 
-@patch("app.celery.tasks.asyncio.run")
-def test_rebuild_indexes_task_logs_on_error(mock_asyncio_run: MagicMock) -> None:
+@patch("app.celery.tasks.run_async_task")
+def test_rebuild_indexes_task_logs_on_error(mock_run_async_task: MagicMock) -> None:
     """Test that task logs errors before retry."""
-    mock_asyncio_run.side_effect = RuntimeError("Test error")
+    mock_run_async_task.side_effect = RuntimeError("Test error")
 
     task_instance = rebuild_route_indexes_task
 
@@ -1019,8 +1019,8 @@ async def test_detect_stale_routes_async_returns_correct_structure(
     assert isinstance(result["errors"], list)
 
 
-@patch("app.celery.tasks.asyncio.run")
-def test_detect_stale_routes_task_success_path(mock_asyncio_run: MagicMock) -> None:
+@patch("app.celery.tasks.run_async_task")
+def test_detect_stale_routes_task_success_path(mock_run_async_task: MagicMock) -> None:
     """Test the synchronous task wrapper success path."""
     mock_result = {
         "status": "success",
@@ -1028,19 +1028,19 @@ def test_detect_stale_routes_task_success_path(mock_asyncio_run: MagicMock) -> N
         "triggered_count": 5,
         "errors": [],
     }
-    mock_asyncio_run.return_value = mock_result
+    mock_run_async_task.return_value = mock_result
 
     result = detect_and_rebuild_stale_routes()
 
     assert result == mock_result
-    mock_asyncio_run.assert_called_once()
+    mock_run_async_task.assert_called_once()
 
 
-@patch("app.celery.tasks.asyncio.run")
-def test_detect_stale_routes_task_retry_on_error(mock_asyncio_run: MagicMock) -> None:
+@patch("app.celery.tasks.run_async_task")
+def test_detect_stale_routes_task_retry_on_error(mock_run_async_task: MagicMock) -> None:
     """Test that task retries on exception."""
     # Mock asyncio.run to raise an exception
-    mock_asyncio_run.side_effect = RuntimeError("Database connection lost")
+    mock_run_async_task.side_effect = RuntimeError("Database connection lost")
 
     # Create a mock Celery task instance with retry method
     task_instance = detect_and_rebuild_stale_routes
@@ -1050,8 +1050,8 @@ def test_detect_stale_routes_task_retry_on_error(mock_asyncio_run: MagicMock) ->
         task_instance()
 
 
-@patch("app.celery.tasks.asyncio.run")
-def test_detect_stale_routes_task_logs_on_success(mock_asyncio_run: MagicMock) -> None:
+@patch("app.celery.tasks.run_async_task")
+def test_detect_stale_routes_task_logs_on_success(mock_run_async_task: MagicMock) -> None:
     """Test that task logs completion."""
     mock_result = {
         "status": "success",
@@ -1059,7 +1059,7 @@ def test_detect_stale_routes_task_logs_on_success(mock_asyncio_run: MagicMock) -
         "triggered_count": 3,
         "errors": [],
     }
-    mock_asyncio_run.return_value = mock_result
+    mock_run_async_task.return_value = mock_result
 
     with patch("app.celery.tasks.logger") as mock_logger:
         result = detect_and_rebuild_stale_routes()
@@ -1070,10 +1070,10 @@ def test_detect_stale_routes_task_logs_on_success(mock_asyncio_run: MagicMock) -
         assert call_args[0][0] == "detect_stale_routes_task_completed"
 
 
-@patch("app.celery.tasks.asyncio.run")
-def test_detect_stale_routes_task_logs_on_error(mock_asyncio_run: MagicMock) -> None:
+@patch("app.celery.tasks.run_async_task")
+def test_detect_stale_routes_task_logs_on_error(mock_run_async_task: MagicMock) -> None:
     """Test that task logs errors before retry."""
-    mock_asyncio_run.side_effect = RuntimeError("Test error")
+    mock_run_async_task.side_effect = RuntimeError("Test error")
 
     task_instance = detect_and_rebuild_stale_routes
 
