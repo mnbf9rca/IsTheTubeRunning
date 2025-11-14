@@ -9,7 +9,7 @@ from zoneinfo import ZoneInfo
 
 import redis.asyncio as redis
 import structlog
-from sqlalchemy import select
+from sqlalchemy import and_, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -48,6 +48,9 @@ def extract_line_station_pairs(disruption: DisruptionResponse) -> list[tuple[str
     Example:
         >>> disruption = DisruptionResponse(
         ...     line_id="piccadilly",
+        ...     line_name="Piccadilly",
+        ...     status_severity=10,
+        ...     status_severity_description="Minor Delays",
         ...     affected_routes=[
         ...         AffectedRouteInfo(
         ...             name="Cockfosters → Heathrow T5",
@@ -68,6 +71,34 @@ def extract_line_station_pairs(disruption: DisruptionResponse) -> list[tuple[str
             pairs.append((disruption.line_id, station_naptan))
 
     return pairs
+
+
+def disruption_affects_route(
+    disruption_pairs: list[tuple[str, str]],
+    route_pairs: set[tuple[str, str]],
+) -> bool:
+    """
+    Check if disruption affects route by comparing (line, station) pairs.
+
+    Pure function for easy testing without database dependencies.
+
+    Args:
+        disruption_pairs: List of (line_tfl_id, station_naptan) tuples from disruption
+        route_pairs: Set of (line_tfl_id, station_naptan) tuples from route index
+
+    Returns:
+        True if any disruption pair matches a route pair (intersection exists)
+
+    Example:
+        >>> disruption_pairs = [('piccadilly', '940GZZLURSQ'), ('piccadilly', '940GZZLUHBN')]
+        >>> route_pairs = {('piccadilly', '940GZZLURSQ'), ('piccadilly', '940GZZLULST')}
+        >>> disruption_affects_route(disruption_pairs, route_pairs)
+        True
+        >>> route_pairs_no_match = {('district', '940GZZLUEMB')}
+        >>> disruption_affects_route(disruption_pairs, route_pairs_no_match)
+        False
+    """
+    return bool(route_pairs.intersection(disruption_pairs))
 
 
 class RedisClientProtocol(Protocol):
@@ -345,26 +376,43 @@ class AlertService:
         if not line_station_pairs:
             return set()
 
-        route_ids: set[UUID] = set()
-
-        for line_tfl_id, station_naptan in line_station_pairs:
-            result = await self.db.execute(
-                select(RouteStationIndex.route_id).where(
-                    RouteStationIndex.line_tfl_id == line_tfl_id,
-                    RouteStationIndex.station_naptan == station_naptan,
-                )
+        # Build a single query with OR conditions for all (line, station) pairs
+        conditions = [
+            and_(
+                RouteStationIndex.line_tfl_id == line_tfl_id,
+                RouteStationIndex.station_naptan == station_naptan,
             )
-            matching_route_ids = {row[0] for row in result.all()}
-            route_ids.update(matching_route_ids)
+            for line_tfl_id, station_naptan in line_station_pairs
+        ]
 
-            logger.debug(
-                "index_query_result",
-                line_tfl_id=line_tfl_id,
-                station_naptan=station_naptan,
-                matching_routes=len(matching_route_ids),
-            )
+        result = await self.db.execute(select(RouteStationIndex.route_id).where(or_(*conditions)))
+        route_ids = {row[0] for row in result.all()}
+
+        logger.info(
+            "index_query_completed",
+            total_pairs_queried=len(line_station_pairs),
+            unique_routes_found=len(route_ids),
+        )
 
         return route_ids
+
+    async def _get_route_index_pairs(self, route_id: UUID) -> set[tuple[str, str]]:
+        """
+        Get (line_tfl_id, station_naptan) pairs for a specific route from the index.
+
+        Args:
+            route_id: Route ID to get index pairs for
+
+        Returns:
+            Set of (line_tfl_id, station_naptan) tuples for this route
+        """
+        result = await self.db.execute(
+            select(
+                RouteStationIndex.line_tfl_id,
+                RouteStationIndex.station_naptan,
+            ).where(RouteStationIndex.route_id == route_id)
+        )
+        return {(row[0], row[1]) for row in result.all()}
 
     async def _get_affected_routes_for_disruption(
         self,
@@ -435,7 +483,6 @@ class AlertService:
         # Query all routes that have segments on this line
         result = await self.db.execute(
             select(Route.id)
-            .join(Route.segments)
             .where(
                 Route.segments.any(line_id=line_db_id),
                 Route.active == True,  # noqa: E712
@@ -469,20 +516,32 @@ class AlertService:
             - error_occurred: True if an error occurred during processing
         """
         try:
+            # Get this route's (line, station) pairs from index once
+            route_index_pairs = await self._get_route_index_pairs(route.id)
+
+            # Extract unique line IDs for fallback matching
+            route_line_ids = {line_tfl_id for line_tfl_id, _ in route_index_pairs}
+
             # Create TfL service instance
             tfl_service = TfLService(db=self.db)
 
             # Fetch all line disruptions (uses cache automatically)
             all_disruptions = await tfl_service.fetch_line_disruptions(use_cache=True)
 
-            # For each disruption, find affected routes using index
+            # Check each disruption against this route's index pairs
             route_disruptions: list[DisruptionResponse] = []
 
             for disruption in all_disruptions:
-                affected_route_ids = await self._get_affected_routes_for_disruption(disruption)
+                # Extract (line, station) pairs from disruption
+                disruption_pairs = extract_line_station_pairs(disruption)
 
-                # Check if this route is in the affected set
-                if route.id in affected_route_ids:
+                # Check if disruption affects this route
+                if disruption_pairs:
+                    # Station-level matching: check for intersection
+                    if disruption_affects_route(disruption_pairs, route_index_pairs):
+                        route_disruptions.append(disruption)
+                # Fallback: line-level matching when no station data available
+                elif disruption.line_id in route_line_ids:
                     route_disruptions.append(disruption)
 
             logger.debug(

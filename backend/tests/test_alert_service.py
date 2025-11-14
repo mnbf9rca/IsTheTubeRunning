@@ -2,6 +2,7 @@
 
 import json
 import time
+from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
 from datetime import time as time_class
 from typing import Any
@@ -159,6 +160,46 @@ async def test_route_with_schedule(
 
 
 @pytest.fixture
+async def populate_route_index(db_session: AsyncSession):
+    """
+    Fixture factory to populate RouteStationIndex for a route.
+
+    Returns a callable that takes a route and populates its index entries.
+    This is essential for tests that rely on the inverted index for alert matching.
+    """
+
+    async def _populate(route: Route) -> Route:
+        """Populate index entries for all segments in the route."""
+        # Load segments if not already loaded
+        if not route.segments:
+            result = await db_session.execute(
+                select(Route)
+                .where(Route.id == route.id)
+                .options(
+                    selectinload(Route.segments).selectinload(RouteSegment.line),
+                    selectinload(Route.segments).selectinload(RouteSegment.station),
+                )
+            )
+            route = result.scalar_one()
+
+        # Create index entries for each segment
+        for segment in route.segments:
+            if segment.line and segment.station:
+                index_entry = RouteStationIndex(
+                    route_id=route.id,
+                    line_tfl_id=segment.line.tfl_id,
+                    station_naptan=segment.station.tfl_id,
+                    line_data_version=segment.line.last_updated,
+                )
+                db_session.add(index_entry)
+
+        await db_session.commit()
+        return route
+
+    return _populate
+
+
+@pytest.fixture
 def sample_disruptions() -> list[DisruptionResponse]:
     """Sample disruptions for testing."""
     return [
@@ -186,8 +227,12 @@ async def test_process_all_routes_success(
     alert_service: AlertService,
     test_route_with_schedule: Route,
     sample_disruptions: list[DisruptionResponse],
+    populate_route_index: Callable[[Route], Route],
 ) -> None:
     """Test successful processing of all routes."""
+    # Populate the route index (required for inverted index matching)
+    await populate_route_index(test_route_with_schedule)
+
     # Mock TfL service
     mock_tfl_instance = AsyncMock()
     mock_tfl_instance.fetch_line_disruptions = AsyncMock(return_value=sample_disruptions)
@@ -572,8 +617,12 @@ async def test_get_route_disruptions_returns_relevant(
     alert_service: AlertService,
     test_route_with_schedule: Route,
     sample_disruptions: list[DisruptionResponse],
+    populate_route_index: Callable[[Route], Route],
 ) -> None:
     """Test that only disruptions for route's lines are returned."""
+    # Populate the route index (required for inverted index matching)
+    await populate_route_index(test_route_with_schedule)
+
     # Mock TfL service
     mock_tfl_instance = AsyncMock()
     # Return disruptions for multiple lines
@@ -606,8 +655,12 @@ async def test_get_route_disruptions_empty(
     mock_tfl_class: MagicMock,
     alert_service: AlertService,
     test_route_with_schedule: Route,
+    populate_route_index: Callable[[Route], Route],
 ) -> None:
     """Test getting disruptions when there are none."""
+    # Populate the route index (required for inverted index matching)
+    await populate_route_index(test_route_with_schedule)
+
     # Mock TfL service with empty disruptions
     mock_tfl_instance = AsyncMock()
     mock_tfl_instance.fetch_line_disruptions = AsyncMock(return_value=[])
@@ -626,8 +679,12 @@ async def test_get_route_disruptions_filters_correctly(
     alert_service: AlertService,
     db_session: AsyncSession,
     test_route_with_schedule: Route,
+    populate_route_index: Callable[[Route], Route],
 ) -> None:
     """Test that disruptions are filtered to route's lines only."""
+    # Populate the route index (required for inverted index matching)
+    await populate_route_index(test_route_with_schedule)
+
     # Create a disruption for a line not in the route
     mock_tfl_instance = AsyncMock()
     mock_tfl_instance.fetch_line_disruptions = AsyncMock(
@@ -2271,7 +2328,7 @@ class TestBranchDisambiguation:
         test_user: User,
     ) -> None:
         """
-        Test the example from Issue #125: Piccadilly line disruption should only alert affected branch.
+        Test the example from Issue #129: Piccadilly line disruption should only alert affected branch.
 
         Scenario:
         - Disruption: Russell Square to Holborn (central London section)
