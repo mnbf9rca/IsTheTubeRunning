@@ -18,6 +18,19 @@ class RebuildIndexesResponse(BaseModel):
     errors: list[str] = Field(default_factory=list, description="Error messages for failed routes")
 
 
+# ==================== TfL Metadata Schemas ====================
+
+
+class SyncMetadataResponse(BaseModel):
+    """Response from syncing TfL metadata tables."""
+
+    success: bool = Field(..., description="Whether sync completed successfully")
+    message: str = Field(..., description="Human-readable result message")
+    severity_codes_count: int = Field(..., description="Number of severity codes synced")
+    disruption_categories_count: int = Field(..., description="Number of disruption categories synced")
+    stop_types_count: int = Field(..., description="Number of stop types synced")
+
+
 # ==================== Alert Management Schemas ====================
 
 

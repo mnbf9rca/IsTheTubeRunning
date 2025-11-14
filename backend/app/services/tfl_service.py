@@ -64,16 +64,14 @@ from app.models.tfl import (
 from app.schemas.tfl import (
     AffectedRouteInfo,
     DisruptionResponse,
-    RouteSegmentRequest,
-    StationDisruptionResponse,
-)
-from app.types.tfl_api import (
     LineRoutesResponse,
-    NetworkConnection,
+    RouteSegmentRequest,
     RouteVariant,
+    StationDisruptionResponse,
     StationRouteInfo,
     StationRoutesResponse,
 )
+from app.types.tfl_api import NetworkConnection
 
 ## Note: This code contains a mix of application-internal schemas and
 ## schemas from the pydantic-tfl-api package.

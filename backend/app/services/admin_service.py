@@ -13,6 +13,14 @@ from app.models.admin import AdminUser
 from app.models.notification import NotificationLog, NotificationPreference, NotificationStatus
 from app.models.route import Route
 from app.models.user import EmailAddress, PhoneNumber, User, VerificationCode
+from app.schemas.admin import (
+    DailySignup,
+    EngagementMetrics,
+    GrowthMetrics,
+    NotificationStatMetrics,
+    RouteStatMetrics,
+    UserCountMetrics,
+)
 
 
 class AdminService:
@@ -200,29 +208,28 @@ class AdminService:
             await self.db.rollback()
             raise
 
-    async def get_engagement_metrics(self) -> dict[str, Any]:
+    async def get_engagement_metrics(self) -> EngagementMetrics:
         """
         Get comprehensive engagement metrics for the admin dashboard.
 
         Returns:
-            Dictionary containing:
+            EngagementMetrics containing:
             - user_counts: Total, active (with routes), verified contacts
             - route_stats: Total, active, average per user
             - notification_stats: Sent, failed, success rate, by method
             - growth_metrics: New users by time period
         """
-        # Initialize metrics structure
-        metrics: dict[str, Any] = {
-            "user_counts": {},
-            "route_stats": {},
-            "notification_stats": {},
-            "growth_metrics": {},
-        }
+        # Initialize nested metrics
+        # Using Any for intermediate dicts since they're unpacked into Pydantic models
+        user_counts: dict[str, Any] = {}
+        route_stats: dict[str, Any] = {}
+        notification_stats: dict[str, Any] = {}
+        growth_metrics: dict[str, Any] = {}
 
         # ==================== User Counts ====================
         # Total users (non-deleted)
         result = await self.db.execute(select(func.count(User.id)).where(User.deleted_at.is_(None)))
-        metrics["user_counts"]["total_users"] = result.scalar() or 0
+        user_counts["total_users"] = result.scalar() or 0
 
         # Users with active routes
         result = await self.db.execute(
@@ -233,28 +240,28 @@ class AdminService:
                 )
             )
         )
-        metrics["user_counts"]["active_users"] = result.scalar() or 0
+        user_counts["active_users"] = result.scalar() or 0
 
         # Users with verified email
         result = await self.db.execute(
             select(func.count(func.distinct(EmailAddress.user_id))).where(EmailAddress.verified.is_(True))
         )
-        metrics["user_counts"]["users_with_verified_email"] = result.scalar() or 0
+        user_counts["users_with_verified_email"] = result.scalar() or 0
 
         # Users with verified phone
         result = await self.db.execute(
             select(func.count(func.distinct(PhoneNumber.user_id))).where(PhoneNumber.verified.is_(True))
         )
-        metrics["user_counts"]["users_with_verified_phone"] = result.scalar() or 0
+        user_counts["users_with_verified_phone"] = result.scalar() or 0
 
         # Admin users
         result = await self.db.execute(select(func.count(AdminUser.id)).where(AdminUser.deleted_at.is_(None)))
-        metrics["user_counts"]["admin_users"] = result.scalar() or 0
+        user_counts["admin_users"] = result.scalar() or 0
 
         # ==================== Route Statistics ====================
         # Total routes (non-deleted)
         result = await self.db.execute(select(func.count(Route.id)).where(Route.deleted_at.is_(None)))
-        metrics["route_stats"]["total_routes"] = result.scalar() or 0
+        route_stats["total_routes"] = result.scalar() or 0
 
         # Active routes
         result = await self.db.execute(
@@ -265,7 +272,7 @@ class AdminService:
                 )
             )
         )
-        metrics["route_stats"]["active_routes"] = result.scalar() or 0
+        route_stats["active_routes"] = result.scalar() or 0
 
         # Average routes per user (only users with routes)
         result = await self.db.execute(
@@ -276,35 +283,36 @@ class AdminService:
         )
         row = result.one()
         if row.users_with_routes and row.users_with_routes > 0:
-            metrics["route_stats"]["avg_routes_per_user"] = round(row.total_routes / row.users_with_routes, 2)
+            route_stats["avg_routes_per_user"] = round(row.total_routes / row.users_with_routes, 2)
         else:
-            metrics["route_stats"]["avg_routes_per_user"] = 0.0
+            route_stats["avg_routes_per_user"] = 0.0
 
         # ==================== Notification Statistics ====================
         # Total notifications sent
         result = await self.db.execute(select(func.count(NotificationLog.id)))
-        metrics["notification_stats"]["total_sent"] = result.scalar() or 0
+        notification_stats["total_sent"] = result.scalar() or 0
 
         # Successful notifications
         result = await self.db.execute(
             select(func.count(NotificationLog.id)).where(NotificationLog.status == NotificationStatus.SENT)
         )
         successful = result.scalar() or 0
-        metrics["notification_stats"]["successful"] = successful
+        notification_stats["successful"] = successful
 
         # Failed notifications
         result = await self.db.execute(
             select(func.count(NotificationLog.id)).where(NotificationLog.status == NotificationStatus.FAILED)
         )
         failed = result.scalar() or 0
-        metrics["notification_stats"]["failed"] = failed
+        notification_stats["failed"] = failed
 
         # Success rate
-        total_notifications = metrics["notification_stats"]["total_sent"]
-        if total_notifications > 0:
-            metrics["notification_stats"]["success_rate"] = round((successful / total_notifications) * 100, 2)
+        total_sent = notification_stats["total_sent"]
+        assert isinstance(total_sent, int)
+        if total_sent > 0:
+            notification_stats["success_rate"] = round((successful / total_sent) * 100, 2)
         else:
-            metrics["notification_stats"]["success_rate"] = 0.0
+            notification_stats["success_rate"] = 0.0
 
         # Notifications by method (last 30 days)
         thirty_days_ago = datetime.now(UTC) - timedelta(days=30)
@@ -317,7 +325,7 @@ class AdminService:
             .group_by(NotificationLog.method)
         )
         by_method = {row.method.value: row.count for row in result}
-        metrics["notification_stats"]["by_method_last_30_days"] = by_method
+        notification_stats["by_method_last_30_days"] = by_method
 
         # ==================== Growth Metrics ====================
         # New users last 7 days
@@ -330,7 +338,7 @@ class AdminService:
                 )
             )
         )
-        metrics["growth_metrics"]["new_users_last_7_days"] = result.scalar() or 0
+        growth_metrics["new_users_last_7_days"] = result.scalar() or 0
 
         # New users last 30 days
         result = await self.db.execute(
@@ -341,7 +349,7 @@ class AdminService:
                 )
             )
         )
-        metrics["growth_metrics"]["new_users_last_30_days"] = result.scalar() or 0
+        growth_metrics["new_users_last_30_days"] = result.scalar() or 0
 
         # New users by day (last 7 days)
         day_column = func.date_trunc("day", User.created_at).label("day")
@@ -359,7 +367,13 @@ class AdminService:
             .group_by(day_column)
             .order_by(day_column)
         )
-        daily_signups = [{"date": row.day.isoformat(), "count": row.count} for row in result]
-        metrics["growth_metrics"]["daily_signups_last_7_days"] = daily_signups
+        daily_signups = [DailySignup(date=row.day.isoformat(), count=row.count) for row in result]
+        growth_metrics["daily_signups_last_7_days"] = daily_signups
 
-        return metrics
+        # Construct and return Pydantic models
+        return EngagementMetrics(
+            user_counts=UserCountMetrics(**user_counts),
+            route_stats=RouteStatMetrics(**route_stats),
+            notification_stats=NotificationStatMetrics(**notification_stats),
+            growth_metrics=GrowthMetrics(**growth_metrics),
+        )
