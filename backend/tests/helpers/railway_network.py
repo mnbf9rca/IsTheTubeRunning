@@ -40,40 +40,7 @@ class TestRailwayNetwork:
     """
 
     # =============================================================================
-    # DEPRECATED CONSTANTS (Issue #70 Part 1)
-    # The following constants are deprecated and will be removed in Part 2.
-    # Use the new comprehensive network constants below instead.
-    # =============================================================================
-
-    # DEPRECATED - use new network
-    LINE_1 = "line1"
-    LINE_2 = "line2"
-    LINE_3 = "line3"
-
-    # DEPRECATED - use HUB_NORTH or HUB_CENTRAL
-    HUB_ALPHA_CODE = "HUB_ALPHA"
-    HUB_ALPHA_NAME = "Alpha Junction"
-    HUB_ALPHA_TUBE_ID = "TUBE_ALPHA"
-    HUB_ALPHA_TUBE_NAME = "Alpha Junction (Tube)"
-    HUB_ALPHA_RAIL_ID = "RAIL_ALPHA"
-    HUB_ALPHA_RAIL_NAME = "Alpha Junction (Rail)"
-
-    # DEPRECATED - use HUB_NORTH or HUB_CENTRAL
-    HUB_BETA_CODE = "HUB_BETA"
-    HUB_BETA_NAME = "Beta Station"
-    HUB_BETA_CHILD1_ID = "BETA_CHILD_1"
-    HUB_BETA_CHILD1_NAME = "Beta Station Platform A"
-    HUB_BETA_CHILD2_ID = "BETA_CHILD_2"
-    HUB_BETA_CHILD2_NAME = "Beta Station Platform B"
-
-    # DEPRECATED - use new network stations
-    STANDALONE_CHARLIE_ID = "STATION_CHARLIE"
-    STANDALONE_CHARLIE_NAME = "Charlie Station"
-    STANDALONE_DELTA_ID = "STATION_DELTA"
-    STANDALONE_DELTA_NAME = "Delta Station"
-
-    # =============================================================================
-    # NEW COMPREHENSIVE NETWORK (Issue #70 Part 1)
+    # COMPREHENSIVE NETWORK
     # =============================================================================
 
     # -----------------------------------------------------------------------------
@@ -173,75 +140,7 @@ class TestRailwayNetwork:
     STATION_ELIZABETH_EAST = "elizabeth-east"  # eastern terminus
 
     # =============================================================================
-    # DEPRECATED FACTORY METHODS (Issue #70 Part 1)
-    # The following factory methods are deprecated and will be removed in Part 2.
-    # Use the new network factory methods below instead.
-    # =============================================================================
-
-    @staticmethod
-    def create_hub_alpha_tube() -> Station:
-        """DEPRECATED: Use create_parallel_north() or other new network factories."""
-        return create_test_station(
-            TestRailwayNetwork.HUB_ALPHA_TUBE_ID,
-            TestRailwayNetwork.HUB_ALPHA_TUBE_NAME,
-            [TestRailwayNetwork.LINE_1],
-            hub_naptan_code=TestRailwayNetwork.HUB_ALPHA_CODE,
-            hub_common_name=TestRailwayNetwork.HUB_ALPHA_NAME,
-        )
-
-    @staticmethod
-    def create_hub_alpha_rail() -> Station:
-        """DEPRECATED: Use create_hubnorth_overground() or other new network factories."""
-        return create_test_station(
-            TestRailwayNetwork.HUB_ALPHA_RAIL_ID,
-            TestRailwayNetwork.HUB_ALPHA_RAIL_NAME,
-            [TestRailwayNetwork.LINE_2],
-            hub_naptan_code=TestRailwayNetwork.HUB_ALPHA_CODE,
-            hub_common_name=TestRailwayNetwork.HUB_ALPHA_NAME,
-        )
-
-    @staticmethod
-    def create_hub_beta_child1() -> Station:
-        """DEPRECATED: Use new network factories."""
-        return create_test_station(
-            TestRailwayNetwork.HUB_BETA_CHILD1_ID,
-            TestRailwayNetwork.HUB_BETA_CHILD1_NAME,
-            [TestRailwayNetwork.LINE_1],
-            hub_naptan_code=TestRailwayNetwork.HUB_BETA_CODE,
-            hub_common_name=TestRailwayNetwork.HUB_BETA_NAME,
-        )
-
-    @staticmethod
-    def create_hub_beta_child2() -> Station:
-        """DEPRECATED: Use new network factories."""
-        return create_test_station(
-            TestRailwayNetwork.HUB_BETA_CHILD2_ID,
-            TestRailwayNetwork.HUB_BETA_CHILD2_NAME,
-            [TestRailwayNetwork.LINE_2],
-            hub_naptan_code=TestRailwayNetwork.HUB_BETA_CODE,
-            hub_common_name=TestRailwayNetwork.HUB_BETA_NAME,
-        )
-
-    @staticmethod
-    def create_standalone_charlie() -> Station:
-        """DEPRECATED: Use new network station factories."""
-        return create_test_station(
-            TestRailwayNetwork.STANDALONE_CHARLIE_ID,
-            TestRailwayNetwork.STANDALONE_CHARLIE_NAME,
-            [TestRailwayNetwork.LINE_1],
-        )
-
-    @staticmethod
-    def create_standalone_delta() -> Station:
-        """DEPRECATED: Use new network station factories."""
-        return create_test_station(
-            TestRailwayNetwork.STANDALONE_DELTA_ID,
-            TestRailwayNetwork.STANDALONE_DELTA_NAME,
-            [TestRailwayNetwork.LINE_2],
-        )
-
-    # =============================================================================
-    # NEW STATION FACTORY METHODS (Issue #70 Part 1)
+    # STATION FACTORY METHODS
     # =============================================================================
 
     # -----------------------------------------------------------------------------

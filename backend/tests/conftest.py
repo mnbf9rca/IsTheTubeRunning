@@ -539,7 +539,7 @@ async def test_railway_network(db_session: AsyncSession) -> RailwayNetworkFixtur
     a fresh network instance that is rolled back after the test.
 
     Network structure:
-    - 49 stations (deprecated + new network)
+    - 43 stations (standardized test network)
     - 8 lines across 4 modes (tube, overground, dlr, elizabeth-line)
     - 2 hubs (HUB_NORTH: 4-mode, HUB_CENTRAL: 2-mode)
     - ~72 bidirectional StationConnection records
@@ -556,14 +556,7 @@ async def test_railway_network(db_session: AsyncSession) -> RailwayNetworkFixtur
     """
     # 1. Create all stations
     stations_list = [
-        # Deprecated stations (for backward compatibility)
-        TestRailwayNetwork.create_hub_alpha_tube(),
-        TestRailwayNetwork.create_hub_alpha_rail(),
-        TestRailwayNetwork.create_hub_beta_child1(),
-        TestRailwayNetwork.create_hub_beta_child2(),
-        TestRailwayNetwork.create_standalone_charlie(),
-        TestRailwayNetwork.create_standalone_delta(),
-        # New comprehensive network stations
+        # Comprehensive network stations
         TestRailwayNetwork.create_parallel_north(),
         TestRailwayNetwork.create_hubnorth_overground(),
         TestRailwayNetwork.create_hubnorth_elizabeth(),

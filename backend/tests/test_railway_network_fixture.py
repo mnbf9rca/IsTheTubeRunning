@@ -14,7 +14,6 @@ from tests.helpers.network_helpers import (
     get_station_by_tfl_id,
     get_stations_on_line,
 )
-from tests.helpers.railway_network import TestRailwayNetwork
 from tests.helpers.types import RailwayNetworkFixture
 
 
@@ -34,14 +33,14 @@ class TestRailwayNetworkFixture:
         """Verify fixture contains expected number of entities."""
         stats = test_railway_network.stats
 
-        # 49 stations (6 deprecated + 43 new network)
-        assert stats["stations_count"] == 49
+        # 43 stations (standardized test network)
+        assert stats["stations_count"] == 43
 
         # 8 lines across 4 modes
         assert stats["lines_count"] == 8
 
-        # 2 hubs (HUBNORTH, HUBCENTRAL) + 2 deprecated hubs (HUB_ALPHA, HUB_BETA)
-        assert stats["hubs_count"] == 4
+        # 2 hubs (HUBNORTH, HUBCENTRAL)
+        assert stats["hubs_count"] == 2
 
         # ~72 bidirectional connections from route sequences
         assert stats["connections_count"] > 50
@@ -51,16 +50,12 @@ class TestRailwayNetworkFixture:
         """Verify all expected stations exist in network."""
         stations = test_railway_network.stations
 
-        # Check new network stations (sample)
+        # Check network stations (sample)
         assert "parallel-north" in stations
         assert "fork-junction" in stations
         assert "shared-station" in stations
         assert "hubnorth-overground" in stations
         assert "hubcentral-dlr" in stations
-
-        # Check deprecated stations still present
-        assert TestRailwayNetwork.HUB_ALPHA_TUBE_ID in stations
-        assert TestRailwayNetwork.STANDALONE_CHARLIE_ID in stations
 
     def test_network_has_all_lines(self, test_railway_network: RailwayNetworkFixture):
         """Verify all 8 lines exist in network."""
