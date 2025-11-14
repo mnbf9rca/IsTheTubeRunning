@@ -2,7 +2,6 @@
 
 import uuid
 from datetime import UTC, datetime, timedelta
-from typing import Any
 
 from fastapi import HTTPException, status
 from sqlalchemy import and_, delete, func, or_, select, update
@@ -13,6 +12,50 @@ from app.models.admin import AdminUser
 from app.models.notification import NotificationLog, NotificationPreference, NotificationStatus
 from app.models.route import Route
 from app.models.user import EmailAddress, PhoneNumber, User, VerificationCode
+from app.schemas.admin import (
+    DailySignup,
+    EngagementMetrics,
+    GrowthMetrics,
+    NotificationStatMetrics,
+    RouteStatMetrics,
+    UserCountMetrics,
+)
+
+# ==================== Pure Calculation Functions ====================
+
+
+def calculate_success_rate(successful: int, total: int) -> float:
+    """
+    Calculate success rate as a percentage.
+
+    Pure function with no side effects - can be unit tested independently.
+
+    Args:
+        successful: Number of successful items
+        total: Total number of items
+
+    Returns:
+        Success rate as a percentage (0.0 to 100.0), rounded to 2 decimal places
+    """
+    return 0.0 if total <= 0 else round((successful / total) * 100, 2)
+
+
+def calculate_avg_routes(total_routes: int, users_with_routes: int) -> float:
+    """
+    Calculate average routes per user.
+
+    Pure function with no side effects - can be unit tested independently.
+
+    Args:
+        total_routes: Total number of routes
+        users_with_routes: Number of users who have at least one route
+
+    Returns:
+        Average routes per user, rounded to 2 decimal places
+    """
+    if users_with_routes <= 0:
+        return 0.0
+    return round(total_routes / users_with_routes, 2)
 
 
 class AdminService:
@@ -200,31 +243,15 @@ class AdminService:
             await self.db.rollback()
             raise
 
-    async def get_engagement_metrics(self) -> dict[str, Any]:
-        """
-        Get comprehensive engagement metrics for the admin dashboard.
+    # ==================== Private Helper Methods for Metrics ====================
 
-        Returns:
-            Dictionary containing:
-            - user_counts: Total, active (with routes), verified contacts
-            - route_stats: Total, active, average per user
-            - notification_stats: Sent, failed, success rate, by method
-            - growth_metrics: New users by time period
-        """
-        # Initialize metrics structure
-        metrics: dict[str, Any] = {
-            "user_counts": {},
-            "route_stats": {},
-            "notification_stats": {},
-            "growth_metrics": {},
-        }
-
-        # ==================== User Counts ====================
-        # Total users (non-deleted)
+    async def _count_total_users(self) -> int:
+        """Count total non-deleted users."""
         result = await self.db.execute(select(func.count(User.id)).where(User.deleted_at.is_(None)))
-        metrics["user_counts"]["total_users"] = result.scalar() or 0
+        return result.scalar() or 0
 
-        # Users with active routes
+    async def _count_active_users(self) -> int:
+        """Count users with at least one active route."""
         result = await self.db.execute(
             select(func.count(func.distinct(Route.user_id))).where(
                 and_(
@@ -233,30 +260,34 @@ class AdminService:
                 )
             )
         )
-        metrics["user_counts"]["active_users"] = result.scalar() or 0
+        return result.scalar() or 0
 
-        # Users with verified email
+    async def _count_users_with_verified_email(self) -> int:
+        """Count users with at least one verified email address."""
         result = await self.db.execute(
             select(func.count(func.distinct(EmailAddress.user_id))).where(EmailAddress.verified.is_(True))
         )
-        metrics["user_counts"]["users_with_verified_email"] = result.scalar() or 0
+        return result.scalar() or 0
 
-        # Users with verified phone
+    async def _count_users_with_verified_phone(self) -> int:
+        """Count users with at least one verified phone number."""
         result = await self.db.execute(
             select(func.count(func.distinct(PhoneNumber.user_id))).where(PhoneNumber.verified.is_(True))
         )
-        metrics["user_counts"]["users_with_verified_phone"] = result.scalar() or 0
+        return result.scalar() or 0
 
-        # Admin users
+    async def _count_admin_users(self) -> int:
+        """Count non-deleted admin users."""
         result = await self.db.execute(select(func.count(AdminUser.id)).where(AdminUser.deleted_at.is_(None)))
-        metrics["user_counts"]["admin_users"] = result.scalar() or 0
+        return result.scalar() or 0
 
-        # ==================== Route Statistics ====================
-        # Total routes (non-deleted)
+    async def _count_total_routes(self) -> int:
+        """Count total non-deleted routes."""
         result = await self.db.execute(select(func.count(Route.id)).where(Route.deleted_at.is_(None)))
-        metrics["route_stats"]["total_routes"] = result.scalar() or 0
+        return result.scalar() or 0
 
-        # Active routes
+    async def _count_active_routes(self) -> int:
+        """Count active non-deleted routes."""
         result = await self.db.execute(
             select(func.count(Route.id)).where(
                 and_(
@@ -265,9 +296,15 @@ class AdminService:
                 )
             )
         )
-        metrics["route_stats"]["active_routes"] = result.scalar() or 0
+        return result.scalar() or 0
 
-        # Average routes per user (only users with routes)
+    async def _get_routes_user_count(self) -> tuple[int, int]:
+        """
+        Get total routes and distinct user count for average calculation.
+
+        Returns:
+            Tuple of (total_routes, users_with_routes)
+        """
         result = await self.db.execute(
             select(
                 func.count(Route.id).label("total_routes"),
@@ -275,75 +312,79 @@ class AdminService:
             ).where(Route.deleted_at.is_(None))
         )
         row = result.one()
-        if row.users_with_routes and row.users_with_routes > 0:
-            metrics["route_stats"]["avg_routes_per_user"] = round(row.total_routes / row.users_with_routes, 2)
-        else:
-            metrics["route_stats"]["avg_routes_per_user"] = 0.0
+        return row.total_routes, row.users_with_routes
 
-        # ==================== Notification Statistics ====================
-        # Total notifications sent
+    async def _count_total_notifications(self) -> int:
+        """Count all notification log entries."""
         result = await self.db.execute(select(func.count(NotificationLog.id)))
-        metrics["notification_stats"]["total_sent"] = result.scalar() or 0
+        return result.scalar() or 0
 
-        # Successful notifications
+    async def _count_successful_notifications(self) -> int:
+        """Count successfully sent notifications."""
         result = await self.db.execute(
             select(func.count(NotificationLog.id)).where(NotificationLog.status == NotificationStatus.SENT)
         )
-        successful = result.scalar() or 0
-        metrics["notification_stats"]["successful"] = successful
+        return result.scalar() or 0
 
-        # Failed notifications
+    async def _count_failed_notifications(self) -> int:
+        """Count failed notifications."""
         result = await self.db.execute(
             select(func.count(NotificationLog.id)).where(NotificationLog.status == NotificationStatus.FAILED)
         )
-        failed = result.scalar() or 0
-        metrics["notification_stats"]["failed"] = failed
+        return result.scalar() or 0
 
-        # Success rate
-        total_notifications = metrics["notification_stats"]["total_sent"]
-        if total_notifications > 0:
-            metrics["notification_stats"]["success_rate"] = round((successful / total_notifications) * 100, 2)
-        else:
-            metrics["notification_stats"]["success_rate"] = 0.0
+    async def _get_notifications_by_method(self, since: datetime) -> dict[str, int]:
+        """
+        Get notification counts grouped by method since a given datetime.
 
-        # Notifications by method (last 30 days)
-        thirty_days_ago = datetime.now(UTC) - timedelta(days=30)
+        Args:
+            since: Only count notifications sent on or after this datetime
+
+        Returns:
+            Dictionary mapping method name to count
+        """
         result = await self.db.execute(
             select(
                 NotificationLog.method,
                 func.count(NotificationLog.id).label("count"),
             )
-            .where(NotificationLog.sent_at >= thirty_days_ago)
+            .where(NotificationLog.sent_at >= since)
             .group_by(NotificationLog.method)
         )
-        by_method = {row.method.value: row.count for row in result}
-        metrics["notification_stats"]["by_method_last_30_days"] = by_method
+        # SQLAlchemy row attributes are dynamic - mypy can't infer the type
+        by_method: dict[str, int] = {row.method.value: row.count for row in result}  # type: ignore[misc]
+        return by_method
 
-        # ==================== Growth Metrics ====================
-        # New users last 7 days
-        seven_days_ago = datetime.now(UTC) - timedelta(days=7)
+    async def _count_new_users_since(self, since: datetime) -> int:
+        """
+        Count new users created since a given datetime.
+
+        Args:
+            since: Only count users created on or after this datetime
+
+        Returns:
+            Count of new non-deleted users
+        """
         result = await self.db.execute(
             select(func.count(User.id)).where(
                 and_(
-                    User.created_at >= seven_days_ago,
+                    User.created_at >= since,
                     User.deleted_at.is_(None),
                 )
             )
         )
-        metrics["growth_metrics"]["new_users_last_7_days"] = result.scalar() or 0
+        return result.scalar() or 0
 
-        # New users last 30 days
-        result = await self.db.execute(
-            select(func.count(User.id)).where(
-                and_(
-                    User.created_at >= thirty_days_ago,
-                    User.deleted_at.is_(None),
-                )
-            )
-        )
-        metrics["growth_metrics"]["new_users_last_30_days"] = result.scalar() or 0
+    async def _get_daily_signups_since(self, since: datetime) -> list[DailySignup]:
+        """
+        Get daily signup counts since a given datetime.
 
-        # New users by day (last 7 days)
+        Args:
+            since: Only count users created on or after this datetime
+
+        Returns:
+            List of DailySignup objects with date and count
+        """
         day_column = func.date_trunc("day", User.created_at).label("day")
         result = await self.db.execute(
             select(
@@ -352,14 +393,75 @@ class AdminService:
             )
             .where(
                 and_(
-                    User.created_at >= seven_days_ago,
+                    User.created_at >= since,
                     User.deleted_at.is_(None),
                 )
             )
             .group_by(day_column)
             .order_by(day_column)
         )
-        daily_signups = [{"date": row.day.isoformat(), "count": row.count} for row in result]
-        metrics["growth_metrics"]["daily_signups_last_7_days"] = daily_signups
+        return [DailySignup(date=row.day.isoformat(), count=row.count) for row in result]
 
-        return metrics
+    async def get_engagement_metrics(self) -> EngagementMetrics:
+        """
+        Get comprehensive engagement metrics for the admin dashboard.
+
+        Returns:
+            EngagementMetrics containing:
+            - user_counts: Total, active (with routes), verified contacts
+            - route_stats: Total, active, average per user
+            - notification_stats: Sent, failed, success rate, by method
+            - growth_metrics: New users by time period
+        """
+        # Calculate datetime thresholds once
+        now = datetime.now(UTC)
+        seven_days_ago = now - timedelta(days=7)
+        thirty_days_ago = now - timedelta(days=30)
+
+        # Gather user count metrics
+        user_counts = UserCountMetrics(
+            total_users=await self._count_total_users(),
+            active_users=await self._count_active_users(),
+            users_with_verified_email=await self._count_users_with_verified_email(),
+            users_with_verified_phone=await self._count_users_with_verified_phone(),
+            admin_users=await self._count_admin_users(),
+        )
+
+        # Gather route statistics
+        total_routes = await self._count_total_routes()
+        active_routes = await self._count_active_routes()
+        route_count, user_count = await self._get_routes_user_count()
+
+        route_stats = RouteStatMetrics(
+            total_routes=total_routes,
+            active_routes=active_routes,
+            avg_routes_per_user=calculate_avg_routes(route_count, user_count),
+        )
+
+        # Gather notification statistics
+        total_sent = await self._count_total_notifications()
+        successful = await self._count_successful_notifications()
+        failed = await self._count_failed_notifications()
+        by_method = await self._get_notifications_by_method(thirty_days_ago)
+
+        notification_stats = NotificationStatMetrics(
+            total_sent=total_sent,
+            successful=successful,
+            failed=failed,
+            success_rate=calculate_success_rate(successful, total_sent),
+            by_method_last_30_days=by_method,
+        )
+
+        # Gather growth metrics
+        growth_metrics = GrowthMetrics(
+            new_users_last_7_days=await self._count_new_users_since(seven_days_ago),
+            new_users_last_30_days=await self._count_new_users_since(thirty_days_ago),
+            daily_signups_last_7_days=await self._get_daily_signups_since(seven_days_ago),
+        )
+
+        return EngagementMetrics(
+            user_counts=user_counts,
+            route_stats=route_stats,
+            notification_stats=notification_stats,
+            growth_metrics=growth_metrics,
+        )

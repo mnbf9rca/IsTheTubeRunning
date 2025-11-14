@@ -17,17 +17,13 @@ from app.models.admin import AdminUser
 from app.models.notification import NotificationLog, NotificationStatus
 from app.schemas.admin import (
     AnonymiseUserResponse,
-    DailySignup,
     EngagementMetrics,
-    GrowthMetrics,
     NotificationLogItem,
-    NotificationStatMetrics,
     PaginatedUsersResponse,
     RebuildIndexesResponse,
     RecentLogsResponse,
-    RouteStatMetrics,
+    SyncMetadataResponse,
     TriggerCheckResponse,
-    UserCountMetrics,
     UserDetailResponse,
     UserListItem,
     WorkerStatusResponse,
@@ -83,11 +79,11 @@ async def build_tfl_graph(
     )
 
 
-@router.post("/tfl/sync-metadata", response_model=dict[str, Any])
+@router.post("/tfl/sync-metadata", response_model=SyncMetadataResponse)
 async def sync_tfl_metadata(
     admin_user: AdminUser = Depends(require_admin),
     db: AsyncSession = Depends(get_db),
-) -> dict[str, Any]:
+) -> SyncMetadataResponse:
     """
     Sync TfL metadata (severity codes, disruption categories, stop types) from TfL API.
 
@@ -114,13 +110,13 @@ async def sync_tfl_metadata(
     disruption_categories = await tfl_service.fetch_disruption_categories()
     stop_types = await tfl_service.fetch_stop_types()
 
-    return {
-        "success": True,
-        "message": "TfL metadata synchronized successfully.",
-        "severity_codes_count": len(severity_codes),
-        "disruption_categories_count": len(disruption_categories),
-        "stop_types_count": len(stop_types),
-    }
+    return SyncMetadataResponse(
+        success=True,
+        message="TfL metadata synchronized successfully.",
+        severity_codes_count=len(severity_codes),
+        disruption_categories_count=len(disruption_categories),
+        stop_types_count=len(stop_types),
+    )
 
 
 # ==================== Alert Management Endpoints ====================
@@ -502,21 +498,7 @@ async def get_engagement_metrics(
         HTTPException: 403 if not admin
     """
     admin_service = AdminService(db)
-    metrics = await admin_service.get_engagement_metrics()
-
-    # Convert metrics dict to Pydantic models
-    return EngagementMetrics(
-        user_counts=UserCountMetrics(**metrics["user_counts"]),
-        route_stats=RouteStatMetrics(**metrics["route_stats"]),
-        notification_stats=NotificationStatMetrics(**metrics["notification_stats"]),
-        growth_metrics=GrowthMetrics(
-            new_users_last_7_days=metrics["growth_metrics"]["new_users_last_7_days"],
-            new_users_last_30_days=metrics["growth_metrics"]["new_users_last_30_days"],
-            daily_signups_last_7_days=[
-                DailySignup(**signup) for signup in metrics["growth_metrics"]["daily_signups_last_7_days"]
-            ],
-        ),
-    )
+    return await admin_service.get_engagement_metrics()
 
 
 # ==================== Route Index Management ====================

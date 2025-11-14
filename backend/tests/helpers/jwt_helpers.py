@@ -117,4 +117,6 @@ class MockJWTGenerator:
             JWKS dictionary with test public key
         """
         cls._ensure_keys()
-        return cls._jwks  # type: ignore[return-value]
+        # Type narrowing: _ensure_keys() guarantees _jwks is not None
+        assert cls._jwks is not None
+        return cls._jwks

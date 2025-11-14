@@ -1,4 +1,14 @@
-"""TfL API service for fetching and caching transport data."""
+"""TfL Service for fetching and caching Transport for London data.
+
+This module provides our internal service layer for interacting with Transport for London's
+official API. We use the pydantic-tfl-api library (3rd party) to communicate with the real
+TfL API, and this service wraps that library with caching, error handling, and database storage.
+
+Terminology:
+- "TfL Service" or "TfL Integration" = This module (our internal code)
+- "TfL API" = Transport for London's official REST API
+- "pydantic-tfl-api" = The 3rd party client library we use (authoritative for API schemas)
+"""
 
 import asyncio
 import contextlib
@@ -64,16 +74,14 @@ from app.models.tfl import (
 from app.schemas.tfl import (
     AffectedRouteInfo,
     DisruptionResponse,
-    RouteSegmentRequest,
-    StationDisruptionResponse,
-)
-from app.types.tfl_api import (
     LineRoutesResponse,
-    NetworkConnection,
+    RouteSegmentRequest,
     RouteVariant,
+    StationDisruptionResponse,
     StationRouteInfo,
     StationRoutesResponse,
 )
+from app.types.tfl_api import NetworkConnection
 
 ## Note: This code contains a mix of application-internal schemas and
 ## schemas from the pydantic-tfl-api package.
@@ -200,7 +208,11 @@ def _extract_station_atco_code(disrupted_point: DisruptedPoint) -> str | None:
 
 
 class TfLService:
-    """Service for interacting with TfL API and managing transport data."""
+    """Service for interacting with Transport for London's API and managing transport data.
+
+    This service uses the pydantic-tfl-api library to fetch data from the real TfL API,
+    then caches responses in Redis and stores reference data in PostgreSQL.
+    """
 
     def __init__(self, db: AsyncSession) -> None:
         """
@@ -2939,7 +2951,7 @@ class TfLService:
             )
         return False
 
-    async def get_line_routes(self, line_tfl_id: str) -> LineRoutesResponse | None:
+    async def get_line_routes(self, line_tfl_id: str) -> LineRoutesResponse:
         """
         Get route variants for a specific line.
 
@@ -2947,7 +2959,7 @@ class TfLService:
             line_tfl_id: TfL line ID (e.g., "victoria", "elizabeth-line")
 
         Returns:
-            Line routes data (line_tfl_id and list of route variants) or None if not found
+            Line routes data (line_tfl_id and list of route variants)
 
         Raises:
             HTTPException: 404 if line not found, 503 if routes haven't been built yet
@@ -2989,7 +3001,7 @@ class TfLService:
                 detail=f"Failed to fetch routes for line '{line_tfl_id}'.",
             ) from e
 
-    async def get_station_routes(self, station_tfl_id: str) -> StationRoutesResponse | None:
+    async def get_station_routes(self, station_tfl_id: str) -> StationRoutesResponse:
         """
         Get all routes passing through a specific station.
 
@@ -2998,7 +3010,6 @@ class TfLService:
 
         Returns:
             Station routes data (station_tfl_id, station_name, and list of routes)
-            or None if not found
 
         Raises:
             HTTPException: 404 if station not found, 503 if routes haven't been built yet

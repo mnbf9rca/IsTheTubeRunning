@@ -1,6 +1,8 @@
-"""TfL API endpoints for transport data."""
+"""API endpoints for Transport for London transport data.
 
-from typing import Any
+These endpoints expose TfL data to our frontend, fetching from Transport for London's
+official API via the pydantic-tfl-api library and our internal TfL service layer.
+"""
 
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -9,14 +11,17 @@ from app.core.auth import get_current_user
 from app.core.database import get_db
 from app.models.user import User
 from app.schemas.tfl import (
+    DisruptionCategoryResponse,
     DisruptionResponse,
     LineResponse,
-    LineRouteResponse,
+    LineRoutesResponse,
     RouteValidationRequest,
     RouteValidationResponse,
+    SeverityCodeResponse,
     StationDisruptionResponse,
     StationResponse,
-    StationRouteResponse,
+    StationRoutesResponse,
+    StopTypeResponse,
 )
 from app.services.tfl_service import TfLService
 from app.types.tfl_api import NetworkConnection
@@ -250,11 +255,11 @@ async def get_station_disruptions(
     return await tfl_service.fetch_station_disruptions()
 
 
-@router.get("/metadata/severity-codes", response_model=list[dict[str, Any]])
+@router.get("/metadata/severity-codes", response_model=list[SeverityCodeResponse])
 async def get_severity_codes(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
-) -> list[dict[str, Any]]:
+) -> list[SeverityCodeResponse]:
     """
     Get TfL severity code reference data.
 
@@ -271,7 +276,8 @@ async def get_severity_codes(
         [
             {
                 "severity_level": 10,
-                "description": "Good Service"
+                "description": "Good Service",
+                "last_updated": "2025-01-01T00:00:00"
             },
             ...
         ]
@@ -282,21 +288,14 @@ async def get_severity_codes(
     """
     tfl_service = TfLService(db)
     severity_codes = await tfl_service.fetch_severity_codes()
-    return [
-        {
-            "severity_level": code.severity_level,
-            "description": code.description,
-            "last_updated": code.last_updated.isoformat(),
-        }
-        for code in severity_codes
-    ]
+    return [SeverityCodeResponse.model_validate(code) for code in severity_codes]
 
 
-@router.get("/metadata/disruption-categories", response_model=list[dict[str, Any]])
+@router.get("/metadata/disruption-categories", response_model=list[DisruptionCategoryResponse])
 async def get_disruption_categories(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
-) -> list[dict[str, Any]]:
+) -> list[DisruptionCategoryResponse]:
     """
     Get TfL disruption category reference data.
 
@@ -313,7 +312,8 @@ async def get_disruption_categories(
         [
             {
                 "category_name": "PlannedWork",
-                "description": "Planned engineering work"
+                "description": "Planned engineering work",
+                "last_updated": "2025-01-01T00:00:00"
             },
             ...
         ]
@@ -324,21 +324,14 @@ async def get_disruption_categories(
     """
     tfl_service = TfLService(db)
     categories = await tfl_service.fetch_disruption_categories()
-    return [
-        {
-            "category_name": cat.category_name,
-            "description": cat.description,
-            "last_updated": cat.last_updated.isoformat(),
-        }
-        for cat in categories
-    ]
+    return [DisruptionCategoryResponse.model_validate(cat) for cat in categories]
 
 
-@router.get("/metadata/stop-types", response_model=list[dict[str, Any]])
+@router.get("/metadata/stop-types", response_model=list[StopTypeResponse])
 async def get_stop_types(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
-) -> list[dict[str, Any]]:
+) -> list[StopTypeResponse]:
     """
     Get TfL stop point type reference data.
 
@@ -356,7 +349,8 @@ async def get_stop_types(
         [
             {
                 "type_name": "NaptanMetroStation",
-                "description": "London Underground station"
+                "description": "London Underground station",
+                "last_updated": "2025-01-01T00:00:00"
             },
             ...
         ]
@@ -367,22 +361,15 @@ async def get_stop_types(
     """
     tfl_service = TfLService(db)
     stop_types = await tfl_service.fetch_stop_types()
-    return [
-        {
-            "type_name": st.type_name,
-            "description": st.description,
-            "last_updated": st.last_updated.isoformat(),
-        }
-        for st in stop_types
-    ]
+    return [StopTypeResponse.model_validate(st) for st in stop_types]
 
 
-@router.get("/lines/{line_id}/routes", response_model=LineRouteResponse)
+@router.get("/lines/{line_id}/routes", response_model=LineRoutesResponse)
 async def get_line_routes(
     line_id: str,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
-) -> LineRouteResponse:
+) -> LineRoutesResponse:
     """
     Get route variants for a specific line.
 
@@ -410,16 +397,15 @@ async def get_line_routes(
         HTTPException: 404 if line not found, 503 if routes not built yet
     """
     tfl_service = TfLService(db)
-    route_data = await tfl_service.get_line_routes(line_id)
-    return LineRouteResponse(**route_data)  # type: ignore[arg-type]
+    return await tfl_service.get_line_routes(line_id)
 
 
-@router.get("/stations/{station_tfl_id}/routes", response_model=StationRouteResponse)
+@router.get("/stations/{station_tfl_id}/routes", response_model=StationRoutesResponse)
 async def get_station_routes(
     station_tfl_id: str,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
-) -> StationRouteResponse:
+) -> StationRoutesResponse:
     """
     Get all routes passing through a specific station.
 
@@ -444,5 +430,4 @@ async def get_station_routes(
         HTTPException: 404 if station not found, 503 if routes not built yet
     """
     tfl_service = TfLService(db)
-    route_data = await tfl_service.get_station_routes(station_tfl_id)
-    return StationRouteResponse(**route_data)  # type: ignore[arg-type]
+    return await tfl_service.get_station_routes(station_tfl_id)

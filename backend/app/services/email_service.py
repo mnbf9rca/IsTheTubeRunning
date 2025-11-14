@@ -33,12 +33,22 @@ class EmailService:
     """Service for sending emails via SMTP."""
 
     def __init__(self) -> None:
-        """Initialize the email service."""
-        self.smtp_host: str = settings.SMTP_HOST  # type: ignore[assignment]
+        """Initialize the email service.
+
+        Note: All required fields are validated by require_config() at module import time.
+        The assert statements narrow types for mypy after validation.
+        """
+        # Type narrowing: require_config() guarantees these are not None
+        assert settings.SMTP_HOST is not None
+        assert settings.SMTP_USER is not None
+        assert settings.SMTP_PASSWORD is not None
+        assert settings.SMTP_FROM_EMAIL is not None
+
+        self.smtp_host: str = settings.SMTP_HOST
         self.smtp_port = settings.SMTP_PORT
-        self.smtp_user: str = settings.SMTP_USER  # type: ignore[assignment]
-        self.smtp_password: str = settings.SMTP_PASSWORD  # type: ignore[assignment]
-        self.from_email: str = settings.SMTP_FROM_EMAIL  # type: ignore[assignment]
+        self.smtp_user: str = settings.SMTP_USER
+        self.smtp_password: str = settings.SMTP_PASSWORD
+        self.from_email: str = settings.SMTP_FROM_EMAIL
 
     async def send_email(
         self,

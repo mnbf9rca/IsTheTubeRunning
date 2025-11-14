@@ -112,7 +112,7 @@ class RouteVariant(BaseModel):
     )
 
 
-class LineRouteResponse(BaseModel):
+class LineRoutesResponse(BaseModel):
     """Response schema for line route variants."""
 
     line_tfl_id: str = Field(..., description="TfL line ID (e.g., 'victoria')")
@@ -132,7 +132,7 @@ class StationRouteInfo(BaseModel):
     direction: str = Field(..., description="Direction")
 
 
-class StationRouteResponse(BaseModel):
+class StationRoutesResponse(BaseModel):
     """Response schema for routes passing through a station."""
 
     station_tfl_id: str = Field(..., description="TfL station ID")
@@ -190,3 +190,33 @@ class BuildGraphResponse(BaseModel):
     stations_count: int = Field(..., description="Number of stations processed")
     connections_count: int = Field(..., description="Number of connections created")
     hubs_count: int = Field(..., description="Number of hub interchange stations")
+
+
+class SeverityCodeResponse(BaseModel):
+    """Response schema for TfL severity code metadata."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    severity_level: int = Field(..., description="Severity level (0-20)")
+    description: str = Field(..., description="Description of severity level")
+    last_updated: datetime = Field(..., description="When this code was last updated")
+
+
+class DisruptionCategoryResponse(BaseModel):
+    """Response schema for TfL disruption category metadata."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    category_name: str = Field(..., description="Category name")
+    description: str = Field(..., description="Category description")
+    last_updated: datetime = Field(..., description="When this category was last updated")
+
+
+class StopTypeResponse(BaseModel):
+    """Response schema for TfL stop type metadata."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    type_name: str = Field(..., description="Stop type identifier")
+    description: str = Field(..., description="Stop type description")
+    last_updated: datetime = Field(..., description="When this type was last updated")
