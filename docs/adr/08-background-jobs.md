@@ -151,7 +151,7 @@ Use inverted index (`route_station_index` table) for station-level matching. Ind
 ### Consequences
 **Easier:**
 - **NO false positives:** Only routes passing through affected stations are alerted
-- **NO false negatives:** All affected routes are found via index lookup
+- **Minimal false negatives:** All affected routes with populated indexes are found via station-level lookup. Routes without index entries (e.g., newly created before index is built) fall back to line-level matching using segments
 - **Branch disambiguation works automatically:** Different branches = different station sets
 - **Scales to 100k+ routes:** Performance independent of total route count
 - **Fast queries:** < 100ms for 1000 routes + 10 disruptions (verified via performance tests)

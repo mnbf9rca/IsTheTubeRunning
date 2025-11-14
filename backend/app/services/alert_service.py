@@ -67,8 +67,7 @@ def extract_line_station_pairs(disruption: DisruptionResponse) -> list[tuple[str
 
     pairs: list[tuple[str, str]] = []
     for affected_route in disruption.affected_routes:
-        for station_naptan in affected_route.affected_stations:
-            pairs.append((disruption.line_id, station_naptan))
+        pairs.extend((disruption.line_id, station_naptan) for station_naptan in affected_route.affected_stations)
 
     return pairs
 
@@ -439,9 +438,7 @@ class AlertService:
             Set of route IDs affected by this disruption
         """
         # Extract (line, station) pairs from disruption
-        line_station_pairs = extract_line_station_pairs(disruption)
-
-        if line_station_pairs:
+        if line_station_pairs := extract_line_station_pairs(disruption):
             # Use inverted index for station-level matching
             logger.debug(
                 "using_index_for_disruption_matching",
@@ -485,7 +482,7 @@ class AlertService:
             select(Route.id)
             .where(
                 Route.segments.any(line_id=line_db_id),
-                Route.active == True,  # noqa: E712
+                Route.active.is_(True),
                 Route.deleted_at.is_(None),
             )
             .distinct()
@@ -520,7 +517,17 @@ class AlertService:
             route_index_pairs = await self._get_route_index_pairs(route.id)
 
             # Extract unique line IDs for fallback matching
-            route_line_ids = {line_tfl_id for line_tfl_id, _ in route_index_pairs}
+            if route_index_pairs:
+                route_line_ids = {line_tfl_id for line_tfl_id, _ in route_index_pairs}
+            else:
+                # Fallback: extract line IDs from segments if index is not populated
+                # This handles newly created routes before index is built
+                line_db_ids = {segment.line_id for segment in route.segments if segment.line_id}
+                if line_db_ids:
+                    result = await self.db.execute(select(Line.tfl_id).where(Line.id.in_(line_db_ids)))
+                    route_line_ids = {row[0] for row in result.all()}
+                else:
+                    route_line_ids = set()
 
             # Create TfL service instance
             tfl_service = TfLService(db=self.db)
@@ -532,11 +539,8 @@ class AlertService:
             route_disruptions: list[DisruptionResponse] = []
 
             for disruption in all_disruptions:
-                # Extract (line, station) pairs from disruption
-                disruption_pairs = extract_line_station_pairs(disruption)
-
                 # Check if disruption affects this route
-                if disruption_pairs:
+                if disruption_pairs := extract_line_station_pairs(disruption):
                     # Station-level matching: check for intersection
                     if disruption_affects_route(disruption_pairs, route_index_pairs):
                         route_disruptions.append(disruption)
