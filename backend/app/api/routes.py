@@ -88,9 +88,8 @@ async def create_route(
     service = RouteService(db)
     route = await service.create_route(current_user.id, request)
 
-    # Refresh to load empty relationships
-    await db.refresh(route, ["segments", "schedules"])
-    return route
+    # Reload with full relationships for response serialization
+    return await service.get_route_by_id(route.id, current_user.id, load_relationships=True)
 
 
 @router.get("/{route_id}", response_model=RouteResponse)
@@ -142,11 +141,10 @@ async def update_route(
         HTTPException: 404 if route not found or doesn't belong to user
     """
     service = RouteService(db)
-    route = await service.update_route(route_id, current_user.id, request)
+    await service.update_route(route_id, current_user.id, request)
 
-    # Refresh to load relationships
-    await db.refresh(route, ["segments", "schedules"])
-    return route
+    # Reload with full relationships for response serialization
+    return await service.get_route_by_id(route_id, current_user.id, load_relationships=True)
 
 
 @router.delete("/{route_id}", status_code=status.HTTP_204_NO_CONTENT)

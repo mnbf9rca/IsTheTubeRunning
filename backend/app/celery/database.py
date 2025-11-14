@@ -7,30 +7,19 @@ FastAPI application to avoid sharing connections across different processes.
 from collections.abc import AsyncGenerator
 
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
-from sqlalchemy.pool import NullPool, QueuePool
+from sqlalchemy.pool import NullPool
 
 from app.core.config import settings
 
-# Create separate async engine for workers
-# Use NullPool in test/debug environments to avoid connection pooling issues
-# Use QueuePool in production for better performance with proper connection management
-if settings.DEBUG:
-    worker_engine = create_async_engine(
-        settings.DATABASE_URL,
-        echo=settings.DATABASE_ECHO,
-        future=True,
-        poolclass=NullPool,
-    )
-else:
-    worker_engine = create_async_engine(
-        settings.DATABASE_URL,
-        echo=settings.DATABASE_ECHO,
-        future=True,
-        poolclass=QueuePool,
-        pool_size=settings.DATABASE_POOL_SIZE,
-        max_overflow=settings.DATABASE_MAX_OVERFLOW,
-        pool_pre_ping=True,  # Verify connection health before using
-    )
+# Create separate async engine for workers (separate from FastAPI app engine)
+# Use NullPool in tests to avoid event loop issues with pytest-asyncio
+# Use default async pool (AsyncAdaptedQueuePool) in production for performance
+worker_engine = create_async_engine(
+    settings.DATABASE_URL,
+    echo=settings.DATABASE_ECHO,
+    future=True,
+    poolclass=NullPool if settings.DEBUG else None,
+)
 
 # Create async session factory for workers
 worker_session_factory = async_sessionmaker(
