@@ -1,7 +1,11 @@
 """Tests for AlertService."""
 
 import json
-from datetime import UTC, datetime, time, timedelta
+import os
+import time
+from collections.abc import Callable
+from datetime import UTC, datetime, timedelta
+from datetime import time as time_class
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock, Mock, patch
 from uuid import uuid4
@@ -15,10 +19,11 @@ from app.models.notification import (
     NotificationStatus,
 )
 from app.models.route import Route, RouteSchedule, RouteSegment
+from app.models.route_index import RouteStationIndex
 from app.models.tfl import Line, Station
 from app.models.user import EmailAddress, PhoneNumber, User
-from app.schemas.tfl import DisruptionResponse
-from app.services.alert_service import AlertService, get_redis_client
+from app.schemas.tfl import AffectedRouteInfo, DisruptionResponse
+from app.services.alert_service import AlertService, extract_line_station_pairs, get_redis_client
 from freezegun import freeze_time
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -121,8 +126,8 @@ async def test_route_with_schedule(
     schedule = RouteSchedule(
         route_id=route.id,
         days_of_week=["MON", "TUE", "WED", "THU", "FRI"],
-        start_time=time(8, 0),
-        end_time=time(10, 0),
+        start_time=time_class(8, 0),
+        end_time=time_class(10, 0),
     )
     db_session.add(schedule)
 
@@ -156,6 +161,46 @@ async def test_route_with_schedule(
 
 
 @pytest.fixture
+async def populate_route_index(db_session: AsyncSession):
+    """
+    Fixture factory to populate RouteStationIndex for a route.
+
+    Returns a callable that takes a route and populates its index entries.
+    This is essential for tests that rely on the inverted index for alert matching.
+    """
+
+    async def _populate(route: Route) -> Route:
+        """Populate index entries for all segments in the route."""
+        # Load segments if not already loaded
+        if not route.segments:
+            result = await db_session.execute(
+                select(Route)
+                .where(Route.id == route.id)
+                .options(
+                    selectinload(Route.segments).selectinload(RouteSegment.line),
+                    selectinload(Route.segments).selectinload(RouteSegment.station),
+                )
+            )
+            route = result.scalar_one()
+
+        # Create index entries for each segment
+        for segment in route.segments:
+            if segment.line and segment.station:
+                index_entry = RouteStationIndex(
+                    route_id=route.id,
+                    line_tfl_id=segment.line.tfl_id,
+                    station_naptan=segment.station.tfl_id,
+                    line_data_version=segment.line.last_updated,
+                )
+                db_session.add(index_entry)
+
+        await db_session.commit()
+        return route
+
+    return _populate
+
+
+@pytest.fixture
 def sample_disruptions() -> list[DisruptionResponse]:
     """Sample disruptions for testing."""
     return [
@@ -183,8 +228,12 @@ async def test_process_all_routes_success(
     alert_service: AlertService,
     test_route_with_schedule: Route,
     sample_disruptions: list[DisruptionResponse],
+    populate_route_index: Callable[[Route], Route],
 ) -> None:
     """Test successful processing of all routes."""
+    # Populate the route index (required for inverted index matching)
+    await populate_route_index(test_route_with_schedule)
+
     # Mock TfL service
     mock_tfl_instance = AsyncMock()
     mock_tfl_instance.fetch_line_disruptions = AsyncMock(return_value=sample_disruptions)
@@ -432,8 +481,8 @@ async def test_get_active_schedule_in_window(
     schedule = await alert_service._get_active_schedule(test_route_with_schedule)
 
     assert schedule is not None
-    assert schedule.start_time == time(8, 0)
-    assert schedule.end_time == time(10, 0)
+    assert schedule.start_time == time_class(8, 0)
+    assert schedule.end_time == time_class(10, 0)
 
 
 @pytest.mark.asyncio
@@ -493,8 +542,8 @@ async def test_get_active_schedule_different_timezone(
     schedule = RouteSchedule(
         route_id=route.id,
         days_of_week=["MON", "TUE", "WED", "THU", "FRI"],
-        start_time=time(8, 0),
-        end_time=time(10, 0),
+        start_time=time_class(8, 0),
+        end_time=time_class(10, 0),
     )
     db_session.add(schedule)
     await db_session.commit()
@@ -545,8 +594,8 @@ async def test_get_active_schedule_multiple_schedules(
     another_schedule = RouteSchedule(
         route_id=test_route_with_schedule.id,
         days_of_week=["MON", "TUE", "WED", "THU", "FRI"],
-        start_time=time(8, 0),
-        end_time=time(12, 0),
+        start_time=time_class(8, 0),
+        end_time=time_class(12, 0),
     )
     db_session.add(another_schedule)
     await db_session.commit()
@@ -569,8 +618,12 @@ async def test_get_route_disruptions_returns_relevant(
     alert_service: AlertService,
     test_route_with_schedule: Route,
     sample_disruptions: list[DisruptionResponse],
+    populate_route_index: Callable[[Route], Route],
 ) -> None:
     """Test that only disruptions for route's lines are returned."""
+    # Populate the route index (required for inverted index matching)
+    await populate_route_index(test_route_with_schedule)
+
     # Mock TfL service
     mock_tfl_instance = AsyncMock()
     # Return disruptions for multiple lines
@@ -603,8 +656,12 @@ async def test_get_route_disruptions_empty(
     mock_tfl_class: MagicMock,
     alert_service: AlertService,
     test_route_with_schedule: Route,
+    populate_route_index: Callable[[Route], Route],
 ) -> None:
     """Test getting disruptions when there are none."""
+    # Populate the route index (required for inverted index matching)
+    await populate_route_index(test_route_with_schedule)
+
     # Mock TfL service with empty disruptions
     mock_tfl_instance = AsyncMock()
     mock_tfl_instance.fetch_line_disruptions = AsyncMock(return_value=[])
@@ -623,8 +680,12 @@ async def test_get_route_disruptions_filters_correctly(
     alert_service: AlertService,
     db_session: AsyncSession,
     test_route_with_schedule: Route,
+    populate_route_index: Callable[[Route], Route],
 ) -> None:
     """Test that disruptions are filtered to route's lines only."""
+    # Populate the route index (required for inverted index matching)
+    await populate_route_index(test_route_with_schedule)
+
     # Create a disruption for a line not in the route
     mock_tfl_instance = AsyncMock()
     mock_tfl_instance.fetch_line_disruptions = AsyncMock(
@@ -870,8 +931,8 @@ async def test_send_alerts_no_preferences(
     schedule = RouteSchedule(
         route_id=route.id,
         days_of_week=["MON", "TUE", "WED", "THU", "FRI"],
-        start_time=time(8, 0),
-        end_time=time(10, 0),
+        start_time=time_class(8, 0),
+        end_time=time_class(10, 0),
     )
     db_session.add(schedule)
     await db_session.commit()
@@ -928,8 +989,8 @@ async def test_send_alerts_unverified_contact(
     schedule = RouteSchedule(
         route_id=route.id,
         days_of_week=["MON", "TUE", "WED", "THU", "FRI"],
-        start_time=time(8, 0),
-        end_time=time(10, 0),
+        start_time=time_class(8, 0),
+        end_time=time_class(10, 0),
     )
     db_session.add(schedule)
 
@@ -1011,8 +1072,8 @@ async def test_send_alerts_for_route_skips_unverified_contact_continue(
     schedule = RouteSchedule(
         route_id=route.id,
         days_of_week=["MON", "TUE", "WED", "THU", "FRI"],
-        start_time=time(8, 0),
-        end_time=time(10, 0),
+        start_time=time_class(8, 0),
+        end_time=time_class(10, 0),
     )
     db_session.add(schedule)
 
@@ -1793,3 +1854,781 @@ async def test_send_alerts_for_route_handles_get_verified_contact_exception(
 
     # Notification service was not called
     mock_notif_instance.send_disruption_email.assert_not_called()
+
+
+# ==================== Phase 3: Inverted Index Matching Tests ====================
+
+
+class TestExtractLineStationPairs:
+    """Tests for extract_line_station_pairs pure function."""
+
+    def test_extract_pairs_with_single_affected_route(self) -> None:
+        """Test extracting pairs from disruption with single affected route."""
+
+        disruption = DisruptionResponse(
+            line_id="piccadilly",
+            line_name="Piccadilly",
+            status_severity=10,
+            status_severity_description="Minor Delays",
+            reason="Signal failure",
+            created_at=datetime.now(UTC),
+            affected_routes=[
+                AffectedRouteInfo(
+                    name="Cockfosters → Heathrow T5",
+                    direction="outbound",
+                    affected_stations=["940GZZLURSQ", "940GZZLUHBN", "940GZZLUCGN"],
+                ),
+            ],
+        )
+
+        pairs = extract_line_station_pairs(disruption)
+
+        assert len(pairs) == 3
+        assert ("piccadilly", "940GZZLURSQ") in pairs
+        assert ("piccadilly", "940GZZLUHBN") in pairs
+        assert ("piccadilly", "940GZZLUCGN") in pairs
+
+    def test_extract_pairs_with_multiple_affected_routes(self) -> None:
+        """Test extracting pairs from disruption with multiple affected routes (both directions)."""
+
+        disruption = DisruptionResponse(
+            line_id="northern",
+            line_name="Northern",
+            status_severity=15,
+            status_severity_description="Severe Delays",
+            reason="Customer incident",
+            created_at=datetime.now(UTC),
+            affected_routes=[
+                AffectedRouteInfo(
+                    name="Morden → Edgware",
+                    direction="northbound",
+                    affected_stations=["940GZZLUBKE", "940GZZLUTCR"],
+                ),
+                AffectedRouteInfo(
+                    name="Edgware → Morden",
+                    direction="southbound",
+                    affected_stations=["940GZZLUTCR", "940GZZLUBKE"],  # Same stations, different order
+                ),
+            ],
+        )
+
+        pairs = extract_line_station_pairs(disruption)
+
+        # Should get all unique combinations (line_id, station) - duplicates are fine, will be deduplicated by set
+        assert len(pairs) == 4
+        assert pairs.count(("northern", "940GZZLUBKE")) == 2  # Appears in both directions
+        assert pairs.count(("northern", "940GZZLUTCR")) == 2  # Appears in both directions
+
+    def test_extract_pairs_with_no_affected_routes(self) -> None:
+        """Test extracting pairs when disruption has no affected_routes data."""
+
+        disruption = DisruptionResponse(
+            line_id="victoria",
+            line_name="Victoria",
+            status_severity=10,
+            status_severity_description="Minor Delays",
+            reason="Earlier signal failure",
+            created_at=datetime.now(UTC),
+            affected_routes=None,  # No detailed station data
+        )
+
+        pairs = extract_line_station_pairs(disruption)
+
+        assert pairs == []
+
+    def test_extract_pairs_with_empty_affected_routes(self) -> None:
+        """Test extracting pairs when affected_routes is empty list."""
+
+        disruption = DisruptionResponse(
+            line_id="district",
+            line_name="District",
+            status_severity=10,
+            status_severity_description="Good Service",
+            created_at=datetime.now(UTC),
+            affected_routes=[],  # Empty list
+        )
+
+        pairs = extract_line_station_pairs(disruption)
+
+        assert pairs == []
+
+    def test_extract_pairs_with_empty_station_list(self) -> None:
+        """Test extracting pairs when affected route has no stations."""
+
+        disruption = DisruptionResponse(
+            line_id="central",
+            line_name="Central",
+            status_severity=10,
+            status_severity_description="Minor Delays",
+            created_at=datetime.now(UTC),
+            affected_routes=[
+                AffectedRouteInfo(
+                    name="West Ruislip → Epping",
+                    direction="eastbound",
+                    affected_stations=[],  # No stations
+                ),
+            ],
+        )
+
+        pairs = extract_line_station_pairs(disruption)
+
+        assert pairs == []
+
+
+@pytest.mark.asyncio
+class TestQueryRoutesByIndex:
+    """Tests for _query_routes_by_index method."""
+
+    async def test_query_single_line_station_pair(
+        self,
+        alert_service: AlertService,
+        db_session: AsyncSession,
+        test_user: User,
+    ) -> None:
+        """Test querying index with single (line, station) pair."""
+
+        # Create test route
+        route = Route(
+            user_id=test_user.id,
+            name="Test Route",
+            active=True,
+            timezone="Europe/London",
+        )
+        db_session.add(route)
+        await db_session.flush()
+
+        # Create index entries
+        index1 = RouteStationIndex(
+            route_id=route.id,
+            line_tfl_id="piccadilly",
+            station_naptan="940GZZLUKSX",
+            line_data_version=datetime.now(UTC),
+        )
+        db_session.add(index1)
+        await db_session.commit()
+
+        # Query the index
+        pairs = [("piccadilly", "940GZZLUKSX")]
+        result = await alert_service._query_routes_by_index(pairs)
+
+        assert len(result) == 1
+        assert route.id in result
+
+    async def test_query_multiple_pairs_same_route(
+        self,
+        alert_service: AlertService,
+        db_session: AsyncSession,
+        test_user: User,
+    ) -> None:
+        """Test querying multiple stations on same route - should deduplicate to single route ID."""
+
+        # Create test route
+        route = Route(
+            user_id=test_user.id,
+            name="King's Cross to Leicester Square",
+            active=True,
+            timezone="Europe/London",
+        )
+        db_session.add(route)
+        await db_session.flush()
+
+        # Create index entries for multiple stations on same route
+        for station in ["940GZZLUKSX", "940GZZLURSQ", "940GZZLUHBN"]:
+            index_entry = RouteStationIndex(
+                route_id=route.id,
+                line_tfl_id="piccadilly",
+                station_naptan=station,
+                line_data_version=datetime.now(UTC),
+            )
+            db_session.add(index_entry)
+        await db_session.commit()
+
+        # Query with all three stations
+        pairs = [
+            ("piccadilly", "940GZZLUKSX"),
+            ("piccadilly", "940GZZLURSQ"),
+            ("piccadilly", "940GZZLUHBN"),
+        ]
+        result = await alert_service._query_routes_by_index(pairs)
+
+        # Should return single route ID (deduplicated by set)
+        assert len(result) == 1
+        assert route.id in result
+
+    async def test_query_multiple_routes(
+        self,
+        alert_service: AlertService,
+        db_session: AsyncSession,
+        test_user: User,
+    ) -> None:
+        """Test querying index that returns multiple different routes."""
+
+        # Create two routes passing through King's Cross
+        route1 = Route(
+            user_id=test_user.id,
+            name="Route 1",
+            active=True,
+            timezone="Europe/London",
+        )
+        route2 = Route(
+            user_id=test_user.id,
+            name="Route 2",
+            active=True,
+            timezone="Europe/London",
+        )
+        db_session.add_all([route1, route2])
+        await db_session.flush()
+
+        # Both routes pass through King's Cross on Piccadilly
+        for route in [route1, route2]:
+            index_entry = RouteStationIndex(
+                route_id=route.id,
+                line_tfl_id="piccadilly",
+                station_naptan="940GZZLUKSX",
+                line_data_version=datetime.now(UTC),
+            )
+            db_session.add(index_entry)
+        await db_session.commit()
+
+        # Query the index
+        pairs = [("piccadilly", "940GZZLUKSX")]
+        result = await alert_service._query_routes_by_index(pairs)
+
+        assert len(result) == 2
+        assert route1.id in result
+        assert route2.id in result
+
+    async def test_query_empty_pairs_list(
+        self,
+        alert_service: AlertService,
+    ) -> None:
+        """Test querying with empty pairs list returns empty set."""
+        result = await alert_service._query_routes_by_index([])
+        assert result == set()
+
+    async def test_query_no_matching_routes(
+        self,
+        alert_service: AlertService,
+    ) -> None:
+        """Test querying for non-existent (line, station) pair returns empty set."""
+        pairs = [("imaginary-line", "940GZZLUIMAGINARY")]
+        result = await alert_service._query_routes_by_index(pairs)
+        assert result == set()
+
+
+@pytest.mark.asyncio
+class TestGetAffectedRoutesForDisruption:
+    """Tests for _get_affected_routes_for_disruption method."""
+
+    async def test_index_based_matching_with_affected_routes(
+        self,
+        alert_service: AlertService,
+        db_session: AsyncSession,
+        test_user: User,
+        test_line: Line,
+    ) -> None:
+        """Test that method uses inverted index when affected_routes data exists."""
+
+        # Create route with index
+        route = Route(
+            user_id=test_user.id,
+            name="Test Route",
+            active=True,
+            timezone="Europe/London",
+        )
+        db_session.add(route)
+        await db_session.flush()
+
+        # Create index entry
+        index_entry = RouteStationIndex(
+            route_id=route.id,
+            line_tfl_id="victoria",
+            station_naptan="940GZZLUKSX",
+            line_data_version=datetime.now(UTC),
+        )
+        db_session.add(index_entry)
+        await db_session.commit()
+
+        # Create disruption with affected_routes data
+        disruption = DisruptionResponse(
+            line_id="victoria",
+            line_name="Victoria",
+            status_severity=10,
+            status_severity_description="Minor Delays",
+            reason="Signal failure",
+            created_at=datetime.now(UTC),
+            affected_routes=[
+                AffectedRouteInfo(
+                    name="Brixton → Walthamstow Central",
+                    direction="northbound",
+                    affected_stations=["940GZZLUKSX"],  # King's Cross
+                ),
+            ],
+        )
+
+        result = await alert_service._get_affected_routes_for_disruption(disruption)
+
+        assert len(result) == 1
+        assert route.id in result
+
+    async def test_fallback_to_line_level_when_no_affected_routes(
+        self,
+        alert_service: AlertService,
+        db_session: AsyncSession,
+        test_user: User,
+        test_line: Line,
+        test_station: Station,
+    ) -> None:
+        """Test fallback to line-level matching when affected_routes is None."""
+        # Create route with segment on Victoria line
+        route = Route(
+            user_id=test_user.id,
+            name="Test Route",
+            active=True,
+            timezone="Europe/London",
+        )
+        db_session.add(route)
+        await db_session.flush()
+
+        segment = RouteSegment(
+            route_id=route.id,
+            sequence=1,
+            station_id=test_station.id,
+            line_id=test_line.id,
+        )
+        db_session.add(segment)
+        await db_session.commit()
+
+        # Create disruption WITHOUT affected_routes data
+        disruption = DisruptionResponse(
+            line_id="victoria",
+            line_name="Victoria",
+            status_severity=10,
+            status_severity_description="Minor Delays",
+            reason="Earlier signal failure",
+            created_at=datetime.now(UTC),
+            affected_routes=None,  # No station-level data
+        )
+
+        result = await alert_service._get_affected_routes_for_disruption(disruption)
+
+        # Should find route via line-level fallback
+        assert len(result) == 1
+        assert route.id in result
+
+    async def test_fallback_returns_empty_when_line_not_found(
+        self,
+        alert_service: AlertService,
+    ) -> None:
+        """Test fallback returns empty set when line doesn't exist in database."""
+        disruption = DisruptionResponse(
+            line_id="imaginary-line",
+            line_name="Imaginary Line",
+            status_severity=10,
+            status_severity_description="Minor Delays",
+            created_at=datetime.now(UTC),
+            affected_routes=None,
+        )
+
+        result = await alert_service._get_affected_routes_for_disruption(disruption)
+        assert result == set()
+
+    async def test_fallback_only_returns_active_routes(
+        self,
+        alert_service: AlertService,
+        db_session: AsyncSession,
+        test_user: User,
+        test_line: Line,
+        test_station: Station,
+    ) -> None:
+        """Test fallback only returns active, non-deleted routes."""
+        # Create active route
+        active_route = Route(
+            user_id=test_user.id,
+            name="Active Route",
+            active=True,
+            timezone="Europe/London",
+        )
+        db_session.add(active_route)
+        await db_session.flush()
+
+        segment1 = RouteSegment(
+            route_id=active_route.id,
+            sequence=1,
+            station_id=test_station.id,
+            line_id=test_line.id,
+        )
+        db_session.add(segment1)
+
+        # Create inactive route
+        inactive_route = Route(
+            user_id=test_user.id,
+            name="Inactive Route",
+            active=False,  # Inactive
+            timezone="Europe/London",
+        )
+        db_session.add(inactive_route)
+        await db_session.flush()
+
+        segment2 = RouteSegment(
+            route_id=inactive_route.id,
+            sequence=1,
+            station_id=test_station.id,
+            line_id=test_line.id,
+        )
+        db_session.add(segment2)
+
+        # Create deleted route
+        deleted_route = Route(
+            user_id=test_user.id,
+            name="Deleted Route",
+            active=True,
+            timezone="Europe/London",
+            deleted_at=datetime.now(UTC),  # Soft deleted
+        )
+        db_session.add(deleted_route)
+        await db_session.flush()
+
+        segment3 = RouteSegment(
+            route_id=deleted_route.id,
+            sequence=1,
+            station_id=test_station.id,
+            line_id=test_line.id,
+        )
+        db_session.add(segment3)
+
+        await db_session.commit()
+
+        # Create disruption without station data (triggers fallback)
+        disruption = DisruptionResponse(
+            line_id="victoria",
+            line_name="Victoria",
+            status_severity=10,
+            status_severity_description="Minor Delays",
+            created_at=datetime.now(UTC),
+            affected_routes=None,
+        )
+
+        result = await alert_service._get_affected_routes_for_disruption(disruption)
+
+        # Should only return active route
+        assert len(result) == 1
+        assert active_route.id in result
+        assert inactive_route.id not in result
+        assert deleted_route.id not in result
+
+
+@pytest.mark.asyncio
+class TestBranchDisambiguation:
+    """Integration tests verifying branch disambiguation works correctly."""
+
+    async def test_piccadilly_branch_disambiguation(
+        self,
+        alert_service: AlertService,
+        db_session: AsyncSession,
+        test_user: User,
+    ) -> None:
+        """
+        Test the example from Issue #129: Piccadilly line disruption should only alert affected branch.
+
+        Scenario:
+        - Disruption: Russell Square to Holborn (central London section)
+        - Route A: King's Cross → Leicester Square (passes through affected stations) → SHOULD alert
+        - Route B: Earl's Court → Heathrow (western branch, not affected) → should NOT alert
+        """
+
+        # Create Piccadilly line
+        piccadilly = Line(
+            tfl_id="piccadilly",
+            name="Piccadilly",
+            last_updated=datetime.now(UTC),
+        )
+        db_session.add(piccadilly)
+        await db_session.flush()
+
+        # Create Route A: passes through affected area (King's Cross → Leicester Square)
+        route_a = Route(
+            user_id=test_user.id,
+            name="King's Cross to Leicester Square",
+            active=True,
+            timezone="Europe/London",
+        )
+        db_session.add(route_a)
+        await db_session.flush()
+
+        # Index entries for Route A (passes through Russell Square and Holborn)
+        for station in ["940GZZLUKSX", "940GZZLURSQ", "940GZZLUHBN", "940GZZLUCGN", "940GZZLULSQ"]:
+            index_entry = RouteStationIndex(
+                route_id=route_a.id,
+                line_tfl_id="piccadilly",
+                station_naptan=station,
+                line_data_version=datetime.now(UTC),
+            )
+            db_session.add(index_entry)
+
+        # Create Route B: western branch (Earl's Court → Heathrow)
+        route_b = Route(
+            user_id=test_user.id,
+            name="Earl's Court to Heathrow",
+            active=True,
+            timezone="Europe/London",
+        )
+        db_session.add(route_b)
+        await db_session.flush()
+
+        # Index entries for Route B (western branch, does NOT include Russell Square/Holborn)
+        for station in ["940GZZLUECT", "940GZZLUHOR", "940GZZLUHRC"]:
+            index_entry = RouteStationIndex(
+                route_id=route_b.id,
+                line_tfl_id="piccadilly",
+                station_naptan=station,
+                line_data_version=datetime.now(UTC),
+            )
+            db_session.add(index_entry)
+
+        await db_session.commit()
+
+        # Create disruption affecting Russell Square to Holborn
+        disruption = DisruptionResponse(
+            line_id="piccadilly",
+            line_name="Piccadilly",
+            status_severity=10,
+            status_severity_description="Minor Delays",
+            reason="Signal failure at Russell Square",
+            created_at=datetime.now(UTC),
+            affected_routes=[
+                AffectedRouteInfo(
+                    name="Cockfosters → Heathrow T5",
+                    direction="outbound",
+                    affected_stations=["940GZZLURSQ", "940GZZLUHBN"],  # Russell Square, Holborn
+                ),
+            ],
+        )
+
+        # Get affected routes
+        result = await alert_service._get_affected_routes_for_disruption(disruption)
+
+        # CRITICAL: Only Route A should be affected, NOT Route B
+        assert len(result) == 1
+        assert route_a.id in result
+        assert route_b.id not in result, "Route B (western branch) should NOT be alerted for central London disruption"
+
+    async def test_northern_line_branch_disambiguation(
+        self,
+        alert_service: AlertService,
+        db_session: AsyncSession,
+        test_user: User,
+    ) -> None:
+        """
+        Test Northern line branch disambiguation.
+
+        Scenario:
+        - Disruption: Camden Town to Kentish Town (Edgware branch)
+        - Route A: Kennington → Edgware (via Camden Town) → SHOULD alert
+        - Route B: Kennington → High Barnet (via Bank branch, not via Camden Town) → should NOT alert
+        """
+
+        # Create Northern line
+        northern = Line(
+            tfl_id="northern",
+            name="Northern",
+            last_updated=datetime.now(UTC),
+        )
+        db_session.add(northern)
+        await db_session.flush()
+
+        # Route A: Kennington → Edgware (passes through Camden Town)
+        route_a = Route(
+            user_id=test_user.id,
+            name="Kennington to Edgware",
+            active=True,
+            timezone="Europe/London",
+        )
+        db_session.add(route_a)
+        await db_session.flush()
+
+        # Index for Route A includes Camden Town
+        for station in ["940GZZLUKNG", "940GZZLUETN", "940GZZLUCTW", "940GZZLUKTN"]:
+            index_entry = RouteStationIndex(
+                route_id=route_a.id,
+                line_tfl_id="northern",
+                station_naptan=station,
+                line_data_version=datetime.now(UTC),
+            )
+            db_session.add(index_entry)
+
+        # Route B: Kennington → High Barnet (Bank branch, NOT via Camden Town)
+        route_b = Route(
+            user_id=test_user.id,
+            name="Kennington to High Barnet",
+            active=True,
+            timezone="Europe/London",
+        )
+        db_session.add(route_b)
+        await db_session.flush()
+
+        # Index for Route B does NOT include Camden Town
+        for station in ["940GZZLUKNG", "940GZZLUBKE", "940GZZLUMRG", "940GZZLUHGB"]:
+            index_entry = RouteStationIndex(
+                route_id=route_b.id,
+                line_tfl_id="northern",
+                station_naptan=station,
+                line_data_version=datetime.now(UTC),
+            )
+            db_session.add(index_entry)
+
+        await db_session.commit()
+
+        # Disruption at Camden Town to Kentish Town
+        disruption = DisruptionResponse(
+            line_id="northern",
+            line_name="Northern",
+            status_severity=15,
+            status_severity_description="Severe Delays",
+            reason="Customer incident",
+            created_at=datetime.now(UTC),
+            affected_routes=[
+                AffectedRouteInfo(
+                    name="Morden → Edgware",
+                    direction="northbound",
+                    affected_stations=["940GZZLUCTW", "940GZZLUKTN"],  # Camden Town, Kentish Town
+                ),
+            ],
+        )
+
+        result = await alert_service._get_affected_routes_for_disruption(disruption)
+
+        # Only Route A (Edgware branch) should be affected
+        assert len(result) == 1
+        assert route_a.id in result
+        assert route_b.id not in result, "Route B (Bank branch) should NOT be alerted for Edgware branch disruption"
+
+
+@pytest.mark.asyncio
+class TestPerformance:
+    """Performance tests for inverted index matching."""
+
+    async def test_performance_1000_routes_10_disruptions(
+        self,
+        alert_service: AlertService,
+        db_session: AsyncSession,
+        test_user: User,
+    ) -> None:
+        """Test that 1000 routes + 10 disruptions complete in under 100ms."""
+
+        # Create 1000 routes with index entries
+        routes = []
+        for i in range(1000):
+            route = Route(
+                user_id=test_user.id,
+                name=f"Route {i}",
+                active=True,
+                timezone="Europe/London",
+            )
+            db_session.add(route)
+            routes.append(route)
+
+        await db_session.flush()
+
+        # Add index entries (distribute across different stations)
+        stations = [
+            "940GZZLUKSX",  # King's Cross
+            "940GZZLULSQ",  # Leicester Square
+            "940GZZLUPCC",  # Piccadilly Circus
+            "940GZZLUVIC",  # Victoria
+            "940GZZLUGPS",  # Green Park
+        ]
+
+        for i, route in enumerate(routes):
+            # Each route gets 3 random stations
+            route_stations = [stations[j % len(stations)] for j in range(i, i + 3)]
+            for station in route_stations:
+                index_entry = RouteStationIndex(
+                    route_id=route.id,
+                    line_tfl_id="piccadilly",
+                    station_naptan=station,
+                    line_data_version=datetime.now(UTC),
+                )
+                db_session.add(index_entry)
+
+        await db_session.commit()
+
+        # Create 10 disruptions affecting different stations
+        disruptions = []
+        for i, station in enumerate(stations[:5]):
+            disruption = DisruptionResponse(
+                line_id="piccadilly",
+                line_name="Piccadilly",
+                status_severity=10,
+                status_severity_description="Minor Delays",
+                reason=f"Disruption {i}",
+                created_at=datetime.now(UTC),
+                affected_routes=[
+                    AffectedRouteInfo(
+                        name="Cockfosters → Heathrow T5",
+                        direction="outbound",
+                        affected_stations=[station],
+                    ),
+                ],
+            )
+            disruptions.append(disruption)
+
+        # Measure performance
+        start_time = time.time()
+
+        # Process all disruptions
+        for disruption in disruptions:
+            await alert_service._get_affected_routes_for_disruption(disruption)
+
+        elapsed_ms = (time.time() - start_time) * 1000
+
+        # Should complete in under 500ms (configurable via env var, defaults to 500ms for CI stability)
+        perf_threshold = int(os.getenv("PERF_TEST_THRESHOLD_MS", "500"))
+        assert elapsed_ms < perf_threshold, (
+            f"Performance test failed: took {elapsed_ms:.2f}ms (expected < {perf_threshold}ms)"
+        )
+
+    async def test_performance_index_query_is_fast(
+        self,
+        alert_service: AlertService,
+        db_session: AsyncSession,
+        test_user: User,
+    ) -> None:
+        """Test that index queries are fast even with many entries."""
+
+        # Create 10,000 index entries across 100 routes
+        for route_num in range(100):
+            route = Route(
+                user_id=test_user.id,
+                name=f"Route {route_num}",
+                active=True,
+                timezone="Europe/London",
+            )
+            db_session.add(route)
+            await db_session.flush()
+
+            # Each route has 100 stations
+            for station_num in range(100):
+                index_entry = RouteStationIndex(
+                    route_id=route.id,
+                    line_tfl_id="test-line",
+                    station_naptan=f"STATION{station_num:04d}",
+                    line_data_version=datetime.now(UTC),
+                )
+                db_session.add(index_entry)
+
+        await db_session.commit()
+
+        # Query for 10 different stations
+        pairs = [("test-line", f"STATION{i:04d}") for i in range(0, 100, 10)]
+
+        start_time = time.time()
+        result = await alert_service._query_routes_by_index(pairs)
+        elapsed_ms = (time.time() - start_time) * 1000
+
+        # Should return routes quickly (configurable via env var, defaults to 100ms for CI stability)
+        index_perf_threshold = int(os.getenv("INDEX_PERF_TEST_THRESHOLD_MS", "100"))
+        assert len(result) > 0
+        assert elapsed_ms < index_perf_threshold, (
+            f"Index query took {elapsed_ms:.2f}ms (expected < {index_perf_threshold}ms)"
+        )
