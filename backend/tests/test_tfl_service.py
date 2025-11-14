@@ -1725,28 +1725,6 @@ async def test_fetch_stations_skip_validation_calls_api(
 # ==================== Pure Helper Function Tests ====================
 
 
-def test_parse_tfl_timestamp_valid() -> None:
-    """Test parsing valid TfL timestamp."""
-    timestamp_str = "2025-01-01T12:00:00Z"
-    result = TfLService._parse_tfl_timestamp(timestamp_str)
-
-    assert result == datetime(2025, 1, 1, 12, 0, 0, tzinfo=UTC)
-
-
-@pytest.mark.parametrize(
-    ("timestamp_str", "test_id"),
-    [
-        (None, "none"),
-        ("invalid-timestamp", "invalid_format"),
-        ("", "empty_string"),
-    ],
-)
-def test_parse_tfl_timestamp_invalid(timestamp_str: str | None, test_id: str) -> None:
-    """Test parsing invalid/missing timestamps returns None."""
-    result = TfLService._parse_tfl_timestamp(timestamp_str)
-    assert result is None
-
-
 def test_extract_naptan_id_from_stop_point_valid() -> None:
     """Test extracting NaPTAN ID from valid StopPoint."""
     stop_point = TflStopPoint(
@@ -3412,62 +3390,6 @@ async def test_create_station_disruption_missing_fields(db_session: AsyncSession
     assert isinstance(result.tfl_id, str)  # Hash-based ID
     assert len(result.tfl_id) == 16  # 16-char hash
     assert isinstance(result.created_at_source, datetime)  # Generated from current time
-
-
-@pytest.mark.skip(reason="Station disruption processing disabled - see issue #139")
-async def test_fetch_station_disruptions_uses_helpers(
-    db_session: AsyncSession,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """Test that fetch_station_disruptions uses the helper methods."""
-    # Create line and station
-    line = Line(tfl_id="victoria", name="Victoria", last_updated=datetime.now(UTC))
-    station = Station(
-        tfl_id="940GZZLUVIC",
-        name="Victoria",
-        latitude=51.5,
-        longitude=-0.1,
-        lines=["victoria"],
-        last_updated=datetime.now(UTC),
-    )
-    db_session.add_all([line, station])
-    await db_session.commit()
-
-    # Create mock disruption data (mimics TfL API structure)
-    class MockStopData:
-        """Mock TfL API stop data."""
-
-        def __init__(self) -> None:
-            self.id = "940GZZLUVIC"
-
-    class MockStationDisruptionData:
-        """Mock TfL API station disruption data."""
-
-        def __init__(self) -> None:
-            self.category = "PlannedWork"
-            self.description = "Station improvements"
-            self.categoryDescription = "Minor"
-            self.id = "disruption-123"
-            self.created = datetime(2025, 1, 1, 10, 0, 0, tzinfo=UTC)
-            self.affectedStops = [MockStopData()]
-
-    # Mock API response
-    mock_response = MagicMock()
-    mock_response.content.root = [MockStationDisruptionData()]
-
-    # Mock asyncio.get_running_loop
-    mock_loop = AsyncMock()
-    mock_loop.run_in_executor = AsyncMock(return_value=mock_response)
-    monkeypatch.setattr("asyncio.get_running_loop", lambda: mock_loop)
-
-    # Test fetch
-    tfl_service = TfLService(db_session)
-    results = await tfl_service.fetch_station_disruptions(modes=["tube"], use_cache=False)
-
-    # Verify helpers were used (result should contain the disruption)
-    assert len(results) == 1
-    assert results[0].station_tfl_id == "940GZZLUVIC"
-    assert results[0].disruption_category == "PlannedWork"
 
 
 # ==================== build_station_graph Tests ====================
@@ -5367,7 +5289,7 @@ async def test_fetch_station_disruptions_stop_without_id(
     tfl_service: TfLService,
     db_session: AsyncSession,
 ) -> None:
-    """Test fetch_station_disruptions handles stops without ID fields (covers lines 760-761)."""
+    """Test fetch_station_disruptions handles DisruptedPoint without station ATCO code."""
     with freeze_time("2025-01-01 12:00:00"):
         # Create valid station to ensure we can test the missing ID path
         station = Station(
@@ -5381,21 +5303,19 @@ async def test_fetch_station_disruptions_stop_without_id(
         db_session.add(station)
         await db_session.commit()
 
-        # Create mock stop without id or stationId
-        class MockStopNoId:
-            pass  # No id or stationId
+        # Create DisruptedPoint without stationAtcoCode or atcoCode
+        # This should be skipped by _process_station_disruption_data
+        disrupted_point = DisruptedPoint(
+            commonName="Unknown Station",
+            mode="tube",
+            description="Lift issue",
+            type="Information",
+            appearance="RealTime",
+            fromDate="2025-01-01T12:00:00Z",
+            # No stationAtcoCode or atcoCode - should be skipped
+        )
 
-        # Mock disruption with stop missing ID
-        class MockDisruptionNoId:
-            def __init__(self) -> None:
-                self.category = "RealTime"
-                self.categoryDescription = "Lift Closure"
-                self.description = "Lift issue"
-                self.id = "disruption-1"
-                self.created = datetime.now(UTC)
-                self.affectedStops = [MockStopNoId()]
-
-        mock_disruptions = [MockDisruptionNoId()]
+        mock_disruptions = [disrupted_point]
         mock_response = MockResponse(
             data=mock_disruptions,
             shared_expires=datetime(2025, 1, 1, 12, 2, 0, tzinfo=UTC),
@@ -5408,7 +5328,7 @@ async def test_fetch_station_disruptions_stop_without_id(
         # Execute
         disruptions = await tfl_service.fetch_station_disruptions(use_cache=False)
 
-        # Should skip disruption with missing stop ID (warning logged)
+        # Should skip disruption without station ATCO code (warning logged)
         assert len(disruptions) == 0
 
 
