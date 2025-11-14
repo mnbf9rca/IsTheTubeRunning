@@ -22,6 +22,7 @@ from app.models.user import (
     VerificationCode,
     VerificationType,
 )
+from app.services.admin_service import calculate_avg_routes, calculate_success_rate
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy import select as sql_select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -880,3 +881,71 @@ async def test_engagement_metrics_growth_tracking(
     assert growth["new_users_last_30_days"] >= 3
     # Should have daily signup data
     assert len(growth["daily_signups_last_7_days"]) >= 0
+
+
+# ==================== Unit Tests for Pure Functions ====================
+
+
+def test_calculate_success_rate_normal_values() -> None:
+    """Test success rate calculation with normal values."""
+    # 80% success rate
+    assert calculate_success_rate(80, 100) == 80.0
+    # 50% success rate
+    assert calculate_success_rate(50, 100) == 50.0
+    # 100% success rate
+    assert calculate_success_rate(100, 100) == 100.0
+    # 0% success rate
+    assert calculate_success_rate(0, 100) == 0.0
+
+
+def test_calculate_success_rate_edge_cases() -> None:
+    """Test success rate calculation with edge cases."""
+    # Zero total should return 0.0
+    assert calculate_success_rate(10, 0) == 0.0
+    # Negative total should return 0.0
+    assert calculate_success_rate(10, -5) == 0.0
+    # Single item
+    assert calculate_success_rate(1, 1) == 100.0
+    assert calculate_success_rate(0, 1) == 0.0
+
+
+def test_calculate_success_rate_rounding() -> None:
+    """Test success rate calculation rounds to 2 decimal places."""
+    # 66.666... should round to 66.67
+    assert calculate_success_rate(2, 3) == 66.67
+    # 33.333... should round to 33.33
+    assert calculate_success_rate(1, 3) == 33.33
+    # 14.285714... should round to 14.29
+    assert calculate_success_rate(1, 7) == 14.29
+
+
+def test_calculate_avg_routes_normal_values() -> None:
+    """Test average routes calculation with normal values."""
+    # 2 routes per user on average
+    assert calculate_avg_routes(10, 5) == 2.0
+    # 1 route per user
+    assert calculate_avg_routes(5, 5) == 1.0
+    # 3.5 routes per user
+    assert calculate_avg_routes(7, 2) == 3.5
+
+
+def test_calculate_avg_routes_edge_cases() -> None:
+    """Test average routes calculation with edge cases."""
+    # Zero users should return 0.0
+    assert calculate_avg_routes(10, 0) == 0.0
+    # Negative users should return 0.0
+    assert calculate_avg_routes(10, -5) == 0.0
+    # Zero routes should return 0.0
+    assert calculate_avg_routes(0, 5) == 0.0
+    # Single user single route
+    assert calculate_avg_routes(1, 1) == 1.0
+
+
+def test_calculate_avg_routes_rounding() -> None:
+    """Test average routes calculation rounds to 2 decimal places."""
+    # 3.333... should round to 3.33
+    assert calculate_avg_routes(10, 3) == 3.33
+    # 2.666... should round to 2.67
+    assert calculate_avg_routes(8, 3) == 2.67
+    # 1.428571... should round to 1.43
+    assert calculate_avg_routes(10, 7) == 1.43
