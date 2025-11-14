@@ -254,7 +254,11 @@ class StopType(BaseModel):
 
 
 class StationDisruption(BaseModel):
-    """Station-level disruption information."""
+    """Station-level disruption information.
+
+    Maps to TfL API DisruptedPoint structure.
+    Field names match TfL API for clarity (type, appearance).
+    """
 
     __tablename__ = "station_disruptions"
 
@@ -264,26 +268,35 @@ class StationDisruption(BaseModel):
         nullable=False,
         index=True,
     )
-    disruption_category: Mapped[str | None] = mapped_column(
+    type: Mapped[str | None] = mapped_column(
         String(255),
         nullable=True,
+        comment="Disruption type from TfL API (e.g., 'Information', 'Interchange Message')",
     )
     description: Mapped[str] = mapped_column(
         String(1000),
         nullable=False,
     )
-    severity: Mapped[str | None] = mapped_column(
+    appearance: Mapped[str | None] = mapped_column(
         String(100),
         nullable=True,
+        comment="Disruption appearance/status from TfL API (e.g., 'PlannedWork', 'RealTime')",
     )
     tfl_id: Mapped[str] = mapped_column(
         String(100),
         nullable=False,
         index=True,
+        comment="Hash-based identifier: atcoCode + fromDate + toDate + description",
     )
     created_at_source: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         nullable=False,
+        comment="Start date from TfL API 'fromDate' field",
+    )
+    end_date: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True),
+        nullable=True,
+        comment="End date from TfL API 'toDate' field",
     )
 
     # Relationship
@@ -299,4 +312,7 @@ class StationDisruption(BaseModel):
 
     def __repr__(self) -> str:
         """String representation of the station disruption."""
-        return f"<StationDisruption(id={self.id}, station_id={self.station_id}, severity={self.severity})>"
+        return (
+            f"<StationDisruption(id={self.id}, station_id={self.station_id}, "
+            f"type={self.type}, appearance={self.appearance})>"
+        )
