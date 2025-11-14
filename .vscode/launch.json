@@ -63,6 +63,43 @@
       ],
       "cwd": "${workspaceFolder}/frontend",
       "console": "integratedTerminal"
+    },
+    {
+      "name": "Backend: Celery Worker",
+      "type": "debugpy",
+      "request": "launch",
+      "module": "celery",
+      "args": [
+        "-A",
+        "app.celery.app",
+        "worker",
+        "--loglevel=info",
+        "--pool=solo"
+      ],
+      "cwd": "${workspaceFolder}/backend",
+      "console": "integratedTerminal",
+      "justMyCode": false,
+      "env": {
+        "PYTHONPATH": "${workspaceFolder}/backend"
+      }
+    },
+    {
+      "name": "Backend: Celery Beat",
+      "type": "debugpy",
+      "request": "launch",
+      "module": "celery",
+      "args": [
+        "-A",
+        "app.celery.app",
+        "beat",
+        "--loglevel=info"
+      ],
+      "cwd": "${workspaceFolder}/backend",
+      "console": "integratedTerminal",
+      "justMyCode": false,
+      "env": {
+        "PYTHONPATH": "${workspaceFolder}/backend"
+      }
     }
   ],
   "compounds": [
@@ -77,6 +114,21 @@
         "hidden": false,
         "group": "development",
         "order": 1
+      }
+    },
+    {
+      "name": "Full Stack + Background Tasks",
+      "configurations": [
+        "Backend: FastAPI",
+        "Backend: Celery Worker",
+        "Backend: Celery Beat",
+        "Frontend: Vite Dev Server"
+      ],
+      "stopAll": true,
+      "presentation": {
+        "hidden": false,
+        "group": "development",
+        "order": 2
       }
     }
   ]
