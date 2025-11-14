@@ -2951,7 +2951,7 @@ class TfLService:
             )
         return False
 
-    async def get_line_routes(self, line_tfl_id: str) -> LineRoutesResponse | None:
+    async def get_line_routes(self, line_tfl_id: str) -> LineRoutesResponse:
         """
         Get route variants for a specific line.
 
@@ -2959,7 +2959,7 @@ class TfLService:
             line_tfl_id: TfL line ID (e.g., "victoria", "elizabeth-line")
 
         Returns:
-            Line routes data (line_tfl_id and list of route variants) or None if not found
+            Line routes data (line_tfl_id and list of route variants)
 
         Raises:
             HTTPException: 404 if line not found, 503 if routes haven't been built yet
@@ -3001,7 +3001,7 @@ class TfLService:
                 detail=f"Failed to fetch routes for line '{line_tfl_id}'.",
             ) from e
 
-    async def get_station_routes(self, station_tfl_id: str) -> StationRoutesResponse | None:
+    async def get_station_routes(self, station_tfl_id: str) -> StationRoutesResponse:
         """
         Get all routes passing through a specific station.
 
@@ -3010,7 +3010,6 @@ class TfLService:
 
         Returns:
             Station routes data (station_tfl_id, station_name, and list of routes)
-            or None if not found
 
         Raises:
             HTTPException: 404 if station not found, 503 if routes haven't been built yet

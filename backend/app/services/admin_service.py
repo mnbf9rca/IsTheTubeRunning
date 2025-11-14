@@ -37,9 +37,7 @@ def calculate_success_rate(successful: int, total: int) -> float:
     Returns:
         Success rate as a percentage (0.0 to 100.0), rounded to 2 decimal places
     """
-    if total <= 0:
-        return 0.0
-    return round((successful / total) * 100, 2)
+    return 0.0 if total <= 0 else round((successful / total) * 100, 2)
 
 
 def calculate_avg_routes(total_routes: int, users_with_routes: int) -> float:
@@ -353,11 +351,8 @@ class AdminService:
             .where(NotificationLog.sent_at >= since)
             .group_by(NotificationLog.method)
         )
-        by_method: dict[str, int] = {}
-        for row in result:
-            # SQLAlchemy row attributes are dynamic - mypy can't infer the type
-            count_value: int = row.count  # type: ignore[assignment]
-            by_method[row.method.value] = count_value
+        # SQLAlchemy row attributes are dynamic - mypy can't infer the type
+        by_method: dict[str, int] = {row.method.value: row.count for row in result}  # type: ignore[misc]
         return by_method
 
     async def _count_new_users_since(self, since: datetime) -> int:

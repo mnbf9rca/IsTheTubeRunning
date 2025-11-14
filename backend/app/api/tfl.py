@@ -4,7 +4,7 @@ These endpoints expose TfL data to our frontend, fetching from Transport for Lon
 official API via the pydantic-tfl-api library and our internal TfL service layer.
 """
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.auth import get_current_user
@@ -397,10 +397,7 @@ async def get_line_routes(
         HTTPException: 404 if line not found, 503 if routes not built yet
     """
     tfl_service = TfLService(db)
-    route_data = await tfl_service.get_line_routes(line_id)
-    if route_data is None:
-        raise HTTPException(status_code=404, detail=f"Line '{line_id}' not found")
-    return route_data
+    return await tfl_service.get_line_routes(line_id)
 
 
 @router.get("/stations/{station_tfl_id}/routes", response_model=StationRoutesResponse)
@@ -433,7 +430,4 @@ async def get_station_routes(
         HTTPException: 404 if station not found, 503 if routes not built yet
     """
     tfl_service = TfLService(db)
-    route_data = await tfl_service.get_station_routes(station_tfl_id)
-    if route_data is None:
-        raise HTTPException(status_code=404, detail=f"Station '{station_tfl_id}' not found")
-    return route_data
+    return await tfl_service.get_station_routes(station_tfl_id)
