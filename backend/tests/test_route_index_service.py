@@ -6,7 +6,7 @@ from datetime import UTC, datetime
 import pytest
 from app.models.route import Route, RouteSegment
 from app.models.route_index import RouteStationIndex
-from app.models.tfl import Line
+from app.models.tfl import Line, Station
 from app.models.user import User
 from app.services.route_index_service import (
     RouteIndexService,
@@ -703,10 +703,272 @@ class TestRouteIndexService:
         # With auto_commit=False, no automatic rollback occurred
         # The exception is re-raised for caller to handle
 
+    # =============================================================================
+    # Rebuild Routes Tests
+    # =============================================================================
 
-# =============================================================================
-# Rebuild Routes Tests
-# =============================================================================
+    @pytest.mark.asyncio
+    async def test_hub_interchange_simple(
+        self,
+        db_session: AsyncSession,
+        test_user: User,
+    ) -> None:
+        """Test route with simple hub interchange - tube to overground at HUB_NORTH."""
+        # Create lines and hub stations
+        parallelline = TestRailwayNetwork.create_parallelline()
+        asymmetricline = TestRailwayNetwork.create_asymmetricline()
+
+        # Hub stations at HUB_NORTH
+        parallel_north = TestRailwayNetwork.create_parallel_north()  # Tube child
+        hubnorth_overground = TestRailwayNetwork.create_hubnorth_overground()  # Overground child
+        asym_regular_1 = TestRailwayNetwork.create_asym_regular_1()
+
+        db_session.add_all(
+            [
+                parallelline,
+                asymmetricline,
+                parallel_north,
+                hubnorth_overground,
+                asym_regular_1,
+            ]
+        )
+        await db_session.flush()
+
+        # Create route: parallel-north (parallelline) → hubnorth-overground (asymmetricline) → asym-regular-1
+        # Segment 0→1: parallel-north → hubnorth-overground on parallelline
+        # Resolution: hubnorth-overground (not on parallelline) should resolve to
+        # parallel-north (in same hub, on parallelline)
+        route = Route(user_id=test_user.id, name="Hub Interchange Route", active=True)
+        db_session.add(route)
+        await db_session.flush()
+
+        segments = [
+            RouteSegment(
+                route_id=route.id,
+                sequence=1,
+                station_id=parallel_north.id,
+                line_id=parallelline.id,
+            ),
+            RouteSegment(
+                route_id=route.id,
+                sequence=2,
+                station_id=hubnorth_overground.id,
+                line_id=asymmetricline.id,
+            ),
+            RouteSegment(
+                route_id=route.id,
+                sequence=3,
+                station_id=asym_regular_1.id,
+                line_id=None,
+            ),
+        ]
+        db_session.add_all(segments)
+        await db_session.commit()
+
+        # Build index
+        service = RouteIndexService(db_session)
+        result = await service.build_route_station_index(route.id)
+
+        # Should succeed - hub resolution allows index building
+        assert result["segments_processed"] == 2
+        assert result["entries_created"] > 0
+
+        # Verify index entries created for parallelline segment
+        parallelline_entries = await db_session.execute(
+            select(RouteStationIndex).where(
+                RouteStationIndex.route_id == route.id,
+                RouteStationIndex.line_tfl_id == TestRailwayNetwork.LINE_PARALLELLINE,
+            )
+        )
+        assert parallelline_entries.scalars().all()  # Should have entries
+
+    @pytest.mark.asyncio
+    async def test_hub_interchange_both_stations_in_hubs(
+        self,
+        db_session: AsyncSession,
+        test_user: User,
+    ) -> None:
+        """Test route where both endpoints of a segment are in hubs."""
+        # Create forkedline and stations
+        forkedline = TestRailwayNetwork.create_forkedline()
+        fork_mid_1 = TestRailwayNetwork.create_fork_mid_1()  # At HUB_CENTRAL
+        parallel_north = TestRailwayNetwork.create_parallel_north()  # At HUB_NORTH
+        fork_south_end = TestRailwayNetwork.create_fork_south_end()
+
+        db_session.add_all([forkedline, fork_mid_1, parallel_north, fork_south_end])
+        await db_session.flush()
+
+        # Create route with a segment where both stations are in hubs
+        # This won't actually connect in our test network, but tests the resolution logic
+        route = Route(user_id=test_user.id, name="Two Hubs Route", active=True)
+        db_session.add(route)
+        await db_session.flush()
+
+        segments = [
+            RouteSegment(
+                route_id=route.id,
+                sequence=1,
+                station_id=fork_mid_1.id,
+                line_id=forkedline.id,
+            ),
+            RouteSegment(
+                route_id=route.id,
+                sequence=2,
+                station_id=fork_south_end.id,
+                line_id=None,
+            ),
+        ]
+        db_session.add_all(segments)
+        await db_session.commit()
+
+        # Build index - both stations should be resolved (fork_mid_1 is already on forkedline)
+        service = RouteIndexService(db_session)
+        result = await service.build_route_station_index(route.id)
+
+        # Should succeed
+        assert result["segments_processed"] == 1
+        assert result["entries_created"] > 0
+
+    @pytest.mark.asyncio
+    async def test_hub_station_same_as_segment_station(
+        self,
+        db_session: AsyncSession,
+        test_user: User,
+    ) -> None:
+        """Test that when hub station IS the segment station, no resolution occurs."""
+        # Create parallelline and stations
+        parallelline = TestRailwayNetwork.create_parallelline()
+        parallel_north = TestRailwayNetwork.create_parallel_north()  # Hub station on parallelline
+        parallel_split = TestRailwayNetwork.create_parallel_split()
+
+        db_session.add_all([parallelline, parallel_north, parallel_split])
+        await db_session.flush()
+
+        # Create route using station that's already on the line (no resolution needed)
+        route = Route(user_id=test_user.id, name="Direct Hub Station", active=True)
+        db_session.add(route)
+        await db_session.flush()
+
+        segments = [
+            RouteSegment(
+                route_id=route.id,
+                sequence=1,
+                station_id=parallel_north.id,
+                line_id=parallelline.id,
+            ),
+            RouteSegment(
+                route_id=route.id,
+                sequence=2,
+                station_id=parallel_split.id,
+                line_id=None,
+            ),
+        ]
+        db_session.add_all(segments)
+        await db_session.commit()
+
+        # Build index - should use parallel_north directly (it's already on parallelline)
+        service = RouteIndexService(db_session)
+        result = await service.build_route_station_index(route.id)
+
+        # Should succeed without needing hub resolution
+        assert result["segments_processed"] == 1
+        assert result["entries_created"] > 0
+
+    @pytest.mark.asyncio
+    async def test_hub_station_not_on_line_raises_error(
+        self,
+        db_session: AsyncSession,
+        test_user: User,
+    ) -> None:
+        """Test that missing hub station on line raises ValueError."""
+        # Create a station with a hub but no other stations in that hub serve the line
+        parallelline = TestRailwayNetwork.create_parallelline()
+        parallel_split = TestRailwayNetwork.create_parallel_split()
+
+        # Create a fake hub station that claims to be in HUB_NORTH but doesn't actually serve parallelline
+        fake_hub_station = Station(
+            tfl_id="fake-hub-station",
+            name="Fake Hub Station",
+            latitude=51.5,
+            longitude=-0.1,
+            hub_naptan_code=TestRailwayNetwork.HUB_NORTH,
+            hub_common_name="North Interchange",
+            lines=[],  # Empty - doesn't serve any lines!
+            last_updated=datetime.now(UTC),
+        )
+
+        db_session.add_all([parallelline, parallel_split, fake_hub_station])
+        await db_session.flush()
+
+        # Create route using the fake hub station
+        route = Route(user_id=test_user.id, name="Broken Hub Route", active=True)
+        db_session.add(route)
+        await db_session.flush()
+
+        segments = [
+            RouteSegment(
+                route_id=route.id,
+                sequence=1,
+                station_id=fake_hub_station.id,
+                line_id=parallelline.id,
+            ),
+            RouteSegment(
+                route_id=route.id,
+                sequence=2,
+                station_id=parallel_split.id,
+                line_id=None,
+            ),
+        ]
+        db_session.add_all(segments)
+        await db_session.commit()
+
+        # Build index - should raise ValueError
+        service = RouteIndexService(db_session)
+        with pytest.raises(ValueError, match="no station in that hub serves line"):
+            await service.build_route_station_index(route.id)
+
+    @pytest.mark.asyncio
+    async def test_non_hub_station_unchanged(
+        self,
+        db_session: AsyncSession,
+        test_user: User,
+    ) -> None:
+        """Test that non-hub stations are used directly without resolution."""
+        # Create simple route with no hub stations
+        forkedline = TestRailwayNetwork.create_forkedline()
+        fork_junction = TestRailwayNetwork.create_fork_junction()  # Not in a hub
+        fork_mid_2 = TestRailwayNetwork.create_fork_mid_2()  # Not in a hub
+
+        db_session.add_all([forkedline, fork_junction, fork_mid_2])
+        await db_session.flush()
+
+        route = Route(user_id=test_user.id, name="Non-Hub Route", active=True)
+        db_session.add(route)
+        await db_session.flush()
+
+        segments = [
+            RouteSegment(
+                route_id=route.id,
+                sequence=1,
+                station_id=fork_junction.id,
+                line_id=forkedline.id,
+            ),
+            RouteSegment(
+                route_id=route.id,
+                sequence=2,
+                station_id=fork_mid_2.id,
+                line_id=None,
+            ),
+        ]
+        db_session.add_all(segments)
+        await db_session.commit()
+
+        # Build index - should work normally without hub resolution
+        service = RouteIndexService(db_session)
+        result = await service.build_route_station_index(route.id)
+
+        assert result["segments_processed"] == 1
+        assert result["entries_created"] > 0
 
 
 class TestRebuildRoutes:
