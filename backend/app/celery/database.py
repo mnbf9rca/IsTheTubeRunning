@@ -23,21 +23,25 @@ from app.core.config import settings
 # Worker engine - created lazily per task to avoid event loop conflicts
 # When using fork pool, creating the engine at import time causes asyncio.Queue
 # objects inside the connection pool to be bound to the parent's event loop.
-# Additionally, since each task gets a fresh event loop via run_async_task(),
+# Additionally, since each task gets a fresh event loop via run_in_isolated_loop(),
 # the engine must be recreated for each task to bind asyncio primitives to the
 # correct event loop.
-_worker_engine = None
-_worker_session_factory = None
+_worker_engine: AsyncEngine | None = None
+_worker_session_factory: async_sessionmaker[AsyncSession] | None = None
 
 
-def reset_worker_engine() -> None:
+async def reset_worker_engine() -> None:
     """
     Reset worker engine globals to force fresh creation on next access.
 
     This must be called at the start of each task to ensure the engine's
     asyncio primitives are bound to the current task's event loop.
+
+    Disposes the old engine before resetting to avoid connection leaks.
     """
     global _worker_engine, _worker_session_factory  # noqa: PLW0603
+    if _worker_engine is not None:
+        await _worker_engine.dispose()
     _worker_engine = None
     _worker_session_factory = None
 
@@ -65,10 +69,14 @@ def _get_worker_engine() -> AsyncEngine:
     return _worker_engine
 
 
-def worker_session_factory() -> AsyncSession:
-    """Get a worker session factory.
+def get_worker_session() -> AsyncSession:
+    """Get a worker database session.
 
-    Creates the session factory on first access, using the lazily-created engine.
+    Creates the session factory on first access, using the lazily-created engine,
+    then returns a new session instance.
+
+    Returns:
+        AsyncSession: A new database session for the worker task
     """
     global _worker_session_factory  # noqa: PLW0603
     if _worker_session_factory is None:
@@ -105,9 +113,9 @@ def init_worker_db(**kwargs: object) -> None:
     asyncio.set_event_loop_policy(None)
 
 
-async def get_worker_session() -> AsyncGenerator[AsyncSession]:
+async def get_worker_session_context() -> AsyncGenerator[AsyncSession]:
     """
-    Get a database session for worker tasks.
+    Get a database session for worker tasks with context manager support.
 
     This is a helper function for creating sessions in worker tasks.
     Properly handles session lifecycle with automatic cleanup.
@@ -116,12 +124,12 @@ async def get_worker_session() -> AsyncGenerator[AsyncSession]:
         AsyncSession: Database session for worker task
 
     Example:
-        async for session in get_worker_session():
+        async for session in get_worker_session_context():
             # Use session
             result = await session.execute(query)
             await session.commit()
     """
-    async with worker_session_factory() as session:
+    async with get_worker_session() as session:
         try:
             yield session
         finally:

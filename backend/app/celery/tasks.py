@@ -14,7 +14,7 @@ from sqlalchemy import distinct, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.celery.app import celery_app
-from app.celery.database import reset_worker_engine, worker_session_factory
+from app.celery.database import get_worker_session, reset_worker_engine
 from app.models.route_index import RouteStationIndex
 from app.models.tfl import Line
 from app.services.alert_service import AlertService, get_redis_client
@@ -23,7 +23,7 @@ from app.services.route_index_service import RouteIndexService
 logger = structlog.get_logger(__name__)
 
 
-def run_async_task[T](
+def run_in_isolated_loop[T](
     coro_func: Callable[..., Awaitable[T]],
     *args: Any,  # noqa: ANN401 - Pass-through args to async function
     **kwargs: Any,  # noqa: ANN401 - Pass-through kwargs to async function
@@ -158,10 +158,10 @@ def check_disruptions_and_alert(self: BoundTask) -> DisruptionCheckResult:
         Retry: If the task should be retried due to transient failure
     """
     try:
-        # run_async_task() creates a fresh event loop for this task.
+        # run_in_isolated_loop() creates a fresh event loop for this task.
         # This is necessary for Celery workers using fork pool to avoid
         # event loop state contamination between task executions.
-        result = run_async_task(_check_disruptions_async)
+        result = run_in_isolated_loop(_check_disruptions_async)
         logger.info(
             "check_disruptions_task_completed",
             result=result,
@@ -191,13 +191,13 @@ async def _check_disruptions_async() -> DisruptionCheckResult:
         DisruptionCheckResult: Execution statistics including routes_checked, alerts_sent, and errors
     """
     # Reset engine to bind asyncio primitives to this task's event loop
-    reset_worker_engine()
+    await reset_worker_engine()
 
     session = None
     redis_client = None
     try:
         # Create database session and Redis client for this task
-        session = worker_session_factory()
+        session = get_worker_session()
         redis_client = await get_redis_client()
 
         # Create AlertService instance and process all routes
@@ -246,10 +246,10 @@ def rebuild_route_indexes_task(
         Retry: If the task should be retried due to transient failure
     """
     try:
-        # run_async_task() creates a fresh event loop and calls the async function.
+        # run_in_isolated_loop() creates a fresh event loop and calls the async function.
         # This is necessary for Celery workers using fork pool to avoid
         # event loop state contamination between task executions.
-        result = run_async_task(_rebuild_indexes_async, route_id)
+        result = run_in_isolated_loop(_rebuild_indexes_async, route_id)
         logger.info(
             "rebuild_indexes_task_completed",
             route_id=route_id,
@@ -280,12 +280,12 @@ async def _rebuild_indexes_async(route_id_str: str | None = None) -> RebuildInde
         RebuildIndexesResult: Execution statistics including rebuilt_count, failed_count, and errors
     """
     # Reset engine to bind asyncio primitives to this task's event loop
-    reset_worker_engine()
+    await reset_worker_engine()
 
     session = None
     try:
         # Create database session for this task
-        session = worker_session_factory()
+        session = get_worker_session()
         index_service = RouteIndexService(session)
 
         # Parse route_id if provided
@@ -377,10 +377,10 @@ def detect_and_rebuild_stale_routes(self: BoundTask) -> DetectStaleRoutesResult:
         Retry: If the task should be retried due to transient failure
     """
     try:
-        # run_async_task() creates a fresh event loop for this task.
+        # run_in_isolated_loop() creates a fresh event loop for this task.
         # This is necessary for Celery workers using fork pool to avoid
         # event loop state contamination between task executions.
-        result = run_async_task(_detect_stale_routes_async)
+        result = run_in_isolated_loop(_detect_stale_routes_async)
         logger.info(
             "detect_stale_routes_task_completed",
             result=result,
@@ -414,7 +414,7 @@ async def _detect_stale_routes_async() -> DetectStaleRoutesResult:
             - errors: List of any errors encountered
     """
     # Reset engine to bind asyncio primitives to this task's event loop
-    reset_worker_engine()
+    await reset_worker_engine()
 
     session = None
     errors: list[str] = []
@@ -422,7 +422,7 @@ async def _detect_stale_routes_async() -> DetectStaleRoutesResult:
 
     try:
         # Create database session for this task
-        session = worker_session_factory()
+        session = get_worker_session()
 
         # Use pure helper function to find stale routes
         logger.info("detect_stale_routes_started")
