@@ -12,7 +12,6 @@ import structlog
 from aiocache import Cache
 from aiocache.serializers import PickleSerializer
 from fastapi import HTTPException, status
-from pydantic import RootModel
 from pydantic_tfl_api import LineClient, StopPointClient
 from pydantic_tfl_api.core import ApiError, ResponseModel
 from pydantic_tfl_api.models import (
@@ -23,7 +22,6 @@ from pydantic_tfl_api.models import (
     RouteSection,
     RouteSectionNaptanEntrySequence,
     RouteSequence,
-    StatusSeverity,
     StopPoint,
 )
 from pydantic_tfl_api.models import (
@@ -77,15 +75,6 @@ from app.types.tfl_api import (
 )
 
 logger = structlog.get_logger(__name__)
-
-# Type aliases for common TfL API response patterns
-# These improve type safety by replacing ResponseModel[Any] with specific types
-StrArrayResponse = ResponseModel[RootModel[list[str]]]
-LineArrayResponse = ResponseModel[RootModel[list[TflLine]]]
-StopPointArrayResponse = ResponseModel[RootModel[list[StopPoint]]]
-DisruptionArrayResponse = ResponseModel[RootModel[list[Disruption]]]
-SeverityArrayResponse = ResponseModel[RootModel[list[StatusSeverity]]]
-RouteSequenceResponse = ResponseModel[RouteSequence]
 
 # Default cache TTL values (in seconds) - used if TfL API doesn't provide cache headers
 DEFAULT_LINES_CACHE_TTL = 86400  # 24 hours
