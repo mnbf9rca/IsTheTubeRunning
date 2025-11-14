@@ -1,7 +1,12 @@
 """Celery application instance and configuration."""
 
 from app.core.config import require_config, settings
+from app.core.logging import configure_logging
 from celery import Celery
+
+# Configure logging for Celery workers
+# This ensures structlog integrates properly with Celery's logging system
+configure_logging(log_level="INFO")
 
 # Validate required Celery configuration
 require_config("CELERY_BROKER_URL", "CELERY_RESULT_BACKEND")
@@ -27,4 +32,11 @@ celery_app.conf.update(
     # Task time limits (5 min hard, 4 min soft)
     task_time_limit=300,  # 5 minutes hard limit
     task_soft_time_limit=240,  # 4 minutes soft limit (raises SoftTimeLimitExceeded)
+    # Logging
+    # Don't hijack root logger - let structlog handle it
+    worker_hijack_root_logger=False,
 )
+
+# Import tasks to register them with Celery
+# This must come after celery_app is created so tasks can use the @celery_app.task decorator
+from app.celery import tasks  # noqa: E402, F401
