@@ -1,4 +1,14 @@
-"""TfL API service for fetching and caching transport data."""
+"""TfL Service for fetching and caching Transport for London data.
+
+This module provides our internal service layer for interacting with Transport for London's
+official API. We use the pydantic-tfl-api library (3rd party) to communicate with the real
+TfL API, and this service wraps that library with caching, error handling, and database storage.
+
+Terminology:
+- "TfL Service" or "TfL Integration" = This module (our internal code)
+- "TfL API" = Transport for London's official REST API
+- "pydantic-tfl-api" = The 3rd party client library we use (authoritative for API schemas)
+"""
 
 import asyncio
 import contextlib
@@ -198,7 +208,11 @@ def _extract_station_atco_code(disrupted_point: DisruptedPoint) -> str | None:
 
 
 class TfLService:
-    """Service for interacting with TfL API and managing transport data."""
+    """Service for interacting with Transport for London's API and managing transport data.
+
+    This service uses the pydantic-tfl-api library to fetch data from the real TfL API,
+    then caches responses in Redis and stores reference data in PostgreSQL.
+    """
 
     def __init__(self, db: AsyncSession) -> None:
         """

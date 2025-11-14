@@ -1,4 +1,8 @@
-"""TfL API endpoints for transport data."""
+"""API endpoints for Transport for London transport data.
+
+These endpoints expose TfL data to our frontend, fetching from Transport for London's
+official API via the pydantic-tfl-api library and our internal TfL service layer.
+"""
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.ext.asyncio import AsyncSession
