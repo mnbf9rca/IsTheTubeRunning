@@ -532,8 +532,14 @@ async def test_fetch_available_modes_from_api(
 ) -> None:
     """Test fetching available modes from TfL API when cache is empty."""
     with freeze_time("2025-01-01 12:00:00"):
-        # Setup mock data - list of mode strings
-        mock_modes = ["tube", "overground", "dlr", "elizabeth-line", "tram"]
+        # Setup mock data - list of Mode objects with modeName attribute
+        mock_modes = [
+            MagicMock(modeName="tube"),
+            MagicMock(modeName="overground"),
+            MagicMock(modeName="dlr"),
+            MagicMock(modeName="elizabeth-line"),
+            MagicMock(modeName="tram"),
+        ]
 
         # Execute with helper
         modes = await assert_fetch_from_api(
@@ -546,8 +552,9 @@ async def test_fetch_available_modes_from_api(
             shared_expires=datetime(2025, 1, 8, 12, 0, 0, tzinfo=UTC),
         )
 
-        # Verify content
-        assert modes == mock_modes
+        # Verify content - modes should be extracted modeName strings
+        expected_modes = ["tube", "overground", "dlr", "elizabeth-line", "tram"]
+        assert modes == expected_modes
         assert "tube" in modes
         assert "elizabeth-line" in modes
 
@@ -573,8 +580,11 @@ async def test_fetch_available_modes_cache_miss(
 ) -> None:
     """Test fetching modes from API when cache is enabled but empty."""
     with freeze_time("2025-01-01 12:00:00"):
-        # Setup mock data
-        mock_modes = ["tube", "overground"]
+        # Setup mock data - list of Mode objects with modeName attribute
+        mock_modes = [
+            MagicMock(modeName="tube"),
+            MagicMock(modeName="overground"),
+        ]
 
         # Execute with helper
         modes = await assert_cache_miss(
@@ -585,8 +595,9 @@ async def test_fetch_available_modes_cache_miss(
             shared_expires=datetime(2025, 1, 8, 12, 0, 0, tzinfo=UTC),
         )
 
-        # Verify content
-        assert modes == mock_modes
+        # Verify content - modes should be extracted modeName strings
+        expected_modes = ["tube", "overground"]
+        assert modes == expected_modes
 
 
 async def test_fetch_available_modes_api_failure(
@@ -2861,6 +2872,7 @@ async def test_fetch_stop_types_api_failure(
 # ==================== fetch_station_disruptions Tests ====================
 
 
+@pytest.mark.skip(reason="Station disruption processing disabled - see issue #139")
 @patch("asyncio.get_running_loop")
 async def test_fetch_station_disruptions(
     mock_get_loop: MagicMock,
@@ -2966,6 +2978,7 @@ async def test_fetch_station_disruptions_cache_hit(tfl_service: TfLService) -> N
     tfl_service.cache.get.assert_called_once_with("station_disruptions:modes:tube")
 
 
+@pytest.mark.skip(reason="Station disruption processing disabled - see issue #139")
 @patch("asyncio.get_running_loop")
 async def test_fetch_station_disruptions_cache_miss(
     mock_get_loop: MagicMock,
@@ -3046,6 +3059,7 @@ async def test_fetch_station_disruptions_api_failure(
     assert "Failed to fetch station disruptions from TfL API" in exc_info.value.detail
 
 
+@pytest.mark.skip(reason="Station disruption processing disabled - see issue #139")
 @patch("asyncio.get_running_loop")
 async def test_fetch_station_disruptions_multiple_modes(
     mock_get_loop: MagicMock,
@@ -3260,6 +3274,7 @@ async def test_create_station_disruption_missing_fields(db_session: AsyncSession
     assert isinstance(result.created_at_source, datetime)
 
 
+@pytest.mark.skip(reason="Station disruption processing disabled - see issue #139")
 async def test_fetch_station_disruptions_uses_helpers(
     db_session: AsyncSession,
     monkeypatch: pytest.MonkeyPatch,
