@@ -126,7 +126,7 @@ Hybrid approach: synchronous for route CRUD operations (part of same transaction
 
 ---
 
-## Automatic Staleness Detection for Route Indexes
+## Event-Driven Staleness Detection for Route Indexes
 
 ### Status
 Active
@@ -135,30 +135,32 @@ Active
 Route station indexes store a `line_data_version` timestamp (copy of `Line.last_updated`) to track when the index was built. TfL line data changes over time as route sequences are updated (stations added/removed/reordered). Stale indexes reference outdated TfL data, causing inaccurate alert matching. Need automatic detection and rebuild without manual intervention.
 
 ### Decision
-Daily Celery Beat task (`detect_and_rebuild_stale_routes`) at 3 AM (low traffic) to find and rebuild stale route indexes. Task queries for routes where `index.line_data_version < Line.last_updated`, then triggers individual `rebuild_route_indexes_task.delay(route_id)` for each stale route.
+Event-driven Celery task (`detect_and_rebuild_stale_routes`) triggered immediately after TfL station graph is rebuilt via `POST /admin/tfl/build-graph`. Task queries for routes where `index.line_data_version < Line.last_updated`, then triggers individual `rebuild_route_indexes_task.delay(route_id)` for each stale route.
 
 **Implementation:**
+- **Trigger point:** API layer orchestration in `/admin/tfl/build-graph` endpoint after successful graph build
 - **Pure helper function:** `find_stale_route_ids(session)` performs staleness query with DISTINCT to avoid duplicates
 - **Query pattern:** `SELECT DISTINCT route_id FROM route_station_index JOIN route_segments JOIN lines WHERE line_data_version < Line.last_updated`
 - **Execution strategy:** Trigger individual rebuild tasks (parallelization + fault isolation)
-- **Scheduling:** Daily at 3 AM via Celery Beat (`crontab(hour=3, minute=0)`)
-- **Task expiry:** 1 hour (task expires if not picked up within 60 minutes)
+- **Non-blocking:** Task is queued synchronously (~1ms) but executes asynchronously in Celery worker
 - **Structured logging:** Logs stale route count, triggered count, partial failures
 
 ### Consequences
 **Easier:**
-- **Zero manual intervention:** Indexes stay accurate automatically as TfL data changes
+- **Zero manual intervention:** Indexes stay accurate automatically when TfL data changes
+- **Immediate response:** No delay between TfL update and index rebuild (event-driven, not scheduled)
+- **Efficient:** Only runs when TfL data actually changes (not wasted daily checks)
 - **Efficient detection:** Single query finds all stale routes across all lines
 - **Leverages existing infrastructure:** Reuses tested `rebuild_route_indexes_task()`
 - **Parallelization:** Individual rebuild tasks can run concurrently across workers
 - **Fault isolation:** One route rebuild failure doesn't block others
 - **Monitoring-friendly:** Structured logging for Sentry/alerting integration
-- **Off-peak execution:** 3 AM runs avoid user-facing performance impact
+- **API layer orchestration:** Service stays focused, API controls workflow
 
 **More Difficult:**
 - **Requires Line.last_updated tracking:** Depends on TfL service updating this field when fetching line data
 - **Potential for mass rebuilds:** If many lines update simultaneously, many routes rebuild at once (mitigated by Celery's task queue buffering)
-- **Rebuild delay:** Up to 24 hours between TfL data update and index rebuild (acceptable trade-off for low traffic execution)
+- **Depends on admin triggering graph build:** Detection only runs when admin updates TfL data (acceptable - admin endpoint `/admin/routes/rebuild-indexes` available for manual override if needed)
 
 ---
 

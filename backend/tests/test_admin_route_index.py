@@ -3,7 +3,7 @@
 import uuid
 from collections.abc import AsyncGenerator
 from datetime import UTC, datetime
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 from uuid import uuid4
 
 import pytest
@@ -386,3 +386,57 @@ class TestAdminRebuildIndexesIntegration:
         # Route 2 should have 2 entries (Y, Z)
         route2_entries = [e for e in all_index_entries if e.route_id == route2.id]
         assert len(route2_entries) == 2
+
+
+# =============================================================================
+# Tests for TfL Graph Build with Staleness Detection
+# =============================================================================
+
+
+class TestAdminTfLGraphBuildEndpoint:
+    """Tests for POST /admin/tfl/build-graph endpoint."""
+
+    @pytest.mark.asyncio
+    async def test_build_graph_triggers_staleness_detection(
+        self,
+        async_client_with_db: AsyncClient,
+        admin_user: User,
+        admin_headers: dict[str, str],
+    ) -> None:
+        """Test that building TfL graph triggers staleness detection task."""
+        # Mock the service to avoid hitting real TfL API
+        mock_result = {
+            "lines_count": 5,
+            "stations_count": 100,
+            "connections_count": 200,
+            "hubs_count": 10,
+        }
+
+        with (
+            patch("app.api.admin.TfLService") as mock_service_class,
+            patch("app.api.admin.detect_and_rebuild_stale_routes") as mock_task,
+        ):
+            mock_service = AsyncMock()
+            mock_service.build_station_graph = AsyncMock(return_value=mock_result)
+            mock_service_class.return_value = mock_service
+
+            # Mock the task's delay method (synchronous, not async)
+            mock_task.delay = MagicMock()
+
+            response = await async_client_with_db.post(
+                build_api_url("/admin/tfl/build-graph"),
+                headers=admin_headers,
+            )
+
+            # Verify response
+            assert response.status_code == 200
+            data = response.json()
+            assert data["success"] is True
+            assert data["lines_count"] == 5
+            assert data["stations_count"] == 100
+
+            # Verify service was called
+            mock_service.build_station_graph.assert_called_once()
+
+            # Verify staleness detection task was triggered
+            mock_task.delay.assert_called_once()

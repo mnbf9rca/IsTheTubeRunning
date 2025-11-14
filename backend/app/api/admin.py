@@ -11,6 +11,7 @@ from sqlalchemy import desc, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.celery.app import celery_app
+from app.celery.tasks import detect_and_rebuild_stale_routes
 from app.core.admin import require_admin
 from app.core.database import get_db
 from app.models.admin import AdminUser
@@ -47,11 +48,15 @@ async def build_tfl_graph(
     db: AsyncSession = Depends(get_db),
 ) -> BuildGraphResponse:
     """
-    Build the station connection graph from TfL API data.
+    Build the station connection graph from TfL API data and trigger background index staleness detection.
 
     This endpoint fetches station sequences for all tube lines and populates
     the StationConnection table with bidirectional connections. This is required
     for route validation.
+
+    After successfully building the graph, this endpoint queues a background task
+    to detect and rebuild any route indexes that are now stale due to the TfL data update.
+    The staleness detection runs asynchronously in a Celery worker and does not block this response.
 
     **Requires admin privileges.**
 
@@ -68,6 +73,15 @@ async def build_tfl_graph(
     tfl_service = TfLService(db)
 
     result = await tfl_service.build_station_graph()
+
+    # Queue background task to detect and rebuild stale route indexes
+    # This is event-driven: only runs when TfL data actually changes
+    detect_and_rebuild_stale_routes.delay()
+    logger.info(
+        "tfl_graph_built_staleness_detection_queued",
+        lines_count=result["lines_count"],
+        stations_count=result["stations_count"],
+    )
 
     return BuildGraphResponse(
         success=True,
