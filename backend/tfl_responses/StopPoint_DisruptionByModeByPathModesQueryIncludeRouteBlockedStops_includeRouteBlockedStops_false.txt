@@ -1,0 +1,266 @@
+HTTP/1.1 200 OK
+
+age: 0
+api-entity-payload: Disruption
+cache-control: public, must-revalidate, max-age=30, s-maxage=60
+content-encoding: gzip
+content-length: 2742
+content-type: application/json; charset=utf-8
+date: Thu, 13 Nov 2025 23:44:02 GMT
+server: cloudflare
+via: 1.1 varnish
+x-api: StopPoint
+x-aspnet-version: 4.0.30319
+x-backend: api
+x-cache: MISS
+x-cacheable: Yes. Cacheable
+x-frame-options: deny
+x-operation: StopPoint_DisruptionByModeByPathModesQueryIncludeRouteBlockedStops
+x-proxy-connection: unset
+x-ttl: 60.000
+x-ttl-rule: 0
+x-varnish: 1732443368
+
+[{
+    "$type": "Tfl.Api.Presentation.Entities.DisruptedPoint, Tfl.Api.Presentation.Entities",
+    "atcoCode": "940GZZLUKWG",
+    "fromDate": "2024-11-21T13:25:00Z",
+    "toDate": "2026-12-23T01:29:00Z",
+    "description": "KEW GARDENS STATION: Step-free platform interchange between platforms requires a 600m journey via street. Use the North End entrance for the westbound platform. Use the Station Approach entrance for the eastbound platform. To avoid the street level journey, please take a westbound train to Richmond and change to eastbound services there.",
+    "commonName": "Kew Gardens Underground Station",
+    "type": "Information",
+    "mode": "tube",
+    "stationAtcoCode": "940GZZLUKWG",
+    "appearance": "Information"
+}, {
+    "$type": "Tfl.Api.Presentation.Entities.DisruptedPoint, Tfl.Api.Presentation.Entities",
+    "atcoCode": "940GZZLUWWL",
+    "fromDate": "2025-06-13T14:39:00Z",
+    "toDate": "2026-01-31T01:29:00Z",
+    "description": "WALTHAMSTOW CENTRAL STATION: Until January 2026, there will be no lift service from street level (Bus station) to ticket hall. This is while planned maintenance works takes place. If you have luggage, buggies or difficulties using stairs, please use the exit via the London Overground ticket hall to Selborne\r\nRoad. There are fewer steps and a ramp between the ticket hall and the street. There is a pedestrian crossing to the bus station from the station exit. For access to the Victoria line avoiding stairs - use bus route 230 from stop M on Selborne Walk / Selborne Road to Tottenham Hale station.",
+    "commonName": "Walthamstow Central Underground Station",
+    "type": "Interchange Message",
+    "mode": "tube",
+    "stationAtcoCode": "940GZZLUWWL",
+    "appearance": "PlannedWork"
+}, {
+    "$type": "Tfl.Api.Presentation.Entities.DisruptedPoint, Tfl.Api.Presentation.Entities",
+    "atcoCode": "940GZZLUWWL",
+    "fromDate": "2025-07-12T03:37:00Z",
+    "toDate": "2026-01-31T01:29:00Z",
+    "description": "Walthamstow Central: No Step Free Access - The lifts between the bus station and the Victoria line ticket hall are out of service until January 2026 due to planned maintenance. Call us on 0343 222 1234 for further information.",
+    "commonName": "Walthamstow Central Underground Station",
+    "type": "Interchange Message",
+    "mode": "tube",
+    "stationAtcoCode": "940GZZLUWWL",
+    "appearance": "RealTime"
+}, {
+    "$type": "Tfl.Api.Presentation.Entities.DisruptedPoint, Tfl.Api.Presentation.Entities",
+    "atcoCode": "940GZZLUWHM",
+    "fromDate": "2025-08-07T15:09:00Z",
+    "toDate": "2025-11-30T01:29:00Z",
+    "description": "West Ham: reduced escalator service - until late November 2025, there is no down escalator in service from the ticket hall to the DLR/Jubilee line platforms due to planned maintenance.",
+    "commonName": "West Ham Underground Station",
+    "type": "Interchange Message",
+    "mode": "tube",
+    "stationAtcoCode": "940GZZLUWHM",
+    "appearance": "PlannedWork"
+}, {
+    "$type": "Tfl.Api.Presentation.Entities.DisruptedPoint, Tfl.Api.Presentation.Entities",
+    "atcoCode": "940GZZLUEUS",
+    "fromDate": "2025-11-13T04:30:00Z",
+    "toDate": "2025-11-14T01:29:00Z",
+    "description": "EUSTON UNDERGROUND STATION: Thursday 13 November, a reduced escalator service will be in operation. Avoid entering Euston Underground station between 0730 and 1000: it may be easier to use Warren Street or Kings Cross St Pancras instead. Access to southbound Northern line (Bank Branch) and Victoria line platforms will be via a spiral staircase.",
+    "commonName": "Euston Underground Station",
+    "type": "Interchange Message",
+    "mode": "tube",
+    "stationAtcoCode": "940GZZLUEUS",
+    "appearance": "PlannedWork"
+}, {
+    "$type": "Tfl.Api.Presentation.Entities.DisruptedPoint, Tfl.Api.Presentation.Entities",
+    "atcoCode": "940GZZLULNB",
+    "fromDate": "2018-01-22T11:40:00Z",
+    "toDate": "2025-12-30T01:29:00Z",
+    "description": "LONDON BRIDGE STATION: Please note that step free interchange between the Jubilee and Northern lines is partly at street level, in both directions. Lifts are available between Northern line and Borough High Street entrance then via Borough High Street, St Thomas Street and Joiner Street to the main Underground ticket hall from where lifts are available to/from the Jubilee line.",
+    "commonName": "London Bridge Underground Station",
+    "type": "Information",
+    "mode": "tube",
+    "stationAtcoCode": "940GZZLULNB",
+    "appearance": "PlannedWork"
+}, {
+    "$type": "Tfl.Api.Presentation.Entities.DisruptedPoint, Tfl.Api.Presentation.Entities",
+    "atcoCode": "940GZZLUBNK",
+    "fromDate": "2025-10-20T03:30:00Z",
+    "toDate": "2026-12-01T01:29:00Z",
+    "description": "BANK AND MONUMENT STATIONS: From Monday 20 October until November 2026. Replacement of escalators 4 and 5. These connect the Northern line platforms with the District and Circle line platforms. While this work takes place, the walking route between these platforms will be closed. Please allow a little longer for your journey and follow the signs, which will direct you via an alternative walking route. Depending on your journey, this route may be via street level. To pay the correct fare, just touch out as you exit and touch back in again, as you re-enter.",
+    "commonName": "Bank Underground Station",
+    "type": "Information",
+    "mode": "tube",
+    "stationAtcoCode": "940GZZLUBNK",
+    "appearance": "PlannedWork"
+}, {
+    "$type": "Tfl.Api.Presentation.Entities.DisruptedPoint, Tfl.Api.Presentation.Entities",
+    "atcoCode": "940GZZLUMMT",
+    "fromDate": "2025-10-20T03:30:00Z",
+    "toDate": "2026-12-01T01:29:00Z",
+    "description": "BANK AND MONUMENT STATIONS: From Monday 20 October until November 2026. Replacement of escalators 4 and 5. These connect the Northern line platforms with the District and Circle line platforms. While this work takes place, the walking route between these platforms will be closed. Please allow a little longer for your journey and follow the signs, which will direct you via an alternative walking route. Depending on your journey, this route may be via street level. To pay the correct fare, just touch out as you exit and touch back in again, as you re-enter.",
+    "commonName": "Monument Underground Station",
+    "type": "Information",
+    "mode": "tube",
+    "stationAtcoCode": "940GZZLUMMT",
+    "appearance": "PlannedWork"
+}, {
+    "$type": "Tfl.Api.Presentation.Entities.DisruptedPoint, Tfl.Api.Presentation.Entities",
+    "atcoCode": "940GZZLUHNX",
+    "fromDate": "2025-08-08T23:00:00Z",
+    "toDate": "2025-11-24T04:30:00Z",
+    "description": "Hatton Cross: The Station Car Park at Hatton Cross will be closed from 00:00 Saturday 9 August until 04:30 on Monday 24 November.",
+    "commonName": "Hatton Cross Underground Station",
+    "type": "Information",
+    "mode": "tube",
+    "stationAtcoCode": "940GZZLUHNX",
+    "appearance": "Information"
+}, {
+    "$type": "Tfl.Api.Presentation.Entities.DisruptedPoint, Tfl.Api.Presentation.Entities",
+    "atcoCode": "940GZZLUWYC",
+    "fromDate": "2025-09-18T23:04:00Z",
+    "toDate": "2025-11-30T01:29:00Z",
+    "description": "Wembley Central: No Step Free Access - Step free access is not available to the southbound Southern / London Northwestern platform due to a faulty lift. Call us on 0343 222 1234 if you need help planning your journey.",
+    "commonName": "Wembley Central Underground Station",
+    "type": "Interchange Message",
+    "mode": "tube",
+    "stationAtcoCode": "940GZZLUWYC",
+    "appearance": "RealTime"
+}, {
+    "$type": "Tfl.Api.Presentation.Entities.DisruptedPoint, Tfl.Api.Presentation.Entities",
+    "atcoCode": "940GZZLUTPN",
+    "fromDate": "2025-11-08T22:22:00Z",
+    "toDate": "2025-11-16T01:29:00Z",
+    "description": "Turnpike Lane station: the entrance on Ducketts Common is closed due to flooding. Please use the entrance on Turnpike Lane or Wellington Terrace instead.",
+    "commonName": "Turnpike Lane Underground Station",
+    "type": "Information",
+    "mode": "tube",
+    "stationAtcoCode": "940GZZLUTPN",
+    "appearance": "RealTime"
+}, {
+    "$type": "Tfl.Api.Presentation.Entities.DisruptedPoint, Tfl.Api.Presentation.Entities",
+    "atcoCode": "940GZZLUCYD",
+    "fromDate": "2025-11-13T21:41:59Z",
+    "toDate": "2025-11-14T01:29:00Z",
+    "description": "Chorleywood: No Step Free Access - The manual boarding ramps  are not in service due to unavailability of staff. Call us on 0343 222 1234 if you need further information.",
+    "commonName": "Chorleywood Underground Station",
+    "type": "Information",
+    "mode": "tube",
+    "stationAtcoCode": "940GZZLUCYD",
+    "appearance": "RealTime"
+}, {
+    "$type": "Tfl.Api.Presentation.Entities.DisruptedPoint, Tfl.Api.Presentation.Entities",
+    "atcoCode": "940GZZLUEPK",
+    "fromDate": "2025-11-13T22:21:58Z",
+    "toDate": "2025-11-14T01:29:00Z",
+    "description": "Elm Park: No Step Free Access - The mini ramps providing level access between the platforms and the trains are not in service due to unavailability of staff. Call 0343 222 1234 if you need further help.",
+    "commonName": "Elm Park Underground Station",
+    "type": "Information",
+    "mode": "tube",
+    "stationAtcoCode": "940GZZLUEPK",
+    "appearance": "RealTime"
+}, {
+    "$type": "Tfl.Api.Presentation.Entities.DisruptedPoint, Tfl.Api.Presentation.Entities",
+    "atcoCode": "940GZZLUWYC",
+    "fromDate": "2025-11-12T18:41:00Z",
+    "toDate": "2025-11-15T01:29:00Z",
+    "description": "Wembley Central: No Step Free Access - Step free access is not available to the northbound Southern / London Northwestern platform due to a faulty lift. Call us on 0343 222 1234 if you need help planning your journey.",
+    "commonName": "Wembley Central Underground Station",
+    "type": "Interchange Message",
+    "mode": "tube",
+    "stationAtcoCode": "940GZZLUWYC",
+    "appearance": "RealTime"
+}, {
+    "$type": "Tfl.Api.Presentation.Entities.DisruptedPoint, Tfl.Api.Presentation.Entities",
+    "atcoCode": "940GZZLUBNK",
+    "fromDate": "2025-11-12T17:09:00Z",
+    "toDate": "2025-11-15T01:29:00Z",
+    "description": "Bank: No Step Free Access - Step free access is not available to/from the King William Street entrance due to faulty lifts. For step free access to the DLR and the Northern line, use the entrance on Cannon Street.",
+    "commonName": "Bank Underground Station",
+    "type": "Interchange Message",
+    "mode": "tube",
+    "stationAtcoCode": "940GZZLUBNK",
+    "appearance": "RealTime"
+}, {
+    "$type": "Tfl.Api.Presentation.Entities.DisruptedPoint, Tfl.Api.Presentation.Entities",
+    "atcoCode": "940GZZLUHAI",
+    "fromDate": "2025-11-12T14:33:00Z",
+    "toDate": "2025-11-15T01:29:00Z",
+    "description": "Highbury & Islington: No Step Free Access - Step free access is not available to the Mildmay line platform 8 (trains towards Stratford) due to a faulty lift. Take a train from platform 1 or 2 to Canonbury and change there.",
+    "commonName": "Highbury & Islington Underground Station",
+    "type": "Interchange Message",
+    "mode": "tube",
+    "stationAtcoCode": "940GZZLUHAI",
+    "appearance": "RealTime"
+}, {
+    "$type": "Tfl.Api.Presentation.Entities.DisruptedPoint, Tfl.Api.Presentation.Entities",
+    "atcoCode": "940GZZLUHAW",
+    "fromDate": "2025-11-12T13:22:00Z",
+    "toDate": "2025-11-15T01:29:00Z",
+    "description": "Harrow & Wealdstone station: Step free access is not available to the southbound Lioness line and southbound Bakerloo line (platforms 2 and 3) due to a faulty lift. Call 0343 222 1234 for help planning your journey.",
+    "commonName": "Harrow & Wealdstone Underground Station",
+    "type": "Interchange Message",
+    "mode": "tube",
+    "stationAtcoCode": "940GZZLUHAW",
+    "appearance": "RealTime"
+}, {
+    "$type": "Tfl.Api.Presentation.Entities.DisruptedPoint, Tfl.Api.Presentation.Entities",
+    "atcoCode": "940GZZLUWBN",
+    "fromDate": "2025-11-07T22:00:00Z",
+    "toDate": "2025-11-15T01:29:00Z",
+    "description": "West Brompton: No Step Free Access - Step free access is not available to the northbound Mildmay line / Southern platform due to a faulty lift. Call us on 0343 222 1234 if you need help planning your journey.",
+    "commonName": "West Brompton Underground Station",
+    "type": "Interchange Message",
+    "mode": "tube",
+    "stationAtcoCode": "940GZZLUWBN",
+    "appearance": "RealTime"
+}, {
+    "$type": "Tfl.Api.Presentation.Entities.DisruptedPoint, Tfl.Api.Presentation.Entities",
+    "atcoCode": "940GZZLUEUS",
+    "fromDate": "2025-11-07T06:58:00Z",
+    "toDate": "2025-11-15T01:29:00Z",
+    "description": "Euston: reduced escalator service - there is no down escalator in service to the southbound Northern and Victoria lines due to a fault.",
+    "commonName": "Euston Underground Station",
+    "type": "Interchange Message",
+    "mode": "tube",
+    "stationAtcoCode": "940GZZLUEUS",
+    "appearance": "RealTime"
+}, {
+    "$type": "Tfl.Api.Presentation.Entities.DisruptedPoint, Tfl.Api.Presentation.Entities",
+    "atcoCode": "940GZZLUBKG",
+    "fromDate": "2025-11-03T08:22:00Z",
+    "toDate": "2025-11-15T01:29:00Z",
+    "description": "Barking: No Step Free Access - Step free access is not available due to planned maintenance. Call us on 0343 222 1234 if you need help planning your journey.",
+    "commonName": "Barking Underground Station",
+    "type": "Interchange Message",
+    "mode": "tube",
+    "stationAtcoCode": "940GZZLUBKG",
+    "appearance": "RealTime"
+}, {
+    "$type": "Tfl.Api.Presentation.Entities.DisruptedPoint, Tfl.Api.Presentation.Entities",
+    "atcoCode": "940GZZLUWJN",
+    "fromDate": "2025-10-31T10:06:00Z",
+    "toDate": "2025-11-15T01:29:00Z",
+    "description": "Willesden Junction: No Step Free Access - Step free access is not available to the Bakerloo line and the Lioness line due to a faulty lift. Call us on 0343 222 1234 if you need more information.",
+    "commonName": "Willesden Junction Underground Station",
+    "type": "Interchange Message",
+    "mode": "tube",
+    "stationAtcoCode": "940GZZLUWJN",
+    "appearance": "RealTime"
+}, {
+    "$type": "Tfl.Api.Presentation.Entities.DisruptedPoint, Tfl.Api.Presentation.Entities",
+    "atcoCode": "940GZZLUCHX",
+    "fromDate": "2025-04-16T03:30:00Z",
+    "toDate": "2025-11-15T01:29:00Z",
+    "description": "CHARING CROSS UNDERGROUND STATION: From Wednesday 16 April until autumn 2025, the Bakerloo line ticket hall will be temporarily closed while improvement works take place, including work on water ingress prevention. During this time for the Bakerloo line please use the entrance on Strand, next to the National Rail station",
+    "commonName": "Charing Cross Underground Station",
+    "type": "Interchange Message",
+    "mode": "tube",
+    "stationAtcoCode": "940GZZLUCHX",
+    "appearance": "PlannedWork"
+}]

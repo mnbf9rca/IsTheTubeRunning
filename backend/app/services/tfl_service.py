@@ -15,6 +15,7 @@ from fastapi import HTTPException, status
 from pydantic_tfl_api import LineClient, StopPointClient
 from pydantic_tfl_api.core import ApiError, ResponseModel
 from pydantic_tfl_api.models import (
+    DisruptedPoint,
     Disruption,
     LineStatus,
     MatchedStop,
@@ -219,10 +220,12 @@ class TfLService:
 
             # Check for API error
             self._handle_api_error(response)
+            assert not isinstance(response, ApiError)  # Type narrowing for mypy
 
             # Extract modes from response
-            # response.content.root is a list of mode strings
-            modes: list[str] = list(response.content.root)  # type: ignore[union-attr,arg-type]
+            # response.content is ModeArray (RootModel[list[Mode]]), access via .root
+            # Then extract modeName from each Mode object
+            modes: list[str] = [mode.modeName for mode in response.content.root if mode.modeName]
 
             # Use default cache TTL for metadata (7 days)
             # Modes don't change frequently
@@ -294,14 +297,15 @@ class TfLService:
 
                 # Check for API error
                 self._handle_api_error(response)
+                assert not isinstance(response, ApiError)  # Type narrowing for mypy
 
                 # Extract cache TTL from response (use minimum TTL across all modes)
-                mode_ttl = self._extract_cache_ttl(response) or DEFAULT_LINES_CACHE_TTL  # type: ignore[arg-type]
+                mode_ttl = self._extract_cache_ttl(response) or DEFAULT_LINES_CACHE_TTL
                 ttl = min(ttl, mode_ttl)
 
                 # Process lines for this mode
                 # response.content is a LineArray (RootModel), access via .root
-                line_data_list = response.content.root  # type: ignore[union-attr]
+                line_data_list = response.content.root
 
                 for line_data in line_data_list:
                     line = Line(
@@ -373,13 +377,14 @@ class TfLService:
 
             # Check for API error
             self._handle_api_error(response)
+            assert not isinstance(response, ApiError)  # Type narrowing for mypy
 
             # Extract cache TTL from response
-            ttl = self._extract_cache_ttl(response) or DEFAULT_METADATA_CACHE_TTL  # type: ignore[arg-type]
+            ttl = self._extract_cache_ttl(response) or DEFAULT_METADATA_CACHE_TTL
 
             # Process and upsert severity codes (avoids race conditions)
             # response.content is a SeverityCodeArray (RootModel), access via .root
-            severity_data_list = response.content.root  # type: ignore[union-attr]
+            severity_data_list = response.content.root
 
             now = datetime.now(UTC)
             for severity_data in severity_data_list:
@@ -450,13 +455,14 @@ class TfLService:
 
             # Check for API error
             self._handle_api_error(response)
+            assert not isinstance(response, ApiError)  # Type narrowing for mypy
 
             # Extract cache TTL from response
-            ttl = self._extract_cache_ttl(response) or DEFAULT_METADATA_CACHE_TTL  # type: ignore[arg-type]
+            ttl = self._extract_cache_ttl(response) or DEFAULT_METADATA_CACHE_TTL
 
             # Process and upsert disruption categories (avoids race conditions)
             # response.content is a RootModel array, access via .root
-            category_data_list = response.content.root  # type: ignore[union-attr]
+            category_data_list = response.content.root
 
             now = datetime.now(UTC)
             for category_data in category_data_list:
@@ -526,13 +532,14 @@ class TfLService:
 
             # Check for API error
             self._handle_api_error(response)
+            assert not isinstance(response, ApiError)  # Type narrowing for mypy
 
             # Extract cache TTL from response
-            ttl = self._extract_cache_ttl(response) or DEFAULT_METADATA_CACHE_TTL  # type: ignore[arg-type]
+            ttl = self._extract_cache_ttl(response) or DEFAULT_METADATA_CACHE_TTL
 
             # Process and upsert stop types (avoids race conditions)
             # response.content is a RootModel array, access via .root
-            type_data_list = response.content.root  # type: ignore[union-attr]
+            type_data_list = response.content.root
 
             # Filter to relevant types for our use case
             # These types cover tube, rail, and bus stations which are the main transport modes
@@ -702,11 +709,11 @@ class TfLService:
 
         # Check for API error
         self._handle_api_error(response)
+        assert not isinstance(response, ApiError)  # Type narrowing for mypy
 
-        # Type narrowing: _handle_api_error raises if response is ApiError, so it's safe here
-        ttl = self._extract_cache_ttl(response) or DEFAULT_STATIONS_CACHE_TTL  # type: ignore[arg-type]
+        ttl = self._extract_cache_ttl(response) or DEFAULT_STATIONS_CACHE_TTL
         # response.content is a StopPointArray (RootModel), access via .root
-        stop_points = response.content.root  # type: ignore[union-attr]
+        stop_points = response.content.root
 
         stations = []
         # Note: This implementation queries the database inside the loop (N+1 pattern).
@@ -1306,13 +1313,14 @@ class TfLService:
 
             # Check for API error
             self._handle_api_error(response)
+            assert not isinstance(response, ApiError)  # Type narrowing for mypy
 
             # Extract cache TTL from response
-            ttl = self._extract_cache_ttl(response) or DEFAULT_DISRUPTIONS_CACHE_TTL  # type: ignore[arg-type]
+            ttl = self._extract_cache_ttl(response) or DEFAULT_DISRUPTIONS_CACHE_TTL
 
             # Process line status data
             # response.content is a RootModel array of Line objects, access via .root
-            line_data_list = response.content.root  # type: ignore[union-attr]
+            line_data_list = response.content.root
 
             for line_data in line_data_list:
                 line_disruptions = self._process_line_status_data(line_data)
@@ -1415,34 +1423,54 @@ class TfLService:
 
     async def _process_station_disruption_data(
         self,
-        disruption_data_list: list[Disruption],
+        disruption_data_list: list[DisruptedPoint],
     ) -> list[StationDisruptionResponse]:
         """
         Process disruption data for a single mode.
 
         Args:
-            disruption_data_list: List of raw disruption data from TfL API
+            disruption_data_list: List of DisruptedPoint data from TfL API
+                                  Each DisruptedPoint represents a single station disruption
 
         Returns:
             List of station disruption responses
+
+        Note:
+            FIXME: This implementation is currently broken and returns empty list.
+            The previous implementation expected Disruption objects with affectedStops,
+            but the API actually returns DisruptedPoint objects with a different structure.
+            See issue #139 for proper fix.
         """
-        mode_disruptions: list[StationDisruptionResponse] = []
+        # TODO: Implement proper DisruptedPoint processing (issue #139)
+        # Current implementation is commented out as it expects wrong data structure
+        logger.warning(
+            "station_disruption_processing_disabled",
+            reason="Implementation expects Disruption but API returns DisruptedPoint - see issue #139",
+        )
+        return []
 
-        for disruption_data in disruption_data_list:
-            # Extract affected stops from disruption
-            if hasattr(disruption_data, "affectedStops") and disruption_data.affectedStops:
-                for stop in disruption_data.affectedStops:
-                    # Look up station in database by TfL ID
-                    station = await self._lookup_station_for_disruption(stop)
-
-                    if not station:
-                        continue
-
-                    # Create disruption using helper method
-                    disruption_response = await self._create_station_disruption(station, disruption_data)
-                    mode_disruptions.append(disruption_response)
-
-        return mode_disruptions
+        # COMMENTED OUT - BROKEN IMPLEMENTATION:
+        # mode_disruptions: list[StationDisruptionResponse] = []
+        #
+        # for disrupted_point in disruption_data_list:
+        #     # Look up station in database using stationAtcoCode or atcoCode
+        #     station_code = disrupted_point.stationAtcoCode or disrupted_point.atcoCode
+        #     if not station_code:
+        #         logger.warning("disrupted_point_missing_station_code", data=str(disrupted_point))
+        #         continue
+        #
+        #     result = await self.db.execute(select(Station).where(Station.tfl_id == station_code))
+        #     station = result.scalar_one_or_none()
+        #
+        #     if not station:
+        #         logger.debug("station_not_found_for_disruption", station_code=station_code)
+        #         continue
+        #
+        #     # Create disruption from DisruptedPoint
+        #     disruption_response = await self._create_station_disruption_from_point(station, disrupted_point)
+        #     mode_disruptions.append(disruption_response)
+        #
+        # return mode_disruptions
 
     async def fetch_station_disruptions(
         self,
@@ -1499,18 +1527,17 @@ class TfLService:
 
                 # Check for API error
                 self._handle_api_error(response)
+                assert not isinstance(response, ApiError)  # Type narrowing for mypy
 
                 # Extract cache TTL from response (use minimum TTL across all modes)
-                mode_ttl = self._extract_cache_ttl(response) or DEFAULT_DISRUPTIONS_CACHE_TTL  # type: ignore[arg-type]
+                mode_ttl = self._extract_cache_ttl(response) or DEFAULT_DISRUPTIONS_CACHE_TTL
                 ttl = min(ttl, mode_ttl)
 
                 # Process station disruptions using helper method
-                # response.content is a RootModel array of disruptions, access via .root
-                # Note: pydantic-tfl-api type annotation (DisruptedPointArray) doesn't match
-                # actual runtime data structure (list[Disruption] with affectedStops field).
-                # The type: ignore comments below are needed due to this library limitation.
-                disruption_data_list = response.content.root  # type: ignore[union-attr]
-                mode_disruptions = await self._process_station_disruption_data(disruption_data_list)  # type: ignore[arg-type]
+                # response.content is a RootModel array of DisruptedPoint objects
+                # pydantic-tfl-api types are correct - API returns list[DisruptedPoint]
+                disruption_data_list = response.content.root
+                mode_disruptions = await self._process_station_disruption_data(disruption_data_list)
                 all_disruptions.extend(mode_disruptions)
 
                 logger.debug("mode_station_disruptions_processed", mode=mode)
@@ -1717,9 +1744,10 @@ class TfLService:
 
         # Check for API error
         self._handle_api_error(response)
+        assert not isinstance(response, ApiError)  # Type narrowing for mypy
 
         # Return full route sequence data (contains both stopPointSequences and orderedLineRoutes)
-        return response.content  # type: ignore[union-attr]
+        return response.content
 
     async def _process_route_sequence(
         self,
