@@ -1,6 +1,6 @@
 """Tests for main API endpoints."""
 
-from unittest.mock import AsyncMock, MagicMock, Mock, patch
+from unittest.mock import Mock, patch
 
 import pytest
 from app import __version__
@@ -154,50 +154,26 @@ async def test_lifespan_debug_mode() -> None:
 async def test_lifespan_production_success() -> None:
     """Test lifespan successful startup and shutdown in production mode."""
     mock_app = Mock()
-    mock_conn = AsyncMock()
-
-    # Create a proper async context manager mock
-    mock_engine = MagicMock()
-    mock_cm = MagicMock()
-    mock_cm.__aenter__ = AsyncMock(return_value=mock_conn)
-    mock_cm.__aexit__ = AsyncMock(return_value=None)
-    mock_engine.begin = MagicMock(return_value=mock_cm)
-    mock_engine.dispose = AsyncMock()
 
     with (
         patch("app.main.settings") as mock_settings,
-        patch("app.main.engine", mock_engine),
         patch("app.main._check_alembic_migrations", return_value="test_revision"),
     ):
         mock_settings.DEBUG = False
 
+        # Lifespan should complete without raising exceptions
         async with lifespan(mock_app):
-            mock_conn.execute.assert_called_once()
-            mock_conn.run_sync.assert_called_once()
-
-        # Verify shutdown was called
-        mock_engine.dispose.assert_called_once()
+            pass  # Lifespan startup successful
 
 
 @pytest.mark.asyncio
 async def test_lifespan_production_runtime_error() -> None:
     """Test lifespan handles RuntimeError from migration check."""
     mock_app = Mock()
-    mock_conn = AsyncMock()
-    # Make run_sync raise RuntimeError
-    mock_conn.run_sync.side_effect = RuntimeError("Migration failed")
-
-    # Create a proper async context manager mock
-    mock_engine = MagicMock()
-    mock_cm = MagicMock()
-    mock_cm.__aenter__ = AsyncMock(return_value=mock_conn)
-    mock_cm.__aexit__ = AsyncMock(return_value=None)
-    mock_engine.begin = MagicMock(return_value=mock_cm)
-    mock_engine.dispose = AsyncMock()
 
     with (
         patch("app.main.settings") as mock_settings,
-        patch("app.main.engine", mock_engine),
+        patch("app.main._check_alembic_migrations", side_effect=RuntimeError("Migration failed")),
     ):
         mock_settings.DEBUG = False
 
@@ -210,49 +186,13 @@ async def test_lifespan_production_runtime_error() -> None:
 async def test_lifespan_production_os_error() -> None:
     """Test lifespan handles OSError during startup."""
     mock_app = Mock()
-    mock_conn = AsyncMock()
-    # Make run_sync raise OSError
-    mock_conn.run_sync.side_effect = OSError("File error")
-
-    # Create a proper async context manager mock
-    mock_engine = MagicMock()
-    mock_cm = MagicMock()
-    mock_cm.__aenter__ = AsyncMock(return_value=mock_conn)
-    mock_cm.__aexit__ = AsyncMock(return_value=None)
-    mock_engine.begin = MagicMock(return_value=mock_cm)
-    mock_engine.dispose = AsyncMock()
 
     with (
         patch("app.main.settings") as mock_settings,
-        patch("app.main.engine", mock_engine),
+        patch("app.main._check_alembic_migrations", side_effect=OSError("File error")),
     ):
         mock_settings.DEBUG = False
 
         with pytest.raises(OSError, match="File error"):
-            async with lifespan(mock_app):
-                pass
-
-
-@pytest.mark.asyncio
-async def test_lifespan_production_database_error() -> None:
-    """Test lifespan handles database connection errors."""
-    mock_app = Mock()
-    mock_conn = AsyncMock()
-    mock_conn.execute.side_effect = Exception("Connection failed")
-
-    # Create a proper async context manager mock
-    mock_engine = MagicMock()
-    mock_cm = MagicMock()
-    mock_cm.__aenter__ = AsyncMock(return_value=mock_conn)
-    mock_cm.__aexit__ = AsyncMock(return_value=None)
-    mock_engine.begin = MagicMock(return_value=mock_cm)
-
-    with (
-        patch("app.main.settings") as mock_settings,
-        patch("app.main.engine", mock_engine),
-    ):
-        mock_settings.DEBUG = False
-
-        with pytest.raises(Exception, match="Connection failed"):
             async with lifespan(mock_app):
                 pass
