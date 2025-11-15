@@ -4,6 +4,7 @@ import app.core.database as database_module
 import pytest
 from app.core.config import settings
 from app.core.database import get_db, get_engine, get_session_factory
+from sqlalchemy.engine.url import make_url
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
 from sqlalchemy.pool import NullPool
 
@@ -184,7 +185,7 @@ class TestEngineConfiguration:
     """Tests for engine configuration details."""
 
     def test_engine_url_configuration(self) -> None:
-        """Test that engine is configured with correct database URL."""
+        """Test that engine is configured with correct database URL from settings."""
         # Reset the module-level globals
         database_module._engine = None
         database_module._session_factory = None
@@ -193,11 +194,16 @@ class TestEngineConfiguration:
 
         # Verify engine uses PostgreSQL with asyncpg driver
         assert engine.url.drivername == "postgresql+asyncpg"
-        # Verify it uses the configured DATABASE_URL components
-        # Note: str(engine.url) redacts password to ***, so we check components
-        assert engine.url.database == "isthetube"
-        assert engine.url.host == "localhost"
-        assert engine.url.port == 5432
+
+        # Verify it uses the DATABASE_URL from settings by comparing components
+        expected_url = make_url(settings.DATABASE_URL)
+
+        # Compare each component
+        assert engine.url.drivername == expected_url.drivername
+        assert engine.url.username == expected_url.username
+        assert engine.url.host == expected_url.host
+        assert engine.url.port == expected_url.port
+        assert engine.url.database == expected_url.database
 
     def test_engine_echo_configuration(self) -> None:
         """Test that engine echo setting matches configuration."""
