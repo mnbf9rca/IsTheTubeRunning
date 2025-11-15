@@ -1,7 +1,7 @@
 """Tests for database fork safety (lazy initialization pattern)."""
 
-import app.core.database as database_module
 import pytest
+from app.core import database as database_module
 from app.core.config import settings
 from app.core.database import get_db, get_engine, get_session_factory
 from sqlalchemy.engine.url import make_url
@@ -9,23 +9,25 @@ from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
 from sqlalchemy.pool import NullPool
 
 
+@pytest.fixture(autouse=True)
+def reset_database_globals():
+    """Reset database module globals before and after each test for isolation."""
+    database_module._engine = None
+    database_module._session_factory = None
+    yield
+    database_module._engine = None
+    database_module._session_factory = None
+
+
 class TestLazyInitialization:
     """Tests for lazy initialization of database engine and session factory."""
 
     def test_engine_initially_none(self) -> None:
         """Test that engine global is None before first access."""
-        # Reset the module-level globals
-        database_module._engine = None
-        database_module._session_factory = None
-
         assert database_module._engine is None
 
     def test_lazy_engine_initialization(self) -> None:
         """Test that engine is created on first call to get_engine()."""
-        # Reset the module-level globals
-        database_module._engine = None
-        database_module._session_factory = None
-
         # First call should create the engine
         engine = get_engine()
 
@@ -36,10 +38,6 @@ class TestLazyInitialization:
 
     def test_engine_singleton_pattern(self) -> None:
         """Test that multiple calls to get_engine() return the same instance."""
-        # Reset the module-level globals
-        database_module._engine = None
-        database_module._session_factory = None
-
         # Get engine twice
         engine1 = get_engine()
         engine2 = get_engine()
@@ -49,18 +47,10 @@ class TestLazyInitialization:
 
     def test_session_factory_initially_none(self) -> None:
         """Test that session factory global is None before first access."""
-        # Reset the module-level globals
-        database_module._engine = None
-        database_module._session_factory = None
-
         assert database_module._session_factory is None
 
     def test_lazy_session_factory_initialization(self) -> None:
         """Test that session factory is created on first call to get_session_factory()."""
-        # Reset the module-level globals
-        database_module._engine = None
-        database_module._session_factory = None
-
         # First call should create the session factory
         session_factory = get_session_factory()
 
@@ -71,10 +61,6 @@ class TestLazyInitialization:
 
     def test_session_factory_singleton_pattern(self) -> None:
         """Test that multiple calls to get_session_factory() return the same instance."""
-        # Reset the module-level globals
-        database_module._engine = None
-        database_module._session_factory = None
-
         # Get session factory twice
         factory1 = get_session_factory()
         factory2 = get_session_factory()
@@ -84,10 +70,6 @@ class TestLazyInitialization:
 
     def test_session_factory_uses_lazy_engine(self) -> None:
         """Test that session factory creation triggers engine creation."""
-        # Reset the module-level globals
-        database_module._engine = None
-        database_module._session_factory = None
-
         # Engine should be None initially
         assert database_module._engine is None
 
@@ -104,10 +86,6 @@ class TestPoolConfiguration:
 
     def test_engine_uses_pool_settings_in_production(self) -> None:
         """Test that engine uses configured pool settings when DEBUG=false."""
-        # Reset the module-level globals
-        database_module._engine = None
-        database_module._session_factory = None
-
         # Get engine
         engine = get_engine()
 
@@ -124,10 +102,6 @@ class TestPoolConfiguration:
 
     def test_engine_uses_correct_pool_size(self) -> None:
         """Test that engine configuration includes pool size settings."""
-        # Reset the module-level globals
-        database_module._engine = None
-        database_module._session_factory = None
-
         # Get engine
         engine = get_engine()
 
@@ -151,10 +125,6 @@ class TestGetDb:
     @pytest.mark.asyncio
     async def test_get_db_with_lazy_initialization(self) -> None:
         """Test that get_db() works correctly with lazy initialization."""
-        # Reset the module-level globals
-        database_module._engine = None
-        database_module._session_factory = None
-
         # get_db() should trigger lazy initialization
         async for session in get_db():
             # Session should be created successfully
@@ -167,10 +137,6 @@ class TestGetDb:
     @pytest.mark.asyncio
     async def test_get_db_uses_singleton_session_factory(self) -> None:
         """Test that get_db() uses the singleton session factory."""
-        # Reset the module-level globals
-        database_module._engine = None
-        database_module._session_factory = None
-
         # Create session factory first
         original_factory = get_session_factory()
 
@@ -186,10 +152,6 @@ class TestEngineConfiguration:
 
     def test_engine_url_configuration(self) -> None:
         """Test that engine is configured with correct database URL from settings."""
-        # Reset the module-level globals
-        database_module._engine = None
-        database_module._session_factory = None
-
         engine = get_engine()
 
         # Verify engine uses PostgreSQL with asyncpg driver
@@ -207,10 +169,6 @@ class TestEngineConfiguration:
 
     def test_engine_echo_configuration(self) -> None:
         """Test that engine echo setting matches configuration."""
-        # Reset the module-level globals
-        database_module._engine = None
-        database_module._session_factory = None
-
         engine = get_engine()
 
         # Verify echo setting matches config
@@ -222,10 +180,6 @@ class TestSessionFactoryConfiguration:
 
     def test_session_factory_settings(self) -> None:
         """Test that session factory has correct settings."""
-        # Reset the module-level globals
-        database_module._engine = None
-        database_module._session_factory = None
-
         factory = get_session_factory()
 
         # Verify session factory configuration
@@ -235,10 +189,6 @@ class TestSessionFactoryConfiguration:
 
     def test_session_factory_uses_async_session(self) -> None:
         """Test that session factory creates AsyncSession instances."""
-        # Reset the module-level globals
-        database_module._engine = None
-        database_module._session_factory = None
-
         factory = get_session_factory()
 
         # Verify the session class is AsyncSession
