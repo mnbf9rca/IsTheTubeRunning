@@ -48,7 +48,6 @@ def get_engine() -> AsyncEngine:
                     _engine = create_async_engine(
                         settings.DATABASE_URL,
                         echo=settings.DATABASE_ECHO,
-                        future=True,
                         poolclass=NullPool,
                     )
                 else:
@@ -56,7 +55,6 @@ def get_engine() -> AsyncEngine:
                     _engine = create_async_engine(
                         settings.DATABASE_URL,
                         echo=settings.DATABASE_ECHO,
-                        future=True,
                         pool_size=settings.DATABASE_POOL_SIZE,
                         max_overflow=settings.DATABASE_MAX_OVERFLOW,
                     )

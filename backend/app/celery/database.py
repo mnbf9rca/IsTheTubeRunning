@@ -62,7 +62,6 @@ def _get_worker_engine() -> AsyncEngine:
         _worker_engine = create_async_engine(
             settings.DATABASE_URL,
             echo=settings.DATABASE_ECHO,
-            future=True,
             pool_size=settings.DATABASE_POOL_SIZE,
             max_overflow=settings.DATABASE_MAX_OVERFLOW,
         )
