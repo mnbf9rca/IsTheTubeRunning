@@ -16,7 +16,7 @@ from sqlalchemy.engine import Connection
 from app import __version__
 from app.api import admin, auth, contacts, notification_preferences, routes, tfl
 from app.core.config import settings
-from app.core.database import engine
+from app.core.database import get_engine
 
 logger = logging.getLogger(__name__)
 
@@ -79,7 +79,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
     logger.info("Starting up: Validating database...")
 
     try:
-        async with engine.begin() as conn:
+        async with get_engine().begin() as conn:
             # Check database connectivity
             await conn.execute(text("SELECT 1"))
             logger.info("✓ Database connection successful")
@@ -104,7 +104,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
 
     # Shutdown
     logger.info("Shutting down...")
-    await engine.dispose()
+    await get_engine().dispose()
     logger.info("✓ Shutdown complete")
 
 

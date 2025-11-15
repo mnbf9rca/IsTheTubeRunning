@@ -1,7 +1,7 @@
 """Tests for database configuration and session management."""
 
 import pytest
-from app.core.database import AsyncSessionLocal, engine, get_db
+from app.core.database import get_db, get_engine, get_session_factory
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -11,15 +11,17 @@ class TestDatabaseConfiguration:
 
     def test_engine_configuration(self) -> None:
         """Test that engine is properly configured."""
+        engine = get_engine()
         assert engine is not None
         assert engine.url.drivername == "postgresql+asyncpg"
 
     def test_session_maker_configuration(self) -> None:
         """Test that session maker is properly configured."""
-        assert AsyncSessionLocal is not None
-        assert AsyncSessionLocal.kw["expire_on_commit"] is False
-        assert AsyncSessionLocal.kw["autocommit"] is False
-        assert AsyncSessionLocal.kw["autoflush"] is False
+        session_factory = get_session_factory()
+        assert session_factory is not None
+        assert session_factory.kw["expire_on_commit"] is False
+        assert session_factory.kw["autocommit"] is False
+        assert session_factory.kw["autoflush"] is False
 
 
 class TestGetDb:

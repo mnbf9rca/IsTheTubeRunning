@@ -136,6 +136,71 @@ See `docs/celery-fork-safety.md` for implementation details.
 
 ---
 
+## FastAPI Worker Fork Safety
+
+### Status
+Active (Implemented 2025-11-15, Issue #151)
+
+### Context
+FastAPI deployed with multiple uvicorn workers (`--workers > 1`) uses `os.fork()` to create worker processes. Similar to Celery workers, if SQLAlchemy async engine is created at module import time, forked workers inherit the parent's engine with asyncio primitives (Queue objects) bound to the parent's event loop. This can cause asyncpg InterfaceError and RuntimeError when workers try to use the inherited engine.
+
+**Key Difference from Celery:** FastAPI workers use the same event loop for all requests within a worker process. They do NOT create a fresh event loop per request. This makes the fork safety solution simpler than Celery's.
+
+**Related ADRs:**
+- ADR 08 "Worker Pool Fork Safety" (Celery) - Similar issue, more complex solution
+- ADR 10 "NullPool for Async Test Isolation" - Event loop binding in pytest-asyncio
+
+### Decision
+Use lazy engine initialization only (no per-request reset needed):
+1. Module-level `_engine` and `_session_factory` globals initialized to None
+2. `get_engine()` function creates engine on first access
+3. `get_session_factory()` function creates session factory on first access
+4. `get_db()` dependency uses `get_session_factory()` instead of global import
+
+This prevents forked worker processes from inheriting the parent's engine. Each worker creates its own engine when first accessed, binding asyncio primitives to the worker's event loop.
+
+**Implementation:**
+```python
+# app/core/database.py
+_engine: AsyncEngine | None = None
+_session_factory: async_sessionmaker[AsyncSession] | None = None
+
+def get_engine() -> AsyncEngine:
+    global _engine
+    if _engine is None:
+        if settings.DEBUG:
+            _engine = create_async_engine(
+                settings.DATABASE_URL,
+                echo=settings.DATABASE_ECHO,
+                poolclass=NullPool,
+            )
+        else:
+            _engine = create_async_engine(
+                settings.DATABASE_URL,
+                echo=settings.DATABASE_ECHO,
+                pool_size=settings.DATABASE_POOL_SIZE,
+                max_overflow=settings.DATABASE_MAX_OVERFLOW,
+            )
+    return _engine
+```
+
+**Why no per-request reset?** Unlike Celery tasks which use `run_in_isolated_loop()` (fresh event loop per task), FastAPI workers use one event loop for all requests in that worker process. The engine only needs to bind to the worker's event loop once.
+
+### Consequences
+**Easier:**
+- Safe deployment with multiple uvicorn workers (`--workers > 1`)
+- Consistent fork safety pattern across FastAPI and Celery
+- Production-ready with connection pooling (`pool_size`, `max_overflow`)
+- Single-process development still works (engine created on first request)
+- Simpler than Celery solution (no per-request reset needed)
+
+**More Difficult:**
+- One additional function call per engine access (`get_engine()` instead of `engine`)
+- Must import `get_engine()` instead of `engine` directly
+- Slightly more complex than import-time initialization
+
+---
+
 ## Route Index Rebuilding Strategy
 
 ### Status
