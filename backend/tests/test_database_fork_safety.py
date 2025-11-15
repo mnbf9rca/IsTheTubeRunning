@@ -1,5 +1,7 @@
 """Tests for database fork safety (lazy initialization pattern)."""
 
+import threading
+
 import pytest
 from app.core import database as database_module
 from app.core.config import settings
@@ -79,6 +81,96 @@ class TestLazyInitialization:
         # Now engine should also be created
         assert database_module._engine is not None
         assert session_factory is not None
+
+    def test_concurrent_engine_initialization_is_thread_safe(self) -> None:
+        """Test that concurrent calls to get_engine() create only one instance.
+
+        This test verifies the double-checked locking pattern works correctly
+        under concurrent access by multiple threads.
+        """
+        num_threads = 10
+        barrier = threading.Barrier(num_threads)
+        engines = []
+        errors = []
+
+        def get_engine_with_barrier() -> None:
+            """Thread function that waits at barrier then gets engine."""
+            try:
+                # Wait for all threads to be ready
+                barrier.wait()
+                # All threads call get_engine() simultaneously
+                engine = get_engine()
+                engines.append(engine)
+            except Exception as e:
+                errors.append(e)
+
+        # Create and start threads
+        threads = [threading.Thread(target=get_engine_with_barrier) for _ in range(num_threads)]
+        for thread in threads:
+            thread.start()
+
+        # Wait for all threads to complete
+        for thread in threads:
+            thread.join()
+
+        # Verify no errors occurred
+        assert len(errors) == 0, f"Errors occurred in threads: {errors}"
+
+        # Verify all threads got engines
+        assert len(engines) == num_threads
+
+        # Verify all threads got the SAME engine instance (singleton)
+        first_engine = engines[0]
+        for engine in engines:
+            assert engine is first_engine, "Threads got different engine instances!"
+
+        # Verify the module-level global is the same instance
+        assert database_module._engine is first_engine
+
+    def test_concurrent_session_factory_initialization_is_thread_safe(self) -> None:
+        """Test that concurrent calls to get_session_factory() create only one instance.
+
+        This test verifies the double-checked locking pattern works correctly
+        under concurrent access by multiple threads.
+        """
+        num_threads = 10
+        barrier = threading.Barrier(num_threads)
+        factories = []
+        errors = []
+
+        def get_factory_with_barrier() -> None:
+            """Thread function that waits at barrier then gets session factory."""
+            try:
+                # Wait for all threads to be ready
+                barrier.wait()
+                # All threads call get_session_factory() simultaneously
+                factory = get_session_factory()
+                factories.append(factory)
+            except Exception as e:
+                errors.append(e)
+
+        # Create and start threads
+        threads = [threading.Thread(target=get_factory_with_barrier) for _ in range(num_threads)]
+        for thread in threads:
+            thread.start()
+
+        # Wait for all threads to complete
+        for thread in threads:
+            thread.join()
+
+        # Verify no errors occurred
+        assert len(errors) == 0, f"Errors occurred in threads: {errors}"
+
+        # Verify all threads got session factories
+        assert len(factories) == num_threads
+
+        # Verify all threads got the SAME session factory instance (singleton)
+        first_factory = factories[0]
+        for factory in factories:
+            assert factory is first_factory, "Threads got different session factory instances!"
+
+        # Verify the module-level global is the same instance
+        assert database_module._session_factory is first_factory
 
 
 class TestPoolConfiguration:
