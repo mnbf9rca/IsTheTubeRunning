@@ -171,13 +171,13 @@ async def test_engagement_metrics_requires_admin(
 async def test_list_users_empty(
     async_client_with_db: AsyncClient,
     admin_user: tuple[User, Any],
-    admin_headers: dict[str, str],
+    auth_headers_for_user: dict[str, str],
     db_session: AsyncSession,
 ) -> None:
     """Test listing users when only admin exists."""
     response = await async_client_with_db.get(
         build_api_url("/admin/users"),
-        headers=admin_headers,
+        headers=auth_headers_for_user,
     )
 
     assert response.status_code == 200
@@ -192,7 +192,7 @@ async def test_list_users_empty(
 async def test_list_users_with_contacts(
     async_client_with_db: AsyncClient,
     admin_user: tuple[User, Any],
-    admin_headers: dict[str, str],
+    auth_headers_for_user: dict[str, str],
     another_user: User,
     db_session: AsyncSession,
 ) -> None:
@@ -216,7 +216,7 @@ async def test_list_users_with_contacts(
 
     response = await async_client_with_db.get(
         build_api_url("/admin/users"),
-        headers=admin_headers,
+        headers=auth_headers_for_user,
     )
 
     assert response.status_code == 200
@@ -238,7 +238,7 @@ async def test_list_users_with_contacts(
 async def test_list_users_with_multiple_contacts(
     async_client_with_db: AsyncClient,
     admin_user: tuple[User, Any],
-    admin_headers: dict[str, str],
+    auth_headers_for_user: dict[str, str],
     another_user: User,
     db_session: AsyncSession,
 ) -> None:
@@ -282,7 +282,7 @@ async def test_list_users_with_multiple_contacts(
 
     response = await async_client_with_db.get(
         build_api_url("/admin/users"),
-        headers=admin_headers,
+        headers=auth_headers_for_user,
     )
 
     assert response.status_code == 200
@@ -322,7 +322,7 @@ async def test_list_users_with_multiple_contacts(
 async def test_list_users_pagination(
     async_client_with_db: AsyncClient,
     admin_user: tuple[User, Any],
-    admin_headers: dict[str, str],
+    auth_headers_for_user: dict[str, str],
     db_session: AsyncSession,
 ) -> None:
     """Test user listing pagination."""
@@ -335,7 +335,7 @@ async def test_list_users_pagination(
     # Test with limit=2
     response = await async_client_with_db.get(
         build_api_url("/admin/users?limit=2&offset=0"),
-        headers=admin_headers,
+        headers=auth_headers_for_user,
     )
 
     assert response.status_code == 200
@@ -348,7 +348,7 @@ async def test_list_users_pagination(
     # Test offset
     response = await async_client_with_db.get(
         build_api_url("/admin/users?limit=2&offset=2"),
-        headers=admin_headers,
+        headers=auth_headers_for_user,
     )
 
     assert response.status_code == 200
@@ -361,7 +361,7 @@ async def test_list_users_pagination(
 async def test_list_users_search_by_email(
     async_client_with_db: AsyncClient,
     admin_user: tuple[User, Any],
-    admin_headers: dict[str, str],
+    auth_headers_for_user: dict[str, str],
     test_user: User,
     db_session: AsyncSession,
 ) -> None:
@@ -378,7 +378,7 @@ async def test_list_users_search_by_email(
 
     response = await async_client_with_db.get(
         build_api_url("/admin/users?search=searchable"),
-        headers=admin_headers,
+        headers=auth_headers_for_user,
     )
 
     assert response.status_code == 200
@@ -391,13 +391,13 @@ async def test_list_users_search_by_email(
 async def test_list_users_search_by_external_id(
     async_client_with_db: AsyncClient,
     admin_user: tuple[User, Any],
-    admin_headers: dict[str, str],
+    auth_headers_for_user: dict[str, str],
     test_user: User,
 ) -> None:
     """Test searching users by external_id."""
     response = await async_client_with_db.get(
         build_api_url(f"/admin/users?search={test_user.external_id[:10]}"),
-        headers=admin_headers,
+        headers=auth_headers_for_user,
     )
 
     assert response.status_code == 200
@@ -410,7 +410,7 @@ async def test_list_users_search_by_external_id(
 async def test_list_users_exclude_deleted(
     async_client_with_db: AsyncClient,
     admin_user: tuple[User, Any],
-    admin_headers: dict[str, str],
+    auth_headers_for_user: dict[str, str],
     db_session: AsyncSession,
 ) -> None:
     """Test that deleted users are excluded by default."""
@@ -425,7 +425,7 @@ async def test_list_users_exclude_deleted(
 
     response = await async_client_with_db.get(
         build_api_url("/admin/users"),
-        headers=admin_headers,
+        headers=auth_headers_for_user,
     )
 
     assert response.status_code == 200
@@ -437,7 +437,7 @@ async def test_list_users_exclude_deleted(
 async def test_list_users_include_deleted(
     async_client_with_db: AsyncClient,
     admin_user: tuple[User, Any],
-    admin_headers: dict[str, str],
+    auth_headers_for_user: dict[str, str],
     db_session: AsyncSession,
 ) -> None:
     """Test including deleted users with include_deleted=true."""
@@ -452,7 +452,7 @@ async def test_list_users_include_deleted(
 
     response = await async_client_with_db.get(
         build_api_url("/admin/users?include_deleted=true"),
-        headers=admin_headers,
+        headers=auth_headers_for_user,
     )
 
     assert response.status_code == 200
@@ -474,7 +474,7 @@ async def test_list_users_include_deleted(
 async def test_get_user_details_success(
     async_client_with_db: AsyncClient,
     admin_user: tuple[User, Any],
-    admin_headers: dict[str, str],
+    auth_headers_for_user: dict[str, str],
     test_user: User,
     db_session: AsyncSession,
 ) -> None:
@@ -498,7 +498,7 @@ async def test_get_user_details_success(
 
     response = await async_client_with_db.get(
         build_api_url(f"/admin/users/{test_user.id}"),
-        headers=admin_headers,
+        headers=auth_headers_for_user,
     )
 
     assert response.status_code == 200
@@ -518,13 +518,13 @@ async def test_get_user_details_success(
 async def test_get_user_details_not_found(
     async_client_with_db: AsyncClient,
     admin_user: tuple[User, Any],
-    admin_headers: dict[str, str],
+    auth_headers_for_user: dict[str, str],
 ) -> None:
     """Test getting details for non-existent user."""
     fake_id = uuid4()
     response = await async_client_with_db.get(
         build_api_url(f"/admin/users/{fake_id}"),
-        headers=admin_headers,
+        headers=auth_headers_for_user,
     )
 
     assert response.status_code == 404
@@ -538,7 +538,7 @@ async def test_get_user_details_not_found(
 async def test_anonymise_user_success(
     async_client_with_db: AsyncClient,
     admin_user: tuple[User, Any],
-    admin_headers: dict[str, str],
+    auth_headers_for_user: dict[str, str],
     db_session: AsyncSession,
 ) -> None:
     """Test successful user anonymisation."""
@@ -577,7 +577,7 @@ async def test_anonymise_user_success(
 
     response = await async_client_with_db.delete(
         build_api_url(f"/admin/users/{user.id}"),
-        headers=admin_headers,
+        headers=auth_headers_for_user,
     )
 
     assert response.status_code == 200
@@ -612,13 +612,13 @@ async def test_anonymise_user_success(
 async def test_anonymise_user_not_found(
     async_client_with_db: AsyncClient,
     admin_user: tuple[User, Any],
-    admin_headers: dict[str, str],
+    auth_headers_for_user: dict[str, str],
 ) -> None:
     """Test anonymising non-existent user."""
     fake_id = uuid4()
     response = await async_client_with_db.delete(
         build_api_url(f"/admin/users/{fake_id}"),
-        headers=admin_headers,
+        headers=auth_headers_for_user,
     )
 
     assert response.status_code == 404
@@ -629,7 +629,7 @@ async def test_anonymise_user_not_found(
 async def test_anonymise_user_already_deleted(
     async_client_with_db: AsyncClient,
     admin_user: tuple[User, Any],
-    admin_headers: dict[str, str],
+    auth_headers_for_user: dict[str, str],
     db_session: AsyncSession,
 ) -> None:
     """Test anonymising already deleted user."""
@@ -644,7 +644,7 @@ async def test_anonymise_user_already_deleted(
 
     response = await async_client_with_db.delete(
         build_api_url(f"/admin/users/{user.id}"),
-        headers=admin_headers,
+        headers=auth_headers_for_user,
     )
 
     assert response.status_code == 400
@@ -658,12 +658,12 @@ async def test_anonymise_user_already_deleted(
 async def test_engagement_metrics_empty_database(
     async_client_with_db: AsyncClient,
     admin_user: tuple[User, Any],
-    admin_headers: dict[str, str],
+    auth_headers_for_user: dict[str, str],
 ) -> None:
     """Test engagement metrics with minimal data."""
     response = await async_client_with_db.get(
         build_api_url("/admin/analytics/engagement"),
-        headers=admin_headers,
+        headers=auth_headers_for_user,
     )
 
     assert response.status_code == 200
@@ -703,7 +703,7 @@ async def test_engagement_metrics_empty_database(
 async def test_engagement_metrics_with_data(
     async_client_with_db: AsyncClient,
     admin_user: tuple[User, Any],
-    admin_headers: dict[str, str],
+    auth_headers_for_user: dict[str, str],
     another_user: User,
     db_session: AsyncSession,
 ) -> None:
@@ -760,7 +760,7 @@ async def test_engagement_metrics_with_data(
 
     response = await async_client_with_db.get(
         build_api_url("/admin/analytics/engagement"),
-        headers=admin_headers,
+        headers=auth_headers_for_user,
     )
 
     assert response.status_code == 200
@@ -786,7 +786,7 @@ async def test_engagement_metrics_with_data(
 async def test_engagement_metrics_notification_methods(
     async_client_with_db: AsyncClient,
     admin_user: tuple[User, Any],
-    admin_headers: dict[str, str],
+    auth_headers_for_user: dict[str, str],
     another_user: User,
     db_session: AsyncSession,
 ) -> None:
@@ -827,7 +827,7 @@ async def test_engagement_metrics_notification_methods(
 
     response = await async_client_with_db.get(
         build_api_url("/admin/analytics/engagement"),
-        headers=admin_headers,
+        headers=auth_headers_for_user,
     )
 
     assert response.status_code == 200
@@ -842,7 +842,7 @@ async def test_engagement_metrics_notification_methods(
 async def test_engagement_metrics_growth_tracking(
     async_client_with_db: AsyncClient,
     admin_user: tuple[User, Any],
-    admin_headers: dict[str, str],
+    auth_headers_for_user: dict[str, str],
     db_session: AsyncSession,
 ) -> None:
     """Test growth metrics track new users correctly."""
@@ -868,7 +868,7 @@ async def test_engagement_metrics_growth_tracking(
 
     response = await async_client_with_db.get(
         build_api_url("/admin/analytics/engagement"),
-        headers=admin_headers,
+        headers=auth_headers_for_user,
     )
 
     assert response.status_code == 200
