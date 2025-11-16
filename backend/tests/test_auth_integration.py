@@ -9,6 +9,7 @@ from unittest.mock import AsyncMock
 import pytest
 from app.core.database import get_db
 from app.main import app
+from app.models.admin import AdminUser
 from app.models.user import User
 from fastapi.testclient import TestClient
 from freezegun import freeze_time
@@ -176,6 +177,8 @@ class TestAuthMeEndpoint:
                 assert "id" in data
                 assert "created_at" in data
                 assert "updated_at" in data
+                assert "is_admin" in data
+                assert data["is_admin"] is False  # New users are not admin by default
                 assert "external_id" not in data
                 assert "auth_provider" not in data
         finally:
@@ -212,6 +215,94 @@ class TestAuthMeEndpoint:
                 assert data["id"] == str(existing_user.id)
                 assert "created_at" in data
                 assert "updated_at" in data
+                assert "is_admin" in data
+                assert data["is_admin"] is False  # Regular user is not admin
+                assert "external_id" not in data
+                assert "auth_provider" not in data
+        finally:
+            # Clean up override
+            app.dependency_overrides.clear()
+
+    @pytest.mark.asyncio
+    async def test_get_me_returns_admin_true_for_admin_users(
+        self, db_session: AsyncSession, admin_user: tuple[User, AdminUser], auth_headers_for_user: dict[str, str]
+    ) -> None:
+        """Test /auth/me returns is_admin=true for admin users."""
+        test_user, _admin_record = admin_user
+
+        # Override database dependency to use test database
+        async def override_get_db() -> AsyncGenerator[AsyncSession]:
+            yield db_session
+
+        app.dependency_overrides[get_db] = override_get_db
+
+        try:
+            async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+                response = await client.get("/api/v1/auth/me", headers=auth_headers_for_user)
+
+                assert response.status_code == 200
+                data = response.json()
+                assert data["id"] == str(test_user.id)
+                assert data["is_admin"] is True  # Admin user returns True
+                assert "created_at" in data
+                assert "updated_at" in data
+        finally:
+            # Clean up override
+            app.dependency_overrides.clear()
+
+    @pytest.mark.asyncio
+    async def test_get_me_returns_admin_false_for_non_admin_users(
+        self, db_session: AsyncSession, test_user: User, auth_headers_for_user: dict[str, str]
+    ) -> None:
+        """Test /auth/me returns is_admin=false for non-admin users."""
+        # test_user fixture is a regular user (not admin)
+
+        # Override database dependency to use test database
+        async def override_get_db() -> AsyncGenerator[AsyncSession]:
+            yield db_session
+
+        app.dependency_overrides[get_db] = override_get_db
+
+        try:
+            async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+                response = await client.get("/api/v1/auth/me", headers=auth_headers_for_user)
+
+                assert response.status_code == 200
+                data = response.json()
+                assert data["id"] == str(test_user.id)
+                assert data["is_admin"] is False  # Non-admin user returns False
+                assert "created_at" in data
+                assert "updated_at" in data
+        finally:
+            # Clean up override
+            app.dependency_overrides.clear()
+
+    @pytest.mark.asyncio
+    async def test_get_me_response_includes_all_expected_fields(
+        self, db_session: AsyncSession, test_user: User, auth_headers_for_user: dict[str, str]
+    ) -> None:
+        """Test /auth/me response includes all expected fields."""
+
+        # Override database dependency to use test database
+        async def override_get_db() -> AsyncGenerator[AsyncSession]:
+            yield db_session
+
+        app.dependency_overrides[get_db] = override_get_db
+
+        try:
+            async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+                response = await client.get("/api/v1/auth/me", headers=auth_headers_for_user)
+
+                assert response.status_code == 200
+                data = response.json()
+
+                # Expected fields
+                assert "id" in data
+                assert "created_at" in data
+                assert "updated_at" in data
+                assert "is_admin" in data  # NEW field
+
+                # Should NOT include these fields (security)
                 assert "external_id" not in data
                 assert "auth_provider" not in data
         finally:
