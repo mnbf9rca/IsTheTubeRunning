@@ -22,10 +22,20 @@ interface UserTableProps {
 }
 
 /**
- * Truncate UUID to first 8 characters for display
+ * Truncate UUID to first 12 characters for display (better visibility)
  */
 function truncateId(id: string): string {
-  return id.substring(0, 8) + '...'
+  return id.substring(0, 12) + '...'
+}
+
+/**
+ * Truncate external ID for display (Auth0 IDs can be long)
+ */
+function truncateExternalId(externalId: string): string {
+  if (externalId.length <= 24) {
+    return externalId
+  }
+  return externalId.substring(0, 24) + '...'
 }
 
 /**
@@ -59,7 +69,8 @@ function formatDate(dateString: string): string {
  * Table component for displaying users with actions
  *
  * Displays paginated list of users with:
- * - User ID (truncated with copy button)
+ * - Internal ID (internal UUID, truncated with copy button)
+ * - External ID (Auth0 user ID)
  * - Auth Provider
  * - Email addresses with verified badges
  * - Phone numbers with verified badges
@@ -105,36 +116,42 @@ export function UserTable({ users, loading, onViewDetails, onAnonymize }: UserTa
   }
 
   return (
-    <div className="rounded-md border">
+    <div className="rounded-md border overflow-x-auto">
       <Table>
         <TableHeader>
           <TableRow>
-            <TableHead className="w-[140px]">User ID</TableHead>
-            <TableHead>Provider</TableHead>
-            <TableHead>Emails</TableHead>
-            <TableHead>Phones</TableHead>
-            <TableHead>Created</TableHead>
-            <TableHead>Status</TableHead>
-            <TableHead className="text-right">Actions</TableHead>
+            <TableHead className="w-[160px]">Internal ID</TableHead>
+            <TableHead className="w-[240px]">External ID</TableHead>
+            <TableHead className="w-[90px]">Provider</TableHead>
+            <TableHead className="min-w-[200px]">Emails</TableHead>
+            <TableHead className="min-w-[150px]">Phones</TableHead>
+            <TableHead className="w-[120px]">Created</TableHead>
+            <TableHead className="w-[90px]">Status</TableHead>
+            <TableHead className="w-[220px] text-right">Actions</TableHead>
           </TableRow>
         </TableHeader>
         <TableBody>
           {users.map((user) => (
             <TableRow key={user.id}>
-              {/* User ID with copy button */}
+              {/* Internal UUID with copy button */}
               <TableCell className="font-mono text-xs">
-                <div className="flex items-center gap-2">
+                <div className="flex items-center gap-1">
                   <span title={user.id}>{truncateId(user.id)}</span>
                   <Button
                     variant="ghost"
                     size="sm"
                     className="h-6 w-6 p-0"
                     onClick={() => handleCopyId(user.id)}
-                    title="Copy full ID"
+                    title="Copy full UUID"
                   >
                     <Copy className={`h-3 w-3 ${copiedId === user.id ? 'text-green-600' : ''}`} />
                   </Button>
                 </div>
+              </TableCell>
+
+              {/* External ID (Auth0 user ID) */}
+              <TableCell className="font-mono text-xs">
+                <span title={user.external_id}>{truncateExternalId(user.external_id)}</span>
               </TableCell>
 
               {/* Auth Provider */}

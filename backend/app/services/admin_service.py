@@ -4,7 +4,7 @@ import uuid
 from datetime import UTC, datetime, timedelta
 
 from fastapi import HTTPException, status
-from sqlalchemy import and_, delete, func, or_, select, update
+from sqlalchemy import String, and_, delete, func, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -83,7 +83,7 @@ class AdminService:
         Args:
             limit: Maximum number of users to return (1-1000)
             offset: Number of users to skip
-            search: Optional search term (searches email and external_id)
+            search: Optional search term (searches UUID, email, phone, and external_id)
             include_deleted: Whether to include soft-deleted users
 
         Returns:
@@ -98,12 +98,18 @@ class AdminService:
 
         # Apply search if provided
         if search:
-            # Search in external_id or email addresses
+            # Search in UUID (cast to text for partial matching), external_id, email, or phone
             search_term = f"%{search}%"
-            count_query = count_query.outerjoin(User.email_addresses).where(
-                or_(
-                    User.external_id.ilike(search_term),
-                    EmailAddress.email.ilike(search_term),
+            count_query = (
+                count_query.outerjoin(User.email_addresses)
+                .outerjoin(User.phone_numbers)
+                .where(
+                    or_(
+                        func.cast(User.id, String).ilike(search_term),
+                        User.external_id.ilike(search_term),
+                        EmailAddress.email.ilike(search_term),
+                        PhoneNumber.phone.ilike(search_term),
+                    )
                 )
             )
 
@@ -125,10 +131,13 @@ class AdminService:
             search_term = f"%{search}%"
             query = (
                 query.outerjoin(User.email_addresses)
+                .outerjoin(User.phone_numbers)
                 .where(
                     or_(
+                        func.cast(User.id, String).ilike(search_term),
                         User.external_id.ilike(search_term),
                         EmailAddress.email.ilike(search_term),
+                        PhoneNumber.phone.ilike(search_term),
                     )
                 )
                 .distinct()

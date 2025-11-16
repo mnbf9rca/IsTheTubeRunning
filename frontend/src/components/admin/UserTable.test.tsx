@@ -80,6 +80,10 @@ describe('UserTable', () => {
       // Check emails/phones
       expect(screen.getByText('user1@example.com')).toBeInTheDocument()
       expect(screen.getByText('+442012345678')).toBeInTheDocument()
+
+      // Check external IDs are displayed
+      expect(screen.getByText('auth0|123')).toBeInTheDocument()
+      expect(screen.getByText('auth0|456')).toBeInTheDocument()
     })
 
     it('should show verified badges for verified contacts', () => {
@@ -190,7 +194,7 @@ describe('UserTable', () => {
         />
       )
 
-      const copyButtons = screen.getAllByTitle('Copy full ID')
+      const copyButtons = screen.getAllByTitle('Copy full UUID')
       await user.click(copyButtons[0])
 
       await waitFor(() => {
@@ -220,7 +224,7 @@ describe('UserTable', () => {
         />
       )
 
-      const copyButtons = screen.getAllByTitle('Copy full ID')
+      const copyButtons = screen.getAllByTitle('Copy full UUID')
       await user.click(copyButtons[0])
 
       await waitFor(() => {
