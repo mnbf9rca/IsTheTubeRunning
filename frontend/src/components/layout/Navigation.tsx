@@ -1,6 +1,7 @@
 import { Link, useLocation } from 'react-router-dom'
-import { Home, MapPin, Bell, Contact } from 'lucide-react'
+import { Home, MapPin, Bell, Contact, Shield } from 'lucide-react'
 import { cn } from '@/lib/utils'
+import { useAdminCheck } from '@/hooks/useAdminCheck'
 
 const navItems = [
   {
@@ -27,6 +28,7 @@ const navItems = [
 
 export const Navigation = () => {
   const location = useLocation()
+  const { isAdmin } = useAdminCheck()
 
   return (
     <nav className="flex flex-col space-y-2 md:flex-row md:space-y-0 md:space-x-6">
@@ -47,6 +49,18 @@ export const Navigation = () => {
           </Link>
         )
       })}
+      {isAdmin && (
+        <Link
+          to="/admin"
+          className={cn(
+            'flex items-center space-x-2 text-sm font-medium transition-colors hover:text-primary',
+            location.pathname.startsWith('/admin') ? 'text-primary' : 'text-muted-foreground'
+          )}
+        >
+          <Shield className="h-4 w-4" />
+          <span>Admin</span>
+        </Link>
+      )}
     </nav>
   )
 }

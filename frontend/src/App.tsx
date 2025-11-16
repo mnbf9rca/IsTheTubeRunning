@@ -2,6 +2,7 @@ import { useEffect } from 'react'
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
 import { AppLayout } from './components/layout/AppLayout'
 import { ProtectedRoute } from './components/ProtectedRoute'
+import { AdminRoute } from './components/AdminRoute'
 import { BackendAuthProvider } from './contexts/BackendAuthContext'
 import {
   BackendAvailabilityProvider,
@@ -81,6 +82,65 @@ function AppRoutes() {
                 <ProtectedRoute>
                   <RouteDetails />
                 </ProtectedRoute>
+              }
+            />
+
+            {/* Admin routes */}
+            <Route path="/admin" element={<Navigate to="/admin/users" replace />} />
+            <Route
+              path="/admin/users"
+              element={
+                <AdminRoute>
+                  <div className="flex min-h-screen items-center justify-center">
+                    <div className="text-center">
+                      <h1 className="text-2xl font-bold">Admin Users</h1>
+                      <p className="text-muted-foreground">User management page (placeholder)</p>
+                    </div>
+                  </div>
+                </AdminRoute>
+              }
+            />
+            <Route
+              path="/admin/analytics"
+              element={
+                <AdminRoute>
+                  <div className="flex min-h-screen items-center justify-center">
+                    <div className="text-center">
+                      <h1 className="text-2xl font-bold">Admin Analytics</h1>
+                      <p className="text-muted-foreground">Analytics dashboard (placeholder)</p>
+                    </div>
+                  </div>
+                </AdminRoute>
+              }
+            />
+            <Route
+              path="/admin/logs"
+              element={
+                <AdminRoute>
+                  <div className="flex min-h-screen items-center justify-center">
+                    <div className="text-center">
+                      <h1 className="text-2xl font-bold">Admin Logs</h1>
+                      <p className="text-muted-foreground">
+                        Notification logs viewer (placeholder)
+                      </p>
+                    </div>
+                  </div>
+                </AdminRoute>
+              }
+            />
+            <Route
+              path="/admin/actions"
+              element={
+                <AdminRoute>
+                  <div className="flex min-h-screen items-center justify-center">
+                    <div className="text-center">
+                      <h1 className="text-2xl font-bold">Admin Actions</h1>
+                      <p className="text-muted-foreground">
+                        Administrative actions page (placeholder)
+                      </p>
+                    </div>
+                  </div>
+                </AdminRoute>
               }
             />
 

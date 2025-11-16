@@ -192,6 +192,7 @@ export interface UserResponse {
   id: string
   created_at: string
   updated_at: string
+  is_admin: boolean
 }
 
 /**
@@ -938,4 +939,367 @@ export async function validateRoute(
     throw new ApiError(204, 'Unexpected 204 response from validate-route endpoint')
   }
   return response
+}
+
+// ============================================================================
+// Admin API Types & Functions
+// ============================================================================
+
+// ----------------------------------------------------------------------------
+// Admin Route Index Management
+// ----------------------------------------------------------------------------
+
+export interface RebuildIndexesResponse {
+  success: boolean
+  rebuilt_count: number
+  failed_count: number
+  errors: string[]
+}
+
+// ----------------------------------------------------------------------------
+// Admin TfL Metadata Management
+// ----------------------------------------------------------------------------
+
+export interface SyncMetadataResponse {
+  success: boolean
+  message: string
+  severity_codes_count: number
+  disruption_categories_count: number
+  stop_types_count: number
+}
+
+export interface BuildGraphResponse {
+  success: boolean
+  message: string
+  lines_count: number
+  stations_count: number
+  connections_count: number
+  hubs_count: number
+}
+
+// ----------------------------------------------------------------------------
+// Admin Alert Management
+// ----------------------------------------------------------------------------
+
+export interface TriggerCheckResponse {
+  success: boolean
+  message: string
+  routes_checked: number
+  alerts_sent: number
+  errors: number
+}
+
+export interface WorkerStatusResponse {
+  worker_available: boolean
+  active_tasks: number
+  scheduled_tasks: number
+  last_heartbeat: string | null
+  message: string
+}
+
+export type NotificationStatus = 'sent' | 'failed' | 'pending'
+
+export interface NotificationLogItem {
+  id: string
+  user_id: string
+  route_id: string
+  sent_at: string
+  method: NotificationMethod
+  status: NotificationStatus
+  error_message: string | null
+}
+
+export interface RecentLogsResponse {
+  total: number
+  logs: NotificationLogItem[]
+  limit: number
+  offset: number
+}
+
+// ----------------------------------------------------------------------------
+// Admin User Management
+// ----------------------------------------------------------------------------
+
+export interface EmailAddressItem {
+  id: string
+  email: string
+  verified: boolean
+  is_primary: boolean
+}
+
+export interface PhoneNumberItem {
+  id: string
+  phone: string
+  verified: boolean
+  is_primary: boolean
+}
+
+export interface UserListItem {
+  id: string
+  external_id: string
+  auth_provider: string
+  created_at: string
+  updated_at: string
+  deleted_at: string | null
+  email_addresses: EmailAddressItem[]
+  phone_numbers: PhoneNumberItem[]
+}
+
+export interface PaginatedUsersResponse {
+  total: number
+  users: UserListItem[]
+  limit: number
+  offset: number
+}
+
+export interface UserDetailResponse {
+  id: string
+  external_id: string
+  auth_provider: string
+  created_at: string
+  updated_at: string
+  deleted_at: string | null
+  email_addresses: EmailAddressItem[]
+  phone_numbers: PhoneNumberItem[]
+}
+
+export interface AnonymiseUserResponse {
+  success: boolean
+  message: string
+  user_id: string
+}
+
+// ----------------------------------------------------------------------------
+// Admin Analytics
+// ----------------------------------------------------------------------------
+
+export interface UserCountMetrics {
+  total_users: number
+  active_users: number
+  users_with_verified_email: number
+  users_with_verified_phone: number
+  admin_users: number
+}
+
+export interface RouteStatMetrics {
+  total_routes: number
+  active_routes: number
+  avg_routes_per_user: number
+}
+
+export interface NotificationStatMetrics {
+  total_sent: number
+  successful: number
+  failed: number
+  success_rate: number
+  by_method_last_30_days: Record<string, number>
+}
+
+export interface DailySignup {
+  date: string
+  count: number
+}
+
+export interface GrowthMetrics {
+  new_users_last_7_days: number
+  new_users_last_30_days: number
+  daily_signups_last_7_days: DailySignup[]
+}
+
+export interface EngagementMetrics {
+  user_counts: UserCountMetrics
+  route_stats: RouteStatMetrics
+  notification_stats: NotificationStatMetrics
+  growth_metrics: GrowthMetrics
+}
+
+// ----------------------------------------------------------------------------
+// Admin API Functions
+// ----------------------------------------------------------------------------
+
+/**
+ * Helper to assert that a response is not null (204 No Content)
+ *
+ * Admin endpoints should always return data. A 204 response is unexpected
+ * and indicates a misconfiguration or server error.
+ *
+ * @template T The expected response type
+ * @param response The response from fetchAPI
+ * @param endpointName Name of the endpoint for error message
+ * @returns The response if not null
+ * @throws {ApiError} If response is null (204)
+ */
+function assertResponse<T>(response: T | null, endpointName: string): T {
+  if (!response) {
+    throw new ApiError(204, `Unexpected 204 response from ${endpointName} endpoint`)
+  }
+  return response
+}
+
+/**
+ * Rebuild route alert indexes for efficient alert matching
+ *
+ * @param routeId Optional route ID to rebuild indexes for a specific route
+ * @returns Result with counts of rebuilt/failed indexes
+ * @throws {ApiError} 403 if not admin, or other server errors
+ */
+export async function rebuildRouteIndexes(routeId?: string): Promise<RebuildIndexesResponse> {
+  const searchParams = new URLSearchParams()
+  if (routeId) searchParams.append('route_id', routeId)
+
+  const endpoint = `/admin/routes/rebuild-indexes${
+    searchParams.toString() ? `?${searchParams.toString()}` : ''
+  }`
+  const response = await fetchAPI<RebuildIndexesResponse>(endpoint, {
+    method: 'POST',
+  })
+  return assertResponse(response, 'rebuild-indexes')
+}
+
+/**
+ * Build the TfL station connection graph
+ *
+ * Fetches all TfL lines and their stations, then builds the connection graph
+ * used for route validation.
+ *
+ * @returns Result with counts of lines, stations, connections, and hubs
+ * @throws {ApiError} 403 if not admin, or other server errors
+ */
+export async function buildStationGraph(): Promise<BuildGraphResponse> {
+  const response = await fetchAPI<BuildGraphResponse>('/admin/tfl/build-graph', {
+    method: 'POST',
+  })
+  return assertResponse(response, 'build-graph')
+}
+
+/**
+ * Sync TfL metadata (severity codes, disruption categories, stop types)
+ *
+ * @returns Result with counts of synced metadata items
+ * @throws {ApiError} 403 if not admin, or other server errors
+ */
+export async function syncTflMetadata(): Promise<SyncMetadataResponse> {
+  const response = await fetchAPI<SyncMetadataResponse>('/admin/tfl/sync-metadata', {
+    method: 'POST',
+  })
+  return assertResponse(response, 'sync-metadata')
+}
+
+/**
+ * Manually trigger an alert check for all active routes
+ *
+ * @returns Result with counts of routes checked and alerts sent
+ * @throws {ApiError} 403 if not admin, or other server errors
+ */
+export async function triggerAlertCheck(): Promise<TriggerCheckResponse> {
+  const response = await fetchAPI<TriggerCheckResponse>('/admin/alerts/trigger-check', {
+    method: 'POST',
+  })
+  return assertResponse(response, 'trigger-check')
+}
+
+/**
+ * Get Celery worker status
+ *
+ * @returns Worker availability, task counts, and last heartbeat
+ * @throws {ApiError} 403 if not admin, or other server errors
+ */
+export async function getWorkerStatus(): Promise<WorkerStatusResponse> {
+  const response = await fetchAPI<WorkerStatusResponse>('/admin/alerts/worker-status')
+  return assertResponse(response, 'worker-status')
+}
+
+export interface RecentLogsParams {
+  limit?: number
+  offset?: number
+  status?: NotificationStatus
+}
+
+/**
+ * Get recent notification logs with pagination and optional status filter
+ *
+ * @param params Pagination and filter parameters
+ * @returns Paginated list of notification logs
+ * @throws {ApiError} 403 if not admin, or other server errors
+ */
+export async function getRecentLogs(params?: RecentLogsParams): Promise<RecentLogsResponse> {
+  const searchParams = new URLSearchParams()
+  if (params?.limit) searchParams.append('limit', params.limit.toString())
+  if (params?.offset) searchParams.append('offset', params.offset.toString())
+  if (params?.status) searchParams.append('status', params.status)
+
+  const endpoint = `/admin/alerts/recent-logs${
+    searchParams.toString() ? `?${searchParams.toString()}` : ''
+  }`
+  const response = await fetchAPI<RecentLogsResponse>(endpoint)
+  return assertResponse(response, 'recent-logs')
+}
+
+export interface AdminUsersParams {
+  limit?: number
+  offset?: number
+  search?: string
+  include_deleted?: boolean
+}
+
+/**
+ * Get paginated list of all users (admin only)
+ *
+ * @param params Pagination and filter parameters
+ * @returns Paginated list of users with contact info
+ * @throws {ApiError} 403 if not admin, or other server errors
+ */
+export async function getAdminUsers(params?: AdminUsersParams): Promise<PaginatedUsersResponse> {
+  const searchParams = new URLSearchParams()
+  if (params?.limit) searchParams.append('limit', params.limit.toString())
+  if (params?.offset) searchParams.append('offset', params.offset.toString())
+  if (params?.search) searchParams.append('search', params.search)
+  if (params?.include_deleted) searchParams.append('include_deleted', 'true')
+
+  const endpoint = `/admin/users${searchParams.toString() ? `?${searchParams.toString()}` : ''}`
+  const response = await fetchAPI<PaginatedUsersResponse>(endpoint)
+  return assertResponse(response, 'admin users')
+}
+
+/**
+ * Get detailed information for a specific user (admin only)
+ *
+ * @param userId User ID to fetch details for
+ * @returns User details with contact information
+ * @throws {ApiError} 403 if not admin, 404 if user not found, or other server errors
+ */
+export async function getAdminUser(userId: string): Promise<UserDetailResponse> {
+  const response = await fetchAPI<UserDetailResponse>(`/admin/users/${userId}`)
+  return assertResponse(response, 'admin user')
+}
+
+/**
+ * Anonymize a user (privacy-focused deletion)
+ *
+ * Removes all PII (emails, phones, verification codes), anonymizes external_id,
+ * and deactivates routes. Preserves analytics data.
+ *
+ * @param userId User ID to anonymize
+ * @returns Result with success status and message
+ * @throws {ApiError} 403 if not admin, 404 if user not found, or other server errors
+ */
+export async function anonymizeUser(userId: string): Promise<AnonymiseUserResponse> {
+  const response = await fetchAPI<AnonymiseUserResponse>(`/admin/users/${userId}`, {
+    method: 'DELETE',
+  })
+  return assertResponse(response, 'anonymize user')
+}
+
+/**
+ * Get engagement metrics and analytics (admin only)
+ *
+ * Returns comprehensive metrics including user counts, route stats,
+ * notification stats, and growth metrics.
+ *
+ * @returns Engagement metrics
+ * @throws {ApiError} 403 if not admin, or other server errors
+ */
+export async function getEngagementMetrics(): Promise<EngagementMetrics> {
+  const response = await fetchAPI<EngagementMetrics>('/admin/analytics/engagement')
+  return assertResponse(response, 'engagement metrics')
 }
