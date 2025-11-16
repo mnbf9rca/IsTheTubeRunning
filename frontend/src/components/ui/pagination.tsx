@@ -32,6 +32,21 @@ type PaginationLinkProps = {
 } & Pick<ButtonProps, 'size'> &
   React.ComponentProps<'a'>
 
+/**
+ * Pagination link component
+ *
+ * **IMPORTANT:** For accessibility, this component uses an anchor tag and requires
+ * an `href` attribute for navigation. If you need a non-navigation action (e.g.,
+ * a button that triggers a state change), use a `<button>` element instead.
+ *
+ * @example
+ * // Correct - with href for navigation
+ * <PaginationLink href="/page/2">2</PaginationLink>
+ *
+ * @example
+ * // For non-navigation actions, use button instead
+ * <button onClick={handlePageChange}>2</button>
+ */
 const PaginationLink = ({ className, isActive, size = 'icon', ...props }: PaginationLinkProps) => (
   <a
     aria-current={isActive ? 'page' : undefined}

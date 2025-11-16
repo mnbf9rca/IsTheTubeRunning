@@ -1118,6 +1118,25 @@ export interface EngagementMetrics {
 // ----------------------------------------------------------------------------
 
 /**
+ * Helper to assert that a response is not null (204 No Content)
+ *
+ * Admin endpoints should always return data. A 204 response is unexpected
+ * and indicates a misconfiguration or server error.
+ *
+ * @template T The expected response type
+ * @param response The response from fetchAPI
+ * @param endpointName Name of the endpoint for error message
+ * @returns The response if not null
+ * @throws {ApiError} If response is null (204)
+ */
+function assertResponse<T>(response: T | null, endpointName: string): T {
+  if (!response) {
+    throw new ApiError(204, `Unexpected 204 response from ${endpointName} endpoint`)
+  }
+  return response
+}
+
+/**
  * Rebuild route alert indexes for efficient alert matching
  *
  * @param routeId Optional route ID to rebuild indexes for a specific route
@@ -1134,10 +1153,7 @@ export async function rebuildRouteIndexes(routeId?: string): Promise<RebuildInde
   const response = await fetchAPI<RebuildIndexesResponse>(endpoint, {
     method: 'POST',
   })
-  if (!response) {
-    throw new ApiError(204, 'Unexpected 204 response from rebuild-indexes endpoint')
-  }
-  return response
+  return assertResponse(response, 'rebuild-indexes')
 }
 
 /**
@@ -1153,10 +1169,7 @@ export async function buildStationGraph(): Promise<BuildGraphResponse> {
   const response = await fetchAPI<BuildGraphResponse>('/admin/tfl/build-graph', {
     method: 'POST',
   })
-  if (!response) {
-    throw new ApiError(204, 'Unexpected 204 response from build-graph endpoint')
-  }
-  return response
+  return assertResponse(response, 'build-graph')
 }
 
 /**
@@ -1169,10 +1182,7 @@ export async function syncTflMetadata(): Promise<SyncMetadataResponse> {
   const response = await fetchAPI<SyncMetadataResponse>('/admin/tfl/sync-metadata', {
     method: 'POST',
   })
-  if (!response) {
-    throw new ApiError(204, 'Unexpected 204 response from sync-metadata endpoint')
-  }
-  return response
+  return assertResponse(response, 'sync-metadata')
 }
 
 /**
@@ -1185,10 +1195,7 @@ export async function triggerAlertCheck(): Promise<TriggerCheckResponse> {
   const response = await fetchAPI<TriggerCheckResponse>('/admin/alerts/trigger-check', {
     method: 'POST',
   })
-  if (!response) {
-    throw new ApiError(204, 'Unexpected 204 response from trigger-check endpoint')
-  }
-  return response
+  return assertResponse(response, 'trigger-check')
 }
 
 /**
@@ -1199,10 +1206,7 @@ export async function triggerAlertCheck(): Promise<TriggerCheckResponse> {
  */
 export async function getWorkerStatus(): Promise<WorkerStatusResponse> {
   const response = await fetchAPI<WorkerStatusResponse>('/admin/alerts/worker-status')
-  if (!response) {
-    throw new ApiError(204, 'Unexpected 204 response from worker-status endpoint')
-  }
-  return response
+  return assertResponse(response, 'worker-status')
 }
 
 export interface RecentLogsParams {
@@ -1228,10 +1232,7 @@ export async function getRecentLogs(params?: RecentLogsParams): Promise<RecentLo
     searchParams.toString() ? `?${searchParams.toString()}` : ''
   }`
   const response = await fetchAPI<RecentLogsResponse>(endpoint)
-  if (!response) {
-    throw new ApiError(204, 'Unexpected 204 response from recent-logs endpoint')
-  }
-  return response
+  return assertResponse(response, 'recent-logs')
 }
 
 export interface AdminUsersParams {
@@ -1257,10 +1258,7 @@ export async function getAdminUsers(params?: AdminUsersParams): Promise<Paginate
 
   const endpoint = `/admin/users${searchParams.toString() ? `?${searchParams.toString()}` : ''}`
   const response = await fetchAPI<PaginatedUsersResponse>(endpoint)
-  if (!response) {
-    throw new ApiError(204, 'Unexpected 204 response from admin users endpoint')
-  }
-  return response
+  return assertResponse(response, 'admin users')
 }
 
 /**
@@ -1272,10 +1270,7 @@ export async function getAdminUsers(params?: AdminUsersParams): Promise<Paginate
  */
 export async function getAdminUser(userId: string): Promise<UserDetailResponse> {
   const response = await fetchAPI<UserDetailResponse>(`/admin/users/${userId}`)
-  if (!response) {
-    throw new ApiError(204, 'Unexpected 204 response from admin user endpoint')
-  }
-  return response
+  return assertResponse(response, 'admin user')
 }
 
 /**
@@ -1292,10 +1287,7 @@ export async function anonymizeUser(userId: string): Promise<AnonymiseUserRespon
   const response = await fetchAPI<AnonymiseUserResponse>(`/admin/users/${userId}`, {
     method: 'DELETE',
   })
-  if (!response) {
-    throw new ApiError(204, 'Unexpected 204 response from anonymize user endpoint')
-  }
-  return response
+  return assertResponse(response, 'anonymize user')
 }
 
 /**
@@ -1309,8 +1301,5 @@ export async function anonymizeUser(userId: string): Promise<AnonymiseUserRespon
  */
 export async function getEngagementMetrics(): Promise<EngagementMetrics> {
   const response = await fetchAPI<EngagementMetrics>('/admin/analytics/engagement')
-  if (!response) {
-    throw new ApiError(204, 'Unexpected 204 response from engagement metrics endpoint')
-  }
-  return response
+  return assertResponse(response, 'engagement metrics')
 }
