@@ -441,6 +441,28 @@ async def test_list_users_search_by_uuid(
 
 
 @pytest.mark.asyncio
+async def test_list_users_search_by_uuid_no_match(
+    async_client_with_db: AsyncClient,
+    admin_user: tuple[User, Any],
+    auth_headers_for_user: dict[str, str],
+) -> None:
+    """Test searching users by UUID with no matches returns zero users."""
+    # Search with a UUID that doesn't exist
+    non_existent_uuid = "99999999-9999-9999-9999-999999999999"
+    search_term = non_existent_uuid[:8]
+
+    response = await async_client_with_db.get(
+        build_api_url(f"/admin/users?search={search_term}"),
+        headers=auth_headers_for_user,
+    )
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["total"] == 0
+    assert len(data["users"]) == 0
+
+
+@pytest.mark.asyncio
 async def test_list_users_search_by_phone(
     async_client_with_db: AsyncClient,
     admin_user: tuple[User, Any],

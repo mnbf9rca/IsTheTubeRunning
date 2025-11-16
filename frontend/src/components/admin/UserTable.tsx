@@ -43,6 +43,12 @@ function truncateExternalId(externalId: string): string {
  */
 function formatDate(dateString: string): string {
   const date = new Date(dateString)
+
+  // Handle invalid dates
+  if (isNaN(date.getTime())) {
+    return 'Invalid date'
+  }
+
   const now = new Date()
   const diffMs = now.getTime() - date.getTime()
   const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24))

@@ -116,8 +116,7 @@ describe('AdminUsers', () => {
     it('should display user count', () => {
       render(<AdminUsers />)
 
-      expect(screen.getByText(/Showing 2 of 25 users/i)).toBeInTheDocument()
-      expect(screen.getByText(/Page 1 of 1/i)).toBeInTheDocument()
+      expect(screen.getByText(/Showing 1-25 of 25 users \(Page 1 of 1\)/i)).toBeInTheDocument()
     })
 
     it('should render user table with data', () => {
@@ -129,15 +128,20 @@ describe('AdminUsers', () => {
   })
 
   describe('search functionality', () => {
-    it('should call setSearchQuery when search input changes', async () => {
+    it('should call setSearchQuery when search input changes (after debounce)', async () => {
       const user = userEvent.setup()
       render(<AdminUsers />)
 
       const searchInput = screen.getByPlaceholderText(/search by email, phone/i)
-      await user.type(searchInput, 't')
+      await user.type(searchInput, 'test')
 
-      // setSearchQuery is called for each character typed
-      expect(mockSetSearchQuery).toHaveBeenCalled()
+      // setSearchQuery should be called after 300ms debounce
+      await waitFor(
+        () => {
+          expect(mockSetSearchQuery).toHaveBeenCalledWith('test')
+        },
+        { timeout: 500 } // Wait up to 500ms for the debounce to complete
+      )
     })
   })
 

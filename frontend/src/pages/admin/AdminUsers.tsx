@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useAdminUsers } from '@/hooks/useAdminUsers'
 import { UserTable } from '@/components/admin/UserTable'
 import { UserDetailDialog } from '@/components/admin/UserDetailDialog'
@@ -36,6 +36,7 @@ export default function AdminUsers() {
     loading,
     error,
     currentPage,
+    pageSize,
     totalUsers,
     totalPages,
     searchQuery,
@@ -51,6 +52,9 @@ export default function AdminUsers() {
   const [detailUserId, setDetailUserId] = useState<string | null>(null)
   const [anonymizeUserId, setAnonymizeUserId] = useState<string | null>(null)
   const [anonymizing, setAnonymizing] = useState(false)
+
+  // Local search state for debouncing
+  const [searchInput, setSearchInput] = useState(searchQuery)
 
   const handleViewDetails = (userId: string) => {
     setDetailUserId(userId)
@@ -71,6 +75,15 @@ export default function AdminUsers() {
       setAnonymizing(false)
     }
   }
+
+  // Debounce search input (300ms delay)
+  useEffect(() => {
+    const timeoutId = setTimeout(() => {
+      setSearchQuery(searchInput)
+    }, 300)
+
+    return () => clearTimeout(timeoutId)
+  }, [searchInput, setSearchQuery])
 
   // Generate page numbers to display
   const getPageNumbers = () => {
@@ -143,8 +156,8 @@ export default function AdminUsers() {
             <Input
               id="search"
               placeholder="Search by email, phone, or external ID..."
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
+              value={searchInput}
+              onChange={(e) => setSearchInput(e.target.value)}
               className="pl-9"
             />
           </div>
@@ -176,7 +189,13 @@ export default function AdminUsers() {
       {/* User Count */}
       {!loading && users && (
         <div className="text-sm text-muted-foreground">
-          Showing {users.users.length} of {totalUsers} users (Page {currentPage} of {totalPages})
+          {(() => {
+            const start = (currentPage - 1) * pageSize + 1
+            const end = Math.min(currentPage * pageSize, totalUsers)
+            return totalUsers > 0
+              ? `Showing ${start}-${end} of ${totalUsers} users (Page ${currentPage} of ${totalPages})`
+              : 'No users found'
+          })()}
         </div>
       )}
 

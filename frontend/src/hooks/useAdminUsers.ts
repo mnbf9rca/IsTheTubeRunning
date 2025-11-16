@@ -71,9 +71,10 @@ export function useAdminUsers(): UseAdminUsersReturn {
 
   /**
    * Calculate total pages based on total users and page size
+   * If there are zero users, totalPages is 0.
    */
   const totalUsers = users?.total ?? 0
-  const totalPages = Math.max(1, Math.ceil(totalUsers / pageSize))
+  const totalPages = totalUsers === 0 ? 0 : Math.ceil(totalUsers / pageSize)
 
   /**
    * Fetch users from API with current filters and pagination
@@ -89,7 +90,7 @@ export function useAdminUsers(): UseAdminUsersReturn {
         limit: pageSize,
         offset,
         search: searchQuery || undefined,
-        include_deleted: includeDeleted || undefined,
+        include_deleted: includeDeleted ? true : undefined,
       })
 
       setUsers(data)
@@ -149,8 +150,7 @@ export function useAdminUsers(): UseAdminUsersReturn {
    * for viewing user details in a modal/dialog.
    */
   const getUserDetails = useCallback(async (userId: string): Promise<UserDetailResponse> => {
-    const details = await apiGetAdminUser(userId)
-    return details
+    return await apiGetAdminUser(userId)
   }, [])
 
   /**

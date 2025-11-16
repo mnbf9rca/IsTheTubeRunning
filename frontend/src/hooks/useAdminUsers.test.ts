@@ -235,7 +235,7 @@ describe('useAdminUsers', () => {
         expect(result.current.loading).toBe(false)
       })
 
-      expect(result.current.totalPages).toBe(1) // Minimum 1 page
+      expect(result.current.totalPages).toBe(0) // 0 pages when no users
     })
   })
 

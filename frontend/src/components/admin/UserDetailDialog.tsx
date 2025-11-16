@@ -95,10 +95,18 @@ export function UserDetailDialog({
     onOpenChange(newOpen)
   }
 
-  const handleAnonymize = () => {
-    if (userId) {
-      onAnonymize(userId)
+  const handleAnonymize = async () => {
+    if (!userId) return
+
+    try {
+      await onAnonymize(userId)
       handleOpenChange(false)
+    } catch (err: unknown) {
+      setError(
+        err instanceof ApiError
+          ? err
+          : ({ statusText: 'Failed to anonymize user. Please try again.' } as ApiError)
+      )
     }
   }
 
