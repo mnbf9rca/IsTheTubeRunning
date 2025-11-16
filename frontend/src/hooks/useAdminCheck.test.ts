@@ -2,16 +2,26 @@ import { renderHook } from '@testing-library/react'
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { useAdminCheck } from './useAdminCheck'
 
-// Mock the BackendAuthContext
+// Mock the BackendAuthContext and useAuth
 const mockUseBackendAuth = vi.fn()
+const mockUseAuth = vi.fn()
 
 vi.mock('@/contexts/BackendAuthContext', () => ({
   useBackendAuth: () => mockUseBackendAuth(),
 }))
 
+vi.mock('@/hooks/useAuth', () => ({
+  useAuth: () => mockUseAuth(),
+}))
+
 describe('useAdminCheck', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    // Default mock for useAuth
+    mockUseAuth.mockReturnValue({
+      isAuthenticated: true,
+      isLoading: false,
+    })
   })
 
   it('should return isAdmin=true for authenticated admin users', () => {
@@ -25,6 +35,7 @@ describe('useAdminCheck', () => {
 
     expect(result.current.isAdmin).toBe(true)
     expect(result.current.isLoading).toBe(false)
+    expect(result.current.isInitializing).toBe(false)
     expect(result.current.user).toBeDefined()
     expect(result.current.user?.is_admin).toBe(true)
   })
@@ -105,5 +116,56 @@ describe('useAdminCheck', () => {
     rerender()
 
     expect(result.current.isAdmin).toBe(true)
+  })
+
+  it('should return isInitializing=true when Auth0 authenticated but backend user not loaded', () => {
+    mockUseAuth.mockReturnValue({
+      isAuthenticated: true,
+      isLoading: false,
+    })
+    mockUseBackendAuth.mockReturnValue({
+      user: null,
+      isBackendAuthenticated: false,
+      isValidating: false,
+    })
+
+    const { result } = renderHook(() => useAdminCheck())
+
+    expect(result.current.isInitializing).toBe(true)
+    expect(result.current.isAdmin).toBe(false)
+    expect(result.current.isLoading).toBe(false)
+  })
+
+  it('should return isInitializing=false when backend validation is in progress', () => {
+    mockUseAuth.mockReturnValue({
+      isAuthenticated: true,
+      isLoading: false,
+    })
+    mockUseBackendAuth.mockReturnValue({
+      user: null,
+      isBackendAuthenticated: false,
+      isValidating: true,
+    })
+
+    const { result } = renderHook(() => useAdminCheck())
+
+    expect(result.current.isInitializing).toBe(false)
+    expect(result.current.isLoading).toBe(true)
+  })
+
+  it('should return isInitializing=false when Auth0 is loading', () => {
+    mockUseAuth.mockReturnValue({
+      isAuthenticated: false,
+      isLoading: true,
+    })
+    mockUseBackendAuth.mockReturnValue({
+      user: null,
+      isBackendAuthenticated: false,
+      isValidating: false,
+    })
+
+    const { result } = renderHook(() => useAdminCheck())
+
+    expect(result.current.isInitializing).toBe(false)
   })
 })

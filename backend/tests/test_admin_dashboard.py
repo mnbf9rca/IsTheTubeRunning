@@ -407,6 +407,92 @@ async def test_list_users_search_by_external_id(
 
 
 @pytest.mark.asyncio
+async def test_list_users_search_by_uuid(
+    async_client_with_db: AsyncClient,
+    admin_user: tuple[User, Any],
+    auth_headers_for_user: dict[str, str],
+    test_user: User,
+) -> None:
+    """Test searching users by internal UUID (partial match)."""
+    # Search with first 8 characters of UUID
+    uuid_str = str(test_user.id)
+    search_term = uuid_str[:8]
+
+    response = await async_client_with_db.get(
+        build_api_url(f"/admin/users?search={search_term}"),
+        headers=auth_headers_for_user,
+    )
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["total"] >= 1
+    assert any(u["id"] == str(test_user.id) for u in data["users"])
+
+    # Also test with full UUID
+    response = await async_client_with_db.get(
+        build_api_url(f"/admin/users?search={uuid_str}"),
+        headers=auth_headers_for_user,
+    )
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["total"] >= 1
+    assert any(u["id"] == str(test_user.id) for u in data["users"])
+
+
+@pytest.mark.asyncio
+async def test_list_users_search_by_uuid_no_match(
+    async_client_with_db: AsyncClient,
+    admin_user: tuple[User, Any],
+    auth_headers_for_user: dict[str, str],
+) -> None:
+    """Test searching users by UUID with no matches returns zero users."""
+    # Search with a UUID that doesn't exist
+    non_existent_uuid = "99999999-9999-9999-9999-999999999999"
+    search_term = non_existent_uuid[:8]
+
+    response = await async_client_with_db.get(
+        build_api_url(f"/admin/users?search={search_term}"),
+        headers=auth_headers_for_user,
+    )
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["total"] == 0
+    assert len(data["users"]) == 0
+
+
+@pytest.mark.asyncio
+async def test_list_users_search_by_phone(
+    async_client_with_db: AsyncClient,
+    admin_user: tuple[User, Any],
+    auth_headers_for_user: dict[str, str],
+    test_user: User,
+    db_session: AsyncSession,
+) -> None:
+    """Test searching users by phone number."""
+    # Add unique phone to test user
+    phone = PhoneNumber(
+        user_id=test_user.id,
+        phone="+447123456789",
+        verified=True,
+        is_primary=True,
+    )
+    db_session.add(phone)
+    await db_session.commit()
+
+    response = await async_client_with_db.get(
+        build_api_url("/admin/users?search=7123456789"),
+        headers=auth_headers_for_user,
+    )
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["total"] >= 1
+    assert any(u["id"] == str(test_user.id) for u in data["users"])
+
+
+@pytest.mark.asyncio
 async def test_list_users_exclude_deleted(
     async_client_with_db: AsyncClient,
     admin_user: tuple[User, Any],
