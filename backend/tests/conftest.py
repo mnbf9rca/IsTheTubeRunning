@@ -12,7 +12,6 @@ import uuid
 from collections.abc import AsyncGenerator, Generator
 from contextlib import suppress
 from dataclasses import dataclass
-from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 from unittest.mock import AsyncMock
@@ -32,6 +31,7 @@ from app.models.admin import AdminRole, AdminUser
 from app.models.tfl import Station
 from app.models.user import User
 from app.services.alert_service import AlertService
+from app.utils.admin_helpers import grant_admin
 from fastapi.testclient import TestClient
 from httpx import ASGITransport, AsyncClient
 from pytest_postgresql.janitor import DatabaseJanitor
@@ -477,18 +477,17 @@ async def admin_user(db_session: AsyncSession, test_user: User) -> tuple[User, A
     """
     Create an admin user for testing admin endpoints.
 
+    This fixture uses the shared admin_helpers.grant_admin() function to maintain
+    DRY principles with the CLI tool. For creating admin users in tests, you can
+    also use admin_helpers.create_admin_user() directly.
+
+    Note: For local development, use the CLI tool instead:
+        uv run python -m app.cli create-admin
+
     Returns:
         Tuple of (User, AdminUser) for admin-authenticated tests
     """
-    admin = AdminUser(
-        user_id=test_user.id,
-        role=AdminRole.ADMIN,
-        granted_at=datetime.now(UTC),
-        granted_by=None,
-    )
-    db_session.add(admin)
-    await db_session.commit()
-    await db_session.refresh(admin)
+    admin = await grant_admin(db_session, user_id=test_user.id, role=AdminRole.ADMIN)
     return test_user, admin
 
 

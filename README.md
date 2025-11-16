@@ -270,20 +270,28 @@ The backend supports mock JWT mode for development without Auth0. When `DEBUG=Tr
 
 Certain endpoints require admin privileges for system management and monitoring. Admin status is tracked in the `admin_users` table and checked via the `require_admin()` dependency.
 
-### Granting Admin Access
+### Creating Admin Users
 
-Admin users must be manually created in the database. To grant admin privileges to a user:
+Use the CLI tool to create admin users for local development and testing:
 
-```sql
--- Get the user's ID
-SELECT id FROM users WHERE external_id = 'auth0|your_user_id';
+```bash
+# uses backend config to connect to the database
+cd backend
 
--- Grant admin role
-INSERT INTO admin_users (user_id, role, granted_at)
-VALUES ('user-uuid-here', 'admin', NOW());
+# Create an admin user (returns UUID)
+uv run python -m app.cli create-admin
+
+# Grant admin to existing user
+uv run python -m app.cli grant-admin <user-id>
+
+# List all admins
+uv run python -m app.cli list-admins
+
+# See all commands
+uv run python -m app.cli --help
 ```
 
-**Note:** Production deployments should implement a secure admin management interface. Manual database access is acceptable for the MVP (Phase 8).
+**Note:** For production deployments, use a secure admin management interface (Phase 10 PR5).
 
 ### Available Admin Endpoints
 
