@@ -18,6 +18,7 @@ import { Routes as RoutesPage } from './pages/Routes'
 import { RouteDetails } from './pages/RouteDetails'
 import { CreateRoute } from './pages/CreateRoute'
 import { ServiceUnavailable } from './pages/ServiceUnavailable'
+import AdminUsers from './pages/admin/AdminUsers'
 
 function AppRoutes() {
   const { isAvailable, isChecking, lastChecked, checkAvailability } = useBackendAvailability()
@@ -91,12 +92,7 @@ function AppRoutes() {
               path="/admin/users"
               element={
                 <AdminRoute>
-                  <div className="flex min-h-screen items-center justify-center">
-                    <div className="text-center">
-                      <h1 className="text-2xl font-bold">Admin Users</h1>
-                      <p className="text-muted-foreground">User management page (placeholder)</p>
-                    </div>
-                  </div>
+                  <AdminUsers />
                 </AdminRoute>
               }
             />
