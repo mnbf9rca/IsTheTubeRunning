@@ -1,12 +1,11 @@
 """Tests for CLI tool.
 
-This module tests the CLI command handlers to ensure proper integration
-with admin_helpers and correct error handling.
+This module tests the CLI command handlers with real database operations
+using the db_session fixture from pytest-postgresql.
 """
 
 import argparse
-import uuid
-from unittest.mock import AsyncMock, MagicMock, patch
+from datetime import UTC, datetime
 
 import pytest
 from app.cli import (
@@ -17,151 +16,146 @@ from app.cli import (
     cmd_list_users,
     cmd_revoke_admin,
 )
-from app.models.admin import AdminRole
+from app.models.admin import AdminRole, AdminUser
+from app.models.user import User
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
 
 
 @pytest.mark.asyncio
-async def test_cmd_create_admin_success(capsys: pytest.CaptureFixture[str]):
-    """Test create-admin command with default parameters."""
+async def test_cmd_create_admin_success(db_session: AsyncSession, capsys: pytest.CaptureFixture[str]):
+    """Test create-admin command creates user and admin in database."""
     args = argparse.Namespace(external_id=None, superadmin=False)
 
-    mock_user = MagicMock(
-        id=uuid.uuid4(),
-        external_id="cli|test123",
-        auth_provider="cli",
-    )
-    mock_admin = MagicMock(
-        role=AdminRole.ADMIN,
-        granted_at="2025-01-01 12:00:00",
-    )
-
-    with patch("app.cli.create_admin_user", new_callable=AsyncMock) as mock_create:
-        mock_create.return_value = (mock_user, mock_admin)
-
-        exit_code = await cmd_create_admin(args)
+    exit_code = await cmd_create_admin(args, db_session)
 
     assert exit_code == 0
     captured = capsys.readouterr()
     assert "Created admin user successfully" in captured.out
-    assert str(mock_user.id) in captured.out
-    assert "cli|test123" in captured.out
+
+    # Verify user was created in database
+    result = await db_session.execute(select(User))
+    users = list(result.scalars().all())
+    assert len(users) == 1
+    assert users[0].auth_provider == "cli"
+
+    # Verify admin was created in database
+    result = await db_session.execute(select(AdminUser))
+    admins = list(result.scalars().all())
+    assert len(admins) == 1
+    assert admins[0].role == AdminRole.ADMIN
+    assert admins[0].user_id == users[0].id
 
 
 @pytest.mark.asyncio
-async def test_cmd_create_admin_with_custom_external_id(capsys: pytest.CaptureFixture[str]):
+async def test_cmd_create_admin_with_custom_external_id(db_session: AsyncSession, capsys: pytest.CaptureFixture[str]):
     """Test create-admin command with custom external_id."""
-    args = argparse.Namespace(external_id="auth0|custom", superadmin=False)
+    args = argparse.Namespace(external_id="auth0|custom123", superadmin=False)
 
-    mock_user = MagicMock(
-        id=uuid.uuid4(),
-        external_id="auth0|custom",
-        auth_provider="cli",
-    )
-    mock_admin = MagicMock(
-        role=AdminRole.ADMIN,
-        granted_at="2025-01-01 12:00:00",
-    )
-
-    with patch("app.cli.create_admin_user", new_callable=AsyncMock) as mock_create:
-        mock_create.return_value = (mock_user, mock_admin)
-
-        exit_code = await cmd_create_admin(args)
+    exit_code = await cmd_create_admin(args, db_session)
 
     assert exit_code == 0
-    mock_create.assert_called_once()
-    call_kwargs = mock_create.call_args[1]
-    assert call_kwargs["external_id"] == "auth0|custom"
+
+    # Verify user has custom external_id
+    result = await db_session.execute(select(User))
+    users = list(result.scalars().all())
+    assert len(users) == 1
+    assert users[0].external_id == "auth0|custom123"
 
 
 @pytest.mark.asyncio
-async def test_cmd_create_admin_with_superadmin_role(capsys: pytest.CaptureFixture[str]):
+async def test_cmd_create_admin_with_superadmin_role(db_session: AsyncSession, capsys: pytest.CaptureFixture[str]):
     """Test create-admin command with superadmin flag."""
     args = argparse.Namespace(external_id=None, superadmin=True)
 
-    mock_user = MagicMock(id=uuid.uuid4(), external_id="cli|test", auth_provider="cli")
-    mock_admin = MagicMock(role=AdminRole.SUPERADMIN, granted_at="2025-01-01 12:00:00")
-
-    with patch("app.cli.create_admin_user", new_callable=AsyncMock) as mock_create:
-        mock_create.return_value = (mock_user, mock_admin)
-
-        exit_code = await cmd_create_admin(args)
+    exit_code = await cmd_create_admin(args, db_session)
 
     assert exit_code == 0
-    call_kwargs = mock_create.call_args[1]
-    assert call_kwargs["role"] == AdminRole.SUPERADMIN
+
+    # Verify admin has SUPERADMIN role
+    result = await db_session.execute(select(AdminUser))
+    admins = list(result.scalars().all())
+    assert len(admins) == 1
+    assert admins[0].role == AdminRole.SUPERADMIN
 
 
 @pytest.mark.asyncio
-async def test_cmd_create_admin_duplicate_error(capsys: pytest.CaptureFixture[str]):
+async def test_cmd_create_admin_duplicate_error(db_session: AsyncSession, capsys: pytest.CaptureFixture[str]):
     """Test create-admin command with duplicate external_id."""
-    args = argparse.Namespace(external_id="auth0|duplicate", superadmin=False)
+    # Create first user
+    args1 = argparse.Namespace(external_id="auth0|duplicate", superadmin=False)
+    await cmd_create_admin(args1, db_session)
 
-    with patch("app.cli.create_admin_user", new_callable=AsyncMock) as mock_create:
-        mock_create.side_effect = ValueError("User already exists")
-
-        exit_code = await cmd_create_admin(args)
+    # Try to create duplicate
+    args2 = argparse.Namespace(external_id="auth0|duplicate", superadmin=False)
+    exit_code = await cmd_create_admin(args2, db_session)
 
     assert exit_code == 1
     captured = capsys.readouterr()
     assert "Error" in captured.err
-    assert "User already exists" in captured.err
+    assert "already exists" in captured.err
 
 
 @pytest.mark.asyncio
-async def test_cmd_create_user_success(capsys: pytest.CaptureFixture[str]):
-    """Test create-user command."""
+async def test_cmd_create_user_success(db_session: AsyncSession, capsys: pytest.CaptureFixture[str]):
+    """Test create-user command creates user without admin privileges."""
     args = argparse.Namespace(external_id=None)
 
-    mock_user = MagicMock(
-        id=uuid.uuid4(),
-        external_id="cli|user123",
-        auth_provider="cli",
-        created_at="2025-01-01 12:00:00",
-    )
-
-    with patch("app.cli.create_user", new_callable=AsyncMock) as mock_create:
-        mock_create.return_value = mock_user
-
-        exit_code = await cmd_create_user(args)
+    exit_code = await cmd_create_user(args, db_session)
 
     assert exit_code == 0
     captured = capsys.readouterr()
     assert "Created user successfully" in captured.out
-    assert str(mock_user.id) in captured.out
+
+    # Verify user was created
+    result = await db_session.execute(select(User))
+    users = list(result.scalars().all())
+    assert len(users) == 1
+    assert users[0].auth_provider == "cli"
+
+    # Verify NO admin was created
+    result = await db_session.execute(select(AdminUser))
+    admins = list(result.scalars().all())
+    assert len(admins) == 0
 
 
 @pytest.mark.asyncio
-async def test_cmd_grant_admin_by_uuid_success(capsys: pytest.CaptureFixture[str]):
+async def test_cmd_grant_admin_by_uuid_success(db_session: AsyncSession, capsys: pytest.CaptureFixture[str]):
     """Test grant-admin command using UUID."""
-    user_id = uuid.uuid4()
+    # Create a regular user first
+    user = User(external_id="auth0|testuser", auth_provider="auth0")
+    db_session.add(user)
+    await db_session.commit()
+    await db_session.refresh(user)
+
     args = argparse.Namespace(
-        identifier=str(user_id),
+        identifier=str(user.id),
         external_id=False,
         provider="auth0",
         superadmin=False,
     )
 
-    mock_admin = MagicMock(role=AdminRole.ADMIN, granted_at="2025-01-01 12:00:00")
-    mock_user = MagicMock(id=user_id, external_id="auth0|test", auth_provider="auth0")
-
-    with (
-        patch("app.cli.grant_admin", new_callable=AsyncMock) as mock_grant,
-        patch("app.cli.get_user_by_id", new_callable=AsyncMock) as mock_get,
-    ):
-        mock_grant.return_value = mock_admin
-        mock_get.return_value = mock_user
-
-        exit_code = await cmd_grant_admin(args)
+    exit_code = await cmd_grant_admin(args, db_session)
 
     assert exit_code == 0
     captured = capsys.readouterr()
     assert "Granted admin privileges successfully" in captured.out
 
+    # Verify admin was created
+    result = await db_session.execute(select(AdminUser).where(AdminUser.user_id == user.id))
+    admin = result.scalar_one_or_none()
+    assert admin is not None
+    assert admin.role == AdminRole.ADMIN
+
 
 @pytest.mark.asyncio
-async def test_cmd_grant_admin_by_external_id_success(capsys: pytest.CaptureFixture[str]):
+async def test_cmd_grant_admin_by_external_id_success(db_session: AsyncSession, capsys: pytest.CaptureFixture[str]):
     """Test grant-admin command using external_id."""
-    user_id = uuid.uuid4()
+    # Create a regular user first
+    user = User(external_id="auth0|test123", auth_provider="auth0")
+    db_session.add(user)
+    await db_session.commit()
+
     args = argparse.Namespace(
         identifier="auth0|test123",
         external_id=True,
@@ -169,25 +163,18 @@ async def test_cmd_grant_admin_by_external_id_success(capsys: pytest.CaptureFixt
         superadmin=False,
     )
 
-    mock_user = MagicMock(id=user_id, external_id="auth0|test123", auth_provider="auth0")
-    mock_admin = MagicMock(role=AdminRole.ADMIN, granted_at="2025-01-01 12:00:00")
-
-    with (
-        patch("app.cli.find_user_by_external_id", new_callable=AsyncMock) as mock_find,
-        patch("app.cli.grant_admin", new_callable=AsyncMock) as mock_grant,
-        patch("app.cli.get_user_by_id", new_callable=AsyncMock) as mock_get,
-    ):
-        mock_find.return_value = mock_user
-        mock_grant.return_value = mock_admin
-        mock_get.return_value = mock_user
-
-        exit_code = await cmd_grant_admin(args)
+    exit_code = await cmd_grant_admin(args, db_session)
 
     assert exit_code == 0
 
+    # Verify admin was created
+    result = await db_session.execute(select(AdminUser))
+    admins = list(result.scalars().all())
+    assert len(admins) == 1
+
 
 @pytest.mark.asyncio
-async def test_cmd_grant_admin_invalid_uuid(capsys: pytest.CaptureFixture[str]):
+async def test_cmd_grant_admin_invalid_uuid(db_session: AsyncSession, capsys: pytest.CaptureFixture[str]):
     """Test grant-admin command with invalid UUID."""
     args = argparse.Namespace(
         identifier="not-a-uuid",
@@ -196,7 +183,7 @@ async def test_cmd_grant_admin_invalid_uuid(capsys: pytest.CaptureFixture[str]):
         superadmin=False,
     )
 
-    exit_code = await cmd_grant_admin(args)
+    exit_code = await cmd_grant_admin(args, db_session)
 
     assert exit_code == 1
     captured = capsys.readouterr()
@@ -204,7 +191,9 @@ async def test_cmd_grant_admin_invalid_uuid(capsys: pytest.CaptureFixture[str]):
 
 
 @pytest.mark.asyncio
-async def test_cmd_grant_admin_user_not_found_by_external_id(capsys: pytest.CaptureFixture[str]):
+async def test_cmd_grant_admin_user_not_found_by_external_id(
+    db_session: AsyncSession, capsys: pytest.CaptureFixture[str]
+):
     """Test grant-admin when user not found by external_id."""
     args = argparse.Namespace(
         identifier="auth0|notfound",
@@ -213,10 +202,7 @@ async def test_cmd_grant_admin_user_not_found_by_external_id(capsys: pytest.Capt
         superadmin=False,
     )
 
-    with patch("app.cli.find_user_by_external_id", new_callable=AsyncMock) as mock_find:
-        mock_find.return_value = None
-
-        exit_code = await cmd_grant_admin(args)
+    exit_code = await cmd_grant_admin(args, db_session)
 
     assert exit_code == 1
     captured = capsys.readouterr()
@@ -224,39 +210,52 @@ async def test_cmd_grant_admin_user_not_found_by_external_id(capsys: pytest.Capt
 
 
 @pytest.mark.asyncio
-async def test_cmd_revoke_admin_success(capsys: pytest.CaptureFixture[str]):
-    """Test revoke-admin command."""
-    user_id = uuid.uuid4()
+async def test_cmd_revoke_admin_success(db_session: AsyncSession, capsys: pytest.CaptureFixture[str]):
+    """Test revoke-admin command removes admin privileges."""
+    # Create admin user
+    user = User(external_id="auth0|admin", auth_provider="auth0")
+    db_session.add(user)
+    await db_session.commit()
+    await db_session.refresh(user)
+
+    admin = AdminUser(user_id=user.id, role=AdminRole.ADMIN, granted_at=datetime.now(UTC))
+    db_session.add(admin)
+    await db_session.commit()
+
     args = argparse.Namespace(
-        identifier=str(user_id),
+        identifier=str(user.id),
         external_id=False,
         provider="auth0",
     )
 
-    with patch("app.cli.revoke_admin", new_callable=AsyncMock) as mock_revoke:
-        mock_revoke.return_value = True
-
-        exit_code = await cmd_revoke_admin(args)
+    exit_code = await cmd_revoke_admin(args, db_session)
 
     assert exit_code == 0
     captured = capsys.readouterr()
     assert "Revoked admin privileges" in captured.out
 
+    # Verify admin was removed from database
+    result = await db_session.execute(select(AdminUser).where(AdminUser.user_id == user.id))
+    admin = result.scalar_one_or_none()
+    assert admin is None
+
 
 @pytest.mark.asyncio
-async def test_cmd_revoke_admin_not_admin(capsys: pytest.CaptureFixture[str]):
+async def test_cmd_revoke_admin_not_admin(db_session: AsyncSession, capsys: pytest.CaptureFixture[str]):
     """Test revoke-admin when user is not an admin."""
-    user_id = uuid.uuid4()
+    # Create regular user (no admin privileges)
+    user = User(external_id="auth0|regular", auth_provider="auth0")
+    db_session.add(user)
+    await db_session.commit()
+    await db_session.refresh(user)
+
     args = argparse.Namespace(
-        identifier=str(user_id),
+        identifier=str(user.id),
         external_id=False,
         provider="auth0",
     )
 
-    with patch("app.cli.revoke_admin", new_callable=AsyncMock) as mock_revoke:
-        mock_revoke.return_value = False
-
-        exit_code = await cmd_revoke_admin(args)
+    exit_code = await cmd_revoke_admin(args, db_session)
 
     assert exit_code == 0  # Still returns 0, but with different message
     captured = capsys.readouterr()
@@ -264,14 +263,11 @@ async def test_cmd_revoke_admin_not_admin(capsys: pytest.CaptureFixture[str]):
 
 
 @pytest.mark.asyncio
-async def test_cmd_list_admins_empty(capsys: pytest.CaptureFixture[str]):
-    """Test list-admins command with no admins."""
+async def test_cmd_list_admins_empty(db_session: AsyncSession, capsys: pytest.CaptureFixture[str]):
+    """Test list-admins command with no admins in database."""
     args = argparse.Namespace()
 
-    with patch("app.cli.list_admin_users", new_callable=AsyncMock) as mock_list:
-        mock_list.return_value = []
-
-        exit_code = await cmd_list_admins(args)
+    exit_code = await cmd_list_admins(args, db_session)
 
     assert exit_code == 0
     captured = capsys.readouterr()
@@ -279,38 +275,34 @@ async def test_cmd_list_admins_empty(capsys: pytest.CaptureFixture[str]):
 
 
 @pytest.mark.asyncio
-async def test_cmd_list_admins_with_admins(capsys: pytest.CaptureFixture[str]):
-    """Test list-admins command with admins."""
+async def test_cmd_list_admins_with_admins(db_session: AsyncSession, capsys: pytest.CaptureFixture[str]):
+    """Test list-admins command with admins in database."""
+    # Create admin user
+    user = User(external_id="auth0|admin1", auth_provider="auth0")
+    db_session.add(user)
+    await db_session.commit()
+    await db_session.refresh(user)
+
+    admin = AdminUser(user_id=user.id, role=AdminRole.ADMIN, granted_at=datetime.now(UTC))
+    db_session.add(admin)
+    await db_session.commit()
+
     args = argparse.Namespace()
 
-    mock_user = MagicMock(
-        id=uuid.uuid4(),
-        external_id="auth0|admin1",
-    )
-    mock_admin = MagicMock(
-        role=AdminRole.ADMIN,
-        granted_at=MagicMock(strftime=lambda fmt: "2025-01-01 12:00:00"),
-    )
-
-    with patch("app.cli.list_admin_users", new_callable=AsyncMock) as mock_list:
-        mock_list.return_value = [(mock_user, mock_admin)]
-
-        exit_code = await cmd_list_admins(args)
+    exit_code = await cmd_list_admins(args, db_session)
 
     assert exit_code == 0
     captured = capsys.readouterr()
     assert "Found 1 admin user" in captured.out
+    assert str(user.id) in captured.out
 
 
 @pytest.mark.asyncio
-async def test_cmd_list_users_empty(capsys: pytest.CaptureFixture[str]):
-    """Test list-users command with no users."""
+async def test_cmd_list_users_empty(db_session: AsyncSession, capsys: pytest.CaptureFixture[str]):
+    """Test list-users command with no users in database."""
     args = argparse.Namespace(limit=50, offset=0)
 
-    with patch("app.cli.list_users", new_callable=AsyncMock) as mock_list:
-        mock_list.return_value = []
-
-        exit_code = await cmd_list_users(args)
+    exit_code = await cmd_list_users(args, db_session)
 
     assert exit_code == 0
     captured = capsys.readouterr()
@@ -318,40 +310,44 @@ async def test_cmd_list_users_empty(capsys: pytest.CaptureFixture[str]):
 
 
 @pytest.mark.asyncio
-async def test_cmd_list_users_with_users(capsys: pytest.CaptureFixture[str]):
-    """Test list-users command with users."""
+async def test_cmd_list_users_with_users(db_session: AsyncSession, capsys: pytest.CaptureFixture[str]):
+    """Test list-users command with users in database."""
+    # Create user
+    user = User(external_id="cli|user1", auth_provider="cli")
+    db_session.add(user)
+    await db_session.commit()
+
     args = argparse.Namespace(limit=50, offset=0)
 
-    mock_user = MagicMock(
-        id=uuid.uuid4(),
-        external_id="cli|user1",
-        auth_provider="cli",
-        created_at=MagicMock(strftime=lambda fmt: "2025-01-01 12:00:00"),
-    )
-
-    with patch("app.cli.list_users", new_callable=AsyncMock) as mock_list:
-        mock_list.return_value = [mock_user]
-
-        exit_code = await cmd_list_users(args)
+    exit_code = await cmd_list_users(args, db_session)
 
     assert exit_code == 0
     captured = capsys.readouterr()
     assert "Showing 1 user(s)" in captured.out
-    assert str(mock_user.id) in captured.out
+    assert str(user.id) in captured.out
 
 
 @pytest.mark.asyncio
-async def test_cmd_list_users_with_pagination(capsys: pytest.CaptureFixture[str]):
-    """Test list-users command with custom limit and offset."""
-    args = argparse.Namespace(limit=20, offset=10)
+async def test_cmd_list_users_with_pagination(db_session: AsyncSession, capsys: pytest.CaptureFixture[str]):
+    """Test list-users command respects pagination parameters."""
+    # Create multiple users
+    for i in range(5):
+        user = User(external_id=f"cli|user{i}", auth_provider="cli")
+        db_session.add(user)
+    await db_session.commit()
 
-    with patch("app.cli.list_users", new_callable=AsyncMock) as mock_list:
-        mock_list.return_value = []
-
-        exit_code = await cmd_list_users(args)
+    # Test with limit
+    args = argparse.Namespace(limit=2, offset=0)
+    exit_code = await cmd_list_users(args, db_session)
 
     assert exit_code == 0
-    mock_list.assert_called_once()
-    call_kwargs = mock_list.call_args[1]
-    assert call_kwargs["limit"] == 20
-    assert call_kwargs["offset"] == 10
+    captured = capsys.readouterr()
+    assert "Showing 2 user(s)" in captured.out
+
+    # Test with offset
+    args = argparse.Namespace(limit=10, offset=3)
+    exit_code = await cmd_list_users(args, db_session)
+
+    assert exit_code == 0
+    captured = capsys.readouterr()
+    assert "Showing 2 user(s)" in captured.out  # 5 total - 3 offset = 2

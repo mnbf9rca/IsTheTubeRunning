@@ -41,8 +41,7 @@ async def create_user(
 
     # Check if user already exists
     result = await db.execute(select(User).where(User.external_id == external_id, User.auth_provider == auth_provider))
-    existing_user = result.scalar_one_or_none()
-    if existing_user:
+    if existing_user := result.scalar_one_or_none():
         msg = (
             f"User with external_id '{external_id}' and auth_provider "
             f"'{auth_provider}' already exists (id: {existing_user.id})"
@@ -87,8 +86,7 @@ async def grant_admin(
 
     # Check not already admin
     admin_result = await db.execute(select(AdminUser).where(AdminUser.user_id == user_id))
-    existing_admin = admin_result.scalar_one_or_none()
-    if existing_admin:
+    if existing_admin := admin_result.scalar_one_or_none():
         msg = f"User {user_id} is already an admin with role {existing_admin.role.value}"
         raise ValueError(msg)
 

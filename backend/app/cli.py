@@ -30,6 +30,8 @@ import asyncio
 import sys
 import uuid
 
+from sqlalchemy.ext.asyncio import AsyncSession
+
 from app.core.database import get_session_factory
 from app.models.admin import AdminRole
 from app.utils.admin_helpers import (
@@ -44,249 +46,221 @@ from app.utils.admin_helpers import (
 )
 
 
-async def cmd_create_admin(args: argparse.Namespace) -> int:
+async def cmd_create_admin(args: argparse.Namespace, session: AsyncSession) -> int:
     """
     Create a new admin user.
 
     Args:
         args: Parsed command-line arguments
+        session: Database session
 
     Returns:
         Exit code (0 for success, 1 for error)
     """
-    async with get_session_factory()() as session:
-        try:
-            external_id = args.external_id if args.external_id else None
-            role = AdminRole.SUPERADMIN if args.superadmin else AdminRole.ADMIN
+    try:
+        external_id = args.external_id or None
+        role = AdminRole.SUPERADMIN if args.superadmin else AdminRole.ADMIN
 
-            user, admin = await create_admin_user(session, external_id=external_id, role=role)
+        user, admin = await create_admin_user(session, external_id=external_id, role=role)
 
-            print("✅ Created admin user successfully!")
-            print(f"   User ID:     {user.id}")
-            print(f"   External ID: {user.external_id}")
-            print(f"   Provider:    {user.auth_provider}")
-            print(f"   Role:        {admin.role.value}")
-            print(f"   Granted at:  {admin.granted_at}")
-            print()
-            print("💡 Save the User ID to use with other CLI commands")
-            return 0
-
-        except ValueError as e:
-            print(f"❌ Error: {e}", file=sys.stderr)
-            return 1
-        except Exception as e:
-            print(f"❌ Unexpected error: {e}", file=sys.stderr)
-            return 1
+        print("✅ Created admin user successfully!")
+        print(f"   User ID:     {user.id}")
+        print(f"   External ID: {user.external_id}")
+        print(f"   Provider:    {user.auth_provider}")
+        print(f"   Role:        {admin.role.value}")
+        print(f"   Granted at:  {admin.granted_at}")
+        print()
+        print("💡 Save the User ID to use with other CLI commands")
+        return 0
+    except ValueError as e:
+        print(f"❌ Error: {e}", file=sys.stderr)
+        return 1
 
 
-async def cmd_create_user(args: argparse.Namespace) -> int:
+async def cmd_create_user(args: argparse.Namespace, session: AsyncSession) -> int:
     """
     Create a new regular user.
 
     Args:
         args: Parsed command-line arguments
+        session: Database session
 
     Returns:
         Exit code (0 for success, 1 for error)
     """
-    async with get_session_factory()() as session:
-        try:
-            external_id = args.external_id if args.external_id else None
+    try:
+        external_id = args.external_id or None
 
-            user = await create_user(session, external_id=external_id)
+        user = await create_user(session, external_id=external_id)
 
-            print("✅ Created user successfully!")
-            print(f"   User ID:     {user.id}")
-            print(f"   External ID: {user.external_id}")
-            print(f"   Provider:    {user.auth_provider}")
-            print(f"   Created at:  {user.created_at}")
-            print()
-            print("💡 Use 'grant-admin {user_id}' to make this user an admin")
-            return 0
-
-        except ValueError as e:
-            print(f"❌ Error: {e}", file=sys.stderr)
-            return 1
-        except Exception as e:
-            print(f"❌ Unexpected error: {e}", file=sys.stderr)
-            return 1
+        print("✅ Created user successfully!")
+        print(f"   User ID:     {user.id}")
+        print(f"   External ID: {user.external_id}")
+        print(f"   Provider:    {user.auth_provider}")
+        print(f"   Created at:  {user.created_at}")
+        print()
+        print("💡 Use 'grant-admin {user_id}' to make this user an admin")
+        return 0
+    except ValueError as e:
+        print(f"❌ Error: {e}", file=sys.stderr)
+        return 1
 
 
-async def cmd_grant_admin(args: argparse.Namespace) -> int:
+async def cmd_grant_admin(args: argparse.Namespace, session: AsyncSession) -> int:
     """
     Grant admin privileges to an existing user.
 
     Args:
         args: Parsed command-line arguments
+        session: Database session
 
     Returns:
         Exit code (0 for success, 1 for error)
     """
-    async with get_session_factory()() as session:
-        try:
-            # Parse user identifier
-            if args.external_id:
-                user = await find_user_by_external_id(session, args.identifier, auth_provider=args.provider)
-                if not user:
-                    print(
-                        f"❌ Error: User with external_id '{args.identifier}' not found (provider: {args.provider})",
-                        file=sys.stderr,
-                    )
-                    return 1
-                user_id = user.id
-            else:
-                try:
-                    user_id = uuid.UUID(args.identifier)
-                except ValueError:
-                    print(
-                        f"❌ Error: Invalid UUID '{args.identifier}'. "
-                        "Use --external-id flag if providing an external ID",
-                        file=sys.stderr,
-                    )
-                    return 1
+    try:
+        # Parse user identifier
+        if args.external_id:
+            user = await find_user_by_external_id(session, args.identifier, auth_provider=args.provider)
+            if not user:
+                print(
+                    f"❌ Error: User with external_id '{args.identifier}' not found (provider: {args.provider})",
+                    file=sys.stderr,
+                )
+                return 1
+            user_id = user.id
+        else:
+            try:
+                user_id = uuid.UUID(args.identifier)
+            except ValueError:
+                print(
+                    f"❌ Error: Invalid UUID '{args.identifier}'. Use --external-id flag if providing an external ID",
+                    file=sys.stderr,
+                )
+                return 1
 
-            # Grant admin
-            role = AdminRole.SUPERADMIN if args.superadmin else AdminRole.ADMIN
-            admin = await grant_admin(session, user_id=user_id, role=role)
+        # Grant admin
+        role = AdminRole.SUPERADMIN if args.superadmin else AdminRole.ADMIN
+        admin = await grant_admin(session, user_id=user_id, role=role)
 
-            # Get user details for display
-            user = await get_user_by_id(session, user_id)
+        # Get user details for display
+        user = await get_user_by_id(session, user_id)
 
-            print("✅ Granted admin privileges successfully!")
-            print(f"   User ID:     {user_id}")
-            if user:
-                print(f"   External ID: {user.external_id}")
-                print(f"   Provider:    {user.auth_provider}")
-            print(f"   Role:        {admin.role.value}")
-            print(f"   Granted at:  {admin.granted_at}")
-            return 0
-
-        except ValueError as e:
-            print(f"❌ Error: {e}", file=sys.stderr)
-            return 1
-        except Exception as e:
-            print(f"❌ Unexpected error: {e}", file=sys.stderr)
-            return 1
+        print("✅ Granted admin privileges successfully!")
+        print(f"   User ID:     {user_id}")
+        if user:
+            print(f"   External ID: {user.external_id}")
+            print(f"   Provider:    {user.auth_provider}")
+        print(f"   Role:        {admin.role.value}")
+        print(f"   Granted at:  {admin.granted_at}")
+        return 0
+    except ValueError as e:
+        print(f"❌ Error: {e}", file=sys.stderr)
+        return 1
 
 
-async def cmd_revoke_admin(args: argparse.Namespace) -> int:
+async def cmd_revoke_admin(args: argparse.Namespace, session: AsyncSession) -> int:
     """
     Revoke admin privileges from a user.
 
     Args:
         args: Parsed command-line arguments
+        session: Database session
 
     Returns:
         Exit code (0 for success, 1 for error)
     """
-    async with get_session_factory()() as session:
-        try:
-            # Parse user identifier
-            if args.external_id:
-                user = await find_user_by_external_id(session, args.identifier, auth_provider=args.provider)
-                if not user:
-                    print(
-                        f"❌ Error: User with external_id '{args.identifier}' not found (provider: {args.provider})",
-                        file=sys.stderr,
-                    )
-                    return 1
-                user_id = user.id
-            else:
-                try:
-                    user_id = uuid.UUID(args.identifier)
-                except ValueError:
-                    print(
-                        f"❌ Error: Invalid UUID '{args.identifier}'. "
-                        "Use --external-id flag if providing an external ID",
-                        file=sys.stderr,
-                    )
-                    return 1
+    try:
+        # Parse user identifier
+        if args.external_id:
+            user = await find_user_by_external_id(session, args.identifier, auth_provider=args.provider)
+            if not user:
+                print(
+                    f"❌ Error: User with external_id '{args.identifier}' not found (provider: {args.provider})",
+                    file=sys.stderr,
+                )
+                return 1
+            user_id = user.id
+        else:
+            try:
+                user_id = uuid.UUID(args.identifier)
+            except ValueError:
+                print(
+                    f"❌ Error: Invalid UUID '{args.identifier}'. Use --external-id flag if providing an external ID",
+                    file=sys.stderr,
+                )
+                return 1
 
-            # Revoke admin
-            was_revoked = await revoke_admin(session, user_id=user_id)
+        # Revoke admin
+        was_revoked = await revoke_admin(session, user_id=user_id)
 
-            if was_revoked:
-                print(f"✅ Revoked admin privileges from user {user_id}")
-                return 0
-            print(
-                f"Info: User {user_id} was not an admin (no action taken)",
-                file=sys.stderr,
-            )
+        if was_revoked:
+            print(f"✅ Revoked admin privileges from user {user_id}")
             return 0
+        print(
+            f"Info: User {user_id} was not an admin (no action taken)",
+            file=sys.stderr,
+        )
+        return 0
+    except ValueError as e:
+        print(f"❌ Error: {e}", file=sys.stderr)
+        return 1
 
-        except ValueError as e:
-            print(f"❌ Error: {e}", file=sys.stderr)
-            return 1
-        except Exception as e:
-            print(f"❌ Unexpected error: {e}", file=sys.stderr)
-            return 1
 
-
-async def cmd_list_admins(args: argparse.Namespace) -> int:
+async def cmd_list_admins(args: argparse.Namespace, session: AsyncSession) -> int:
     """
     List all admin users.
 
     Args:
         args: Parsed command-line arguments
+        session: Database session
 
     Returns:
         Exit code (0 for success, 1 for error)
     """
-    async with get_session_factory()() as session:
-        try:
-            admins = await list_admin_users(session)
+    admins = await list_admin_users(session)
 
-            if not admins:
-                print("No admin users found")
-                return 0
+    if not admins:
+        print("No admin users found")
+        return 0
 
-            print(f"Found {len(admins)} admin user(s):\n")
-            print(f"{'User ID':<38} {'External ID':<30} {'Role':<12} {'Granted At'}")
-            print("-" * 110)
+    print(f"Found {len(admins)} admin user(s):\n")
+    print(f"{'User ID':<38} {'External ID':<30} {'Role':<12} Granted At")
+    print("-" * 110)
 
-            for user, admin in admins:
-                granted_at_str = admin.granted_at.strftime("%Y-%m-%d %H:%M:%S")
-                print(f"{user.id!s:<38} {user.external_id:<30} {admin.role.value:<12} {granted_at_str}")
+    for user, admin in admins:
+        granted_at_str = admin.granted_at.strftime("%Y-%m-%d %H:%M:%S")
+        print(f"{user.id!s:<38} {user.external_id:<30} {admin.role.value:<12} {granted_at_str}")
 
-            return 0
-
-        except Exception as e:
-            print(f"❌ Unexpected error: {e}", file=sys.stderr)
-            return 1
+    return 0
 
 
-async def cmd_list_users(args: argparse.Namespace) -> int:
+async def cmd_list_users(args: argparse.Namespace, session: AsyncSession) -> int:
     """
     List all users with pagination.
 
     Args:
         args: Parsed command-line arguments
+        session: Database session
 
     Returns:
         Exit code (0 for success, 1 for error)
     """
-    async with get_session_factory()() as session:
-        try:
-            users = await list_users(session, limit=args.limit, offset=args.offset)
+    users = await list_users(session, limit=args.limit, offset=args.offset)
 
-            if not users:
-                print("No users found")
-                return 0
+    if not users:
+        print("No users found")
+        return 0
 
-            print(f"Showing {len(users)} user(s) (limit: {args.limit}, offset: {args.offset}):\n")
-            print(f"{'User ID':<38} {'External ID':<30} {'Provider':<12} {'Created At'}")
-            print("-" * 110)
+    print(f"Showing {len(users)} user(s) (limit: {args.limit}, offset: {args.offset}):\n")
+    print(f"{'User ID':<38} {'External ID':<30} {'Provider':<12} Created At")
+    print("-" * 110)
 
-            for user in users:
-                created_at_str = user.created_at.strftime("%Y-%m-%d %H:%M:%S")
-                print(f"{user.id!s:<38} {user.external_id:<30} {user.auth_provider:<12} {created_at_str}")
+    for user in users:
+        created_at_str = user.created_at.strftime("%Y-%m-%d %H:%M:%S")
+        print(f"{user.id!s:<38} {user.external_id:<30} {user.auth_provider:<12} {created_at_str}")
 
-            print("\n💡 Use --limit and --offset to paginate results (e.g., --limit 50 --offset 50 for next page)")
-            return 0
-
-        except Exception as e:
-            print(f"❌ Unexpected error: {e}", file=sys.stderr)
-            return 1
+    print("\n💡 Use --limit and --offset to paginate results (e.g., --limit 50 --offset 50 for next page)")
+    return 0
 
 
 def main() -> int:
@@ -454,9 +428,18 @@ Examples:
         "list-users": cmd_list_users,
     }
 
-    handler = command_handlers.get(args.command)
-    if handler:
-        return asyncio.run(handler(args))
+    if handler := command_handlers.get(args.command):
+        # Create async wrapper to handle session creation for production use
+        async def run_with_session() -> int:
+            async with get_session_factory()() as session:
+                try:
+                    return await handler(args, session)
+                except Exception as e:
+                    print(f"❌ Unexpected error: {e}", file=sys.stderr)
+                    return 1
+
+        return asyncio.run(run_with_session())
+
     print(f"❌ Unknown command: {args.command}", file=sys.stderr)
     return 1
 
