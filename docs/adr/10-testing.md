@@ -169,3 +169,27 @@ Use `fresh_db_session` fixture which creates a new database per test with Alembi
 - Much slower tests (~2s per test vs ~0.1s)
 - Should only be used when necessary (not for all tests)
 - Need separate fixture (`fresh_db_session` vs `db_session`)
+
+---
+
+## Admin User Creation CLI Tool
+
+### Status
+Active
+
+### Context
+Testing admin-only functionality requires creating admin users. Manually running SQL commands is error-prone and doesn't follow DRY principles. Test fixtures contain reusable logic that should be available outside tests.
+
+### Decision
+Created CLI tool (`uv run python -m app.cli`) for admin user management with shared utility functions in `backend/app/utils/admin_helpers.py`. Primary command is `create-admin` which creates an admin user in one step. The `admin_user` fixture uses these shared helpers to maintain DRY principles.
+
+### Consequences
+**Easier:**
+- Create admin users with single CLI command (no SQL required)
+- Shared logic between CLI and test fixtures (DRY)
+- Frontend developers can create admin users for testing
+- Type-safe with comprehensive error handling
+
+**More Difficult:**
+- Must remember to use CLI tool instead of manual SQL
+- CLI requires running from backend directory with `uv run`
