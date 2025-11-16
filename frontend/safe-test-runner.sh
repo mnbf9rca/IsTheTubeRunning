@@ -24,14 +24,17 @@ cleanup() {
     echo "=== CLEANUP TRIGGERED ===" | tee -a "$LOG_FILE"
     echo "Timestamp: $(date)" | tee -a "$LOG_FILE"
 
-    # Kill any vitest processes
-    pkill -9 -f "vitest" 2>/dev/null || true
+    # Kill the test process tree if it's still running
+    if [ -n "$TEST_PID" ] && kill -0 "$TEST_PID" 2>/dev/null; then
+        echo "Killing test process $TEST_PID and its children" | tee -a "$LOG_FILE"
+        # Kill all child processes first
+        pkill -9 -P "$TEST_PID" 2>/dev/null || true
+        # Then kill the main process
+        kill -9 "$TEST_PID" 2>/dev/null || true
+    fi
 
-    # Kill any node processes in the frontend directory
-    for pid in $(lsof -t "$FRONTEND_DIR" 2>/dev/null | grep -v "$$" || true); do
-        echo "Killing process $pid" | tee -a "$LOG_FILE"
-        kill -9 "$pid" 2>/dev/null || true
-    done
+    # Kill any remaining vitest processes (specific to tests)
+    pkill -9 -f "vitest" 2>/dev/null || true
 
     echo "Cleanup complete" | tee -a "$LOG_FILE"
 }

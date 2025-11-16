@@ -260,14 +260,14 @@ action_resolve() {
     fi
 }
 
-# Post a comment marking thread as rejected
+# Post a comment marking thread as rejected (= resolved)
 action_reject() {
     local pr_number="$1"
     local comment_id="$2"
     local response_text="$3"
 
-    # Use respond action to post the rejection comment
-    action_respond "$pr_number" "$comment_id" "$response_text"
+    # Use respond action to post the rejection comment and resolve the thread
+    action_resolve "$pr_number" "$comment_id" "$response_text"
 }
 
 # Post a comment marking thread as in-progress
