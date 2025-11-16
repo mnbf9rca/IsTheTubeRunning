@@ -62,7 +62,7 @@ async def async_client_with_auth(
 @pytest.fixture
 async def async_client_with_admin(
     admin_user: tuple[User, Any],
-    admin_headers: dict[str, str],
+    auth_headers_for_user: dict[str, str],
     db_session: AsyncSession,
 ) -> AsyncGenerator[AsyncClient]:
     """Create async client with admin authentication headers."""
@@ -77,7 +77,7 @@ async def async_client_with_admin(
         async with AsyncClient(
             transport=ASGITransport(app=app),
             base_url="http://test",
-            headers=admin_headers,
+            headers=auth_headers_for_user,
         ) as client:
             yield client
     finally:

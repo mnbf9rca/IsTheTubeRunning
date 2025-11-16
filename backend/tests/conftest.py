@@ -492,23 +492,6 @@ async def admin_user(db_session: AsyncSession, test_user: User) -> tuple[User, A
     return test_user, admin
 
 
-@pytest.fixture
-def admin_headers(test_user: User) -> dict[str, str]:
-    """
-    HTTP Authorization headers with Bearer token for admin user.
-
-    Generates a JWT token that matches the admin test_user's external_id.
-
-    Args:
-        test_user: Test user fixture (will be made admin in admin_user fixture)
-
-    Returns:
-        Dictionary with Authorization header for admin requests
-    """
-    token = MockJWTGenerator.generate(auth0_id=test_user.external_id)
-    return {"Authorization": f"Bearer {token}"}
-
-
 # Settings fixture for integration tests
 
 

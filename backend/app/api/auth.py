@@ -8,6 +8,7 @@ from pydantic import BaseModel, ConfigDict
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.admin import check_is_admin
 from app.core.auth import get_current_user
 from app.core.database import get_db
 from app.models.user import User
@@ -28,6 +29,7 @@ class UserResponse(BaseModel):
     id: UUID
     created_at: datetime
     updated_at: datetime
+    is_admin: bool
 
 
 class AuthReadinessResponse(BaseModel):
@@ -70,7 +72,8 @@ async def auth_readiness_check(
 @router.get("/me", response_model=UserResponse)
 async def get_current_user_info(
     current_user: User = Depends(get_current_user),
-) -> User:
+    db: AsyncSession = Depends(get_db),
+) -> UserResponse:
     """
     Get current authenticated user information.
 
@@ -78,7 +81,16 @@ async def get_current_user_info(
     authenticated request if the user doesn't exist in the database.
 
     Returns:
-        Current user information including internal ID and timestamps.
-        Does NOT include external_id or auth_provider for security.
+        Current user information including internal ID, timestamps,
+        and admin status. Does NOT include external_id or auth_provider
+        for security.
     """
-    return current_user
+    # Check if user has admin privileges
+    is_admin = await check_is_admin(current_user.id, db)
+
+    return UserResponse(
+        id=current_user.id,
+        created_at=current_user.created_at,
+        updated_at=current_user.updated_at,
+        is_admin=is_admin,
+    )

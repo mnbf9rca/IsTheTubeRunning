@@ -132,7 +132,7 @@ async def test_trigger_check_success(
     mock_get_redis: MagicMock,
     async_client_with_db: AsyncClient,
     admin_user: tuple[User, Any],
-    admin_headers: dict[str, str],
+    auth_headers_for_user: dict[str, str],
 ) -> None:
     """Test successful manual alert check trigger."""
     # Mock Redis client
@@ -150,7 +150,7 @@ async def test_trigger_check_success(
 
     response = await async_client_with_db.post(
         build_api_url("/admin/alerts/trigger-check"),
-        headers=admin_headers,
+        headers=auth_headers_for_user,
     )
 
     assert response.status_code == 200
@@ -173,7 +173,7 @@ async def test_trigger_check_no_alerts(
     mock_get_redis: MagicMock,
     async_client_with_db: AsyncClient,
     admin_user: tuple[User, Any],
-    admin_headers: dict[str, str],
+    auth_headers_for_user: dict[str, str],
 ) -> None:
     """Test trigger check when no alerts are sent."""
     mock_redis = AsyncMock()
@@ -189,7 +189,7 @@ async def test_trigger_check_no_alerts(
 
     response = await async_client_with_db.post(
         build_api_url("/admin/alerts/trigger-check"),
-        headers=admin_headers,
+        headers=auth_headers_for_user,
     )
 
     assert response.status_code == 200
@@ -208,7 +208,7 @@ async def test_trigger_check_with_errors(
     mock_get_redis: MagicMock,
     async_client_with_db: AsyncClient,
     admin_user: tuple[User, Any],
-    admin_headers: dict[str, str],
+    auth_headers_for_user: dict[str, str],
 ) -> None:
     """Test trigger check when errors occur during processing."""
     mock_redis = AsyncMock()
@@ -224,7 +224,7 @@ async def test_trigger_check_with_errors(
 
     response = await async_client_with_db.post(
         build_api_url("/admin/alerts/trigger-check"),
-        headers=admin_headers,
+        headers=auth_headers_for_user,
     )
 
     assert response.status_code == 200
@@ -244,7 +244,7 @@ async def test_worker_status_healthy(
     mock_get_redis: AsyncMock,
     async_client_with_db: AsyncClient,
     admin_user: tuple[User, Any],
-    admin_headers: dict[str, str],
+    auth_headers_for_user: dict[str, str],
 ) -> None:
     """Test worker status when workers are healthy."""
     # Mock Redis client
@@ -263,7 +263,7 @@ async def test_worker_status_healthy(
 
     response = await async_client_with_db.get(
         build_api_url("/admin/alerts/worker-status"),
-        headers=admin_headers,
+        headers=auth_headers_for_user,
     )
 
     assert response.status_code == 200
@@ -281,7 +281,7 @@ async def test_worker_status_no_workers(
     mock_celery: MagicMock,
     async_client_with_db: AsyncClient,
     admin_user: tuple[User, Any],
-    admin_headers: dict[str, str],
+    auth_headers_for_user: dict[str, str],
 ) -> None:
     """Test worker status when no workers are available."""
     mock_inspector = MagicMock()
@@ -292,7 +292,7 @@ async def test_worker_status_no_workers(
 
     response = await async_client_with_db.get(
         build_api_url("/admin/alerts/worker-status"),
-        headers=admin_headers,
+        headers=auth_headers_for_user,
     )
 
     assert response.status_code == 200
@@ -312,7 +312,7 @@ async def test_worker_status_multiple_workers(
     mock_get_redis: AsyncMock,
     async_client_with_db: AsyncClient,
     admin_user: tuple[User, Any],
-    admin_headers: dict[str, str],
+    auth_headers_for_user: dict[str, str],
 ) -> None:
     """Test worker status with multiple workers."""
     # Mock Redis client with cached (clock, timestamp) tuple
@@ -336,7 +336,7 @@ async def test_worker_status_multiple_workers(
 
     response = await async_client_with_db.get(
         build_api_url("/admin/alerts/worker-status"),
-        headers=admin_headers,
+        headers=auth_headers_for_user,
     )
 
     assert response.status_code == 200
@@ -355,7 +355,7 @@ async def test_worker_status_frozen_worker(
     mock_get_redis: AsyncMock,
     async_client_with_db: AsyncClient,
     admin_user: tuple[User, Any],
-    admin_headers: dict[str, str],
+    auth_headers_for_user: dict[str, str],
 ) -> None:
     """Test worker status when worker clock doesn't increment (frozen)."""
     # Mock Redis client with cached (clock, timestamp) - same clock value
@@ -373,7 +373,7 @@ async def test_worker_status_frozen_worker(
 
     response = await async_client_with_db.get(
         build_api_url("/admin/alerts/worker-status"),
-        headers=admin_headers,
+        headers=auth_headers_for_user,
     )
 
     assert response.status_code == 200
@@ -391,7 +391,7 @@ async def test_worker_status_worker_restarted(
     mock_get_redis: AsyncMock,
     async_client_with_db: AsyncClient,
     admin_user: tuple[User, Any],
-    admin_headers: dict[str, str],
+    auth_headers_for_user: dict[str, str],
 ) -> None:
     """Test worker status when worker restarts (clock resets to lower value)."""
     # Mock Redis client with high cached clock value
@@ -409,7 +409,7 @@ async def test_worker_status_worker_restarted(
 
     response = await async_client_with_db.get(
         build_api_url("/admin/alerts/worker-status"),
-        headers=admin_headers,
+        headers=auth_headers_for_user,
     )
 
     assert response.status_code == 200
@@ -428,7 +428,7 @@ async def test_worker_status_invalid_cached_data(
     mock_get_redis: AsyncMock,
     async_client_with_db: AsyncClient,
     admin_user: tuple[User, Any],
-    admin_headers: dict[str, str],
+    auth_headers_for_user: dict[str, str],
 ) -> None:
     """Test worker status when Redis cache has invalid data format."""
     # Mock Redis client with invalid cached data (missing comma)
@@ -446,7 +446,7 @@ async def test_worker_status_invalid_cached_data(
 
     response = await async_client_with_db.get(
         build_api_url("/admin/alerts/worker-status"),
-        headers=admin_headers,
+        headers=auth_headers_for_user,
     )
 
     assert response.status_code == 200
@@ -464,12 +464,12 @@ async def test_worker_status_invalid_cached_data(
 async def test_recent_logs_empty(
     async_client_with_db: AsyncClient,
     admin_user: tuple[User, Any],
-    admin_headers: dict[str, str],
+    auth_headers_for_user: dict[str, str],
 ) -> None:
     """Test recent logs when no logs exist."""
     response = await async_client_with_db.get(
         build_api_url("/admin/alerts/recent-logs"),
-        headers=admin_headers,
+        headers=auth_headers_for_user,
     )
 
     assert response.status_code == 200
@@ -485,7 +485,7 @@ async def test_recent_logs_with_data(
     db_session: AsyncSession,
     async_client_with_db: AsyncClient,
     admin_user: tuple[User, Any],
-    admin_headers: dict[str, str],
+    auth_headers_for_user: dict[str, str],
     test_user: User,
 ) -> None:
     """Test recent logs returns notification logs."""
@@ -525,7 +525,7 @@ async def test_recent_logs_with_data(
 
     response = await async_client_with_db.get(
         build_api_url("/admin/alerts/recent-logs"),
-        headers=admin_headers,
+        headers=auth_headers_for_user,
     )
 
     assert response.status_code == 200
@@ -547,7 +547,7 @@ async def test_recent_logs_pagination(
     db_session: AsyncSession,
     async_client_with_db: AsyncClient,
     admin_user: tuple[User, Any],
-    admin_headers: dict[str, str],
+    auth_headers_for_user: dict[str, str],
     test_user: User,
 ) -> None:
     """Test pagination of recent logs."""
@@ -578,7 +578,7 @@ async def test_recent_logs_pagination(
     # Get first page (limit=5)
     response = await async_client_with_db.get(
         build_api_url("/admin/alerts/recent-logs?limit=5&offset=0"),
-        headers=admin_headers,
+        headers=auth_headers_for_user,
     )
 
     assert response.status_code == 200
@@ -591,7 +591,7 @@ async def test_recent_logs_pagination(
     # Get second page
     response = await async_client_with_db.get(
         build_api_url("/admin/alerts/recent-logs?limit=5&offset=5"),
-        headers=admin_headers,
+        headers=auth_headers_for_user,
     )
 
     assert response.status_code == 200
@@ -607,7 +607,7 @@ async def test_recent_logs_filter_by_status(
     db_session: AsyncSession,
     async_client_with_db: AsyncClient,
     admin_user: tuple[User, Any],
-    admin_headers: dict[str, str],
+    auth_headers_for_user: dict[str, str],
     test_user: User,
 ) -> None:
     """Test filtering logs by status."""
@@ -639,7 +639,7 @@ async def test_recent_logs_filter_by_status(
     # Filter by SENT status
     response = await async_client_with_db.get(
         build_api_url("/admin/alerts/recent-logs?status=sent"),
-        headers=admin_headers,
+        headers=auth_headers_for_user,
     )
 
     assert response.status_code == 200
@@ -651,7 +651,7 @@ async def test_recent_logs_filter_by_status(
     # Filter by FAILED status
     response = await async_client_with_db.get(
         build_api_url("/admin/alerts/recent-logs?status=failed"),
-        headers=admin_headers,
+        headers=auth_headers_for_user,
     )
 
     assert response.status_code == 200
@@ -667,7 +667,7 @@ async def test_recent_logs_ordering(
     db_session: AsyncSession,
     async_client_with_db: AsyncClient,
     admin_user: tuple[User, Any],
-    admin_headers: dict[str, str],
+    auth_headers_for_user: dict[str, str],
     test_user: User,
 ) -> None:
     """Test that logs are ordered by sent_at descending (most recent first)."""
@@ -704,7 +704,7 @@ async def test_recent_logs_ordering(
 
     response = await async_client_with_db.get(
         build_api_url("/admin/alerts/recent-logs"),
-        headers=admin_headers,
+        headers=auth_headers_for_user,
     )
 
     assert response.status_code == 200
@@ -720,27 +720,27 @@ async def test_recent_logs_ordering(
 async def test_recent_logs_limit_validation(
     async_client_with_db: AsyncClient,
     admin_user: tuple[User, Any],
-    admin_headers: dict[str, str],
+    auth_headers_for_user: dict[str, str],
 ) -> None:
     """Test limit parameter validation."""
     # Test limit too low
     response = await async_client_with_db.get(
         build_api_url("/admin/alerts/recent-logs?limit=0"),
-        headers=admin_headers,
+        headers=auth_headers_for_user,
     )
     assert response.status_code == 422  # Validation error
 
     # Test limit too high
     response = await async_client_with_db.get(
         build_api_url("/admin/alerts/recent-logs?limit=1001"),
-        headers=admin_headers,
+        headers=auth_headers_for_user,
     )
     assert response.status_code == 422  # Validation error
 
     # Test valid limit
     response = await async_client_with_db.get(
         build_api_url("/admin/alerts/recent-logs?limit=100"),
-        headers=admin_headers,
+        headers=auth_headers_for_user,
     )
     assert response.status_code == 200
 
@@ -749,19 +749,19 @@ async def test_recent_logs_limit_validation(
 async def test_recent_logs_offset_validation(
     async_client_with_db: AsyncClient,
     admin_user: tuple[User, Any],
-    admin_headers: dict[str, str],
+    auth_headers_for_user: dict[str, str],
 ) -> None:
     """Test offset parameter validation."""
     # Test negative offset
     response = await async_client_with_db.get(
         build_api_url("/admin/alerts/recent-logs?offset=-1"),
-        headers=admin_headers,
+        headers=auth_headers_for_user,
     )
     assert response.status_code == 422  # Validation error
 
     # Test valid offset
     response = await async_client_with_db.get(
         build_api_url("/admin/alerts/recent-logs?offset=0"),
-        headers=admin_headers,
+        headers=auth_headers_for_user,
     )
     assert response.status_code == 200
