@@ -11,6 +11,16 @@ import {
   sendVerification,
   verifyCode,
   deleteContact,
+  rebuildRouteIndexes,
+  buildStationGraph,
+  syncTflMetadata,
+  triggerAlertCheck,
+  getWorkerStatus,
+  getRecentLogs,
+  getAdminUsers,
+  getAdminUser,
+  anonymizeUser,
+  getEngagementMetrics,
 } from './api'
 
 // Mock the config module
@@ -629,6 +639,439 @@ describe('deleteContact', () => {
     await expect(deleteContact('999')).rejects.toThrow(ApiError)
     await expect(deleteContact('999')).rejects.toMatchObject({
       status: 404,
+    })
+  })
+})
+
+// ============================================================================
+// Admin API Tests
+// ============================================================================
+
+describe('Admin API - Route Index Management', () => {
+  beforeEach(() => {
+    const mockGetToken = vi.fn().mockResolvedValue('test-token')
+    setAccessTokenGetter(mockGetToken)
+  })
+
+  afterEach(() => {
+    vi.restoreAllMocks()
+  })
+
+  it('should rebuild all route indexes successfully', async () => {
+    const mockResponse = {
+      success: true,
+      rebuilt_count: 5,
+      failed_count: 0,
+      errors: [],
+    }
+
+    global.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => mockResponse,
+    })
+
+    const result = await rebuildRouteIndexes()
+
+    expect(result).toEqual(mockResponse)
+    expect(global.fetch).toHaveBeenCalledWith(
+      'http://localhost:8000/admin/routes/rebuild-indexes',
+      expect.any(Object)
+    )
+  })
+
+  it('should rebuild indexes for specific route', async () => {
+    const mockResponse = {
+      success: true,
+      rebuilt_count: 1,
+      failed_count: 0,
+      errors: [],
+    }
+
+    global.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => mockResponse,
+    })
+
+    const result = await rebuildRouteIndexes('route-123')
+
+    expect(result).toEqual(mockResponse)
+    expect(global.fetch).toHaveBeenCalledWith(
+      'http://localhost:8000/admin/routes/rebuild-indexes?route_id=route-123',
+      expect.any(Object)
+    )
+  })
+
+  it('should handle 403 Forbidden (non-admin user)', async () => {
+    global.fetch = vi.fn().mockResolvedValue({
+      ok: false,
+      status: 403,
+      statusText: 'Forbidden',
+      json: async () => ({ detail: 'Admin privileges required' }),
+    })
+
+    await expect(rebuildRouteIndexes()).rejects.toThrow(ApiError)
+    await expect(rebuildRouteIndexes()).rejects.toMatchObject({
+      status: 403,
+    })
+  })
+})
+
+describe('Admin API - TfL Management', () => {
+  beforeEach(() => {
+    const mockGetToken = vi.fn().mockResolvedValue('test-token')
+    setAccessTokenGetter(mockGetToken)
+  })
+
+  afterEach(() => {
+    vi.restoreAllMocks()
+  })
+
+  it('should build station graph successfully', async () => {
+    const mockResponse = {
+      success: true,
+      message: 'Station graph built successfully',
+      lines_count: 11,
+      stations_count: 500,
+      connections_count: 800,
+      hubs_count: 50,
+    }
+
+    global.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => mockResponse,
+    })
+
+    const result = await buildStationGraph()
+
+    expect(result).toEqual(mockResponse)
+    expect(global.fetch).toHaveBeenCalledWith(
+      'http://localhost:8000/admin/tfl/build-graph',
+      expect.objectContaining({ method: 'POST' })
+    )
+  })
+
+  it('should sync TfL metadata successfully', async () => {
+    const mockResponse = {
+      success: true,
+      message: 'Metadata synced successfully',
+      severity_codes_count: 10,
+      disruption_categories_count: 5,
+      stop_types_count: 3,
+    }
+
+    global.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => mockResponse,
+    })
+
+    const result = await syncTflMetadata()
+
+    expect(result).toEqual(mockResponse)
+    expect(global.fetch).toHaveBeenCalledWith(
+      'http://localhost:8000/admin/tfl/sync-metadata',
+      expect.objectContaining({ method: 'POST' })
+    )
+  })
+})
+
+describe('Admin API - Alert Management', () => {
+  beforeEach(() => {
+    const mockGetToken = vi.fn().mockResolvedValue('test-token')
+    setAccessTokenGetter(mockGetToken)
+  })
+
+  afterEach(() => {
+    vi.restoreAllMocks()
+  })
+
+  it('should trigger alert check successfully', async () => {
+    const mockResponse = {
+      success: true,
+      message: 'Alert check completed',
+      routes_checked: 10,
+      alerts_sent: 3,
+      errors: 0,
+    }
+
+    global.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => mockResponse,
+    })
+
+    const result = await triggerAlertCheck()
+
+    expect(result).toEqual(mockResponse)
+    expect(global.fetch).toHaveBeenCalledWith(
+      'http://localhost:8000/admin/alerts/trigger-check',
+      expect.objectContaining({ method: 'POST' })
+    )
+  })
+
+  it('should get worker status successfully', async () => {
+    const mockResponse = {
+      worker_available: true,
+      active_tasks: 2,
+      scheduled_tasks: 1,
+      last_heartbeat: '2024-01-01T12:00:00Z',
+      message: 'Worker is healthy',
+    }
+
+    global.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => mockResponse,
+    })
+
+    const result = await getWorkerStatus()
+
+    expect(result).toEqual(mockResponse)
+    expect(global.fetch).toHaveBeenCalledWith(
+      'http://localhost:8000/admin/alerts/worker-status',
+      expect.any(Object)
+    )
+  })
+
+  it('should get recent logs with default params', async () => {
+    const mockResponse = {
+      total: 100,
+      logs: [],
+      limit: 50,
+      offset: 0,
+    }
+
+    global.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => mockResponse,
+    })
+
+    const result = await getRecentLogs()
+
+    expect(result).toEqual(mockResponse)
+    expect(global.fetch).toHaveBeenCalledWith(
+      'http://localhost:8000/admin/alerts/recent-logs',
+      expect.any(Object)
+    )
+  })
+
+  it('should get recent logs with pagination and status filter', async () => {
+    const mockResponse = {
+      total: 10,
+      logs: [],
+      limit: 20,
+      offset: 40,
+    }
+
+    global.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => mockResponse,
+    })
+
+    const result = await getRecentLogs({ limit: 20, offset: 40, status: 'failed' })
+
+    expect(result).toEqual(mockResponse)
+    expect(global.fetch).toHaveBeenCalledWith(
+      'http://localhost:8000/admin/alerts/recent-logs?limit=20&offset=40&status=failed',
+      expect.any(Object)
+    )
+  })
+})
+
+describe('Admin API - User Management', () => {
+  beforeEach(() => {
+    const mockGetToken = vi.fn().mockResolvedValue('test-token')
+    setAccessTokenGetter(mockGetToken)
+  })
+
+  afterEach(() => {
+    vi.restoreAllMocks()
+  })
+
+  it('should get admin users with default params', async () => {
+    const mockResponse = {
+      total: 50,
+      users: [],
+      limit: 50,
+      offset: 0,
+    }
+
+    global.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => mockResponse,
+    })
+
+    const result = await getAdminUsers()
+
+    expect(result).toEqual(mockResponse)
+    expect(global.fetch).toHaveBeenCalledWith(
+      'http://localhost:8000/admin/users',
+      expect.any(Object)
+    )
+  })
+
+  it('should get admin users with search and pagination', async () => {
+    const mockResponse = {
+      total: 5,
+      users: [],
+      limit: 10,
+      offset: 20,
+    }
+
+    global.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => mockResponse,
+    })
+
+    const result = await getAdminUsers({
+      limit: 10,
+      offset: 20,
+      search: 'test@example.com',
+      include_deleted: true,
+    })
+
+    expect(result).toEqual(mockResponse)
+    expect(global.fetch).toHaveBeenCalledWith(
+      'http://localhost:8000/admin/users?limit=10&offset=20&search=test%40example.com&include_deleted=true',
+      expect.any(Object)
+    )
+  })
+
+  it('should get specific user details', async () => {
+    const mockResponse = {
+      id: 'user-123',
+      external_id: 'auth0|123',
+      auth_provider: 'auth0',
+      created_at: '2024-01-01T00:00:00Z',
+      updated_at: '2024-01-01T00:00:00Z',
+      deleted_at: null,
+      email_addresses: [],
+      phone_numbers: [],
+    }
+
+    global.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => mockResponse,
+    })
+
+    const result = await getAdminUser('user-123')
+
+    expect(result).toEqual(mockResponse)
+    expect(global.fetch).toHaveBeenCalledWith(
+      'http://localhost:8000/admin/users/user-123',
+      expect.any(Object)
+    )
+  })
+
+  it('should anonymize user successfully', async () => {
+    const mockResponse = {
+      success: true,
+      message: 'User anonymized successfully',
+      user_id: 'user-123',
+    }
+
+    global.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => mockResponse,
+    })
+
+    const result = await anonymizeUser('user-123')
+
+    expect(result).toEqual(mockResponse)
+    expect(global.fetch).toHaveBeenCalledWith(
+      'http://localhost:8000/admin/users/user-123',
+      expect.objectContaining({ method: 'DELETE' })
+    )
+  })
+
+  it('should handle 404 user not found', async () => {
+    global.fetch = vi.fn().mockResolvedValue({
+      ok: false,
+      status: 404,
+      statusText: 'Not Found',
+      json: async () => ({ detail: 'User not found' }),
+    })
+
+    await expect(getAdminUser('nonexistent')).rejects.toThrow(ApiError)
+    await expect(getAdminUser('nonexistent')).rejects.toMatchObject({
+      status: 404,
+    })
+  })
+})
+
+describe('Admin API - Analytics', () => {
+  beforeEach(() => {
+    const mockGetToken = vi.fn().mockResolvedValue('test-token')
+    setAccessTokenGetter(mockGetToken)
+  })
+
+  afterEach(() => {
+    vi.restoreAllMocks()
+  })
+
+  it('should get engagement metrics successfully', async () => {
+    const mockResponse = {
+      user_counts: {
+        total_users: 100,
+        active_users: 80,
+        users_with_verified_email: 70,
+        users_with_verified_phone: 50,
+        admin_users: 5,
+      },
+      route_stats: {
+        total_routes: 200,
+        active_routes: 150,
+        avg_routes_per_user: 2.0,
+      },
+      notification_stats: {
+        total_sent: 1000,
+        successful: 950,
+        failed: 50,
+        success_rate: 0.95,
+        by_method_last_30_days: { email: 600, sms: 350 },
+      },
+      growth_metrics: {
+        new_users_last_7_days: 10,
+        new_users_last_30_days: 40,
+        daily_signups_last_7_days: [],
+      },
+    }
+
+    global.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => mockResponse,
+    })
+
+    const result = await getEngagementMetrics()
+
+    expect(result).toEqual(mockResponse)
+    expect(global.fetch).toHaveBeenCalledWith(
+      'http://localhost:8000/admin/analytics/engagement',
+      expect.any(Object)
+    )
+  })
+
+  it('should handle server error gracefully', async () => {
+    global.fetch = vi.fn().mockResolvedValue({
+      ok: false,
+      status: 500,
+      statusText: 'Internal Server Error',
+      json: async () => ({ detail: 'Database error' }),
+    })
+
+    await expect(getEngagementMetrics()).rejects.toThrow(ApiError)
+    await expect(getEngagementMetrics()).rejects.toMatchObject({
+      status: 500,
     })
   })
 })
