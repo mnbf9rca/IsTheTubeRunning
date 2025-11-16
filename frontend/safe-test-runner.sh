@@ -25,11 +25,12 @@ cleanup() {
     echo "Timestamp: $(date)" | tee -a "$LOG_FILE"
 
     # Kill the test process tree if it's still running
-    if [ ! -z "$TEST_PID" ] && kill -0 "$TEST_PID" 2>/dev/null; then
+    if [ -n "$TEST_PID" ] && kill -0 "$TEST_PID" 2>/dev/null; then
         echo "Killing test process $TEST_PID and its children" | tee -a "$LOG_FILE"
-        # Kill the entire process group
-        kill -9 -$TEST_PID 2>/dev/null || true
-        kill -9 $TEST_PID 2>/dev/null || true
+        # Kill all child processes first
+        pkill -9 -P "$TEST_PID" 2>/dev/null || true
+        # Then kill the main process
+        kill -9 "$TEST_PID" 2>/dev/null || true
     fi
 
     # Kill any remaining vitest processes (specific to tests)
