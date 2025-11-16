@@ -27,14 +27,12 @@ interface AdminRouteProps {
  * ```
  */
 export const AdminRoute = ({ children }: AdminRouteProps) => {
-  const { isAuthenticated, isLoading: auth0IsLoading } = useAuth()
-  const { isAdmin, isLoading, user } = useAdminCheck()
+  const { isLoading: auth0IsLoading } = useAuth()
+  const { isAdmin, isLoading, isInitializing } = useAdminCheck()
   const location = useLocation()
 
   // Show loading while checking authentication and admin status
-  // ALSO show loading if Auth0 is authenticated but backend user not loaded yet
-  // This prevents redirect on page refresh before backend validation completes
-  const isInitializing = isAuthenticated && !user && !isLoading
+  // isInitializing handles the race condition where Auth0 finishes before backend
   if (auth0IsLoading || isLoading || isInitializing) {
     return (
       <div className="flex min-h-screen items-center justify-center">

@@ -34,6 +34,7 @@ describe('AdminRoute', () => {
     mockUseAdminCheck.mockReturnValue({
       isAdmin: true,
       isLoading: false,
+      isInitializing: false,
       user: { id: '1', created_at: '2024-01-01', updated_at: '2024-01-01', is_admin: true },
     })
 
@@ -64,6 +65,7 @@ describe('AdminRoute', () => {
     mockUseAdminCheck.mockReturnValue({
       isAdmin: false,
       isLoading: true,
+      isInitializing: false,
       user: null,
     })
 
@@ -94,6 +96,7 @@ describe('AdminRoute', () => {
     mockUseAdminCheck.mockReturnValue({
       isAdmin: false,
       isLoading: false,
+      isInitializing: false,
       user: { id: '1', created_at: '2024-01-01', updated_at: '2024-01-01', is_admin: false },
     })
 
@@ -131,6 +134,7 @@ describe('AdminRoute', () => {
     mockUseAdminCheck.mockReturnValue({
       isAdmin: false,
       isLoading: false,
+      isInitializing: false,
       user: null,
     })
 
@@ -168,6 +172,7 @@ describe('AdminRoute', () => {
     mockUseAdminCheck.mockReturnValue({
       isAdmin: false,
       isLoading: false,
+      isInitializing: false,
       user: null,
     })
 
@@ -198,6 +203,7 @@ describe('AdminRoute', () => {
     mockUseAdminCheck.mockReturnValue({
       isAdmin: false,
       isLoading: false,
+      isInitializing: false,
       user: { id: '1', created_at: '2024-01-01', updated_at: '2024-01-01', is_admin: false },
     })
 
@@ -225,5 +231,38 @@ describe('AdminRoute', () => {
     await waitFor(() => {
       expect(screen.getByText('Dashboard Page')).toBeInTheDocument()
     })
+  })
+
+  it('should show loading spinner during initialization (Auth0 done, backend pending)', () => {
+    mockUseAuth.mockReturnValue(
+      createMockAuth({
+        isAuthenticated: true,
+        isLoading: false,
+      })
+    )
+    mockUseAdminCheck.mockReturnValue({
+      isAdmin: false,
+      isLoading: false,
+      isInitializing: true,
+      user: null,
+    })
+
+    render(
+      <MemoryRouter initialEntries={['/admin']}>
+        <Routes>
+          <Route
+            path="/admin"
+            element={
+              <AdminRoute>
+                <div>Admin Content</div>
+              </AdminRoute>
+            }
+          />
+        </Routes>
+      </MemoryRouter>
+    )
+
+    expect(screen.getByText('Checking permissions...')).toBeInTheDocument()
+    expect(screen.queryByText('Admin Content')).not.toBeInTheDocument()
   })
 })
