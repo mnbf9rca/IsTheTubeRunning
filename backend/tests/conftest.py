@@ -7,6 +7,7 @@ import tempfile
 # This must be done before app.core.config loads settings
 os.environ["DEBUG"] = "true"
 os.environ["SMS_LOG_DIR"] = tempfile.gettempdir()  # For SMS service tests
+os.environ["OTEL_SDK_DISABLED"] = "true"  # Disable OpenTelemetry SDK for tests by default
 
 import uuid
 from collections.abc import AsyncGenerator, Generator

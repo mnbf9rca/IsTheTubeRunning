@@ -3,6 +3,7 @@
 import threading
 from collections.abc import AsyncGenerator
 
+from opentelemetry.instrumentation.sqlalchemy import SQLAlchemyInstrumentor
 from sqlalchemy.ext.asyncio import (
     AsyncEngine,
     AsyncSession,
@@ -16,10 +17,12 @@ from app.core.config import settings
 # Module-level globals for lazy initialization (fork-safety)
 _engine: AsyncEngine | None = None
 _session_factory: async_sessionmaker[AsyncSession] | None = None
+_sqlalchemy_instrumented: bool = False
 
 # Thread locks for thread-safe singleton initialization
 _engine_lock = threading.Lock()
 _session_factory_lock = threading.Lock()
+_instrumentation_lock = threading.Lock()
 
 
 def get_engine() -> AsyncEngine:
@@ -58,7 +61,38 @@ def get_engine() -> AsyncEngine:
                         pool_size=settings.DATABASE_POOL_SIZE,
                         max_overflow=settings.DATABASE_MAX_OVERFLOW,
                     )
+
+                # Instrument SQLAlchemy for OpenTelemetry tracing
+                _instrument_sqlalchemy(_engine)
+
     return _engine
+
+
+def _instrument_sqlalchemy(engine: AsyncEngine) -> None:
+    """
+    Instrument SQLAlchemy engine for OpenTelemetry tracing.
+
+    OpenTelemetry's SQLAlchemy instrumentor requires sync engine, so we use
+    engine.sync_engine property for async engines. Instrumentation is only
+    done once per worker process using a module-level flag.
+
+    Args:
+        engine: AsyncEngine to instrument
+    """
+    global _sqlalchemy_instrumented  # noqa: PLW0603
+
+    # Only instrument if OTEL is enabled and not already instrumented
+    if not settings.OTEL_ENABLED:
+        return
+
+    if not _sqlalchemy_instrumented:
+        with _instrumentation_lock:
+            if not _sqlalchemy_instrumented:  # Double-checked locking
+                # Use sync_engine property for async engines
+                SQLAlchemyInstrumentor().instrument(
+                    engine=engine.sync_engine,
+                )
+                _sqlalchemy_instrumented = True
 
 
 def get_session_factory() -> async_sessionmaker[AsyncSession]:
