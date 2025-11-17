@@ -3916,7 +3916,7 @@ async def test_validate_route_success(
         tfl_id="victoria",
         name="Victoria",
         last_updated=datetime.now(UTC),
-        routes={
+        route_variants={
             "routes": [
                 {
                     "name": "Victoria Line",
@@ -3989,7 +3989,7 @@ async def test_validate_route_multiple_paths(
         tfl_id="victoria",
         name="Victoria",
         last_updated=datetime.now(UTC),
-        routes={
+        route_variants={
             "routes": [
                 {
                     "name": "Victoria Line",
@@ -4074,7 +4074,7 @@ async def test_validate_route_invalid_connection(
         tfl_id="victoria",
         name="Victoria",
         last_updated=datetime.now(UTC),
-        routes={
+        route_variants={
             "routes": [
                 {
                     "name": "Victoria Line Route 1",
@@ -4359,7 +4359,7 @@ async def test_validate_route_with_null_destination_line_id(
         tfl_id="victoria",
         name="Victoria",
         last_updated=datetime.now(UTC),
-        routes={
+        route_variants={
             "routes": [
                 {
                     "name": "Victoria Line",
@@ -4495,7 +4495,7 @@ async def test_validate_route_different_branches_fails(
         tfl_id="northern",
         name="Northern",
         last_updated=datetime.now(UTC),
-        routes={
+        route_variants={
             "routes": [
                 {
                     "name": "Edgware → Morden via Bank",
@@ -4562,7 +4562,7 @@ async def test_validate_route_same_branch_succeeds(
         tfl_id="northern",
         name="Northern",
         last_updated=datetime.now(UTC),
-        routes={
+        route_variants={
             "routes": [
                 {
                     "name": "Edgware → Morden via Bank",
@@ -4627,7 +4627,7 @@ async def test_validate_route_before_branch_split_succeeds(
         tfl_id="northern",
         name="Northern",
         last_updated=datetime.now(UTC),
-        routes={
+        route_variants={
             "routes": [
                 {
                     "name": "Edgware → Morden via Bank",
@@ -4692,7 +4692,7 @@ async def test_validate_route_full_line_succeeds(
         tfl_id="northern",
         name="Northern",
         last_updated=datetime.now(UTC),
-        routes={
+        route_variants={
             "routes": [
                 {
                     "name": "Edgware → Morden via Bank",
@@ -4757,7 +4757,7 @@ async def test_validate_route_no_routes_data_fails(
         tfl_id="northern",
         name="Northern",
         last_updated=datetime.now(UTC),
-        routes=None,  # No routes data!
+        route_variants=None,  # No routes data!
     )
     db_session.add(line)
     await db_session.flush()
@@ -5602,9 +5602,9 @@ async def test_store_line_routes_regular_service(db_session: AsyncSession) -> No
     tfl_service._store_line_routes(line, inbound_data, outbound_data)
 
     # Verify
-    assert line.routes is not None
-    assert "routes" in line.routes
-    routes = line.routes["routes"]
+    assert line.route_variants is not None
+    assert "routes" in line.route_variants
+    routes = line.route_variants["routes"]
     assert len(routes) == 2
 
     # Check inbound route
@@ -5654,8 +5654,8 @@ async def test_store_line_routes_skip_night_service(db_session: AsyncSession) ->
     tfl_service._store_line_routes(line, inbound_data, None)
 
     # Verify - only Regular service should be stored
-    assert line.routes is not None
-    routes = line.routes["routes"]
+    assert line.route_variants is not None
+    routes = line.route_variants["routes"]
     assert len(routes) == 1
     assert routes[0]["name"] == "Regular Route"
     assert routes[0]["service_type"] == "Regular"
@@ -5678,7 +5678,7 @@ async def test_store_line_routes_none_data(db_session: AsyncSession) -> None:
     tfl_service._store_line_routes(line, None, None)
 
     # Verify - routes should not be set
-    assert line.routes is None
+    assert line.route_variants is None
 
 
 async def test_store_line_routes_empty_ordered_routes(db_session: AsyncSession) -> None:
@@ -5701,7 +5701,7 @@ async def test_store_line_routes_empty_ordered_routes(db_session: AsyncSession) 
     tfl_service._store_line_routes(line, inbound_data, None)
 
     # Verify - routes should not be set
-    assert line.routes is None
+    assert line.route_variants is None
 
 
 async def test_store_line_routes_no_naptan_ids(db_session: AsyncSession) -> None:
@@ -5731,7 +5731,7 @@ async def test_store_line_routes_no_naptan_ids(db_session: AsyncSession) -> None
     tfl_service._store_line_routes(line, inbound_data, None)
 
     # Verify - routes should not be set (route was skipped)
-    assert line.routes is None
+    assert line.route_variants is None
 
 
 async def test_store_line_routes_no_ordered_routes_attr(db_session: AsyncSession) -> None:
@@ -5757,7 +5757,7 @@ async def test_store_line_routes_no_ordered_routes_attr(db_session: AsyncSession
     tfl_service._store_line_routes(line, inbound_data, None)
 
     # Verify - routes should not be set
-    assert line.routes is None
+    assert line.route_variants is None
 
 
 async def test_store_line_routes_only_inbound(db_session: AsyncSession) -> None:
@@ -5787,8 +5787,8 @@ async def test_store_line_routes_only_inbound(db_session: AsyncSession) -> None:
     tfl_service._store_line_routes(line, inbound_data, None)
 
     # Verify
-    assert line.routes is not None
-    routes = line.routes["routes"]
+    assert line.route_variants is not None
+    routes = line.route_variants["routes"]
     assert len(routes) == 1
     assert routes[0]["direction"] == "inbound"
 
@@ -5820,8 +5820,8 @@ async def test_store_line_routes_only_outbound(db_session: AsyncSession) -> None
     tfl_service._store_line_routes(line, None, outbound_data)
 
     # Verify
-    assert line.routes is not None
-    routes = line.routes["routes"]
+    assert line.route_variants is not None
+    routes = line.route_variants["routes"]
     assert len(routes) == 1
     assert routes[0]["direction"] == "outbound"
 
@@ -5837,7 +5837,7 @@ async def test_get_line_routes_success(db_session: AsyncSession) -> None:
         name="Victoria",
         mode="tube",
         last_updated=datetime.now(UTC),
-        routes={
+        route_variants={
             "routes": [
                 {
                     "name": "Route 1",
@@ -5909,7 +5909,7 @@ async def test_get_line_routes_empty_routes(db_session: AsyncSession) -> None:
         name="Victoria",
         mode="tube",
         last_updated=datetime.now(UTC),
-        routes={},
+        route_variants={},
     )
     db_session.add(line)
     await db_session.commit()
@@ -5966,7 +5966,7 @@ async def test_get_station_routes_success(db_session: AsyncSession) -> None:
         name="Victoria",
         mode="tube",
         last_updated=datetime.now(UTC),
-        routes={
+        route_variants={
             "routes": [
                 {
                     "name": "Route 1",
@@ -5982,7 +5982,7 @@ async def test_get_station_routes_success(db_session: AsyncSession) -> None:
         name="District",
         mode="tube",
         last_updated=datetime.now(UTC),
-        routes={
+        route_variants={
             "routes": [
                 {
                     "name": "Route 2",
@@ -6108,7 +6108,7 @@ async def test_get_station_routes_station_not_on_route(db_session: AsyncSession)
         name="Victoria",
         mode="tube",
         last_updated=datetime.now(UTC),
-        routes={
+        route_variants={
             "routes": [
                 {
                     "name": "Route 1",
@@ -6149,7 +6149,7 @@ async def test_get_station_routes_multiple_routes_same_line(db_session: AsyncSes
         name="Northern",
         mode="tube",
         last_updated=datetime.now(UTC),
-        routes={
+        route_variants={
             "routes": [
                 {
                     "name": "Edgware → Morden via Bank",
@@ -6565,7 +6565,7 @@ async def test_validate_route_no_connection_different_lines(
         tfl_id="victoria",
         name="Victoria",
         last_updated=datetime.now(UTC),
-        routes={"routes": [{"name": "Test Route", "stations": ["940GZZLUVIC"]}]},
+        route_variants={"routes": [{"name": "Test Route", "stations": ["940GZZLUVIC"]}]},
     )
     db_session.add(victoria)
 
@@ -6649,7 +6649,7 @@ async def test_validate_route_hub_interchange_seven_sisters_rail(
         tfl_id="weaver",
         name="Weaver",
         last_updated=datetime.now(UTC),
-        routes={
+        route_variants={
             "routes": [
                 {
                     "name": "Weaver Line",
@@ -6666,7 +6666,7 @@ async def test_validate_route_hub_interchange_seven_sisters_rail(
         tfl_id="victoria",
         name="Victoria",
         last_updated=datetime.now(UTC),
-        routes={
+        route_variants={
             "routes": [
                 {
                     "name": "Victoria Line",
@@ -6774,7 +6774,7 @@ async def test_validate_route_hub_interchange_seven_sisters_tube(
         tfl_id="weaver",
         name="Weaver",
         last_updated=datetime.now(UTC),
-        routes={
+        route_variants={
             "routes": [
                 {
                     "name": "Weaver Line",
@@ -6791,7 +6791,7 @@ async def test_validate_route_hub_interchange_seven_sisters_tube(
         tfl_id="victoria",
         name="Victoria",
         last_updated=datetime.now(UTC),
-        routes={
+        route_variants={
             "routes": [
                 {
                     "name": "Victoria Line",
@@ -6898,7 +6898,7 @@ async def test_validate_route_different_hubs_no_connection_fails(
         tfl_id="testline",
         name="Test Line",
         last_updated=datetime.now(UTC),
-        routes={
+        route_variants={
             "routes": [
                 {
                     "name": "Test Route",
@@ -6968,7 +6968,7 @@ async def test_validate_route_no_hub_requires_connection(
         tfl_id="testline",
         name="Test Line",
         last_updated=datetime.now(UTC),
-        routes={
+        route_variants={
             "routes": [
                 {
                     "name": "Test Route",
@@ -7038,7 +7038,7 @@ async def test_validate_route_one_hub_one_regular_requires_connection(
         tfl_id="testline",
         name="Test Line",
         last_updated=datetime.now(UTC),
-        routes={
+        route_variants={
             "routes": [
                 {
                     "name": "Test Route",
@@ -7107,7 +7107,7 @@ async def test_validate_route_multiple_hub_interchanges(
         tfl_id="line1",
         name="Line 1",
         last_updated=datetime.now(UTC),
-        routes={
+        route_variants={
             "routes": [
                 {
                     "name": "Line 1 Route",
@@ -7123,7 +7123,7 @@ async def test_validate_route_multiple_hub_interchanges(
         tfl_id="line2",
         name="Line 2",
         last_updated=datetime.now(UTC),
-        routes={
+        route_variants={
             "routes": [
                 {
                     "name": "Line 2 Route",
@@ -7139,7 +7139,7 @@ async def test_validate_route_multiple_hub_interchanges(
         tfl_id="line3",
         name="Line 3",
         last_updated=datetime.now(UTC),
-        routes={
+        route_variants={
             "routes": [
                 {
                     "name": "Line 3 Route",
@@ -7264,7 +7264,7 @@ async def test_validate_route_hub_interchange_logs_correctly(
         tfl_id="line1",
         name="Line 1",
         last_updated=datetime.now(UTC),
-        routes={
+        route_variants={
             "routes": [
                 {
                     "name": "Line 1 Route",
@@ -7280,7 +7280,7 @@ async def test_validate_route_hub_interchange_logs_correctly(
         tfl_id="line2",
         name="Line 2",
         last_updated=datetime.now(UTC),
-        routes={
+        route_variants={
             "routes": [
                 {
                     "name": "Line 2 Route",
@@ -7384,7 +7384,7 @@ async def test_validate_route_hub_with_three_station_ids(
         tfl_id="line1",
         name="Line 1",
         last_updated=datetime.now(UTC),
-        routes={
+        route_variants={
             "routes": [
                 {
                     "name": "Line 1 Route",
@@ -7400,7 +7400,7 @@ async def test_validate_route_hub_with_three_station_ids(
         tfl_id="line2",
         name="Line 2",
         last_updated=datetime.now(UTC),
-        routes={
+        route_variants={
             "routes": [
                 {
                     "name": "Line 2 Route",
@@ -7416,7 +7416,7 @@ async def test_validate_route_hub_with_three_station_ids(
         tfl_id="line3",
         name="Line 3",
         last_updated=datetime.now(UTC),
-        routes={
+        route_variants={
             "routes": [
                 {
                     "name": "Line 3 Route",
@@ -7819,7 +7819,7 @@ async def test_validate_segment_connections_valid(
         tfl_id="line1",
         name="Line 1",
         last_updated=datetime.now(UTC),
-        routes={"routes": [{"name": "Route 1", "direction": "inbound", "stations": ["station1", "station2"]}]},
+        route_variants={"routes": [{"name": "Route 1", "direction": "inbound", "stations": ["station1", "station2"]}]},
     )
     db_session.add_all([station1, station2, line1])
     await db_session.commit()
@@ -7869,7 +7869,9 @@ async def test_validate_segment_connections_invalid(
         tfl_id="line1",
         name="Line 1",
         last_updated=datetime.now(UTC),
-        routes={"routes": [{"name": "Route 1", "direction": "inbound", "stations": ["station1"]}]},  # Only station1
+        route_variants={
+            "routes": [{"name": "Route 1", "direction": "inbound", "stations": ["station1"]}]
+        },  # Only station1
     )
     db_session.add_all([station1, station2, line1])
     await db_session.commit()
@@ -8128,7 +8130,7 @@ async def test_validate_route_backwards_direction_fails(
         tfl_id="piccadilly",
         name="Piccadilly",
         last_updated=datetime.now(UTC),
-        routes={
+        route_variants={
             "routes": [
                 {
                     "name": "Cockfosters → Heathrow",
@@ -8190,7 +8192,7 @@ async def test_validate_route_forward_direction_succeeds(
         tfl_id="piccadilly",
         name="Piccadilly",
         last_updated=datetime.now(UTC),
-        routes={
+        route_variants={
             "routes": [
                 {
                     "name": "Cockfosters → Heathrow",
@@ -8251,7 +8253,7 @@ async def test_validate_route_bidirectional_both_work(
         tfl_id="victoria",
         name="Victoria",
         last_updated=datetime.now(UTC),
-        routes={
+        route_variants={
             "routes": [
                 {
                     "name": "Brixton → Walthamstow Central",
@@ -8335,7 +8337,7 @@ async def test_validate_route_branches_still_blocked(
         tfl_id="northern",
         name="Northern",
         last_updated=datetime.now(UTC),
-        routes={
+        route_variants={
             "routes": [
                 {
                     "name": "Edgware → Morden via Bank",
@@ -8425,7 +8427,7 @@ async def test_validate_route_backwards_on_single_line(
         tfl_id="victoria",
         name="Victoria",
         last_updated=datetime.now(UTC),
-        routes={
+        route_variants={
             "routes": [
                 {
                     "name": "Brixton → Walthamstow",
@@ -8484,7 +8486,7 @@ async def test_validate_route_same_branch_with_direction(
         tfl_id="northern",
         name="Northern",
         last_updated=datetime.now(UTC),
-        routes={
+        route_variants={
             "routes": [
                 {
                     "name": "Edgware → Morden via Bank",

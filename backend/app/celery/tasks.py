@@ -353,7 +353,7 @@ def detect_and_rebuild_stale_routes(self: BoundTask) -> DetectStaleRoutesResult:
 
     This task is event-driven and triggered after TfL graph builds, typically via
     the `/admin/tfl/build-graph` endpoint. It ensures route station indexes stay
-    accurate as TfL line data changes over time. When Line.routes JSON is
+    accurate as TfL line data changes over time. When Line.route_variants JSON is
     updated, the indexes built from that data become stale.
 
     Algorithm:

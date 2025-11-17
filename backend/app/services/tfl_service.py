@@ -1976,7 +1976,7 @@ class TfLService:
         Extract and store route variants from RouteSequence data.
 
         Filters to only "Regular" service types and stores ordered station lists
-        for each route variant in the Line.routes JSON field.
+        for each route variant in the Line.route_variants JSON field.
 
         Args:
             line: Line object to update
@@ -2032,9 +2032,9 @@ class TfLService:
                     }
                 )
 
-        # Update line's routes field (stored as JSON in database)
+        # Update line's route_variants field (stored as JSON in database)
         if routes:
-            line.routes = {"routes": routes}
+            line.route_variants = {"routes": routes}
             logger.info(
                 "stored_line_routes",
                 line_tfl_id=line.tfl_id,
@@ -2896,7 +2896,7 @@ class TfLService:
             return False
 
         # Check if route sequences exist for this line
-        if not line.routes or "routes" not in line.routes:
+        if not line.route_variants or "routes" not in line.route_variants:
             logger.warning(
                 "check_connection_no_routes",
                 line_tfl_id=line.tfl_id,
@@ -2907,7 +2907,7 @@ class TfLService:
         # Use pure helper function to find valid connection
         # Performance: O(r * n) where r = route variants (2-6), n = stations (20-60)
         # With infrequent validation (only during route creation/editing), performance is negligible.
-        routes = line.routes["routes"]
+        routes = line.route_variants["routes"]
         result = find_valid_connection_in_routes(
             from_station.tfl_id,
             to_station.tfl_id,
@@ -2978,14 +2978,14 @@ class TfLService:
                 )
 
             # Check if routes have been built (None means not built, {} means no routes found)
-            if line.routes is None:
+            if line.route_variants is None:
                 raise HTTPException(
                     status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
                     detail="Route data has not been built yet. Please contact administrator.",
                 )
 
             # Return line routes data
-            routes_data = line.routes.get("routes", [])
+            routes_data = line.route_variants.get("routes", [])
             route_variants = [RouteVariant(**route) for route in routes_data]
             return LineRoutesResponse(
                 line_tfl_id=line.tfl_id,
@@ -3044,10 +3044,10 @@ class TfLService:
             # Collect routes that pass through this station
             station_routes: list[StationRouteInfo] = []
             for line in lines:
-                if line.routes is None:
+                if line.route_variants is None:
                     continue
 
-                routes = line.routes.get("routes", [])
+                routes = line.route_variants.get("routes", [])
                 station_routes.extend(
                     StationRouteInfo(
                         line_tfl_id=line.tfl_id,

@@ -212,7 +212,7 @@ class TestAdminRebuildIndexesIntegration:
             name="Test Line",
             mode="tube",
             last_updated=datetime.now(UTC),
-            routes={
+            route_variants={
                 "routes": [
                     {
                         "name": "Eastbound",
@@ -299,7 +299,7 @@ class TestAdminRebuildIndexesIntegration:
             name="Test Line Multi",
             mode="tube",
             last_updated=datetime.now(UTC),
-            routes={
+            route_variants={
                 "routes": [
                     {
                         "name": "Route 1",

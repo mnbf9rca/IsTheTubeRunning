@@ -29,7 +29,7 @@ class UserRouteStationIndex(BaseModel):
 
     Updated when:
         - User creates/updates route (Phase 2)
-        - Line.routes data changes (detected via line_data_version staleness check)
+        - Line.route_variants data changes (detected via line_data_version staleness check)
     """
 
     __tablename__ = "user_route_station_index"

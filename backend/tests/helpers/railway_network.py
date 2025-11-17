@@ -598,7 +598,7 @@ class TestRailwayNetwork:
             name="Forked Line",
             mode="tube",
             last_updated=datetime.now(UTC),
-            routes={
+            route_variants={
                 "routes": [
                     {
                         "name": "West Branch Southbound",
@@ -668,7 +668,7 @@ class TestRailwayNetwork:
             name="Parallel Line",
             mode="tube",
             last_updated=datetime.now(UTC),
-            routes={
+            route_variants={
                 "routes": [
                     {
                         "name": "Via Bank Southbound",
@@ -736,7 +736,7 @@ class TestRailwayNetwork:
             name="Asymmetric Line",
             mode="overground",
             last_updated=datetime.now(UTC),
-            routes={
+            route_variants={
                 "routes": [
                     {
                         "name": "Eastbound",
@@ -778,7 +778,7 @@ class TestRailwayNetwork:
             name="2 Stop Line",
             mode="dlr",
             last_updated=datetime.now(UTC),
-            routes={
+            route_variants={
                 "routes": [
                     {
                         "name": "Eastbound",
@@ -812,7 +812,7 @@ class TestRailwayNetwork:
             name="SharedLine A",
             mode="tube",
             last_updated=datetime.now(UTC),
-            routes={
+            route_variants={
                 "routes": [
                     {
                         "name": "Eastbound",
@@ -852,7 +852,7 @@ class TestRailwayNetwork:
             name="SharedLine B",
             mode="tube",
             last_updated=datetime.now(UTC),
-            routes={
+            route_variants={
                 "routes": [
                     {
                         "name": "Eastbound",
@@ -892,7 +892,7 @@ class TestRailwayNetwork:
             name="SharedLine C",
             mode="tube",
             last_updated=datetime.now(UTC),
-            routes={
+            route_variants={
                 "routes": [
                     {
                         "name": "Eastbound",
@@ -932,7 +932,7 @@ class TestRailwayNetwork:
             name="Elizabeth Line",
             mode="elizabeth-line",
             last_updated=datetime.now(UTC),
-            routes={
+            route_variants={
                 "routes": [
                     {
                         "name": "Eastbound",

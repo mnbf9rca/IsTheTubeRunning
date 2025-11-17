@@ -14,7 +14,7 @@ from typing import TypedDict
 
 
 class RouteVariant(TypedDict):
-    """Type definition for a route variant from Line.routes JSON."""
+    """Type definition for a route variant from Line.route_variants JSON."""
 
     name: str
     service_type: str

@@ -485,11 +485,11 @@ class TestSimpleLineFactories:
         assert line.tfl_id == expected_tfl_id
         assert line.name == expected_name
         assert line.mode == expected_mode
-        assert line.routes is not None
-        assert "routes" in line.routes
-        assert len(line.routes["routes"]) == expected_route_count
+        assert line.route_variants is not None
+        assert "routes" in line.route_variants
+        assert len(line.route_variants["routes"]) == expected_route_count
 
-        route_names = {route["name"] for route in line.routes["routes"]}
+        route_names = {route["name"] for route in line.route_variants["routes"]}
         assert route_names == expected_route_names
 
 
@@ -503,13 +503,13 @@ class TestComplexLineFactories:
         assert line.tfl_id == TestRailwayNetwork.LINE_FORKEDLINE
         assert line.name == "Forked Line"
         assert line.mode == "tube"
-        assert line.routes is not None
-        assert "routes" in line.routes
-        assert len(line.routes["routes"]) == 4  # 4 route variants (2 branches x 2 directions)
+        assert line.route_variants is not None
+        assert "routes" in line.route_variants
+        assert len(line.route_variants["routes"]) == 4  # 4 route variants (2 branches x 2 directions)
 
         # Verify route names
-        assert line.routes is not None
-        route_names = {route["name"] for route in line.routes["routes"]}
+        assert line.route_variants is not None
+        route_names = {route["name"] for route in line.route_variants["routes"]}
         assert route_names == {
             "West Branch Southbound",
             "West Branch Northbound",
@@ -518,8 +518,8 @@ class TestComplexLineFactories:
         }
 
         # Verify West Branch Southbound sequence
-        assert line.routes is not None
-        west_sb = next(r for r in line.routes["routes"] if r["name"] == "West Branch Southbound")
+        assert line.route_variants is not None
+        west_sb = next(r for r in line.route_variants["routes"] if r["name"] == "West Branch Southbound")
         assert west_sb["stations"] == [
             TestRailwayNetwork.STATION_WEST_FORK_2,
             TestRailwayNetwork.STATION_WEST_FORK,
@@ -530,8 +530,8 @@ class TestComplexLineFactories:
         ]
 
         # Verify East Branch Southbound sequence
-        assert line.routes is not None
-        east_sb = next(r for r in line.routes["routes"] if r["name"] == "East Branch Southbound")
+        assert line.route_variants is not None
+        east_sb = next(r for r in line.route_variants["routes"] if r["name"] == "East Branch Southbound")
         assert east_sb["stations"] == [
             TestRailwayNetwork.STATION_EAST_FORK_2,
             TestRailwayNetwork.STATION_EAST_FORK,
@@ -548,13 +548,13 @@ class TestComplexLineFactories:
         assert line.tfl_id == TestRailwayNetwork.LINE_PARALLELLINE
         assert line.name == "Parallel Line"
         assert line.mode == "tube"
-        assert line.routes is not None
-        assert "routes" in line.routes
-        assert len(line.routes["routes"]) == 4  # 4 route variants (2 branches x 2 directions)
+        assert line.route_variants is not None
+        assert "routes" in line.route_variants
+        assert len(line.route_variants["routes"]) == 4  # 4 route variants (2 branches x 2 directions)
 
         # Verify route names
-        assert line.routes is not None
-        route_names = {route["name"] for route in line.routes["routes"]}
+        assert line.route_variants is not None
+        route_names = {route["name"] for route in line.route_variants["routes"]}
         assert route_names == {
             "Via Bank Southbound",
             "Via Bank Northbound",
@@ -563,8 +563,8 @@ class TestComplexLineFactories:
         }
 
         # Verify Via Bank Southbound sequence
-        assert line.routes is not None
-        bank_sb = next(r for r in line.routes["routes"] if r["name"] == "Via Bank Southbound")
+        assert line.route_variants is not None
+        bank_sb = next(r for r in line.route_variants["routes"] if r["name"] == "Via Bank Southbound")
         assert bank_sb["stations"] == [
             TestRailwayNetwork.STATION_PARALLEL_NORTH,
             TestRailwayNetwork.STATION_PARALLEL_SPLIT,
@@ -575,8 +575,8 @@ class TestComplexLineFactories:
         ]
 
         # Verify Via Charing Southbound sequence
-        assert line.routes is not None
-        charing_sb = next(r for r in line.routes["routes"] if r["name"] == "Via Charing Southbound")
+        assert line.route_variants is not None
+        charing_sb = next(r for r in line.route_variants["routes"] if r["name"] == "Via Charing Southbound")
         assert charing_sb["stations"] == [
             TestRailwayNetwork.STATION_PARALLEL_NORTH,
             TestRailwayNetwork.STATION_PARALLEL_SPLIT,
@@ -594,15 +594,15 @@ class TestLineRouteDetails:
         """Test 2stopline has correct station sequences."""
         line = TestRailwayNetwork.create_2stopline()
 
-        assert line.routes is not None
-        eastbound = next(r for r in line.routes["routes"] if r["name"] == "Eastbound")
+        assert line.route_variants is not None
+        eastbound = next(r for r in line.route_variants["routes"] if r["name"] == "Eastbound")
         assert eastbound["stations"] == [
             TestRailwayNetwork.STATION_TWOSTOP_WEST,
             TestRailwayNetwork.STATION_TWOSTOP_EAST,
         ]
 
-        assert line.routes is not None
-        westbound = next(r for r in line.routes["routes"] if r["name"] == "Westbound")
+        assert line.route_variants is not None
+        westbound = next(r for r in line.route_variants["routes"] if r["name"] == "Westbound")
         assert westbound["stations"] == [
             TestRailwayNetwork.STATION_TWOSTOP_EAST,
             TestRailwayNetwork.STATION_TWOSTOP_WEST,
@@ -646,8 +646,8 @@ class TestLineRouteDetails:
         """Test sharedlines include shared-station at position 3."""
         line = getattr(TestRailwayNetwork, factory_method)()
 
-        assert line.routes is not None
-        eastbound = next(r for r in line.routes["routes"] if r["name"] == "Eastbound")
+        assert line.route_variants is not None
+        eastbound = next(r for r in line.route_variants["routes"] if r["name"] == "Eastbound")
         assert eastbound["stations"] == [
             station_1,
             station_2,
@@ -661,8 +661,8 @@ class TestLineRouteDetails:
         line = TestRailwayNetwork.create_asymmetricline()
 
         # Verify Eastbound sequence (includes skip station)
-        assert line.routes is not None
-        eastbound = next(r for r in line.routes["routes"] if r["name"] == "Eastbound")
+        assert line.route_variants is not None
+        eastbound = next(r for r in line.route_variants["routes"] if r["name"] == "Eastbound")
         assert eastbound["stations"] == [
             TestRailwayNetwork.STATION_ASYM_WEST,
             TestRailwayNetwork.STATION_ASYM_REGULAR_1,
@@ -672,8 +672,8 @@ class TestLineRouteDetails:
         ]
 
         # Verify Westbound sequence (SKIPS skip station)
-        assert line.routes is not None
-        westbound = next(r for r in line.routes["routes"] if r["name"] == "Westbound")
+        assert line.route_variants is not None
+        westbound = next(r for r in line.route_variants["routes"] if r["name"] == "Westbound")
         assert westbound["stations"] == [
             TestRailwayNetwork.STATION_ASYM_EAST,
             TestRailwayNetwork.STATION_ASYM_REGULAR_2,
@@ -687,8 +687,8 @@ class TestLineRouteDetails:
         line = TestRailwayNetwork.create_elizabethline()
 
         # Verify Eastbound sequence
-        assert line.routes is not None
-        eastbound = next(r for r in line.routes["routes"] if r["name"] == "Eastbound")
+        assert line.route_variants is not None
+        eastbound = next(r for r in line.route_variants["routes"] if r["name"] == "Eastbound")
         assert eastbound["stations"] == [
             TestRailwayNetwork.STATION_ELIZABETH_WEST,
             TestRailwayNetwork.STATION_HUBNORTH_ELIZABETH,
@@ -697,8 +697,8 @@ class TestLineRouteDetails:
         ]
 
         # Verify Westbound sequence
-        assert line.routes is not None
-        westbound = next(r for r in line.routes["routes"] if r["name"] == "Westbound")
+        assert line.route_variants is not None
+        westbound = next(r for r in line.route_variants["routes"] if r["name"] == "Westbound")
         assert westbound["stations"] == [
             TestRailwayNetwork.STATION_ELIZABETH_EAST,
             TestRailwayNetwork.STATION_ELIZABETH_MID,
@@ -773,10 +773,10 @@ class TestNetworkValidation:
         """Test asymmetricline eastbound != westbound (non-symmetric)."""
         line = TestRailwayNetwork.create_asymmetricline()
 
-        assert line.routes is not None
-        eastbound = next(r for r in line.routes["routes"] if r["name"] == "Eastbound")
-        assert line.routes is not None
-        westbound = next(r for r in line.routes["routes"] if r["name"] == "Westbound")
+        assert line.route_variants is not None
+        eastbound = next(r for r in line.route_variants["routes"] if r["name"] == "Eastbound")
+        assert line.route_variants is not None
+        westbound = next(r for r in line.route_variants["routes"] if r["name"] == "Westbound")
 
         # Eastbound has 5 stations, westbound has 4
         assert len(eastbound["stations"]) == 5
@@ -808,10 +808,10 @@ class TestNetworkValidation:
         """Test forkedline west and east branches both pass through fork-junction."""
         line = TestRailwayNetwork.create_forkedline()
 
-        assert line.routes is not None
-        west_sb = next(r for r in line.routes["routes"] if r["name"] == "West Branch Southbound")
-        assert line.routes is not None
-        east_sb = next(r for r in line.routes["routes"] if r["name"] == "East Branch Southbound")
+        assert line.route_variants is not None
+        west_sb = next(r for r in line.route_variants["routes"] if r["name"] == "West Branch Southbound")
+        assert line.route_variants is not None
+        east_sb = next(r for r in line.route_variants["routes"] if r["name"] == "East Branch Southbound")
 
         # Both branches must include fork-junction
         assert TestRailwayNetwork.STATION_FORK_JUNCTION in west_sb["stations"]
@@ -827,10 +827,10 @@ class TestNetworkValidation:
         """Test parallelline branches split and rejoin at correct stations."""
         line = TestRailwayNetwork.create_parallelline()
 
-        assert line.routes is not None
-        bank_sb = next(r for r in line.routes["routes"] if r["name"] == "Via Bank Southbound")
-        assert line.routes is not None
-        charing_sb = next(r for r in line.routes["routes"] if r["name"] == "Via Charing Southbound")
+        assert line.route_variants is not None
+        bank_sb = next(r for r in line.route_variants["routes"] if r["name"] == "Via Bank Southbound")
+        assert line.route_variants is not None
+        charing_sb = next(r for r in line.route_variants["routes"] if r["name"] == "Via Charing Southbound")
 
         # Both must split at parallel-split
         assert bank_sb["stations"][1] == TestRailwayNetwork.STATION_PARALLEL_SPLIT
