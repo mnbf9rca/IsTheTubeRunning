@@ -82,16 +82,14 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
     logger.info("Starting up: Initializing observability and validating database...")
 
     # Initialize OpenTelemetry if enabled
-    if settings.OTEL_ENABLED:
-        provider = get_tracer_provider()
-        if provider:
-            trace.set_tracer_provider(provider)
-            # Instrument FastAPI with excluded URLs
-            FastAPIInstrumentor.instrument_app(
-                app,
-                excluded_urls=",".join(settings.OTEL_EXCLUDED_URLS),
-            )
-            logger.info("✓ OpenTelemetry initialized")
+    if settings.OTEL_ENABLED and (provider := get_tracer_provider()):
+        trace.set_tracer_provider(provider)
+        # Instrument FastAPI with excluded URLs
+        FastAPIInstrumentor.instrument_app(
+            app,
+            excluded_urls=",".join(settings.OTEL_EXCLUDED_URLS),
+        )
+        logger.info("✓ OpenTelemetry initialized")
 
     try:
         async with get_engine().begin() as conn:

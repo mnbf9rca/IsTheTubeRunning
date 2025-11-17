@@ -134,13 +134,36 @@ def test_parse_otlp_headers_with_whitespace() -> None:
     }
 
 
-def test_parse_otlp_headers_ignores_invalid_pairs() -> None:
-    """Test that invalid header pairs (no equals sign) are ignored."""
+def test_parse_otlp_headers_ignores_invalid_pairs(caplog: pytest.LogCaptureFixture) -> None:
+    """Test that invalid header pairs (no equals sign) are ignored with warning."""
     headers = telemetry._parse_otlp_headers("ValidHeader=value,InvalidHeader,AnotherValid=test")
     assert headers == {
         "ValidHeader": "value",
         "AnotherValid": "test",
     }
+    # Verify warning was logged
+    assert any("Malformed OTLP header pair ignored: 'InvalidHeader'" in record.message for record in caplog.records)
+
+
+def test_parse_otlp_headers_multiple_equals_signs() -> None:
+    """Test that header values containing equals signs are handled correctly."""
+    # Authorization headers often have = in the value (e.g., Base64-encoded tokens)
+    headers = telemetry._parse_otlp_headers("Authorization=Basic dXNlcjpwYXNz,Token=abc=123=xyz")
+    assert headers == {
+        "Authorization": "Basic dXNlcjpwYXNz",
+        "Token": "abc=123=xyz",
+    }
+
+
+def test_parse_otlp_headers_empty_key_or_value() -> None:
+    """Test that empty keys or values are preserved (edge case)."""
+    # Empty value after equals sign
+    headers = telemetry._parse_otlp_headers("EmptyValue=")
+    assert headers == {"EmptyValue": ""}
+
+    # Empty key before equals sign (unusual but valid syntax)
+    headers = telemetry._parse_otlp_headers("=SomeValue")
+    assert headers == {"": "SomeValue"}
 
 
 def test_shutdown_tracer_provider(monkeypatch: pytest.MonkeyPatch) -> None:
