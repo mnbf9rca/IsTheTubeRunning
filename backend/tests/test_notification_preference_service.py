@@ -2,8 +2,8 @@
 
 import pytest
 from app.models.notification import NotificationMethod
-from app.models.route import UserRoute
 from app.models.user import EmailAddress, PhoneNumber, User
+from app.models.user_route import UserRoute
 from app.services.notification_preference_service import NotificationPreferenceService
 from fastapi import HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession

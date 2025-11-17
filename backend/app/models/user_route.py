@@ -26,7 +26,7 @@ from app.models.user import User
 
 if TYPE_CHECKING:
     from app.models.notification import NotificationPreference
-    from app.models.route_index import RouteStationIndex
+    from app.models.user_route_index import UserRouteStationIndex
 
 
 class UserRoute(BaseModel):
@@ -75,7 +75,7 @@ class UserRoute(BaseModel):
         back_populates="route",
         cascade="all, delete-orphan",
     )
-    station_indexes: Mapped[list["RouteStationIndex"]] = relationship(
+    station_indexes: Mapped[list["UserRouteStationIndex"]] = relationship(
         back_populates="route",
         cascade="all, delete-orphan",
     )

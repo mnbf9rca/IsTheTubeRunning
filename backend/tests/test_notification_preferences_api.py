@@ -8,8 +8,8 @@ from app.core.config import settings
 from app.core.database import get_db
 from app.main import app
 from app.models.notification import NotificationMethod, NotificationPreference
-from app.models.route import UserRoute
 from app.models.user import EmailAddress, PhoneNumber, User
+from app.models.user_route import UserRoute
 from fastapi import status
 from httpx import AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession

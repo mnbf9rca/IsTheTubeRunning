@@ -14,7 +14,6 @@ from app.models.notification import (
     NotificationMethod,
     NotificationStatus,
 )
-from app.models.route import UserRoute
 from app.models.user import (
     EmailAddress,
     PhoneNumber,
@@ -22,6 +21,7 @@ from app.models.user import (
     VerificationCode,
     VerificationType,
 )
+from app.models.user_route import UserRoute
 from app.services.admin_service import calculate_avg_routes, calculate_success_rate
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy import select as sql_select

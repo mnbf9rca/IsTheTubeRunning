@@ -15,8 +15,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.celery.app import celery_app
 from app.celery.database import get_worker_session, reset_worker_engine
-from app.models.route_index import RouteStationIndex
 from app.models.tfl import Line
+from app.models.user_route_index import UserRouteStationIndex
 from app.services.alert_service import AlertService, get_redis_client
 from app.services.user_route_index_service import UserRouteIndexService
 
@@ -324,7 +324,7 @@ async def find_stale_route_ids(session: AsyncSession) -> list[UUID]:
         List of route UUIDs with stale indexes (distinct, no duplicates)
 
     Algorithm:
-        1. Join RouteStationIndex → Line (directly via line_tfl_id)
+        1. Join UserRouteStationIndex → Line (directly via line_tfl_id)
         2. Filter: WHERE line_data_version < Line.last_updated
         3. Return distinct route_ids (a route may have multiple stale entries)
     """
@@ -333,9 +333,9 @@ async def find_stale_route_ids(session: AsyncSession) -> list[UUID]:
     # Example: Route with 5 stations on Piccadilly → 5 index entries → could match 5 times
     # Join directly to Line using line_tfl_id (not through RouteSegment which may have NULL line_id)
     stmt = (
-        select(distinct(RouteStationIndex.route_id))
-        .join(Line, Line.tfl_id == RouteStationIndex.line_tfl_id)
-        .where(RouteStationIndex.line_data_version < Line.last_updated)
+        select(distinct(UserRouteStationIndex.route_id))
+        .join(Line, Line.tfl_id == UserRouteStationIndex.line_tfl_id)
+        .where(UserRouteStationIndex.line_data_version < Line.last_updated)
     )
 
     result = await session.execute(stmt)

@@ -8,8 +8,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
 from app.models.notification import NotificationMethod, NotificationPreference
-from app.models.route import UserRoute
 from app.models.user import EmailAddress, PhoneNumber
+from app.models.user_route import UserRoute
 
 
 class NotificationPreferenceService:

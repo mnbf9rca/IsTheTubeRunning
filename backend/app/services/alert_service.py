@@ -20,10 +20,10 @@ from app.models.notification import (
     NotificationPreference,
     NotificationStatus,
 )
-from app.models.route import UserRoute, UserRouteSchedule
-from app.models.route_index import RouteStationIndex
 from app.models.tfl import Line, LineDisruptionStateLog
 from app.models.user import EmailAddress, PhoneNumber, User
+from app.models.user_route import UserRoute, UserRouteSchedule
+from app.models.user_route_index import UserRouteStationIndex
 from app.schemas.tfl import DisruptionResponse
 from app.services.notification_service import NotificationService
 from app.services.tfl_service import TfLService
@@ -549,13 +549,13 @@ class AlertService:
         # Build a single query with OR conditions for all (line, station) pairs
         conditions = [
             and_(
-                RouteStationIndex.line_tfl_id == line_tfl_id,
-                RouteStationIndex.station_naptan == station_naptan,
+                UserRouteStationIndex.line_tfl_id == line_tfl_id,
+                UserRouteStationIndex.station_naptan == station_naptan,
             )
             for line_tfl_id, station_naptan in line_station_pairs
         ]
 
-        result = await self.db.execute(select(RouteStationIndex.route_id).where(or_(*conditions)))
+        result = await self.db.execute(select(UserRouteStationIndex.route_id).where(or_(*conditions)))
         route_ids = {row[0] for row in result.all()}
 
         logger.info(
@@ -578,9 +578,9 @@ class AlertService:
         """
         result = await self.db.execute(
             select(
-                RouteStationIndex.line_tfl_id,
-                RouteStationIndex.station_naptan,
-            ).where(RouteStationIndex.route_id == route_id)
+                UserRouteStationIndex.line_tfl_id,
+                UserRouteStationIndex.station_naptan,
+            ).where(UserRouteStationIndex.route_id == route_id)
         )
         return {(row[0], row[1]) for row in result.all()}
 
@@ -672,7 +672,7 @@ class AlertService:
         """
         Get current disruptions affecting this route using inverted index.
 
-        Uses station-level matching via RouteStationIndex for precision.
+        Uses station-level matching via UserRouteStationIndex for precision.
         Falls back to line-level matching only when TfL doesn't provide station data.
 
         Args:

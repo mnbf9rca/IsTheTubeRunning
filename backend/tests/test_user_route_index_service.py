@@ -4,10 +4,10 @@ import uuid
 from datetime import UTC, datetime
 
 import pytest
-from app.models.route import UserRoute, UserRouteSegment
-from app.models.route_index import RouteStationIndex
 from app.models.tfl import Line, Station
 from app.models.user import User
+from app.models.user_route import UserRoute, UserRouteSegment
+from app.models.user_route_index import UserRouteStationIndex
 from app.services.user_route_index_service import (
     UserRouteIndexService,
     deduplicate_preserving_order,
@@ -129,7 +129,9 @@ class TestUserRouteIndexService:
         assert result["entries_created"] == 2  # Both stations on 2stopline
 
         # Verify index entries were created
-        index_result = await db_session.execute(select(RouteStationIndex).where(RouteStationIndex.route_id == route.id))
+        index_result = await db_session.execute(
+            select(UserRouteStationIndex).where(UserRouteStationIndex.route_id == route.id)
+        )
         index_entries = index_result.scalars().all()
 
         assert len(index_entries) == 2
@@ -206,7 +208,9 @@ class TestUserRouteIndexService:
         assert result["segments_processed"] == 1
 
         # Verify index entries - should include stations from BOTH Bank and Charing branches
-        index_result = await db_session.execute(select(RouteStationIndex).where(RouteStationIndex.route_id == route.id))
+        index_result = await db_session.execute(
+            select(UserRouteStationIndex).where(UserRouteStationIndex.route_id == route.id)
+        )
         index_entries = index_result.scalars().all()
 
         # Expected stations: north, split, bank1, bank2, rejoin, charing1, charing2, south
@@ -283,7 +287,9 @@ class TestUserRouteIndexService:
         await service.build_route_station_index(route.id)
 
         # Verify index entries
-        index_result = await db_session.execute(select(RouteStationIndex).where(RouteStationIndex.route_id == route.id))
+        index_result = await db_session.execute(
+            select(UserRouteStationIndex).where(UserRouteStationIndex.route_id == route.id)
+        )
         index_entries = index_result.scalars().all()
 
         # Expected: west-fork, fork-junction, fork-mid-1, fork-mid-2, fork-south-end
@@ -344,7 +350,9 @@ class TestUserRouteIndexService:
         assert result["segments_processed"] == 2
 
         # Verify index entries
-        index_result = await db_session.execute(select(RouteStationIndex).where(RouteStationIndex.route_id == route.id))
+        index_result = await db_session.execute(
+            select(UserRouteStationIndex).where(UserRouteStationIndex.route_id == route.id)
+        )
         index_entries = index_result.scalars().all()
 
         # Group entries by line
@@ -415,7 +423,9 @@ class TestUserRouteIndexService:
         assert result["segments_processed"] == 0
 
         # Verify no index entries created
-        index_result = await db_session.execute(select(RouteStationIndex).where(RouteStationIndex.route_id == route.id))
+        index_result = await db_session.execute(
+            select(UserRouteStationIndex).where(UserRouteStationIndex.route_id == route.id)
+        )
         assert len(index_result.scalars().all()) == 0
 
     @pytest.mark.asyncio
@@ -467,7 +477,9 @@ class TestUserRouteIndexService:
         assert result2["entries_created"] == 2
 
         # Verify still only 2 entries (old ones were deleted)
-        index_result = await db_session.execute(select(RouteStationIndex).where(RouteStationIndex.route_id == route.id))
+        index_result = await db_session.execute(
+            select(UserRouteStationIndex).where(UserRouteStationIndex.route_id == route.id)
+        )
         index_entries = index_result.scalars().all()
         assert len(index_entries) == 2
 
@@ -633,7 +645,9 @@ class TestUserRouteIndexService:
         await service.build_route_station_index(route.id)
 
         # Verify line_data_version matches line.last_updated
-        index_result = await db_session.execute(select(RouteStationIndex).where(RouteStationIndex.route_id == route.id))
+        index_result = await db_session.execute(
+            select(UserRouteStationIndex).where(UserRouteStationIndex.route_id == route.id)
+        )
         index_entries = index_result.scalars().all()
 
         assert len(index_entries) > 0
@@ -679,7 +693,9 @@ class TestUserRouteIndexService:
         await db_session.commit()
 
         # Verify entries exist after manual commit
-        index_result = await db_session.execute(select(RouteStationIndex).where(RouteStationIndex.route_id == route.id))
+        index_result = await db_session.execute(
+            select(UserRouteStationIndex).where(UserRouteStationIndex.route_id == route.id)
+        )
         index_entries = index_result.scalars().all()
         assert len(index_entries) == 2
 
@@ -775,9 +791,9 @@ class TestUserRouteIndexService:
 
         # Verify index entries created for parallelline segment
         parallelline_entries = await db_session.execute(
-            select(RouteStationIndex).where(
-                RouteStationIndex.route_id == route.id,
-                RouteStationIndex.line_tfl_id == TestRailwayNetwork.LINE_PARALLELLINE,
+            select(UserRouteStationIndex).where(
+                UserRouteStationIndex.route_id == route.id,
+                UserRouteStationIndex.line_tfl_id == TestRailwayNetwork.LINE_PARALLELLINE,
             )
         )
         assert parallelline_entries.scalars().all()  # Should have entries
@@ -1011,7 +1027,9 @@ class TestRebuildRoutes:
         assert result["errors"] == []
 
         # Verify index was created
-        index_result = await db_session.execute(select(RouteStationIndex).where(RouteStationIndex.route_id == route.id))
+        index_result = await db_session.execute(
+            select(UserRouteStationIndex).where(UserRouteStationIndex.route_id == route.id)
+        )
         assert len(index_result.scalars().all()) > 0
 
     @pytest.mark.asyncio
@@ -1074,7 +1092,7 @@ class TestRebuildRoutes:
         # Verify indexes created for all routes
         for route in routes:
             index_result = await db_session.execute(
-                select(RouteStationIndex).where(RouteStationIndex.route_id == route.id)
+                select(UserRouteStationIndex).where(UserRouteStationIndex.route_id == route.id)
             )
             assert len(index_result.scalars().all()) > 0
 

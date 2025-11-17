@@ -9,9 +9,9 @@ from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from app.models.route import UserRoute, UserRouteSegment
-from app.models.route_index import RouteStationIndex
 from app.models.tfl import Line, Station
+from app.models.user_route import UserRoute, UserRouteSegment
+from app.models.user_route_index import UserRouteStationIndex
 
 logger = structlog.get_logger(__name__)
 
@@ -232,7 +232,7 @@ class UserRouteIndexService:
         Args:
             route_id: UUID of route
         """
-        await self.db.execute(delete(RouteStationIndex).where(RouteStationIndex.route_id == route_id))
+        await self.db.execute(delete(UserRouteStationIndex).where(UserRouteStationIndex.route_id == route_id))
         logger.debug("deleted_existing_index", route_id=str(route_id))
 
     async def _resolve_station_for_line(
@@ -381,7 +381,7 @@ class UserRouteIndexService:
                 # Create index entries for all intermediate stations
                 for station_naptan in station_naptans:
                     self.db.add(
-                        RouteStationIndex(
+                        UserRouteStationIndex(
                             route_id=route.id,
                             line_tfl_id=current_segment.line.tfl_id,
                             station_naptan=station_naptan,

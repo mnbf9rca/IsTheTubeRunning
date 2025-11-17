@@ -8,8 +8,8 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from app.models.route import UserRoute, UserRouteSchedule, UserRouteSegment
 from app.models.tfl import Line, Station
+from app.models.user_route import UserRoute, UserRouteSchedule, UserRouteSegment
 from app.schemas.routes import (
     CreateRouteRequest,
     CreateScheduleRequest,

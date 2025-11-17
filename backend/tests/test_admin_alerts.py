@@ -11,8 +11,8 @@ from app.core.config import settings
 from app.core.database import get_db
 from app.main import app
 from app.models.notification import NotificationLog, NotificationMethod, NotificationStatus
-from app.models.route import UserRoute
 from app.models.user import User
+from app.models.user_route import UserRoute
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
 

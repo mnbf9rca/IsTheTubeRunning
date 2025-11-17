@@ -8,10 +8,10 @@ from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.models.base import BaseModel
-from app.models.route import UserRoute
+from app.models.user_route import UserRoute
 
 
-class RouteStationIndex(BaseModel):
+class UserRouteStationIndex(BaseModel):
     """
     Inverted index mapping (line_tfl_id, station_naptan) → route_id.
 
@@ -70,4 +70,6 @@ class RouteStationIndex(BaseModel):
 
     def __repr__(self) -> str:
         """String representation of the route station index entry."""
-        return f"<RouteStationIndex(route_id={self.route_id}, line={self.line_tfl_id}, station={self.station_naptan})>"
+        return (
+            f"<UserRouteStationIndex(route_id={self.route_id}, line={self.line_tfl_id}, station={self.station_naptan})>"
+        )
