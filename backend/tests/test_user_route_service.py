@@ -7,7 +7,7 @@ import pytest
 from app.models.tfl import Line, Station
 from app.models.user import User
 from app.models.user_route import UserRoute
-from app.schemas.routes import SegmentRequest
+from app.schemas.routes import UserRouteSegmentRequest
 from app.services.user_route_service import UserRouteService
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -55,8 +55,8 @@ class TestUserRouteServiceUpsertSegments:
 
         # Create segments
         segments = [
-            SegmentRequest(sequence=0, station_tfl_id=station1.tfl_id, line_tfl_id=line.tfl_id),
-            SegmentRequest(sequence=1, station_tfl_id=station2.tfl_id, line_tfl_id=line.tfl_id),
+            UserRouteSegmentRequest(sequence=0, station_tfl_id=station1.tfl_id, line_tfl_id=line.tfl_id),
+            UserRouteSegmentRequest(sequence=1, station_tfl_id=station2.tfl_id, line_tfl_id=line.tfl_id),
         ]
 
         # Mock validation to pass, commit to fail, and rollback to verify it's called

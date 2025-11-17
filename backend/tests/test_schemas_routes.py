@@ -5,7 +5,7 @@ from unittest.mock import patch
 
 import pytest
 from app.schemas.routes import (
-    CreateRouteRequest,
+    CreateUserRouteRequest,
     _validate_day_codes,
     _validate_time_range,
     _validate_timezone,
@@ -133,8 +133,8 @@ class TestValidateTimezone:
                 _validate_timezone("Europe/London")
 
 
-class TestCreateRouteRequest:
-    """Tests for CreateRouteRequest schema."""
+class TestCreateUserRouteRequest:
+    """Tests for CreateUserRouteRequest schema."""
 
     def test_validate_timezone_none_handling(self) -> None:
         """Test that validator handles unexpected None from _validate_timezone."""
@@ -144,4 +144,4 @@ class TestCreateRouteRequest:
 
             # Should raise ValueError when None is returned
             with pytest.raises(ValueError, match="Invalid timezone"):
-                CreateRouteRequest(name="Test Route", timezone="Europe/London")
+                CreateUserRouteRequest(name="Test Route", timezone="Europe/London")

@@ -11,12 +11,12 @@ from sqlalchemy.orm import selectinload
 from app.models.tfl import Line, Station
 from app.models.user_route import UserRoute, UserRouteSchedule, UserRouteSegment
 from app.schemas.routes import (
-    CreateRouteRequest,
-    CreateScheduleRequest,
-    SegmentRequest,
-    UpdateRouteRequest,
-    UpdateScheduleRequest,
-    UpdateSegmentRequest,
+    CreateUserRouteRequest,
+    CreateUserRouteScheduleRequest,
+    UpdateUserRouteRequest,
+    UpdateUserRouteScheduleRequest,
+    UpdateUserRouteSegmentRequest,
+    UserRouteSegmentRequest,
 )
 from app.schemas.tfl import RouteSegmentRequest
 from app.services.tfl_service import TfLService
@@ -107,7 +107,7 @@ class UserRouteService:
     async def create_route(
         self,
         user_id: uuid.UUID,
-        request: CreateRouteRequest,
+        request: CreateUserRouteRequest,
     ) -> UserRoute:
         """
         Create a new route.
@@ -137,7 +137,7 @@ class UserRouteService:
         self,
         route_id: uuid.UUID,
         user_id: uuid.UUID,
-        request: UpdateRouteRequest,
+        request: UpdateUserRouteRequest,
     ) -> UserRoute:
         """
         Update route metadata.
@@ -190,7 +190,7 @@ class UserRouteService:
         self,
         route_id: uuid.UUID,
         user_id: uuid.UUID,
-        segments: list[SegmentRequest],
+        segments: list[UserRouteSegmentRequest],
     ) -> list[UserRouteSegment]:
         """
         Replace all segments for a route with validation.
@@ -264,7 +264,7 @@ class UserRouteService:
         route_id: uuid.UUID,
         user_id: uuid.UUID,
         sequence: int,
-        request: UpdateSegmentRequest,
+        request: UpdateUserRouteSegmentRequest,
     ) -> UserRouteSegment:
         """
         Update a single segment and validate the entire route.
@@ -388,7 +388,7 @@ class UserRouteService:
         self,
         route_id: uuid.UUID,
         user_id: uuid.UUID,
-        request: CreateScheduleRequest,
+        request: CreateUserRouteScheduleRequest,
     ) -> UserRouteSchedule:
         """
         Create a schedule for a route.
@@ -425,7 +425,7 @@ class UserRouteService:
         route_id: uuid.UUID,
         schedule_id: uuid.UUID,
         user_id: uuid.UUID,
-        request: UpdateScheduleRequest,
+        request: UpdateUserRouteScheduleRequest,
     ) -> UserRouteSchedule:
         """
         Update a schedule.
@@ -524,7 +524,7 @@ class UserRouteService:
 
     # ==================== Private Helper Methods ====================
 
-    async def _validate_segments(self, segments: list[SegmentRequest]) -> None:
+    async def _validate_segments(self, segments: list[UserRouteSegmentRequest]) -> None:
         """
         Validate route segments using TfL service.
 
@@ -597,7 +597,7 @@ class UserRouteService:
                 )
 
             segment_requests.append(
-                SegmentRequest(
+                UserRouteSegmentRequest(
                     sequence=seg.sequence,
                     station_tfl_id=station.tfl_id,
                     line_tfl_id=line.tfl_id if line is not None else None,

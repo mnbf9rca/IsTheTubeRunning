@@ -91,7 +91,7 @@ def _validate_timezone(tz: str | None) -> str | None:
 # ==================== Request Schemas ====================
 
 
-class CreateRouteRequest(BaseModel):
+class CreateUserRouteRequest(BaseModel):
     """Request to create a new route."""
 
     name: str = Field(..., min_length=1, max_length=255, description="Route name")
@@ -115,7 +115,7 @@ class CreateRouteRequest(BaseModel):
         return result
 
 
-class UpdateRouteRequest(BaseModel):
+class UpdateUserRouteRequest(BaseModel):
     """Request to update a route's metadata."""
 
     name: str | None = Field(None, min_length=1, max_length=255)
@@ -130,7 +130,7 @@ class UpdateRouteRequest(BaseModel):
         return _validate_timezone(tz)
 
 
-class SegmentRequest(BaseModel):
+class UserRouteSegmentRequest(BaseModel):
     """Single segment in a route (station + line + sequence)."""
 
     sequence: int = Field(..., ge=0, description="Order of this segment in the route (0-based)")
@@ -146,10 +146,10 @@ class SegmentRequest(BaseModel):
     )
 
 
-class UpsertSegmentsRequest(BaseModel):
+class UpsertUserRouteSegmentsRequest(BaseModel):
     """Request to replace all segments in a route."""
 
-    segments: list[SegmentRequest] = Field(
+    segments: list[UserRouteSegmentRequest] = Field(
         ...,
         min_length=2,
         description="Ordered list of segments. Must have at least 2 (start and end).",
@@ -157,7 +157,7 @@ class UpsertSegmentsRequest(BaseModel):
 
     @field_validator("segments")
     @classmethod
-    def validate_sequences(cls, segments: list[SegmentRequest]) -> list[SegmentRequest]:
+    def validate_sequences(cls, segments: list[UserRouteSegmentRequest]) -> list[UserRouteSegmentRequest]:
         """
         Validate that sequences are consecutive starting from 0.
 
@@ -180,14 +180,14 @@ class UpsertSegmentsRequest(BaseModel):
         return segments
 
 
-class UpdateSegmentRequest(BaseModel):
+class UpdateUserRouteSegmentRequest(BaseModel):
     """Request to update a single segment."""
 
     station_tfl_id: str | None = None
     line_tfl_id: str | None = None
 
 
-class CreateScheduleRequest(BaseModel):
+class CreateUserRouteScheduleRequest(BaseModel):
     """Request to create a schedule for a route."""
 
     days_of_week: list[str] = Field(
@@ -211,7 +211,7 @@ class CreateScheduleRequest(BaseModel):
         return _validate_day_codes(days)
 
     @model_validator(mode="after")
-    def validate_time_range(self) -> "CreateScheduleRequest":
+    def validate_time_range(self) -> "CreateUserRouteScheduleRequest":
         """
         Validate that end_time is after start_time using shared helper.
 
@@ -225,7 +225,7 @@ class CreateScheduleRequest(BaseModel):
         return self
 
 
-class UpdateScheduleRequest(BaseModel):
+class UpdateUserRouteScheduleRequest(BaseModel):
     """Request to update a schedule."""
 
     days_of_week: list[str] | None = None
@@ -241,7 +241,7 @@ class UpdateScheduleRequest(BaseModel):
         return _validate_day_codes(days)
 
     @model_validator(mode="after")
-    def validate_time_range(self) -> "UpdateScheduleRequest":
+    def validate_time_range(self) -> "UpdateUserRouteScheduleRequest":
         """
         Validate that end_time is after start_time if both are provided using shared helper.
 
@@ -262,7 +262,7 @@ class UpdateScheduleRequest(BaseModel):
 # ==================== Response Schemas ====================
 
 
-class SegmentResponse(BaseModel):
+class UserRouteSegmentResponse(BaseModel):
     """Response schema for a route segment."""
 
     model_config = ConfigDict(from_attributes=True)
@@ -273,7 +273,7 @@ class SegmentResponse(BaseModel):
     line_tfl_id: str | None
 
 
-class ScheduleResponse(BaseModel):
+class UserRouteScheduleResponse(BaseModel):
     """Response schema for a route schedule."""
 
     model_config = ConfigDict(from_attributes=True)
@@ -284,7 +284,7 @@ class ScheduleResponse(BaseModel):
     end_time: time
 
 
-class RouteResponse(BaseModel):
+class UserRouteResponse(BaseModel):
     """Full response schema for a route with segments and schedules."""
 
     model_config = ConfigDict(from_attributes=True)
@@ -294,11 +294,11 @@ class RouteResponse(BaseModel):
     description: str | None
     active: bool
     timezone: str
-    segments: list[SegmentResponse]
-    schedules: list[ScheduleResponse]
+    segments: list[UserRouteSegmentResponse]
+    schedules: list[UserRouteScheduleResponse]
 
 
-class RouteListItemResponse(BaseModel):
+class UserRouteListItemResponse(BaseModel):
     """Simplified response schema for route listings."""
 
     model_config = ConfigDict(from_attributes=True)
