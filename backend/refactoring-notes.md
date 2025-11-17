@@ -227,11 +227,57 @@ Each phase must achieve:
 
 - **Time taken**: ~35 minutes (class rename) + ~25 minutes (file renames + import updates) = ~60 minutes total
 
-### Phase 7: [Agent to fill in]
+### Phase 7: API Schema Renames (COMPLETE)
 - **What worked**:
+  - Systematic approach: schema definitions → API endpoints → service layer → test files
+  - Using targeted Edit tool calls instead of blanket `replace_all` avoided double-replacement errors
+  - Renaming ALL 11 schemas (not just the 8 mentioned in issue) for complete consistency
+  - ast-grep verification confirmed zero old schema names remained
+  - All validation passed: mypy (55 files ✓), pytest (1057 tests ✓), coverage (95.87% ✓), pre-commit (✓)
+  - OpenAPI schema auto-update confirmed new names appear in /docs
+  - Endpoint paths confirmed unchanged (all still use `/routes` - no breaking API changes)
+
 - **What didn't**:
+  - Issue description had incorrect "before" names (said `RouteScheduleResponse` but actual was `ScheduleResponse`)
+  - Issue scope was unclear (said 8 schemas, but 11 existed in the file)
+  - User questioned verbose naming (`UserRouteScheduleResponse` vs shorter alternatives)
+
 - **Gotchas**:
-- **Time taken**:
+  - **Schema count mismatch**: Issue said 8 schemas, but actual codebase had 11. Decision: rename all 11 for consistency
+  - **Issue description inaccuracy**: Listed `CreateRouteSegmentRequest` but actual name was `SegmentRequest`
+  - **Naming verbosity concern**: User raised concern about `UserRouteScheduleResponse` being too verbose
+    - Decision: Continue with verbose naming for consistency with models (`UserRouteSchedule`) and services (`UserRouteService`)
+    - Rationale: Schema response names mirror the model names they serialize
+  - **TfL schema collision**: `RouteSegmentRequest` exists in `app.schemas.tfl` - must NOT be renamed (it's for TfL API, not user routes)
+    - Used ast-grep carefully to avoid changing the wrong schema
+    - Checked imports to ensure only `app.schemas.routes` imports were updated
+  - **API endpoint paths unchanged**: Router prefix and decorators stay `/routes` - only type hints and response_model updated
+    - Verified with OpenAPI path inspection
+  - **Self-references in validators**: Methods like `validate_time_range(self) -> "CreateScheduleRequest"` need updating to new name
+
+- **Key patterns used**:
+  - Targeted Edit calls for each class definition (no blanket replace_all)
+  - Single import statement update per file (alphabetically sorted by ruff)
+  - ast-grep verification: `ast-grep --pattern 'CreateRouteRequest'` (should return nothing)
+  - OpenAPI verification: Check schemas and paths in generated docs
+
+- **Verification checklist**:
+  1. ast-grep: No old schema names found ✓
+  2. mypy: All type checks pass ✓
+  3. pytest: All 1057 tests pass ✓
+  4. coverage: 95.87% maintained ✓
+  5. pre-commit: All hooks pass ✓
+  6. OpenAPI schemas: New names present ✓
+  7. Endpoint paths: Unchanged (/routes preserved) ✓
+
+- **Time taken**: ~35 minutes (research, rename, verification)
+
+- **Key learnings**:
+  - Always clarify scope when issue description doesn't match reality (asked user about 8 vs 11 schemas)
+  - User feedback on naming conventions is important - explain rationale for consistency
+  - Verify both positive (new names appear) and negative (old names gone, paths unchanged) outcomes
+  - Schema renames impact OpenAPI docs - always verify /docs endpoint
+  - Issue descriptions can be inaccurate - trust the codebase, not the issue text
 
 ### Phase 8: [Agent to fill in]
 - **What worked**:

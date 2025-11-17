@@ -589,7 +589,7 @@ class TestRoutesAPI:
         await db_session.commit()
         await db_session.refresh(route)
 
-        # Update with explicit None should preserve existing value (per UpdateRouteRequest logic)
+        # Update with explicit None should preserve existing value (per UpdateUserRouteRequest logic)
         response = await async_client.patch(
             f"/api/v1/routes/{route.id}",
             json={"name": "Updated Name", "timezone": None},

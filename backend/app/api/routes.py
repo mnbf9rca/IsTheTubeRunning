@@ -10,16 +10,16 @@ from app.core.database import get_db
 from app.models.user import User
 from app.models.user_route import UserRoute, UserRouteSchedule, UserRouteSegment
 from app.schemas.routes import (
-    CreateRouteRequest,
-    CreateScheduleRequest,
-    RouteListItemResponse,
-    RouteResponse,
-    ScheduleResponse,
-    SegmentResponse,
-    UpdateRouteRequest,
-    UpdateScheduleRequest,
-    UpdateSegmentRequest,
-    UpsertSegmentsRequest,
+    CreateUserRouteRequest,
+    CreateUserRouteScheduleRequest,
+    UpdateUserRouteRequest,
+    UpdateUserRouteScheduleRequest,
+    UpdateUserRouteSegmentRequest,
+    UpsertUserRouteSegmentsRequest,
+    UserRouteListItemResponse,
+    UserRouteResponse,
+    UserRouteScheduleResponse,
+    UserRouteSegmentResponse,
 )
 from app.services.user_route_service import UserRouteService
 
@@ -29,11 +29,11 @@ router = APIRouter(prefix="/routes", tags=["routes"])
 # ==================== Route Endpoints ====================
 
 
-@router.get("", response_model=list[RouteListItemResponse])
+@router.get("", response_model=list[UserRouteListItemResponse])
 async def list_routes(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
-) -> list[RouteListItemResponse]:
+) -> list[UserRouteListItemResponse]:
     """
     List all routes for the authenticated user.
 
@@ -52,7 +52,7 @@ async def list_routes(
 
     # Build response with counts using Pydantic models
     return [
-        RouteListItemResponse(
+        UserRouteListItemResponse(
             id=route.id,
             name=route.name,
             description=route.description,
@@ -65,9 +65,9 @@ async def list_routes(
     ]
 
 
-@router.post("", response_model=RouteResponse, status_code=status.HTTP_201_CREATED)
+@router.post("", response_model=UserRouteResponse, status_code=status.HTTP_201_CREATED)
 async def create_route(
-    request: CreateRouteRequest,
+    request: CreateUserRouteRequest,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ) -> UserRoute:
@@ -92,7 +92,7 @@ async def create_route(
     return await service.get_route_by_id(route.id, current_user.id, load_relationships=True)
 
 
-@router.get("/{route_id}", response_model=RouteResponse)
+@router.get("/{route_id}", response_model=UserRouteResponse)
 async def get_route(
     route_id: UUID,
     current_user: User = Depends(get_current_user),
@@ -116,10 +116,10 @@ async def get_route(
     return await service.get_route_by_id(route_id, current_user.id, load_relationships=True)
 
 
-@router.patch("/{route_id}", response_model=RouteResponse)
+@router.patch("/{route_id}", response_model=UserRouteResponse)
 async def update_route(
     route_id: UUID,
-    request: UpdateRouteRequest,
+    request: UpdateUserRouteRequest,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ) -> UserRoute:
@@ -173,10 +173,10 @@ async def delete_route(
 # ==================== Segment Endpoints ====================
 
 
-@router.put("/{route_id}/segments", response_model=list[SegmentResponse])
+@router.put("/{route_id}/segments", response_model=list[UserRouteSegmentResponse])
 async def upsert_segments(
     route_id: UUID,
-    request: UpsertSegmentsRequest,
+    request: UpsertUserRouteSegmentsRequest,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ) -> list[UserRouteSegment]:
@@ -202,11 +202,11 @@ async def upsert_segments(
     return await service.upsert_segments(route_id, current_user.id, request.segments)
 
 
-@router.patch("/{route_id}/segments/{sequence}", response_model=SegmentResponse)
+@router.patch("/{route_id}/segments/{sequence}", response_model=UserRouteSegmentResponse)
 async def update_segment(
     route_id: UUID,
     sequence: int,
-    request: UpdateSegmentRequest,
+    request: UpdateUserRouteSegmentRequest,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ) -> UserRouteSegment:
@@ -261,10 +261,10 @@ async def delete_segment(
 # ==================== Schedule Endpoints ====================
 
 
-@router.post("/{route_id}/schedules", response_model=ScheduleResponse, status_code=status.HTTP_201_CREATED)
+@router.post("/{route_id}/schedules", response_model=UserRouteScheduleResponse, status_code=status.HTTP_201_CREATED)
 async def create_schedule(
     route_id: UUID,
-    request: CreateScheduleRequest,
+    request: CreateUserRouteScheduleRequest,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ) -> UserRouteSchedule:
@@ -289,11 +289,11 @@ async def create_schedule(
     return await service.create_schedule(route_id, current_user.id, request)
 
 
-@router.patch("/{route_id}/schedules/{schedule_id}", response_model=ScheduleResponse)
+@router.patch("/{route_id}/schedules/{schedule_id}", response_model=UserRouteScheduleResponse)
 async def update_schedule(
     route_id: UUID,
     schedule_id: UUID,
-    request: UpdateScheduleRequest,
+    request: UpdateUserRouteScheduleRequest,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ) -> UserRouteSchedule:
