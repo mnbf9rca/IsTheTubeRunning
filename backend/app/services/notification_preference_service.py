@@ -8,7 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
 from app.models.notification import NotificationMethod, NotificationPreference
-from app.models.route import Route
+from app.models.route import UserRoute
 from app.models.user import EmailAddress, PhoneNumber
 
 
@@ -116,7 +116,7 @@ class NotificationPreferenceService:
         Check for duplicate preferences.
 
         Args:
-            route_id: Route UUID
+            route_id: UserRoute UUID
             method: Notification method
             email_id: Email address ID (if email method)
             phone_id: Phone number ID (if SMS method)
@@ -169,10 +169,10 @@ class NotificationPreferenceService:
         # Join with route to validate ownership
         query = (
             select(NotificationPreference)
-            .join(Route, NotificationPreference.route_id == Route.id)
+            .join(UserRoute, NotificationPreference.route_id == UserRoute.id)
             .where(
                 NotificationPreference.id == preference_id,
-                Route.user_id == user_id,
+                UserRoute.user_id == user_id,
             )
         )
 
@@ -195,7 +195,7 @@ class NotificationPreferenceService:
         List all notification preferences for a route.
 
         Args:
-            route_id: Route UUID
+            route_id: UserRoute UUID
             user_id: User UUID (for ownership check)
 
         Returns:
@@ -206,16 +206,16 @@ class NotificationPreferenceService:
         """
         # First validate route ownership
         route_result = await self.db.execute(
-            select(Route).where(
-                Route.id == route_id,
-                Route.user_id == user_id,
+            select(UserRoute).where(
+                UserRoute.id == route_id,
+                UserRoute.user_id == user_id,
             )
         )
 
         if not route_result.scalar_one_or_none():
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
-                detail="Route not found.",
+                detail="UserRoute not found.",
             )
 
         # Get preferences
@@ -239,7 +239,7 @@ class NotificationPreferenceService:
         Create a new notification preference.
 
         Args:
-            route_id: Route UUID
+            route_id: UserRoute UUID
             user_id: User UUID (for ownership validation)
             method: Notification method (email or sms)
             target_email_id: Email address ID (required if method is email)
@@ -253,16 +253,16 @@ class NotificationPreferenceService:
         """
         # Validate route ownership
         route_result = await self.db.execute(
-            select(Route).where(
-                Route.id == route_id,
-                Route.user_id == user_id,
+            select(UserRoute).where(
+                UserRoute.id == route_id,
+                UserRoute.user_id == user_id,
             )
         )
 
         if not route_result.scalar_one_or_none():
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
-                detail="Route not found.",
+                detail="UserRoute not found.",
             )
 
         # Validate exactly one target is provided

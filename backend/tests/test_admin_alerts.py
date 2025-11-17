@@ -11,7 +11,7 @@ from app.core.config import settings
 from app.core.database import get_db
 from app.main import app
 from app.models.notification import NotificationLog, NotificationMethod, NotificationStatus
-from app.models.route import Route
+from app.models.route import UserRoute
 from app.models.user import User
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -490,7 +490,7 @@ async def test_recent_logs_with_data(
 ) -> None:
     """Test recent logs returns notification logs."""
     # Create a test route
-    route = Route(
+    route = UserRoute(
         user_id=test_user.id,
         name="Test Route",
         active=True,
@@ -552,7 +552,7 @@ async def test_recent_logs_pagination(
 ) -> None:
     """Test pagination of recent logs."""
     # Create a test route
-    route = Route(
+    route = UserRoute(
         user_id=test_user.id,
         name="Test Route",
         active=True,
@@ -612,7 +612,7 @@ async def test_recent_logs_filter_by_status(
 ) -> None:
     """Test filtering logs by status."""
     # Create a test route
-    route = Route(
+    route = UserRoute(
         user_id=test_user.id,
         name="Test Route",
         active=True,
@@ -672,7 +672,7 @@ async def test_recent_logs_ordering(
 ) -> None:
     """Test that logs are ordered by sent_at descending (most recent first)."""
     # Create a test route
-    route = Route(
+    route = UserRoute(
         user_id=test_user.id,
         name="Test Route",
         active=True,

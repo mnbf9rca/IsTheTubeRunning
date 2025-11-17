@@ -4,7 +4,7 @@ from datetime import UTC, datetime
 from unittest.mock import AsyncMock, patch
 
 import pytest
-from app.models.route import Route
+from app.models.route import UserRoute
 from app.models.tfl import Line, Station
 from app.models.user import User
 from app.schemas.routes import SegmentRequest
@@ -23,7 +23,7 @@ class TestRouteServiceUpsertSegments:
     ) -> None:
         """Test that database errors trigger rollback in upsert_segments."""
         # Create test data
-        route = Route(user_id=test_user.id, name="Test Route", active=True)
+        route = UserRoute(user_id=test_user.id, name="Test Route", active=True)
         db_session.add(route)
 
         line = Line(tfl_id="victoria", name="Victoria", last_updated=datetime.now(UTC))

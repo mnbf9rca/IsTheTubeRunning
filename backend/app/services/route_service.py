@@ -1,4 +1,4 @@
-"""Route management service."""
+"""UserRoute management service."""
 
 import uuid
 
@@ -8,7 +8,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from app.models.route import Route, RouteSchedule, RouteSegment
+from app.models.route import UserRoute, UserRouteSchedule, UserRouteSegment
 from app.models.tfl import Line, Station
 from app.schemas.routes import (
     CreateRouteRequest,
@@ -45,31 +45,31 @@ class RouteService:
         user_id: uuid.UUID,
         *,
         load_relationships: bool = False,
-    ) -> Route:
+    ) -> UserRoute:
         """
         Get a route by ID with ownership validation.
 
         Args:
-            route_id: Route UUID
+            route_id: UserRoute UUID
             user_id: User UUID (for ownership check)
             load_relationships: Whether to eager load segments and schedules
 
         Returns:
-            Route object
+            UserRoute object
 
         Raises:
             HTTPException: 404 if route not found or doesn't belong to user
         """
-        query = select(Route).where(
-            Route.id == route_id,
-            Route.user_id == user_id,
+        query = select(UserRoute).where(
+            UserRoute.id == route_id,
+            UserRoute.user_id == user_id,
         )
 
         if load_relationships:
             query = query.options(
-                selectinload(Route.segments).selectinload(RouteSegment.station),
-                selectinload(Route.segments).selectinload(RouteSegment.line),
-                selectinload(Route.schedules),
+                selectinload(UserRoute.segments).selectinload(UserRouteSegment.station),
+                selectinload(UserRoute.segments).selectinload(UserRouteSegment.line),
+                selectinload(UserRoute.schedules),
             )
 
         result = await self.db.execute(query)
@@ -77,12 +77,12 @@ class RouteService:
         if not (route := result.scalar_one_or_none()):
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
-                detail="Route not found.",
+                detail="UserRoute not found.",
             )
 
         return route
 
-    async def list_routes(self, user_id: uuid.UUID) -> list[Route]:
+    async def list_routes(self, user_id: uuid.UUID) -> list[UserRoute]:
         """
         List all routes for a user.
 
@@ -93,14 +93,14 @@ class RouteService:
             List of routes with segments and schedules loaded
         """
         result = await self.db.execute(
-            select(Route)
-            .where(Route.user_id == user_id)
+            select(UserRoute)
+            .where(UserRoute.user_id == user_id)
             .options(
-                selectinload(Route.segments).selectinload(RouteSegment.station),
-                selectinload(Route.segments).selectinload(RouteSegment.line),
-                selectinload(Route.schedules),
+                selectinload(UserRoute.segments).selectinload(UserRouteSegment.station),
+                selectinload(UserRoute.segments).selectinload(UserRouteSegment.line),
+                selectinload(UserRoute.schedules),
             )
-            .order_by(Route.created_at.desc())
+            .order_by(UserRoute.created_at.desc())
         )
         return list(result.scalars().all())
 
@@ -108,18 +108,18 @@ class RouteService:
         self,
         user_id: uuid.UUID,
         request: CreateRouteRequest,
-    ) -> Route:
+    ) -> UserRoute:
         """
         Create a new route.
 
         Args:
             user_id: User UUID
-            request: Route creation request
+            request: UserRoute creation request
 
         Returns:
             Created route
         """
-        route = Route(
+        route = UserRoute(
             user_id=user_id,
             name=request.name,
             description=request.description,
@@ -138,12 +138,12 @@ class RouteService:
         route_id: uuid.UUID,
         user_id: uuid.UUID,
         request: UpdateRouteRequest,
-    ) -> Route:
+    ) -> UserRoute:
         """
         Update route metadata.
 
         Args:
-            route_id: Route UUID
+            route_id: UserRoute UUID
             user_id: User UUID (for ownership check)
             request: Update request
 
@@ -175,7 +175,7 @@ class RouteService:
         Delete a route (and all its segments and schedules via CASCADE).
 
         Args:
-            route_id: Route UUID
+            route_id: UserRoute UUID
             user_id: User UUID (for ownership check)
 
         Raises:
@@ -191,7 +191,7 @@ class RouteService:
         route_id: uuid.UUID,
         user_id: uuid.UUID,
         segments: list[SegmentRequest],
-    ) -> list[RouteSegment]:
+    ) -> list[UserRouteSegment]:
         """
         Replace all segments for a route with validation.
 
@@ -199,7 +199,7 @@ class RouteService:
         no changes are made.
 
         Args:
-            route_id: Route UUID
+            route_id: UserRoute UUID
             user_id: User UUID (for ownership check)
             segments: List of segments to set
 
@@ -218,7 +218,7 @@ class RouteService:
         # Wrap delete + create in a transaction to ensure atomicity
         try:
             # Delete existing segments
-            await self.db.execute(sql_delete(RouteSegment).where(RouteSegment.route_id == route_id))
+            await self.db.execute(sql_delete(UserRouteSegment).where(UserRouteSegment.route_id == route_id))
 
             # Create new segments - translate TfL IDs (or hub codes) to UUIDs
             new_segments = []
@@ -230,7 +230,7 @@ class RouteService:
                 line = await self.tfl_service.get_line_by_tfl_id(seg.line_tfl_id) if seg.line_tfl_id else None
 
                 new_segments.append(
-                    RouteSegment(
+                    UserRouteSegment(
                         route_id=route_id,
                         sequence=seg.sequence,
                         station_id=station.id,
@@ -249,10 +249,10 @@ class RouteService:
 
             # Reload with relationships to support station_tfl_id and line_tfl_id properties
             result = await self.db.execute(
-                select(RouteSegment)
-                .where(RouteSegment.route_id == route_id)
-                .options(selectinload(RouteSegment.station), selectinload(RouteSegment.line))
-                .order_by(RouteSegment.sequence)
+                select(UserRouteSegment)
+                .where(UserRouteSegment.route_id == route_id)
+                .options(selectinload(UserRouteSegment.station), selectinload(UserRouteSegment.line))
+                .order_by(UserRouteSegment.sequence)
             )
             return list(result.scalars().all())
         except Exception:
@@ -265,12 +265,12 @@ class RouteService:
         user_id: uuid.UUID,
         sequence: int,
         request: UpdateSegmentRequest,
-    ) -> RouteSegment:
+    ) -> UserRouteSegment:
         """
         Update a single segment and validate the entire route.
 
         Args:
-            route_id: Route UUID
+            route_id: UserRoute UUID
             user_id: User UUID (for ownership check)
             sequence: Sequence number of segment to update
             request: Update request
@@ -335,7 +335,7 @@ class RouteService:
         Delete a segment and resequence remaining segments.
 
         Args:
-            route_id: Route UUID
+            route_id: UserRoute UUID
             user_id: User UUID (for ownership check)
             sequence: Sequence number of segment to delete
 
@@ -349,7 +349,7 @@ class RouteService:
         if len(route.segments) <= MIN_ROUTE_SEGMENTS:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Cannot delete segment. Route must have at least 2 segments.",
+                detail="Cannot delete segment. UserRoute must have at least 2 segments.",
             )
 
         # Find and delete the segment
@@ -389,12 +389,12 @@ class RouteService:
         route_id: uuid.UUID,
         user_id: uuid.UUID,
         request: CreateScheduleRequest,
-    ) -> RouteSchedule:
+    ) -> UserRouteSchedule:
         """
         Create a schedule for a route.
 
         Args:
-            route_id: Route UUID
+            route_id: UserRoute UUID
             user_id: User UUID (for ownership check)
             request: Schedule creation request
 
@@ -407,7 +407,7 @@ class RouteService:
         # Verify ownership
         await self.get_route_by_id(route_id, user_id)
 
-        schedule = RouteSchedule(
+        schedule = UserRouteSchedule(
             route_id=route_id,
             days_of_week=request.days_of_week,
             start_time=request.start_time,
@@ -426,12 +426,12 @@ class RouteService:
         schedule_id: uuid.UUID,
         user_id: uuid.UUID,
         request: UpdateScheduleRequest,
-    ) -> RouteSchedule:
+    ) -> UserRouteSchedule:
         """
         Update a schedule.
 
         Args:
-            route_id: Route UUID
+            route_id: UserRoute UUID
             schedule_id: Schedule UUID
             user_id: User UUID (for ownership check)
             request: Update request
@@ -447,9 +447,9 @@ class RouteService:
 
         # Get the schedule
         result = await self.db.execute(
-            select(RouteSchedule).where(
-                RouteSchedule.id == schedule_id,
-                RouteSchedule.route_id == route_id,
+            select(UserRouteSchedule).where(
+                UserRouteSchedule.id == schedule_id,
+                UserRouteSchedule.route_id == route_id,
             )
         )
         schedule = result.scalar_one_or_none()
@@ -494,7 +494,7 @@ class RouteService:
         Delete a schedule.
 
         Args:
-            route_id: Route UUID
+            route_id: UserRoute UUID
             schedule_id: Schedule UUID
             user_id: User UUID (for ownership check)
 
@@ -506,9 +506,9 @@ class RouteService:
 
         # Get the schedule
         result = await self.db.execute(
-            select(RouteSchedule).where(
-                RouteSchedule.id == schedule_id,
-                RouteSchedule.route_id == route_id,
+            select(UserRouteSchedule).where(
+                UserRouteSchedule.id == schedule_id,
+                UserRouteSchedule.route_id == route_id,
             )
         )
         schedule = result.scalar_one_or_none()
@@ -543,7 +543,7 @@ class RouteService:
         valid, message, invalid_index = await self.tfl_service.validate_route(tfl_segments)
 
         if not valid:
-            detail = f"Route validation failed: {message}"
+            detail = f"UserRoute validation failed: {message}"
             if invalid_index is not None:
                 detail += f" (segment index: {invalid_index})"
 
@@ -552,12 +552,12 @@ class RouteService:
                 detail=detail,
             )
 
-    async def _validate_route_segments(self, segments: list[RouteSegment]) -> None:
+    async def _validate_route_segments(self, segments: list[UserRouteSegment]) -> None:
         """
         Validate existing route segments.
 
         Args:
-            segments: Route segments to validate
+            segments: UserRoute segments to validate
 
         Raises:
             HTTPException: 400 if validation fails

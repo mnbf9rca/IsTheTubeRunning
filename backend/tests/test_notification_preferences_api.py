@@ -8,7 +8,7 @@ from app.core.config import settings
 from app.core.database import get_db
 from app.main import app
 from app.models.notification import NotificationMethod, NotificationPreference
-from app.models.route import Route
+from app.models.route import UserRoute
 from app.models.user import EmailAddress, PhoneNumber, User
 from fastapi import status
 from httpx import AsyncClient
@@ -32,9 +32,9 @@ class TestNotificationPreferencesAPI:
         app.dependency_overrides.clear()
 
     @pytest.fixture
-    async def test_route(self, db_session: AsyncSession, test_user: User) -> Route:
+    async def test_route(self, db_session: AsyncSession, test_user: User) -> UserRoute:
         """Create a test route for the test user."""
-        route = Route(
+        route = UserRoute(
             user_id=test_user.id,
             name="Test Commute",
             description="Test route",
@@ -50,9 +50,9 @@ class TestNotificationPreferencesAPI:
         self,
         db_session: AsyncSession,
         another_user: User,
-    ) -> Route:
+    ) -> UserRoute:
         """Create a test route for another user."""
-        route = Route(
+        route = UserRoute(
             user_id=another_user.id,
             name="Other User Commute",
             active=True,
@@ -159,7 +159,7 @@ class TestNotificationPreferencesAPI:
         self,
         async_client: AsyncClient,
         auth_headers_for_user: dict[str, str],
-        test_route: Route,
+        test_route: UserRoute,
     ) -> None:
         """Test listing preferences when none exist."""
         response = await async_client.get(
@@ -175,7 +175,7 @@ class TestNotificationPreferencesAPI:
         self,
         async_client: AsyncClient,
         auth_headers_for_user: dict[str, str],
-        test_route: Route,
+        test_route: UserRoute,
         verified_email: EmailAddress,
         db_session: AsyncSession,
     ) -> None:
@@ -222,7 +222,7 @@ class TestNotificationPreferencesAPI:
         self,
         async_client: AsyncClient,
         auth_headers_for_user: dict[str, str],
-        other_user_route: Route,
+        other_user_route: UserRoute,
     ) -> None:
         """Test listing preferences for another user's route."""
         response = await async_client.get(
@@ -236,7 +236,7 @@ class TestNotificationPreferencesAPI:
     async def test_list_preferences_requires_auth(
         self,
         async_client: AsyncClient,
-        test_route: Route,
+        test_route: UserRoute,
     ) -> None:
         """Test that listing requires authentication."""
         response = await async_client.get(
@@ -255,7 +255,7 @@ class TestNotificationPreferencesAPI:
         self,
         async_client: AsyncClient,
         auth_headers_for_user: dict[str, str],
-        test_route: Route,
+        test_route: UserRoute,
         verified_email: EmailAddress,
     ) -> None:
         """Test successfully creating an email notification preference."""
@@ -280,7 +280,7 @@ class TestNotificationPreferencesAPI:
         self,
         async_client: AsyncClient,
         auth_headers_for_user: dict[str, str],
-        test_route: Route,
+        test_route: UserRoute,
         verified_phone: PhoneNumber,
     ) -> None:
         """Test successfully creating an SMS notification preference."""
@@ -304,7 +304,7 @@ class TestNotificationPreferencesAPI:
         self,
         async_client: AsyncClient,
         auth_headers_for_user: dict[str, str],
-        test_route: Route,
+        test_route: UserRoute,
     ) -> None:
         """Test creating preference without target fails validation."""
         response = await async_client.post(
@@ -322,7 +322,7 @@ class TestNotificationPreferencesAPI:
         self,
         async_client: AsyncClient,
         auth_headers_for_user: dict[str, str],
-        test_route: Route,
+        test_route: UserRoute,
         verified_email: EmailAddress,
         verified_phone: PhoneNumber,
     ) -> None:
@@ -344,7 +344,7 @@ class TestNotificationPreferencesAPI:
         self,
         async_client: AsyncClient,
         auth_headers_for_user: dict[str, str],
-        test_route: Route,
+        test_route: UserRoute,
         verified_phone: PhoneNumber,
     ) -> None:
         """Test that email method requires email target."""
@@ -365,7 +365,7 @@ class TestNotificationPreferencesAPI:
         self,
         async_client: AsyncClient,
         auth_headers_for_user: dict[str, str],
-        test_route: Route,
+        test_route: UserRoute,
         verified_email: EmailAddress,
     ) -> None:
         """Test that SMS method requires phone target."""
@@ -386,7 +386,7 @@ class TestNotificationPreferencesAPI:
         self,
         async_client: AsyncClient,
         auth_headers_for_user: dict[str, str],
-        test_route: Route,
+        test_route: UserRoute,
         unverified_email: EmailAddress,
     ) -> None:
         """Test creating preference with unverified email fails."""
@@ -407,7 +407,7 @@ class TestNotificationPreferencesAPI:
         self,
         async_client: AsyncClient,
         auth_headers_for_user: dict[str, str],
-        test_route: Route,
+        test_route: UserRoute,
         unverified_phone: PhoneNumber,
     ) -> None:
         """Test creating preference with unverified phone fails."""
@@ -428,7 +428,7 @@ class TestNotificationPreferencesAPI:
         self,
         async_client: AsyncClient,
         auth_headers_for_user: dict[str, str],
-        test_route: Route,
+        test_route: UserRoute,
     ) -> None:
         """Test creating preference with non-existent email."""
         fake_id = uuid.uuid4()
@@ -449,7 +449,7 @@ class TestNotificationPreferencesAPI:
         self,
         async_client: AsyncClient,
         auth_headers_for_user: dict[str, str],
-        test_route: Route,
+        test_route: UserRoute,
     ) -> None:
         """Test creating preference with non-existent phone."""
         fake_id = uuid.uuid4()
@@ -470,7 +470,7 @@ class TestNotificationPreferencesAPI:
         self,
         async_client: AsyncClient,
         auth_headers_for_user: dict[str, str],
-        test_route: Route,
+        test_route: UserRoute,
         other_user_email: EmailAddress,
     ) -> None:
         """Test creating preference with another user's email fails."""
@@ -490,7 +490,7 @@ class TestNotificationPreferencesAPI:
         self,
         async_client: AsyncClient,
         auth_headers_for_user: dict[str, str],
-        test_route: Route,
+        test_route: UserRoute,
         verified_email: EmailAddress,
         db_session: AsyncSession,
     ) -> None:
@@ -522,7 +522,7 @@ class TestNotificationPreferencesAPI:
         self,
         async_client: AsyncClient,
         auth_headers_for_user: dict[str, str],
-        test_route: Route,
+        test_route: UserRoute,
         test_user: User,
         db_session: AsyncSession,
     ) -> None:
@@ -597,7 +597,7 @@ class TestNotificationPreferencesAPI:
     async def test_create_preference_requires_auth(
         self,
         async_client: AsyncClient,
-        test_route: Route,
+        test_route: UserRoute,
         verified_email: EmailAddress,
     ) -> None:
         """Test that creating preference requires authentication."""
@@ -621,7 +621,7 @@ class TestNotificationPreferencesAPI:
         self,
         async_client: AsyncClient,
         auth_headers_for_user: dict[str, str],
-        test_route: Route,
+        test_route: UserRoute,
         verified_phone: PhoneNumber,
         db_session: AsyncSession,
     ) -> None:
@@ -665,7 +665,7 @@ class TestNotificationPreferencesAPI:
         self,
         async_client: AsyncClient,
         auth_headers_for_user: dict[str, str],
-        test_route: Route,
+        test_route: UserRoute,
         verified_email: EmailAddress,
         test_user: User,
         db_session: AsyncSession,
@@ -710,7 +710,7 @@ class TestNotificationPreferencesAPI:
         self,
         async_client: AsyncClient,
         auth_headers_for_user: dict[str, str],
-        test_route: Route,
+        test_route: UserRoute,
         verified_email: EmailAddress,
         verified_phone: PhoneNumber,
         db_session: AsyncSession,
@@ -743,7 +743,7 @@ class TestNotificationPreferencesAPI:
         self,
         async_client: AsyncClient,
         auth_headers_for_user: dict[str, str],
-        test_route: Route,
+        test_route: UserRoute,
         verified_email: EmailAddress,
         verified_phone: PhoneNumber,
         db_session: AsyncSession,
@@ -780,7 +780,7 @@ class TestNotificationPreferencesAPI:
         self,
         async_client: AsyncClient,
         auth_headers_for_user: dict[str, str],
-        test_route: Route,
+        test_route: UserRoute,
         verified_email: EmailAddress,
         unverified_email: EmailAddress,
         db_session: AsyncSession,
@@ -813,7 +813,7 @@ class TestNotificationPreferencesAPI:
         self,
         async_client: AsyncClient,
         auth_headers_for_user: dict[str, str],
-        test_route: Route,
+        test_route: UserRoute,
         test_user: User,
         db_session: AsyncSession,
     ) -> None:
@@ -866,7 +866,7 @@ class TestNotificationPreferencesAPI:
         self,
         async_client: AsyncClient,
         auth_headers_for_user: dict[str, str],
-        test_route: Route,
+        test_route: UserRoute,
         verified_email: EmailAddress,
     ) -> None:
         """Test updating non-existent preference."""
@@ -886,7 +886,7 @@ class TestNotificationPreferencesAPI:
         self,
         async_client: AsyncClient,
         auth_headers_for_user: dict[str, str],
-        other_user_route: Route,
+        other_user_route: UserRoute,
         other_user_email: EmailAddress,
         db_session: AsyncSession,
     ) -> None:
@@ -916,7 +916,7 @@ class TestNotificationPreferencesAPI:
     async def test_update_preference_requires_auth(
         self,
         async_client: AsyncClient,
-        test_route: Route,
+        test_route: UserRoute,
         verified_email: EmailAddress,
         db_session: AsyncSession,
     ) -> None:
@@ -948,7 +948,7 @@ class TestNotificationPreferencesAPI:
         self,
         async_client: AsyncClient,
         auth_headers_for_user: dict[str, str],
-        test_route: Route,
+        test_route: UserRoute,
         verified_phone: PhoneNumber,
         db_session: AsyncSession,
     ) -> None:
@@ -980,7 +980,7 @@ class TestNotificationPreferencesAPI:
         self,
         async_client: AsyncClient,
         auth_headers_for_user: dict[str, str],
-        test_route: Route,
+        test_route: UserRoute,
         verified_email: EmailAddress,
         db_session: AsyncSession,
     ) -> None:
@@ -1012,7 +1012,7 @@ class TestNotificationPreferencesAPI:
         self,
         async_client: AsyncClient,
         auth_headers_for_user: dict[str, str],
-        test_route: Route,
+        test_route: UserRoute,
         verified_phone: PhoneNumber,
         unverified_phone: PhoneNumber,
         db_session: AsyncSession,
@@ -1045,7 +1045,7 @@ class TestNotificationPreferencesAPI:
         self,
         async_client: AsyncClient,
         auth_headers_for_user: dict[str, str],
-        test_route: Route,
+        test_route: UserRoute,
         verified_phone: PhoneNumber,
         db_session: AsyncSession,
     ) -> None:
@@ -1076,7 +1076,7 @@ class TestNotificationPreferencesAPI:
         self,
         async_client: AsyncClient,
         auth_headers_for_user: dict[str, str],
-        test_route: Route,
+        test_route: UserRoute,
         verified_email: EmailAddress,
         db_session: AsyncSession,
     ) -> None:
@@ -1109,7 +1109,7 @@ class TestNotificationPreferencesAPI:
         self,
         async_client: AsyncClient,
         auth_headers_for_user: dict[str, str],
-        test_route: Route,
+        test_route: UserRoute,
         verified_email: EmailAddress,
         db_session: AsyncSession,
     ) -> None:
@@ -1143,7 +1143,7 @@ class TestNotificationPreferencesAPI:
         self,
         async_client: AsyncClient,
         auth_headers_for_user: dict[str, str],
-        test_route: Route,
+        test_route: UserRoute,
     ) -> None:
         """Test deleting non-existent preference."""
         fake_id = uuid.uuid4()
@@ -1159,7 +1159,7 @@ class TestNotificationPreferencesAPI:
         self,
         async_client: AsyncClient,
         auth_headers_for_user: dict[str, str],
-        other_user_route: Route,
+        other_user_route: UserRoute,
         other_user_email: EmailAddress,
         db_session: AsyncSession,
     ) -> None:
@@ -1185,7 +1185,7 @@ class TestNotificationPreferencesAPI:
     async def test_delete_preference_requires_auth(
         self,
         async_client: AsyncClient,
-        test_route: Route,
+        test_route: UserRoute,
         verified_email: EmailAddress,
         db_session: AsyncSession,
     ) -> None:
@@ -1220,8 +1220,8 @@ class TestNotificationPreferencesAPI:
     ) -> None:
         """Test updating with mismatched route_id in URL."""
         # Create two routes
-        route1 = Route(user_id=test_user.id, name="Route 1", active=True)
-        route2 = Route(user_id=test_user.id, name="Route 2", active=True)
+        route1 = UserRoute(user_id=test_user.id, name="Route 1", active=True)
+        route2 = UserRoute(user_id=test_user.id, name="Route 2", active=True)
         db_session.add_all([route1, route2])
         await db_session.commit()
         await db_session.refresh(route1)
@@ -1260,8 +1260,8 @@ class TestNotificationPreferencesAPI:
     ) -> None:
         """Test deleting with mismatched route_id in URL."""
         # Create two routes
-        route1 = Route(user_id=test_user.id, name="Route 1", active=True)
-        route2 = Route(user_id=test_user.id, name="Route 2", active=True)
+        route1 = UserRoute(user_id=test_user.id, name="Route 1", active=True)
+        route2 = UserRoute(user_id=test_user.id, name="Route 2", active=True)
         db_session.add_all([route1, route2])
         await db_session.commit()
         await db_session.refresh(route1)

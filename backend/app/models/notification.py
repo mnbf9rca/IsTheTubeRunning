@@ -19,7 +19,7 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.models.base import BaseModel
 
 if TYPE_CHECKING:  # Avoid circular imports -> route.py imports from app.helpers.station_resolution (line 22)
-    from app.models.route import Route
+    from app.models.route import UserRoute
     from app.models.user import User
 
 
@@ -71,7 +71,7 @@ class NotificationPreference(BaseModel):
     )
 
     # Relationships
-    route: Mapped["Route"] = relationship(back_populates="notification_preferences")
+    route: Mapped["UserRoute"] = relationship(back_populates="notification_preferences")
 
     # Ensure one and only one target is set
     __table_args__ = (
@@ -135,7 +135,7 @@ class NotificationLog(BaseModel):
 
     # Relationships
     user: Mapped["User"] = relationship()
-    route: Mapped["Route"] = relationship()
+    route: Mapped["UserRoute"] = relationship()
 
     # Composite index for recent notifications by user
     __table_args__ = (
