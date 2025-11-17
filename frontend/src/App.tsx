@@ -19,6 +19,7 @@ import { RouteDetails } from './pages/RouteDetails'
 import { CreateRoute } from './pages/CreateRoute'
 import { ServiceUnavailable } from './pages/ServiceUnavailable'
 import AdminUsers from './pages/admin/AdminUsers'
+import AdminNotificationLogs from './pages/admin/AdminNotificationLogs'
 
 function AppRoutes() {
   const { isAvailable, isChecking, lastChecked, checkAvailability } = useBackendAvailability()
@@ -113,14 +114,7 @@ function AppRoutes() {
               path="/admin/logs"
               element={
                 <AdminRoute>
-                  <div className="flex min-h-screen items-center justify-center">
-                    <div className="text-center">
-                      <h1 className="text-2xl font-bold">Admin Logs</h1>
-                      <p className="text-muted-foreground">
-                        Notification logs viewer (placeholder)
-                      </p>
-                    </div>
-                  </div>
+                  <AdminNotificationLogs />
                 </AdminRoute>
               }
             />

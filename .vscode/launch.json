@@ -73,8 +73,9 @@
         "-A",
         "app.celery.app",
         "worker",
-        "--loglevel=info",
-        "--pool=solo"
+        "--loglevel=debug",
+        "--pool=solo",
+        "-E"
       ],
       "cwd": "${workspaceFolder}/backend",
       "console": "integratedTerminal",

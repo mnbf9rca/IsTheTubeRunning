@@ -540,6 +540,7 @@ async def test_recent_logs_with_data(
     assert data["logs"][0]["status"] in ["sent", "failed"]
     assert UUID(data["logs"][0]["user_id"]) == test_user.id
     assert UUID(data["logs"][0]["route_id"]) == route.id
+    assert data["logs"][0]["route_name"] == "Test Route"
 
 
 @pytest.mark.asyncio
@@ -765,3 +766,54 @@ async def test_recent_logs_offset_validation(
         headers=auth_headers_for_user,
     )
     assert response.status_code == 200
+
+
+@pytest.mark.asyncio
+async def test_recent_logs_with_deleted_route(
+    db_session: AsyncSession,
+    async_client_with_db: AsyncClient,
+    admin_user: tuple[User, Any],
+    auth_headers_for_user: dict[str, str],
+    test_user: User,
+) -> None:
+    """Test recent logs when route has been deleted."""
+    # Create a test route
+    route = Route(
+        user_id=test_user.id,
+        name="Deleted Route",
+        active=True,
+        timezone="Europe/London",
+    )
+    db_session.add(route)
+    await db_session.commit()
+    await db_session.refresh(route)
+
+    # Create notification log
+    log = NotificationLog(
+        user_id=test_user.id,
+        route_id=route.id,
+        sent_at=datetime.now(UTC),
+        method=NotificationMethod.EMAIL,
+        status=NotificationStatus.SENT,
+        error_message=None,
+    )
+    db_session.add(log)
+    await db_session.commit()
+
+    # Soft delete the route
+    route.deleted_at = datetime.now(UTC)
+    await db_session.commit()
+
+    response = await async_client_with_db.get(
+        build_api_url("/admin/alerts/recent-logs"),
+        headers=auth_headers_for_user,
+    )
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["total"] == 1
+    assert len(data["logs"]) == 1
+    # Route name should still be available even when route is soft-deleted
+    # because the relationship is eager-loaded before filtering by deleted_at
+    assert data["logs"][0]["route_name"] == "Deleted Route"
+    assert UUID(data["logs"][0]["route_id"]) == route.id

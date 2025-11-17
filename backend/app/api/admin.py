@@ -9,6 +9,7 @@ from celery.app.control import Inspect
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import desc, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 
 from app.celery.app import celery_app
 from app.celery.tasks import detect_and_rebuild_stale_routes
@@ -326,8 +327,8 @@ async def get_recent_notification_logs(
     Raises:
         HTTPException: 403 if not admin
     """
-    # Build query with optional status filter
-    query = select(NotificationLog)
+    # Build query with optional status filter and eager-load route relationship
+    query = select(NotificationLog).options(selectinload(NotificationLog.route))
     if status is not None:
         query = query.where(NotificationLog.status == status)
 

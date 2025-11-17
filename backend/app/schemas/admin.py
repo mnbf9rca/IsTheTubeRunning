@@ -1,10 +1,11 @@
 """Pydantic schemas for admin endpoints."""
 
 from datetime import datetime
+from typing import Any
 from uuid import UUID
 
 from app.models.notification import NotificationMethod, NotificationStatus
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 # ==================== Route Index Management Schemas ====================
 
@@ -68,10 +69,35 @@ class NotificationLogItem(BaseModel):
     id: UUID
     user_id: UUID
     route_id: UUID
+    route_name: str | None = None
     sent_at: datetime
     method: NotificationMethod
     status: NotificationStatus
     error_message: str | None = None
+
+    @model_validator(mode="before")
+    @classmethod
+    def extract_route_name(cls, data: dict[str, Any] | Any) -> dict[str, Any]:  # noqa: ANN401
+        """Extract route name from relationship if available.
+
+        Note: Using Any for ORM model objects is necessary here as pydantic doesn't
+        know the exact SQLAlchemy model type at validation time.
+        """
+        if hasattr(data, "route") and data.route is not None:
+            # Convert to dict to add route_name
+            if isinstance(data, dict):
+                return data
+            return {
+                "id": data.id,
+                "user_id": data.user_id,
+                "route_id": data.route_id,
+                "route_name": data.route.name if data.route else None,
+                "sent_at": data.sent_at,
+                "method": data.method,
+                "status": data.status,
+                "error_message": data.error_message,
+            }
+        return data
 
 
 class RecentLogsResponse(BaseModel):

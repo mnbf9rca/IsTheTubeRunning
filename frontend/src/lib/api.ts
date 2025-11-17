@@ -1003,6 +1003,7 @@ export interface NotificationLogItem {
   id: string
   user_id: string
   route_id: string
+  route_name: string | null
   sent_at: string
   method: NotificationMethod
   status: NotificationStatus
