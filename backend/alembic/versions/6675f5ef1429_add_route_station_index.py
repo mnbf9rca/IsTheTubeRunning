@@ -20,9 +20,9 @@ depends_on: str | Sequence[str] | None = None
 
 def upgrade() -> None:
     """Upgrade schema."""
-    # Create route_station_index table for fast disruption lookups
+    # Create user_route_station_index table for fast disruption lookups
     op.create_table(
-        "route_station_index",
+        "user_route_station_index",
         sa.Column("id", sa.UUID(), nullable=False),
         sa.Column(
             "route_id",
@@ -62,24 +62,24 @@ def upgrade() -> None:
     # Create indexes for efficient lookups
     # Primary lookup: "Which routes pass through station X on line Y?"
     op.create_index(
-        op.f("ix_route_station_index_line_station"),
-        "route_station_index",
+        op.f("ix_user_route_station_index_line_station"),
+        "user_route_station_index",
         ["line_tfl_id", "station_naptan"],
         unique=False,
     )
 
     # Cleanup lookup: "Delete all index entries for route Z"
     op.create_index(
-        op.f("ix_route_station_index_route"),
-        "route_station_index",
+        op.f("ix_user_route_station_index_route"),
+        "user_route_station_index",
         ["route_id"],
         unique=False,
     )
 
     # Staleness lookup: "Find routes with outdated index data"
     op.create_index(
-        op.f("ix_route_station_index_line_data_version"),
-        "route_station_index",
+        op.f("ix_user_route_station_index_line_data_version"),
+        "user_route_station_index",
         ["line_data_version"],
         unique=False,
     )
@@ -89,14 +89,14 @@ def downgrade() -> None:
     """Downgrade schema."""
     # Drop indexes in reverse order
     op.drop_index(
-        op.f("ix_route_station_index_line_data_version"),
-        table_name="route_station_index",
+        op.f("ix_user_route_station_index_line_data_version"),
+        table_name="user_route_station_index",
     )
-    op.drop_index(op.f("ix_route_station_index_route"), table_name="route_station_index")
+    op.drop_index(op.f("ix_user_route_station_index_route"), table_name="user_route_station_index")
     op.drop_index(
-        op.f("ix_route_station_index_line_station"),
-        table_name="route_station_index",
+        op.f("ix_user_route_station_index_line_station"),
+        table_name="user_route_station_index",
     )
 
     # Drop table
-    op.drop_table("route_station_index")
+    op.drop_table("user_route_station_index")

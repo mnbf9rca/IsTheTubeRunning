@@ -147,7 +147,7 @@ class RouteSegment(BaseModel):
 class RouteSchedule(BaseModel):
     """Schedule for when a route should be monitored for disruptions."""
 
-    __tablename__ = "route_schedules"
+    __tablename__ = "user_route_schedules"
 
     route_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True),

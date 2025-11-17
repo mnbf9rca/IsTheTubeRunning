@@ -249,7 +249,7 @@ def upgrade() -> None:
         unique=False,
     )
     op.create_table(
-        "route_schedules",
+        "user_route_schedules",
         sa.Column("route_id", sa.UUID(), nullable=False),
         sa.Column("days_of_week", sa.JSON(), nullable=False),
         sa.Column("start_time", sa.Time(), nullable=False),
@@ -261,7 +261,7 @@ def upgrade() -> None:
         sa.ForeignKeyConstraint(["route_id"], ["user_routes.id"], ondelete="CASCADE"),
         sa.PrimaryKeyConstraint("id"),
     )
-    op.create_index(op.f("ix_route_schedules_route_id"), "route_schedules", ["route_id"], unique=False)
+    op.create_index(op.f("ix_user_route_schedules_route_id"), "user_route_schedules", ["route_id"], unique=False)
     op.create_table(
         "user_route_segments",
         sa.Column("route_id", sa.UUID(), nullable=False),
@@ -291,8 +291,8 @@ def downgrade() -> None:
     op.drop_index("ix_user_route_segments_route_sequence", table_name="user_route_segments")
     op.drop_index(op.f("ix_user_route_segments_route_id"), table_name="user_route_segments")
     op.drop_table("user_route_segments")
-    op.drop_index(op.f("ix_route_schedules_route_id"), table_name="route_schedules")
-    op.drop_table("route_schedules")
+    op.drop_index(op.f("ix_user_route_schedules_route_id"), table_name="user_route_schedules")
+    op.drop_table("user_route_schedules")
     op.drop_index(op.f("ix_notification_preferences_route_id"), table_name="notification_preferences")
     op.drop_index("ix_notification_preferences_route", table_name="notification_preferences")
     op.drop_table("notification_preferences")

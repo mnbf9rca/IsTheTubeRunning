@@ -32,7 +32,7 @@ class RouteStationIndex(BaseModel):
         - Line.routes data changes (detected via line_data_version staleness check)
     """
 
-    __tablename__ = "route_station_index"
+    __tablename__ = "user_route_station_index"
 
     route_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True),
@@ -61,11 +61,11 @@ class RouteStationIndex(BaseModel):
 
     __table_args__ = (
         # Primary lookup: "Which routes pass through station X on line Y?"
-        Index("ix_route_station_index_line_station", "line_tfl_id", "station_naptan"),
+        Index("ix_user_route_station_index_line_station", "line_tfl_id", "station_naptan"),
         # Cleanup lookup: "Delete all index entries for route Z"
-        Index("ix_route_station_index_route", "route_id"),
+        Index("ix_user_route_station_index_route", "route_id"),
         # Staleness lookup: "Find routes with outdated index data"
-        Index("ix_route_station_index_line_data_version", "line_data_version"),
+        Index("ix_user_route_station_index_line_data_version", "line_data_version"),
     )
 
     def __repr__(self) -> str:
