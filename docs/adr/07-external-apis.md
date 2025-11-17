@@ -294,6 +294,39 @@ Accept hub NaPTAN codes (e.g., `HUBSVS`) directly as `station_tfl_id` values in 
 
 ---
 
+## Async Email Sending with aiosmtplib
+
+### Status
+Active (Issue #168, implemented 2025-01-17)
+
+### Context
+Email sending via SMTP is a network I/O operation that can block if the SMTP server is unreachable or slow. Initial implementation used Python's standard `smtplib` library wrapped in `asyncio.run_in_executor()` to prevent blocking the event loop. However, this approach still consumed thread pool threads and could hang indefinitely on unreachable hosts without a timeout configured.
+
+### Decision
+Use `aiosmtplib` library for truly async SMTP operations with built-in timeout support. All email sending methods (`send_email()`, `send_verification_email()`) are now async without thread pool execution. Connection timeout is configurable via `SMTP_TIMEOUT` setting (default: 10 seconds) to prevent indefinite hangs on unreachable SMTP hosts.
+
+**Implementation details:**
+- `EmailService` uses `async with aiosmtplib.SMTP(hostname=..., port=..., timeout=...)` for connections
+- All SMTP operations (`starttls()`, `login()`, `send_message()`) are awaited directly
+- Changed from `email.mime.multipart.MIMEMultipart` to `email.message.EmailMessage` (modern approach)
+- Public API remains unchanged - callers still use `await service.send_email(...)`
+
+### Consequences
+**Easier:**
+- True async I/O - no thread pool blocking
+- Better resource utilization in async FastAPI application
+- Timeout protection prevents indefinite hangs (fails fast within 10 seconds)
+- Native async integration with event loops
+- Modern email message format (EmailMessage vs MIME)
+- Simplified code (no `run_in_executor()` boilerplate)
+
+**More Difficult:**
+- Additional dependency (`aiosmtplib>=3.0.0`)
+- Tests must mock async context managers (`__aenter__`/`__aexit__`)
+- Different exception types (`aiosmtplib.SMTPException` vs `smtplib.SMTPException`)
+
+---
+
 ## Line Validation Before TfL API Calls
 
 ### Status

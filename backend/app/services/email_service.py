@@ -1,12 +1,9 @@
 """Email service for sending verification and notification emails."""
 
-import asyncio
-import functools
-import smtplib
-from email.mime.multipart import MIMEMultipart
-from email.mime.text import MIMEText
+from email.message import EmailMessage
 from pathlib import Path
 
+import aiosmtplib
 import structlog
 from jinja2 import Environment, FileSystemLoader, select_autoescape
 
@@ -49,6 +46,7 @@ class EmailService:
         self.smtp_user: str = settings.SMTP_USER
         self.smtp_password: str = settings.SMTP_PASSWORD
         self.from_email: str = settings.SMTP_FROM_EMAIL
+        self.smtp_timeout = settings.SMTP_TIMEOUT
 
     async def send_email(
         self,
@@ -60,7 +58,7 @@ class EmailService:
         """
         Send a generic email with HTML and plain text content.
 
-        Uses run_in_executor to prevent blocking the event loop during SMTP operations.
+        This is a truly async method using aiosmtplib for non-blocking SMTP operations.
 
         Args:
             to: Recipient email address
@@ -69,32 +67,22 @@ class EmailService:
             text_content: Plain text fallback content
 
         Raises:
-            smtplib.SMTPException: If email sending fails
+            aiosmtplib.SMTPException: If email sending fails
         """
-        loop = asyncio.get_running_loop()
-        await loop.run_in_executor(
-            None,
-            functools.partial(
-                self._send_email_sync,
-                to,
-                subject,
-                html_content,
-                text_content,
-            ),
-        )
+        await self._send_email_async(to, subject, html_content, text_content)
 
     async def send_verification_email(self, email: str, code: str) -> None:
         """
         Send a verification email with the provided code.
 
-        Uses run_in_executor to prevent blocking the event loop during SMTP operations.
+        This is a truly async method using aiosmtplib for non-blocking SMTP operations.
 
         Args:
             email: Recipient email address
             code: 6-digit verification code
 
         Raises:
-            smtplib.SMTPException: If email sending fails
+            aiosmtplib.SMTPException: If email sending fails
         """
         # Render the HTML template
         template = jinja_env.get_template("verification.html")
@@ -123,7 +111,7 @@ This is an automated message from IsTheTubeRunning.
         await self.send_email(email, subject, html_content, text_content)
         logger.info("verification_email_sent", recipient=email, code_length=len(code))
 
-    def _send_email_sync(
+    async def _send_email_async(
         self,
         to: str,
         subject: str,
@@ -131,9 +119,9 @@ This is an automated message from IsTheTubeRunning.
         text_content: str,
     ) -> None:
         """
-        Synchronously send an email (runs in thread pool).
+        Asynchronously send an email using aiosmtplib.
 
-        This method contains all blocking I/O operations (SMTP).
+        This method performs truly async SMTP operations without blocking the event loop.
 
         Args:
             to: Recipient email address
@@ -142,29 +130,30 @@ This is an automated message from IsTheTubeRunning.
             text_content: Plain text fallback content
 
         Raises:
-            smtplib.SMTPException: If email sending fails
+            aiosmtplib.SMTPException: If email sending fails
         """
         try:
             # Create the email message
-            message = MIMEMultipart("alternative")
+            message = EmailMessage()
             message["Subject"] = subject
             message["From"] = self.from_email
             message["To"] = to
 
-            # Attach parts (plain text first, then HTML)
-            part1 = MIMEText(text_content, "plain")
-            part2 = MIMEText(html_content, "html")
-            message.attach(part1)
-            message.attach(part2)
+            # Set content (plain text as fallback, HTML as preferred)
+            message.set_content(text_content)
+            message.add_alternative(html_content, subtype="html")
 
-            # Send the email via SMTP (blocking network I/O)
-            with smtplib.SMTP(self.smtp_host, self.smtp_port) as server:
-                server.starttls()
-                server.login(self.smtp_user, self.smtp_password)
-                server.send_message(message)
+            # Send the email via SMTP (async network I/O)
+            # timeout parameter prevents indefinite hangs on unreachable hosts
+            async with aiosmtplib.SMTP(
+                hostname=self.smtp_host, port=self.smtp_port, timeout=self.smtp_timeout
+            ) as server:
+                await server.starttls()
+                await server.login(self.smtp_user, self.smtp_password)
+                await server.send_message(message)
 
             logger.info("email_sent", recipient=to, subject=subject)
 
-        except smtplib.SMTPException as e:
+        except aiosmtplib.SMTPException as e:
             logger.error("email_send_failed", recipient=to, subject=subject, error=str(e))
             raise

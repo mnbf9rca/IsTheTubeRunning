@@ -24,6 +24,7 @@ dependencies = [
     "structlog>=24.4.0", # Structured logging
     "python-dotenv-vault>=0.7.0", # Encrypted .env file management
     "jinja2>=3.1.6",
+    "aiosmtplib>=3.0.0", # Async SMTP library for email sending
 ]
 
 [dependency-groups]
