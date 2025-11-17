@@ -68,21 +68,39 @@ async def test_sqlalchemy_works_with_otel_disabled(
 
 
 async def test_api_endpoint_with_database_works_with_otel_disabled(
-    async_client: AsyncClient,
+    db_session: AsyncSession,
     test_user: User,
     auth_headers_for_user: dict[str, str],
 ) -> None:
     """Test that API endpoints with database queries work with OTEL disabled."""
-    # Make request to endpoint that queries database
-    response = await async_client.get(
-        f"{settings.API_V1_PREFIX}/auth/me",
-        headers=auth_headers_for_user,
-    )
-    assert response.status_code == 200
+    # Import app (should work with OTEL disabled)
+    from app.main import app  # noqa: PLC0415  # Lazy import to test with OTEL disabled
 
-    # Verify response data (just check that we got a valid response)
-    data = response.json()
-    assert "id" in data  # User ID should be in response
+    # Override get_db to use test session (ADR 10: Test Database Dependency Override Pattern)
+    async def override_get_db() -> AsyncGenerator[AsyncSession]:
+        yield db_session
+
+    app.dependency_overrides[database.get_db] = override_get_db
+
+    try:
+        # Create client with auth headers
+        async with AsyncClient(
+            transport=ASGITransport(app=app),
+            base_url="http://test",
+        ) as client:
+            # Make request to endpoint that queries database
+            response = await client.get(
+                f"{settings.API_V1_PREFIX}/auth/me",
+                headers=auth_headers_for_user,
+            )
+            assert response.status_code == 200
+
+            # Verify response data (just check that we got a valid response)
+            data = response.json()
+            assert "id" in data  # User ID should be in response
+
+    finally:
+        app.dependency_overrides.clear()
 
 
 async def test_telemetry_module_functions_with_otel_disabled() -> None:

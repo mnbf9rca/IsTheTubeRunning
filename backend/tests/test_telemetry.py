@@ -88,6 +88,7 @@ def test_create_tracer_provider_with_otlp_exporter(monkeypatch: pytest.MonkeyPat
     monkeypatch.setattr(settings, "DEBUG", False)
     monkeypatch.setattr(settings, "OTEL_EXPORTER_OTLP_ENDPOINT", "http://localhost:4318/v1/traces")
     monkeypatch.setattr(settings, "OTEL_EXPORTER_OTLP_HEADERS", "Authorization=Bearer token123")
+    monkeypatch.setattr(settings, "OTEL_ENVIRONMENT", "production")
     telemetry._tracer_provider = None
 
     provider = telemetry.get_tracer_provider()
