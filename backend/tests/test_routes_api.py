@@ -8,9 +8,9 @@ from unittest.mock import AsyncMock, patch
 import pytest
 from app.core.database import get_db
 from app.main import app
-from app.models.route import UserRoute, UserRouteSchedule, UserRouteSegment
 from app.models.tfl import Line, Station
 from app.models.user import User
+from app.models.user_route import UserRoute, UserRouteSchedule, UserRouteSegment
 from fastapi import HTTPException, status
 from httpx import AsyncClient
 from sqlalchemy import select

@@ -195,11 +195,37 @@ Each phase must achieve:
 
 - **Time taken**: ~45 minutes (including quality checks)
 
-### Phase 6: [Agent to fill in]
+### Phase 6: RouteStationIndex → UserRouteStationIndex + File Renaming (COMPLETE)
 - **What worked**:
+  - Using `replace_all=true` was effective for bulk replacements across files
+  - `git mv` preserved file history perfectly for route.py → user_route.py and route_index.py → user_route_index.py
+  - ast-grep verification (`ast-grep --pattern 'RouteStationIndex'`) confirmed zero old references remained
+  - Systematic approach: class rename → import updates → file renames → import updates again
+  - Pre-commit hooks (ruff) auto-fixed import ordering after bulk changes (18 fixes)
+  - All validation passed: mypy (55 files ✓), pytest (1057 tests ✓), coverage (95.87% ✓), pre-commit (✓)
+
 - **What didn't**:
+  - Initial `replace_all` in service files accidentally double-replaced imports: `RouteStationIndex` → `UserUserRouteStationIndex`
+  - Had to manually fix the import lines in 3 service files (user_route_index_service, alert_service, tasks)
+
 - **Gotchas**:
-- **Time taken**:
+  - **CRITICAL**: When using `replace_all=true`, it replaces ALL occurrences including already-replaced text
+    - Example: Import statement already had `UserRouteStationIndex`, replace_all changed it to `UserUserRouteStationIndex`
+    - Solution: Use targeted single replacements for import statements, use replace_all for code references
+  - **File renaming scope expansion**: User asked to rename model files for consistency after seeing class renames complete
+    - route.py → user_route.py, route_index.py → user_route_index.py (26 files updated with new imports)
+    - This was the right call for complete consistency - no half-measures
+  - **TYPE_CHECKING imports** must be updated in circular import prevention blocks
+  - **Ruff auto-reordering** of imports is expected after bulk updates - not an error, just run pre-commit
+  - **Comments in cross-references** like notification.py line 21 reference the file name, update those too
+
+- **Key learnings**:
+  - File renaming is cheap when done with `git mv` - preserves history, worth doing for consistency
+  - When user suggests scope expansion mid-task, evaluate if it makes sense (in this case: yes, complete the refactoring properly)
+  - `replace_all` is powerful but dangerous - always read files first and understand what will be replaced
+  - Verify with ast-grep before AND after changes
+
+- **Time taken**: ~35 minutes (class rename) + ~25 minutes (file renames + import updates) = ~60 minutes total
 
 ### Phase 7: [Agent to fill in]
 - **What worked**:

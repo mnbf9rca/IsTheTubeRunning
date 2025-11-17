@@ -4,9 +4,9 @@ from datetime import UTC, datetime
 from unittest.mock import AsyncMock, patch
 
 import pytest
-from app.models.route import UserRoute
 from app.models.tfl import Line, Station
 from app.models.user import User
+from app.models.user_route import UserRoute
 from app.schemas.routes import SegmentRequest
 from app.services.user_route_service import UserRouteService
 from sqlalchemy.ext.asyncio import AsyncSession

@@ -10,10 +10,10 @@ import pytest
 from app.core.config import settings
 from app.core.database import get_db
 from app.main import app
-from app.models.route import UserRoute, UserRouteSegment
-from app.models.route_index import RouteStationIndex
 from app.models.tfl import Line, Station
 from app.models.user import User
+from app.models.user_route import UserRoute, UserRouteSegment
+from app.models.user_route_index import UserRouteStationIndex
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -269,8 +269,10 @@ class TestAdminRebuildIndexesIntegration:
         assert data["rebuilt_count"] == 1
         assert data["failed_count"] == 0
 
-        # Verify database state: check that RouteStationIndex entries were created
-        result = await db_session.execute(select(RouteStationIndex).where(RouteStationIndex.route_id == route.id))
+        # Verify database state: check that UserRouteStationIndex entries were created
+        result = await db_session.execute(
+            select(UserRouteStationIndex).where(UserRouteStationIndex.route_id == route.id)
+        )
         index_entries = result.scalars().all()
 
         assert len(index_entries) == 2  # Both stations indexed
@@ -371,7 +373,7 @@ class TestAdminRebuildIndexesIntegration:
         assert data["failed_count"] == 0
 
         # Verify database state: check that indexes were created for both routes
-        result = await db_session.execute(select(RouteStationIndex))
+        result = await db_session.execute(select(UserRouteStationIndex))
         all_index_entries = result.scalars().all()
 
         # Should have entries for both routes

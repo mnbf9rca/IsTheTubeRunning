@@ -7,8 +7,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.auth import get_current_user
 from app.core.database import get_db
-from app.models.route import UserRoute, UserRouteSchedule, UserRouteSegment
 from app.models.user import User
+from app.models.user_route import UserRoute, UserRouteSchedule, UserRouteSegment
 from app.schemas.routes import (
     CreateRouteRequest,
     CreateScheduleRequest,

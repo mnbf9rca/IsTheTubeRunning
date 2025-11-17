@@ -10,8 +10,8 @@ from sqlalchemy.orm import selectinload
 
 from app.models.admin import AdminUser
 from app.models.notification import NotificationLog, NotificationPreference, NotificationStatus
-from app.models.route import UserRoute
 from app.models.user import EmailAddress, PhoneNumber, User, VerificationCode
+from app.models.user_route import UserRoute
 from app.schemas.admin import (
     DailySignup,
     EngagementMetrics,

@@ -18,9 +18,9 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.models.base import BaseModel
 
-if TYPE_CHECKING:  # Avoid circular imports -> route.py imports from app.helpers.station_resolution (line 22)
-    from app.models.route import UserRoute
+if TYPE_CHECKING:  # Avoid circular imports -> user_route.py imports from app.helpers.station_resolution (line 22)
     from app.models.user import User
+    from app.models.user_route import UserRoute
 
 
 class NotificationMethod(str, enum.Enum):

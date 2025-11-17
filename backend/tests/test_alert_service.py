@@ -18,10 +18,10 @@ from app.models.notification import (
     NotificationPreference,
     NotificationStatus,
 )
-from app.models.route import UserRoute, UserRouteSchedule, UserRouteSegment
-from app.models.route_index import RouteStationIndex
 from app.models.tfl import Line, LineDisruptionStateLog, Station
 from app.models.user import EmailAddress, PhoneNumber, User
+from app.models.user_route import UserRoute, UserRouteSchedule, UserRouteSegment
+from app.models.user_route_index import UserRouteStationIndex
 from app.schemas.tfl import AffectedRouteInfo, DisruptionResponse
 from app.services.alert_service import (
     AlertService,
@@ -168,7 +168,7 @@ async def test_route_with_schedule(
 @pytest.fixture
 async def populate_route_index(db_session: AsyncSession):
     """
-    Fixture factory to populate RouteStationIndex for a route.
+    Fixture factory to populate UserRouteStationIndex for a route.
 
     Returns a callable that takes a route and populates its index entries.
     This is essential for tests that rely on the inverted index for alert matching.
@@ -191,7 +191,7 @@ async def populate_route_index(db_session: AsyncSession):
         # Create index entries for each segment
         for segment in route.segments:
             if segment.line and segment.station:
-                index_entry = RouteStationIndex(
+                index_entry = UserRouteStationIndex(
                     route_id=route.id,
                     line_tfl_id=segment.line.tfl_id,
                     station_naptan=segment.station.tfl_id,
@@ -2003,7 +2003,7 @@ class TestQueryRoutesByIndex:
         await db_session.flush()
 
         # Create index entries
-        index1 = RouteStationIndex(
+        index1 = UserRouteStationIndex(
             route_id=route.id,
             line_tfl_id="piccadilly",
             station_naptan="940GZZLUKSX",
@@ -2039,7 +2039,7 @@ class TestQueryRoutesByIndex:
 
         # Create index entries for multiple stations on same route
         for station in ["940GZZLUKSX", "940GZZLURSQ", "940GZZLUHBN"]:
-            index_entry = RouteStationIndex(
+            index_entry = UserRouteStationIndex(
                 route_id=route.id,
                 line_tfl_id="piccadilly",
                 station_naptan=station,
@@ -2086,7 +2086,7 @@ class TestQueryRoutesByIndex:
 
         # Both routes pass through King's Cross on Piccadilly
         for route in [route1, route2]:
-            index_entry = RouteStationIndex(
+            index_entry = UserRouteStationIndex(
                 route_id=route.id,
                 line_tfl_id="piccadilly",
                 station_naptan="940GZZLUKSX",
@@ -2145,7 +2145,7 @@ class TestGetAffectedRoutesForDisruption:
         await db_session.flush()
 
         # Create index entry
-        index_entry = RouteStationIndex(
+        index_entry = UserRouteStationIndex(
             route_id=route.id,
             line_tfl_id="victoria",
             station_naptan="940GZZLUKSX",
@@ -2363,7 +2363,7 @@ class TestBranchDisambiguation:
 
         # Index entries for Route A (passes through Russell Square and Holborn)
         for station in ["940GZZLUKSX", "940GZZLURSQ", "940GZZLUHBN", "940GZZLUCGN", "940GZZLULSQ"]:
-            index_entry = RouteStationIndex(
+            index_entry = UserRouteStationIndex(
                 route_id=route_a.id,
                 line_tfl_id="piccadilly",
                 station_naptan=station,
@@ -2383,7 +2383,7 @@ class TestBranchDisambiguation:
 
         # Index entries for Route B (western branch, does NOT include Russell Square/Holborn)
         for station in ["940GZZLUECT", "940GZZLUHOR", "940GZZLUHRC"]:
-            index_entry = RouteStationIndex(
+            index_entry = UserRouteStationIndex(
                 route_id=route_b.id,
                 line_tfl_id="piccadilly",
                 station_naptan=station,
@@ -2454,7 +2454,7 @@ class TestBranchDisambiguation:
 
         # Index for Route A includes Camden Town
         for station in ["940GZZLUKNG", "940GZZLUETN", "940GZZLUCTW", "940GZZLUKTN"]:
-            index_entry = RouteStationIndex(
+            index_entry = UserRouteStationIndex(
                 route_id=route_a.id,
                 line_tfl_id="northern",
                 station_naptan=station,
@@ -2474,7 +2474,7 @@ class TestBranchDisambiguation:
 
         # Index for Route B does NOT include Camden Town
         for station in ["940GZZLUKNG", "940GZZLUBKE", "940GZZLUMRG", "940GZZLUHGB"]:
-            index_entry = RouteStationIndex(
+            index_entry = UserRouteStationIndex(
                 route_id=route_b.id,
                 line_tfl_id="northern",
                 station_naptan=station,
@@ -2548,7 +2548,7 @@ class TestPerformance:
             # Each route gets 3 random stations
             route_stations = [stations[j % len(stations)] for j in range(i, i + 3)]
             for station in route_stations:
-                index_entry = RouteStationIndex(
+                index_entry = UserRouteStationIndex(
                     route_id=route.id,
                     line_tfl_id="piccadilly",
                     station_naptan=station,
@@ -2614,7 +2614,7 @@ class TestPerformance:
 
             # Each route has 100 stations
             for station_num in range(100):
-                index_entry = RouteStationIndex(
+                index_entry = UserRouteStationIndex(
                     route_id=route.id,
                     line_tfl_id="test-line",
                     station_naptan=f"STATION{station_num:04d}",

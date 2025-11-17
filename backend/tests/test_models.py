@@ -14,13 +14,13 @@ from app.models import (
     NotificationPreference,
     NotificationStatus,
     PhoneNumber,
-    RouteStationIndex,
     Station,
     StationConnection,
     User,
     UserRoute,
     UserRouteSchedule,
     UserRouteSegment,
+    UserRouteStationIndex,
     VerificationCode,
     VerificationType,
 )
@@ -769,8 +769,8 @@ class TestAdminModel:
             await db_session.commit()
 
 
-class TestRouteStationIndex:
-    """Tests for RouteStationIndex model."""
+class TestUserRouteStationIndex:
+    """Tests for UserRouteStationIndex model."""
 
     @pytest.mark.asyncio
     async def test_create_index_entry(self, db_session: AsyncSession) -> None:
@@ -782,7 +782,7 @@ class TestRouteStationIndex:
         await db_session.commit()
 
         # Create index entry
-        index_entry = RouteStationIndex(
+        index_entry = UserRouteStationIndex(
             route_id=route.id,
             line_tfl_id="piccadilly",
             station_naptan="940GZZLUKSX",
@@ -792,7 +792,9 @@ class TestRouteStationIndex:
         await db_session.commit()
 
         # Verify entry was saved
-        result = await db_session.execute(select(RouteStationIndex).where(RouteStationIndex.route_id == route.id))
+        result = await db_session.execute(
+            select(UserRouteStationIndex).where(UserRouteStationIndex.route_id == route.id)
+        )
         saved_entry = result.scalar_one()
 
         assert saved_entry.id is not None
@@ -817,13 +819,13 @@ class TestRouteStationIndex:
         version = datetime.now(UTC)
 
         # Create index entries for both routes for the same station
-        entry1 = RouteStationIndex(
+        entry1 = UserRouteStationIndex(
             route_id=route1.id,
             line_tfl_id="piccadilly",
             station_naptan="940GZZLUKSX",
             line_data_version=version,
         )
-        entry2 = RouteStationIndex(
+        entry2 = UserRouteStationIndex(
             route_id=route2.id,
             line_tfl_id="piccadilly",
             station_naptan="940GZZLUKSX",
@@ -835,9 +837,9 @@ class TestRouteStationIndex:
 
         # Verify both entries exist
         result = await db_session.execute(
-            select(RouteStationIndex).where(
-                RouteStationIndex.line_tfl_id == "piccadilly",
-                RouteStationIndex.station_naptan == "940GZZLUKSX",
+            select(UserRouteStationIndex).where(
+                UserRouteStationIndex.line_tfl_id == "piccadilly",
+                UserRouteStationIndex.station_naptan == "940GZZLUKSX",
             )
         )
         entries = result.scalars().all()
@@ -857,13 +859,13 @@ class TestRouteStationIndex:
 
         # Create multiple index entries for this route
         version = datetime.now(UTC)
-        entry1 = RouteStationIndex(
+        entry1 = UserRouteStationIndex(
             route_id=route.id,
             line_tfl_id="piccadilly",
             station_naptan="940GZZLUKSX",
             line_data_version=version,
         )
-        entry2 = RouteStationIndex(
+        entry2 = UserRouteStationIndex(
             route_id=route.id,
             line_tfl_id="piccadilly",
             station_naptan="940GZZLURSQ",
@@ -874,7 +876,9 @@ class TestRouteStationIndex:
         await db_session.commit()
 
         # Verify entries exist
-        result = await db_session.execute(select(RouteStationIndex).where(RouteStationIndex.route_id == route.id))
+        result = await db_session.execute(
+            select(UserRouteStationIndex).where(UserRouteStationIndex.route_id == route.id)
+        )
         entries_before = result.scalars().all()
         assert len(entries_before) == 2
 
@@ -883,13 +887,15 @@ class TestRouteStationIndex:
         await db_session.commit()
 
         # Verify all index entries were CASCADE deleted
-        result = await db_session.execute(select(RouteStationIndex).where(RouteStationIndex.route_id == route.id))
+        result = await db_session.execute(
+            select(UserRouteStationIndex).where(UserRouteStationIndex.route_id == route.id)
+        )
         entries_after = result.scalars().all()
         assert len(entries_after) == 0
 
     @pytest.mark.asyncio
     async def test_index_relationship(self, db_session: AsyncSession) -> None:
-        """Test the relationship between RouteStationIndex and UserRoute."""
+        """Test the relationship between UserRouteStationIndex and UserRoute."""
         user = User(external_id=make_unique_external_id("auth0|relationship_test"), auth_provider="auth0")
         route = UserRoute(user=user, name="Test Route", active=True)
 
@@ -897,7 +903,7 @@ class TestRouteStationIndex:
         await db_session.commit()
 
         # Create index entry
-        index_entry = RouteStationIndex(
+        index_entry = UserRouteStationIndex(
             route_id=route.id,
             line_tfl_id="victoria",
             station_naptan="940GZZLUVXL",
@@ -927,16 +933,16 @@ class TestRouteStationIndex:
 
         # Create index entries for different routes and stations
         entries = [
-            RouteStationIndex(
+            UserRouteStationIndex(
                 route_id=route1.id, line_tfl_id="piccadilly", station_naptan="940GZZLUKSX", line_data_version=version
             ),
-            RouteStationIndex(
+            UserRouteStationIndex(
                 route_id=route1.id, line_tfl_id="piccadilly", station_naptan="940GZZLURSQ", line_data_version=version
             ),
-            RouteStationIndex(
+            UserRouteStationIndex(
                 route_id=route2.id, line_tfl_id="piccadilly", station_naptan="940GZZLUKSX", line_data_version=version
             ),
-            RouteStationIndex(
+            UserRouteStationIndex(
                 route_id=route3.id, line_tfl_id="victoria", station_naptan="940GZZLUVXL", line_data_version=version
             ),
         ]
@@ -946,9 +952,9 @@ class TestRouteStationIndex:
 
         # Query: Which routes pass through King's Cross (940GZZLUKSX) on Piccadilly line?
         result = await db_session.execute(
-            select(RouteStationIndex).where(
-                RouteStationIndex.line_tfl_id == "piccadilly",
-                RouteStationIndex.station_naptan == "940GZZLUKSX",
+            select(UserRouteStationIndex).where(
+                UserRouteStationIndex.line_tfl_id == "piccadilly",
+                UserRouteStationIndex.station_naptan == "940GZZLUKSX",
             )
         )
         matching_entries = result.scalars().all()
@@ -972,13 +978,13 @@ class TestRouteStationIndex:
         old_version = datetime.now(UTC) - timedelta(days=7)
         new_version = datetime.now(UTC)
 
-        entry1 = RouteStationIndex(
+        entry1 = UserRouteStationIndex(
             route_id=route1.id,
             line_tfl_id="piccadilly",
             station_naptan="940GZZLUKSX",
             line_data_version=old_version,
         )
-        entry2 = RouteStationIndex(
+        entry2 = UserRouteStationIndex(
             route_id=route2.id,
             line_tfl_id="piccadilly",
             station_naptan="940GZZLURSQ",
@@ -990,7 +996,9 @@ class TestRouteStationIndex:
 
         # Query for entries older than 1 day
         cutoff = datetime.now(UTC) - timedelta(days=1)
-        result = await db_session.execute(select(RouteStationIndex).where(RouteStationIndex.line_data_version < cutoff))
+        result = await db_session.execute(
+            select(UserRouteStationIndex).where(UserRouteStationIndex.line_data_version < cutoff)
+        )
         stale_entries = result.scalars().all()
 
         # Should only find entry1 (old_version)
