@@ -319,38 +319,16 @@ Redis stores temporary alert deduplication state with TTL expiration. Once keys 
 `NotificationLog` tracks user notification delivery (who was notified when via what method), but doesn't track TfL line disruption states over time.
 
 ### Decision
-Introduce `LineDisruptionStateLog` table to log TfL line disruption state changes (not every check). Uses content-based deduplication via SHA256 hash (same approach as alert deduplication).
-
-**Implementation:**
-- **Table:** `line_disruption_state_logs` with columns:
-  - `line_id` (VARCHAR(50)): TfL line ID (e.g., "bakerloo", "victoria")
-  - `status_severity_description` (VARCHAR(100)): Disruption status (e.g., "Minor Delays")
-  - `reason` (TEXT, nullable): Full disruption reason text
-  - `state_hash` (VARCHAR(64)): SHA256 hash of {line_id, status, reason} for deduplication
-  - `detected_at` (TIMESTAMP WITH TIME ZONE): When state was detected
-  - Indexes: `(line_id)`, `(state_hash)`, `(detected_at)`, `(line_id, detected_at)` composite
-- **Pure function:** `create_line_state_hash(line_id, status, reason)` for testable hash generation
-- **Service method:** `AlertService._log_line_disruption_state_changes(disruptions)`
-  - Called at start of `process_all_routes()` after fetching all disruptions
-  - Queries last logged state for each line: `SELECT state_hash WHERE line_id=? ORDER BY detected_at DESC LIMIT 1`
-  - Only inserts if hash differs from last state (or no previous state exists)
-  - Non-blocking: errors don't stop alert processing
-  - Batch commits all changes
-- **Scope:** Logs disruptions only (not "Good Service" for lines with no disruptions) following YAGNI principle
+Persist line disruption state changes to database for historical visibility. Use content-based deduplication (SHA256 hash) to log only state changes, not every check. Logging is non-blocking - failures don't stop alert processing. Following YAGNI, only log disruptions (not "Good Service" states).
 
 ### Consequences
 **Easier:**
-- **Historical visibility:** Complete audit trail of line disruption state changes
-- **Troubleshooting:** Can answer "when did disruption start/end" questions
-- **Analytics:** Enables disruption frequency/duration analysis
-- **Low overhead:** ~100-200 rows/day (state changes only, not every 30s check)
-- **Deduplication:** Same hash logic as alerts prevents logging duplicate states
-- **Non-blocking:** Logging failures don't break alert processing
-- **Pure function design:** `create_line_state_hash()` testable without database
-- **Efficient queries:** Composite index `(line_id, detected_at)` for timeline queries
+- Historical troubleshooting - can answer "when did disruption start/end" questions
+- Disruption analytics - enables frequency and duration analysis
+- Low storage overhead - only state changes logged, not every check
+- Reliable - failures don't block alert processing
 
 **More Difficult:**
-- **Additional table:** One more table to maintain (but simple schema)
-- **Storage growth:** ~3-5 KB per state change, ~30-50 MB/year (negligible)
-- **Scope limitation:** Doesn't log "Good Service" for lines without disruptions (reduces writes, but means absence of log ≠ good service)
-- **No automatic cleanup:** No TTL like Redis (could add retention policy later if needed)
+- Additional table to maintain
+- Absence of log entry doesn't mean "Good Service" (we don't log non-disruption states)
+- No automatic cleanup (could add retention policy later if needed)
