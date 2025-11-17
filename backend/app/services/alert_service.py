@@ -83,7 +83,7 @@ def extract_line_station_pairs(disruption: DisruptionResponse) -> list[tuple[str
         ...     status_severity=10,
         ...     status_severity_description="Minor Delays",
         ...     affected_routes=[
-        ...         AffectedUserRouteInfo(
+        ...         AffectedRouteInfo(
         ...             name="Cockfosters → Heathrow T5",
         ...             direction="outbound",
         ...             affected_stations=["940GZZLURSQ", "940GZZLUHBN"]

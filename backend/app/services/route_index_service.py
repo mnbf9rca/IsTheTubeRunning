@@ -16,7 +16,7 @@ from app.models.tfl import Line, Station
 logger = structlog.get_logger(__name__)
 
 
-class RebuildUserRoutesResult(TypedDict):
+class RebuildRoutesResult(TypedDict):
     """Result from rebuild_routes operation."""
 
     rebuilt_count: int
@@ -125,7 +125,7 @@ class RouteIndexService:
         route_id: UUID | None = None,
         *,
         auto_commit: bool = True,
-    ) -> RebuildUserRoutesResult:
+    ) -> RebuildRoutesResult:
         """
         Rebuild route station indexes for single route or all routes.
 
