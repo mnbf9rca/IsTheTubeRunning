@@ -20,9 +20,9 @@ depends_on: str | Sequence[str] | None = None
 
 def upgrade() -> None:
     """Upgrade schema."""
-    # Add timezone column to routes table
+    # Add timezone column to user_routes table
     op.add_column(
-        "routes",
+        "user_routes",
         sa.Column(
             "timezone",
             sa.String(length=64),
@@ -36,4 +36,4 @@ def upgrade() -> None:
 def downgrade() -> None:
     """Downgrade schema."""
     # Remove timezone column
-    op.drop_column("routes", "timezone")
+    op.drop_column("user_routes", "timezone")

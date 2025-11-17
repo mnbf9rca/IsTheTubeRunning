@@ -27,7 +27,7 @@ def upgrade() -> None:
         op.f("ix_disruption_categories_category_name"), "disruption_categories", ["category_name"], unique=True
     )
     op.alter_column(
-        "routes",
+        "user_routes",
         "timezone",
         existing_type=sa.VARCHAR(length=64),
         comment="IANA timezone for schedule interpretation",
@@ -63,7 +63,7 @@ def downgrade() -> None:
         postgresql_nulls_not_distinct=False,
     )
     op.alter_column(
-        "routes",
+        "user_routes",
         "timezone",
         existing_type=sa.VARCHAR(length=64),
         comment="IANA timezone for schedule interpretation (e.g., Europe/London). Schedule times are naive and interpreted in this timezone.",

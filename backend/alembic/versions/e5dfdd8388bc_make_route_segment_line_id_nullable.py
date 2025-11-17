@@ -19,7 +19,7 @@ depends_on: str | Sequence[str] | None = None
 
 
 def upgrade() -> None:
-    """Upgrade schema: make route_segments.line_id nullable.
+    """Upgrade schema: make user_route_segments.line_id nullable.
 
     This allows destination segments to have NULL line_id, which semantically
     means "journey terminates here" (no outgoing line to travel on).
@@ -27,7 +27,7 @@ def upgrade() -> None:
     Note: No data migration needed - development project with no production data.
     """
     op.alter_column(
-        "route_segments",
+        "user_route_segments",
         "line_id",
         existing_type=sa.dialects.postgresql.UUID(),
         nullable=True,
@@ -35,12 +35,12 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
-    """Downgrade schema: make route_segments.line_id NOT NULL again.
+    """Downgrade schema: make user_route_segments.line_id NOT NULL again.
 
     Warning: This will fail if any segments have NULL line_id.
     """
     op.alter_column(
-        "route_segments",
+        "user_route_segments",
         "line_id",
         existing_type=sa.dialects.postgresql.UUID(),
         nullable=False,

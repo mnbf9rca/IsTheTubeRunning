@@ -45,7 +45,7 @@ class NotificationPreference(BaseModel):
 
     route_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True),
-        ForeignKey("routes.id", ondelete="CASCADE"),
+        ForeignKey("user_routes.id", ondelete="CASCADE"),
         nullable=False,
         index=True,
     )
@@ -101,7 +101,7 @@ class NotificationLog(BaseModel):
     )
     route_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True),
-        ForeignKey("routes.id", ondelete="CASCADE"),
+        ForeignKey("user_routes.id", ondelete="CASCADE"),
         nullable=False,
         index=True,
     )
