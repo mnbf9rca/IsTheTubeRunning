@@ -1,4 +1,4 @@
-"""Tests for RouteIndexService."""
+"""Tests for UserRouteIndexService."""
 
 import uuid
 from datetime import UTC, datetime
@@ -8,8 +8,8 @@ from app.models.route import UserRoute, UserRouteSegment
 from app.models.route_index import RouteStationIndex
 from app.models.tfl import Line, Station
 from app.models.user import User
-from app.services.route_index_service import (
-    RouteIndexService,
+from app.services.user_route_index_service import (
+    UserRouteIndexService,
     deduplicate_preserving_order,
     find_stations_between,
 )
@@ -78,8 +78,8 @@ class TestPureFunctions:
 # =============================================================================
 
 
-class TestRouteIndexService:
-    """Tests for RouteIndexService."""
+class TestUserRouteIndexService:
+    """Tests for UserRouteIndexService."""
 
     @pytest.mark.asyncio
     async def test_build_index_simple_two_stop_line(
@@ -121,7 +121,7 @@ class TestRouteIndexService:
         await db_session.commit()
 
         # Build index
-        service = RouteIndexService(db_session)
+        service = UserRouteIndexService(db_session)
         result = await service.build_route_station_index(route.id)
 
         # Verify result statistics
@@ -199,7 +199,7 @@ class TestRouteIndexService:
         await db_session.commit()
 
         # Build index
-        service = RouteIndexService(db_session)
+        service = UserRouteIndexService(db_session)
         result = await service.build_route_station_index(route.id)
 
         # Verify result statistics
@@ -279,7 +279,7 @@ class TestRouteIndexService:
         await db_session.commit()
 
         # Build index
-        service = RouteIndexService(db_session)
+        service = UserRouteIndexService(db_session)
         await service.build_route_station_index(route.id)
 
         # Verify index entries
@@ -335,7 +335,7 @@ class TestRouteIndexService:
         await db_session.commit()
 
         # Build index
-        service = RouteIndexService(db_session)
+        service = UserRouteIndexService(db_session)
         result = await service.build_route_station_index(route.id)
 
         # Verify result statistics
@@ -370,7 +370,7 @@ class TestRouteIndexService:
         db_session: AsyncSession,
     ) -> None:
         """Test building index for non-existent route raises ValueError."""
-        service = RouteIndexService(db_session)
+        service = UserRouteIndexService(db_session)
         fake_route_id = uuid.uuid4()
 
         with pytest.raises(ValueError, match=r"Route .* not found"):
@@ -407,7 +407,7 @@ class TestRouteIndexService:
         await db_session.commit()
 
         # Build index
-        service = RouteIndexService(db_session)
+        service = UserRouteIndexService(db_session)
         result = await service.build_route_station_index(route.id)
 
         # Should return zero entries
@@ -458,7 +458,7 @@ class TestRouteIndexService:
         await db_session.commit()
 
         # Build index first time
-        service = RouteIndexService(db_session)
+        service = UserRouteIndexService(db_session)
         result1 = await service.build_route_station_index(route.id)
         assert result1["entries_created"] == 2
 
@@ -517,7 +517,7 @@ class TestRouteIndexService:
         await db_session.commit()
 
         # Build index - should log warning but not fail
-        service = RouteIndexService(db_session)
+        service = UserRouteIndexService(db_session)
         result = await service.build_route_station_index(route.id)
 
         # Should return zero entries (failed to expand)
@@ -564,7 +564,7 @@ class TestRouteIndexService:
         await db_session.commit()
 
         # Build index - should log warning but not fail
-        service = RouteIndexService(db_session)
+        service = UserRouteIndexService(db_session)
         result = await service.build_route_station_index(route.id)
 
         # Should return zero entries (failed to expand)
@@ -578,7 +578,7 @@ class TestRouteIndexService:
     ) -> None:
         """Test that database transaction is rolled back on error."""
         # Try to build index for non-existent route
-        service = RouteIndexService(db_session)
+        service = UserRouteIndexService(db_session)
         fake_route_id = uuid.uuid4()
 
         with pytest.raises(ValueError, match=r"Route .* not found"):
@@ -629,7 +629,7 @@ class TestRouteIndexService:
         await db_session.commit()
 
         # Build index
-        service = RouteIndexService(db_session)
+        service = UserRouteIndexService(db_session)
         await service.build_route_station_index(route.id)
 
         # Verify line_data_version matches line.last_updated
@@ -668,7 +668,7 @@ class TestRouteIndexService:
         await db_session.commit()
 
         # Build index with auto_commit=False
-        service = RouteIndexService(db_session)
+        service = UserRouteIndexService(db_session)
         result = await service.build_route_station_index(route.id, auto_commit=False)
 
         # Verify result (but no commit yet)
@@ -694,7 +694,7 @@ class TestRouteIndexService:
         fake_route_id = uuid.uuid4()
 
         # Build index with auto_commit=False (will fail with route not found)
-        service = RouteIndexService(db_session)
+        service = UserRouteIndexService(db_session)
 
         # This should raise ValueError for route not found
         with pytest.raises(ValueError, match=f"Route {fake_route_id} not found"):
@@ -766,7 +766,7 @@ class TestRouteIndexService:
         await db_session.commit()
 
         # Build index
-        service = RouteIndexService(db_session)
+        service = UserRouteIndexService(db_session)
         result = await service.build_route_station_index(route.id)
 
         # Should succeed - hub resolution allows index building
@@ -822,7 +822,7 @@ class TestRouteIndexService:
         await db_session.commit()
 
         # Build index - both stations should be resolved (fork_mid_1 is already on forkedline)
-        service = RouteIndexService(db_session)
+        service = UserRouteIndexService(db_session)
         result = await service.build_route_station_index(route.id)
 
         # Should succeed
@@ -867,7 +867,7 @@ class TestRouteIndexService:
         await db_session.commit()
 
         # Build index - should use parallel_north directly (it's already on parallelline)
-        service = RouteIndexService(db_session)
+        service = UserRouteIndexService(db_session)
         result = await service.build_route_station_index(route.id)
 
         # Should succeed without needing hub resolution
@@ -923,7 +923,7 @@ class TestRouteIndexService:
         await db_session.commit()
 
         # Build index - should raise ValueError
-        service = RouteIndexService(db_session)
+        service = UserRouteIndexService(db_session)
         with pytest.raises(ValueError, match="no station in that hub serves line"):
             await service.build_route_station_index(route.id)
 
@@ -964,7 +964,7 @@ class TestRouteIndexService:
         await db_session.commit()
 
         # Build index - should work normally without hub resolution
-        service = RouteIndexService(db_session)
+        service = UserRouteIndexService(db_session)
         result = await service.build_route_station_index(route.id)
 
         assert result["segments_processed"] == 1
@@ -1002,7 +1002,7 @@ class TestRebuildRoutes:
         await db_session.commit()
 
         # Rebuild single route
-        service = RouteIndexService(db_session)
+        service = UserRouteIndexService(db_session)
         result = await service.rebuild_routes(route.id)
 
         # Verify result
@@ -1020,7 +1020,7 @@ class TestRebuildRoutes:
         db_session: AsyncSession,
     ) -> None:
         """Test rebuilding index for non-existent route."""
-        service = RouteIndexService(db_session)
+        service = UserRouteIndexService(db_session)
         fake_route_id = uuid.uuid4()
 
         result = await service.rebuild_routes(fake_route_id)
@@ -1063,7 +1063,7 @@ class TestRebuildRoutes:
         await db_session.commit()
 
         # Rebuild all routes
-        service = RouteIndexService(db_session)
+        service = UserRouteIndexService(db_session)
         result = await service.rebuild_routes()  # None = all routes
 
         # Verify result
@@ -1111,7 +1111,7 @@ class TestRebuildRoutes:
 
         # Rebuild using service, but pass IDs including a non-existent one
         # We'll call rebuild_routes multiple times to simulate the loop behavior
-        service = RouteIndexService(db_session)
+        service = UserRouteIndexService(db_session)
 
         # First rebuild the two valid routes
         result1 = await service.rebuild_routes(valid_routes[0].id)
@@ -1137,7 +1137,7 @@ class TestRebuildRoutes:
         db_session: AsyncSession,
     ) -> None:
         """Test rebuilding when no routes exist."""
-        service = RouteIndexService(db_session)
+        service = UserRouteIndexService(db_session)
         result = await service.rebuild_routes()
 
         # Should succeed with no routes processed
@@ -1168,7 +1168,7 @@ class TestRebuildRoutes:
         await db_session.commit()
 
         # This should succeed but create no entries (insufficient segments)
-        service = RouteIndexService(db_session)
+        service = UserRouteIndexService(db_session)
         result = await service.rebuild_routes(route.id)
 
         # Should succeed (not fail) because insufficient segments just logs warning
@@ -1219,7 +1219,7 @@ class TestRebuildRoutes:
         await db_session.commit()
 
         # Build index - should handle empty variant gracefully
-        service = RouteIndexService(db_session)
+        service = UserRouteIndexService(db_session)
         result = await service.build_route_station_index(route.id)
 
         # Should complete but create no entries (no valid variants)
@@ -1237,7 +1237,7 @@ class TestRebuildRoutes:
         fake_route_id = uuid.uuid4()
 
         # Rebuild single route - should catch exception and return failure
-        service = RouteIndexService(db_session)
+        service = UserRouteIndexService(db_session)
         result = await service.rebuild_routes(fake_route_id)
 
         # Should fail gracefully - exception caught and recorded

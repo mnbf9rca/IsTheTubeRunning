@@ -24,7 +24,7 @@ class RebuildRoutesResult(TypedDict):
     errors: list[str]
 
 
-class RouteIndexService:
+class UserRouteIndexService:
     """
     Service for building inverted indexes mapping (line, station) → routes.
 

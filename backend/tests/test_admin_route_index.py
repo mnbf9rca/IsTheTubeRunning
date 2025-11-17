@@ -66,7 +66,7 @@ class TestAdminRebuildIndexesEndpoint:
         # Mock the service method to avoid needing full database setup
         mock_result = {"rebuilt_count": 1, "failed_count": 0, "errors": []}
 
-        with patch("app.api.admin.RouteIndexService") as mock_service_class:
+        with patch("app.api.admin.UserRouteIndexService") as mock_service_class:
             mock_service = AsyncMock()
             mock_service.rebuild_routes = AsyncMock(return_value=mock_result)
             mock_service_class.return_value = mock_service
@@ -96,7 +96,7 @@ class TestAdminRebuildIndexesEndpoint:
         """Test rebuilding indexes for all routes successfully."""
         mock_result = {"rebuilt_count": 5, "failed_count": 0, "errors": []}
 
-        with patch("app.api.admin.RouteIndexService") as mock_service_class:
+        with patch("app.api.admin.UserRouteIndexService") as mock_service_class:
             mock_service = AsyncMock()
             mock_service.rebuild_routes = AsyncMock(return_value=mock_result)
             mock_service_class.return_value = mock_service
@@ -131,7 +131,7 @@ class TestAdminRebuildIndexesEndpoint:
             "errors": [f"Route {route_id}: Route not found"],
         }
 
-        with patch("app.api.admin.RouteIndexService") as mock_service_class:
+        with patch("app.api.admin.UserRouteIndexService") as mock_service_class:
             mock_service = AsyncMock()
             mock_service.rebuild_routes = AsyncMock(return_value=mock_result)
             mock_service_class.return_value = mock_service
@@ -171,7 +171,7 @@ class TestAdminRebuildIndexesEndpoint:
         auth_headers_for_user: dict[str, str],
     ) -> None:
         """Test that service exceptions are properly converted to HTTP errors."""
-        with patch("app.api.admin.RouteIndexService") as mock_service_class:
+        with patch("app.api.admin.UserRouteIndexService") as mock_service_class:
             mock_service = AsyncMock()
             mock_service.rebuild_routes = AsyncMock(side_effect=Exception("Database error"))
             mock_service_class.return_value = mock_service

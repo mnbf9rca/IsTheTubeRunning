@@ -32,8 +32,8 @@ from app.schemas.admin import (
 from app.schemas.tfl import BuildGraphResponse
 from app.services.admin_service import AdminService
 from app.services.alert_service import AlertService, get_redis_client
-from app.services.route_index_service import RouteIndexService
 from app.services.tfl_service import TfLService
+from app.services.user_route_index_service import UserRouteIndexService
 
 router = APIRouter(prefix="/admin", tags=["admin"])
 logger = structlog.get_logger(__name__)
@@ -544,7 +544,7 @@ async def rebuild_route_indexes(
     Raises:
         HTTPException: 403 if not admin
     """
-    index_service = RouteIndexService(db)
+    index_service = UserRouteIndexService(db)
 
     try:
         # Use shared rebuild_routes method for consistent behavior

@@ -19,14 +19,14 @@ from app.schemas.routes import (
     UpdateSegmentRequest,
 )
 from app.schemas.tfl import RouteSegmentRequest
-from app.services.route_index_service import RouteIndexService
 from app.services.tfl_service import TfLService
+from app.services.user_route_index_service import UserRouteIndexService
 
 # Constants
 MIN_ROUTE_SEGMENTS = 2
 
 
-class RouteService:
+class UserRouteService:
     """Service for managing user routes."""
 
     def __init__(self, db: AsyncSession) -> None:
@@ -242,7 +242,7 @@ class RouteService:
             await self.db.flush()  # Flush to make segments available for index building
 
             # Build route station index (part of same transaction)
-            index_service = RouteIndexService(self.db)
+            index_service = UserRouteIndexService(self.db)
             await index_service.build_route_station_index(route_id, auto_commit=False)
 
             await self.db.commit()
@@ -315,7 +315,7 @@ class RouteService:
         await self.db.flush()  # Flush to make changes available for index building
 
         # Rebuild route station index (part of same transaction)
-        index_service = RouteIndexService(self.db)
+        index_service = UserRouteIndexService(self.db)
         await index_service.build_route_station_index(route_id, auto_commit=False)
 
         await self.db.commit()
@@ -379,7 +379,7 @@ class RouteService:
         await self.db.flush()  # Flush to make changes available for index building
 
         # Rebuild route station index (part of same transaction)
-        index_service = RouteIndexService(self.db)
+        index_service = UserRouteIndexService(self.db)
         await index_service.build_route_station_index(route_id, auto_commit=False)
 
         await self.db.commit()
