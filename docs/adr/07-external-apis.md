@@ -303,13 +303,7 @@ Active (Issue #168, implemented 2025-01-17)
 Email sending via SMTP is a network I/O operation that can block if the SMTP server is unreachable or slow. Initial implementation used Python's standard `smtplib` library wrapped in `asyncio.run_in_executor()` to prevent blocking the event loop. However, this approach still consumed thread pool threads and could hang indefinitely on unreachable hosts without a timeout configured.
 
 ### Decision
-Use `aiosmtplib` library for truly async SMTP operations with built-in timeout support. All email sending methods (`send_email()`, `send_verification_email()`) are now async without thread pool execution. Connection timeout is configurable via `SMTP_TIMEOUT` setting (default: 10 seconds) to prevent indefinite hangs on unreachable SMTP hosts.
-
-**Implementation details:**
-- `EmailService` uses `async with aiosmtplib.SMTP(hostname=..., port=..., timeout=...)` for connections
-- All SMTP operations (`starttls()`, `login()`, `send_message()`) are awaited directly
-- Changed from `email.mime.multipart.MIMEMultipart` to `email.message.EmailMessage` (modern approach)
-- Public API remains unchanged - callers still use `await service.send_email(...)`
+Use `aiosmtplib` library for truly async SMTP operations instead of wrapping synchronous `smtplib` in thread pool execution. Configure connection timeout (10 seconds default) to prevent indefinite hangs on unreachable SMTP hosts.
 
 ### Consequences
 **Easier:**
