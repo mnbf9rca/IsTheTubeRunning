@@ -130,6 +130,8 @@ def _parse_otlp_headers(headers_str: str) -> dict[str, str]:
         if "=" in pair:
             key, value = pair.split("=", 1)
             headers[key.strip()] = value.strip()
+        elif pair:  # Non-empty string without equals sign
+            logger.warning(f"Malformed OTLP header pair ignored: '{pair}'")
 
     return headers
 

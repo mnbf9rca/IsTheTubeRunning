@@ -92,8 +92,10 @@ class Settings(BaseSettings):
     @field_validator("OTEL_EXCLUDED_URLS", mode="after")
     @classmethod
     def parse_otel_excluded_urls(cls, v: str | list[str]) -> list[str]:
-        """Parse comma-separated excluded URLs or pass through list."""
-        return v if isinstance(v, list) else [url.strip() for url in v.split(",")]
+        """Parse comma-separated excluded URLs or pass through list, filtering out empty strings."""
+        if isinstance(v, list):
+            return [url for url in v if url]
+        return [url.strip() for url in v.split(",") if url.strip()]
 
 
 settings = Settings()
