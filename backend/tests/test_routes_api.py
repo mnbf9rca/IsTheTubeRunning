@@ -604,7 +604,7 @@ class TestRoutesAPI:
     # ==================== Segment Tests ====================
 
     @pytest.mark.asyncio
-    @patch("app.services.route_service.RouteService._validate_segments")
+    @patch("app.services.user_route_service.UserRouteService._validate_segments")
     async def test_upsert_segments_success(
         self,
         mock_validate: AsyncMock,
@@ -651,7 +651,7 @@ class TestRoutesAPI:
         assert data[1]["sequence"] == 1
 
     @pytest.mark.asyncio
-    @patch("app.services.route_service.RouteService._validate_segments")
+    @patch("app.services.user_route_service.UserRouteService._validate_segments")
     async def test_upsert_segments_validation_failure(
         self,
         mock_validate: AsyncMock,
@@ -736,7 +736,7 @@ class TestRoutesAPI:
         assert response.status_code == status.HTTP_422_UNPROCESSABLE_CONTENT
 
     @pytest.mark.asyncio
-    @patch("app.services.route_service.RouteService._validate_route_segments")
+    @patch("app.services.user_route_service.UserRouteService._validate_route_segments")
     async def test_update_segment(
         self,
         mock_validate: AsyncMock,
@@ -858,7 +858,7 @@ class TestRoutesAPI:
         assert "at least 2 segments" in response.json()["detail"]
 
     @pytest.mark.asyncio
-    @patch("app.services.route_service.RouteService._validate_segments")
+    @patch("app.services.user_route_service.UserRouteService._validate_segments")
     async def test_upsert_segments_with_null_destination_line(
         self,
         mock_validate: AsyncMock,
@@ -1257,7 +1257,7 @@ class TestRoutesAPI:
         assert data["active"] is True  # Unchanged
 
     @pytest.mark.asyncio
-    @patch("app.services.route_service.RouteService._validate_route_segments")
+    @patch("app.services.user_route_service.UserRouteService._validate_route_segments")
     async def test_update_segment_line_id(
         self,
         mock_validate: AsyncMock,
@@ -1342,7 +1342,7 @@ class TestRoutesAPI:
         assert data["days_of_week"] == ["MON"]  # Unchanged
 
     @pytest.mark.asyncio
-    @patch("app.services.route_service.RouteService._validate_segments")
+    @patch("app.services.user_route_service.UserRouteService._validate_segments")
     async def test_upsert_segments_validation_with_index(
         self,
         mock_validate: AsyncMock,
@@ -1391,7 +1391,7 @@ class TestRoutesAPI:
         assert "segment index: 1" in detail.lower()
 
     @pytest.mark.asyncio
-    @patch("app.services.route_service.RouteService._validate_route_segments")
+    @patch("app.services.user_route_service.UserRouteService._validate_route_segments")
     async def test_update_segment_validation_failure(
         self,
         mock_validate: AsyncMock,

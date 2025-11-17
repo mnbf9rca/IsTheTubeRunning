@@ -21,7 +21,7 @@ from app.schemas.routes import (
     UpdateSegmentRequest,
     UpsertSegmentsRequest,
 )
-from app.services.route_service import RouteService
+from app.services.user_route_service import UserRouteService
 
 router = APIRouter(prefix="/routes", tags=["routes"])
 
@@ -47,7 +47,7 @@ async def list_routes(
     Returns:
         List of routes with counts
     """
-    service = RouteService(db)
+    service = UserRouteService(db)
     routes = await service.list_routes(current_user.id)
 
     # Build response with counts using Pydantic models
@@ -85,7 +85,7 @@ async def create_route(
     Returns:
         Created route
     """
-    service = RouteService(db)
+    service = UserRouteService(db)
     route = await service.create_route(current_user.id, request)
 
     # Reload with full relationships for response serialization
@@ -112,7 +112,7 @@ async def get_route(
     Raises:
         HTTPException: 404 if route not found or doesn't belong to user
     """
-    service = RouteService(db)
+    service = UserRouteService(db)
     return await service.get_route_by_id(route_id, current_user.id, load_relationships=True)
 
 
@@ -140,7 +140,7 @@ async def update_route(
     Raises:
         HTTPException: 404 if route not found or doesn't belong to user
     """
-    service = RouteService(db)
+    service = UserRouteService(db)
     await service.update_route(route_id, current_user.id, request)
 
     # Reload with full relationships for response serialization
@@ -166,7 +166,7 @@ async def delete_route(
     Raises:
         HTTPException: 404 if route not found or doesn't belong to user
     """
-    service = RouteService(db)
+    service = UserRouteService(db)
     await service.delete_route(route_id, current_user.id)
 
 
@@ -198,7 +198,7 @@ async def upsert_segments(
     Raises:
         HTTPException: 404 if route not found, 400 if validation fails
     """
-    service = RouteService(db)
+    service = UserRouteService(db)
     return await service.upsert_segments(route_id, current_user.id, request.segments)
 
 
@@ -229,7 +229,7 @@ async def update_segment(
     Raises:
         HTTPException: 404 if route or segment not found, 400 if validation fails
     """
-    service = RouteService(db)
+    service = UserRouteService(db)
     return await service.update_segment(route_id, current_user.id, sequence, request)
 
 
@@ -254,7 +254,7 @@ async def delete_segment(
     Raises:
         HTTPException: 404 if route or segment not found, 400 if would leave <2 segments
     """
-    service = RouteService(db)
+    service = UserRouteService(db)
     await service.delete_segment(route_id, current_user.id, sequence)
 
 
@@ -285,7 +285,7 @@ async def create_schedule(
     Raises:
         HTTPException: 404 if route not found
     """
-    service = RouteService(db)
+    service = UserRouteService(db)
     return await service.create_schedule(route_id, current_user.id, request)
 
 
@@ -315,7 +315,7 @@ async def update_schedule(
     Raises:
         HTTPException: 404 if route or schedule not found, 400 if time validation fails
     """
-    service = RouteService(db)
+    service = UserRouteService(db)
     return await service.update_schedule(route_id, schedule_id, current_user.id, request)
 
 
@@ -338,5 +338,5 @@ async def delete_schedule(
     Raises:
         HTTPException: 404 if route or schedule not found
     """
-    service = RouteService(db)
+    service = UserRouteService(db)
     await service.delete_schedule(route_id, schedule_id, current_user.id)

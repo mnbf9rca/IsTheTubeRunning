@@ -416,7 +416,7 @@ def test_rebuild_indexes_task_registered() -> None:
 
 @pytest.mark.asyncio
 @patch("app.celery.tasks.reset_worker_engine", new_callable=AsyncMock)
-@patch("app.celery.tasks.RouteIndexService")
+@patch("app.celery.tasks.UserRouteIndexService")
 @patch("app.celery.tasks.get_worker_session")
 async def test_rebuild_indexes_async_success_single_route(
     mock_session_factory: MagicMock, mock_service_class: MagicMock, mock_reset_engine: AsyncMock
@@ -427,7 +427,7 @@ async def test_rebuild_indexes_async_success_single_route(
     mock_session.close = AsyncMock()
     mock_session_factory.return_value = mock_session
 
-    # Mock RouteIndexService
+    # Mock UserRouteIndexService
     mock_service_instance = AsyncMock()
     mock_service_instance.rebuild_routes = AsyncMock(
         return_value={
@@ -448,7 +448,7 @@ async def test_rebuild_indexes_async_success_single_route(
     assert result["failed_count"] == 0
     assert result["errors"] == []
 
-    # Verify RouteIndexService was instantiated correctly
+    # Verify UserRouteIndexService was instantiated correctly
     mock_service_class.assert_called_once_with(mock_session)
 
     # Verify rebuild_routes was called with correct UUID
@@ -460,7 +460,7 @@ async def test_rebuild_indexes_async_success_single_route(
 
 @pytest.mark.asyncio
 @patch("app.celery.tasks.reset_worker_engine", new_callable=AsyncMock)
-@patch("app.celery.tasks.RouteIndexService")
+@patch("app.celery.tasks.UserRouteIndexService")
 @patch("app.celery.tasks.get_worker_session")
 async def test_rebuild_indexes_async_success_all_routes(
     mock_session_factory: MagicMock, mock_service_class: MagicMock, mock_reset_engine: AsyncMock
@@ -471,7 +471,7 @@ async def test_rebuild_indexes_async_success_all_routes(
     mock_session.close = AsyncMock()
     mock_session_factory.return_value = mock_session
 
-    # Mock RouteIndexService
+    # Mock UserRouteIndexService
     mock_service_instance = AsyncMock()
     mock_service_instance.rebuild_routes = AsyncMock(
         return_value={
@@ -500,7 +500,7 @@ async def test_rebuild_indexes_async_success_all_routes(
 
 @pytest.mark.asyncio
 @patch("app.celery.tasks.reset_worker_engine", new_callable=AsyncMock)
-@patch("app.celery.tasks.RouteIndexService")
+@patch("app.celery.tasks.UserRouteIndexService")
 @patch("app.celery.tasks.get_worker_session")
 async def test_rebuild_indexes_async_partial_failure(
     mock_session_factory: MagicMock, mock_service_class: MagicMock, mock_reset_engine: AsyncMock
@@ -511,7 +511,7 @@ async def test_rebuild_indexes_async_partial_failure(
     mock_session.close = AsyncMock()
     mock_session_factory.return_value = mock_session
 
-    # Mock RouteIndexService with partial failure
+    # Mock UserRouteIndexService with partial failure
     mock_service_instance = AsyncMock()
     mock_service_instance.rebuild_routes = AsyncMock(
         return_value={
@@ -554,7 +554,7 @@ async def test_rebuild_indexes_async_invalid_uuid(
 
 @pytest.mark.asyncio
 @patch("app.celery.tasks.reset_worker_engine", new_callable=AsyncMock)
-@patch("app.celery.tasks.RouteIndexService")
+@patch("app.celery.tasks.UserRouteIndexService")
 @patch("app.celery.tasks.get_worker_session")
 async def test_rebuild_indexes_async_closes_session_on_success(
     mock_session_factory: MagicMock, mock_service_class: MagicMock, mock_reset_engine: AsyncMock
@@ -565,7 +565,7 @@ async def test_rebuild_indexes_async_closes_session_on_success(
     mock_session.close = AsyncMock()
     mock_session_factory.return_value = mock_session
 
-    # Mock RouteIndexService
+    # Mock UserRouteIndexService
     mock_service_instance = AsyncMock()
     mock_service_instance.rebuild_routes = AsyncMock(
         return_value={
@@ -585,7 +585,7 @@ async def test_rebuild_indexes_async_closes_session_on_success(
 
 @pytest.mark.asyncio
 @patch("app.celery.tasks.reset_worker_engine", new_callable=AsyncMock)
-@patch("app.celery.tasks.RouteIndexService")
+@patch("app.celery.tasks.UserRouteIndexService")
 @patch("app.celery.tasks.get_worker_session")
 async def test_rebuild_indexes_async_closes_session_on_error(
     mock_session_factory: MagicMock, mock_service_class: MagicMock, mock_reset_engine: AsyncMock
@@ -596,7 +596,7 @@ async def test_rebuild_indexes_async_closes_session_on_error(
     mock_session.close = AsyncMock()
     mock_session_factory.return_value = mock_session
 
-    # Mock RouteIndexService to raise error
+    # Mock UserRouteIndexService to raise error
     mock_service_instance = AsyncMock()
     mock_service_instance.rebuild_routes = AsyncMock(side_effect=RuntimeError("Database error"))
     mock_service_class.return_value = mock_service_instance
@@ -611,18 +611,18 @@ async def test_rebuild_indexes_async_closes_session_on_error(
 
 @pytest.mark.asyncio
 @patch("app.celery.tasks.reset_worker_engine", new_callable=AsyncMock)
-@patch("app.celery.tasks.RouteIndexService")
+@patch("app.celery.tasks.UserRouteIndexService")
 @patch("app.celery.tasks.get_worker_session")
 async def test_rebuild_indexes_async_closes_session_when_service_fails(
     mock_session_factory: MagicMock, mock_service_class: MagicMock, mock_reset_engine: AsyncMock
 ) -> None:
-    """Test that session is closed even when RouteIndexService instantiation fails."""
+    """Test that session is closed even when UserRouteIndexService instantiation fails."""
     # Mock database session
     mock_session = AsyncMock()
     mock_session.close = AsyncMock()
     mock_session_factory.return_value = mock_session
 
-    # Mock RouteIndexService to raise error on instantiation
+    # Mock UserRouteIndexService to raise error on instantiation
     mock_service_class.side_effect = RuntimeError("Service init failed")
 
     # Execute async function and catch exception

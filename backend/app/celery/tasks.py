@@ -18,7 +18,7 @@ from app.celery.database import get_worker_session, reset_worker_engine
 from app.models.route_index import RouteStationIndex
 from app.models.tfl import Line
 from app.services.alert_service import AlertService, get_redis_client
-from app.services.route_index_service import RouteIndexService
+from app.services.user_route_index_service import UserRouteIndexService
 
 logger = structlog.get_logger(__name__)
 
@@ -286,7 +286,7 @@ async def _rebuild_indexes_async(route_id_str: str | None = None) -> RebuildInde
     try:
         # Create database session for this task
         session = get_worker_session()
-        index_service = RouteIndexService(session)
+        index_service = UserRouteIndexService(session)
 
         # Parse route_id if provided
         route_id = UUID(route_id_str) if route_id_str else None

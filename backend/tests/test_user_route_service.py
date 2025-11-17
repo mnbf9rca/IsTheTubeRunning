@@ -1,4 +1,4 @@
-"""Unit tests for RouteService."""
+"""Unit tests for UserRouteService."""
 
 from datetime import UTC, datetime
 from unittest.mock import AsyncMock, patch
@@ -8,11 +8,11 @@ from app.models.route import UserRoute
 from app.models.tfl import Line, Station
 from app.models.user import User
 from app.schemas.routes import SegmentRequest
-from app.services.route_service import RouteService
+from app.services.user_route_service import UserRouteService
 from sqlalchemy.ext.asyncio import AsyncSession
 
 
-class TestRouteServiceUpsertSegments:
+class TestUserRouteServiceUpsertSegments:
     """Tests for upsert_segments exception handling."""
 
     @pytest.mark.asyncio
@@ -51,7 +51,7 @@ class TestRouteServiceUpsertSegments:
         await db_session.refresh(line)
 
         # Create service
-        service = RouteService(db_session)
+        service = UserRouteService(db_session)
 
         # Create segments
         segments = [

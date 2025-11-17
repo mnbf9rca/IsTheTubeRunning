@@ -168,11 +168,32 @@ Each phase must achieve:
 
 - **Time taken**: ~2 hours (including fixing double-replacements and missed patterns)
 
-### Phase 5: [Agent to fill in]
+### Phase 5: Service Class Renames (COMPLETE)
 - **What worked**:
+  - Using `git mv` to rename files preserved git history
+  - Edit tool with `replace_all=true` was very effective for consistent patterns like `RouteService(` and `RouteIndexService(`
+  - Systematic approach: rename files → update class definitions → update imports → update instantiations → update patch decorators → rename test files
+  - ast-grep verification at the end confirmed zero old references remained
+  - Patch decorator updates in test files were straightforward with replace_all
+
 - **What didn't**:
+  - Some minor comments in test files were missed initially but caught during verification
+  - Test class names (e.g., `class TestRouteIndexService:`) weren't caught by initial instantiation patterns
+
 - **Gotchas**:
-- **Time taken**:
+  - **File imports must be updated before instantiations** - otherwise you get import errors
+  - **Patch decorators use string paths** - must update both module name (`route_service` → `user_route_service`) AND class name
+  - **Test class names** need manual updating (not caught by `ServiceName(` pattern)
+  - **Cross-imports** between services (user_route_service imports UserRouteIndexService) need updating
+  - **Comments and docstrings** also need updates, not just code
+  - **Ruff auto-fixes import ordering** - pre-commit will reorder imports after updates
+
+- **Key patterns used**:
+  - `replace_all=true` for: `RouteService(`, `RouteIndexService(`, patch decorator paths
+  - Individual replacements for: imports, class definitions, docstrings, test class names
+  - ast-grep verification: `ast-grep --pattern 'class RouteService' app/ tests/` (should return nothing)
+
+- **Time taken**: ~45 minutes (including quality checks)
 
 ### Phase 6: [Agent to fill in]
 - **What worked**:
