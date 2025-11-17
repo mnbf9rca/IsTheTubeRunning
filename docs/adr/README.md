@@ -93,6 +93,10 @@ Frontend state management patterns for complex components.
 - Implementation Guidelines
 - Testing Requirements
 
+### [12. Observability & Distributed Tracing](./12-observability.md)
+Observability and distributed tracing decisions.
+- OpenTelemetry for Distributed Tracing
+
 ---
 
 ## How to Add New Architecture Decisions

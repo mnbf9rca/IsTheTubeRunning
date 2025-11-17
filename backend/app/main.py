@@ -10,6 +10,8 @@ from alembic.config import Config
 from alembic.runtime import migration
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from opentelemetry import trace
+from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
 from sqlalchemy import text
 from sqlalchemy.engine import Connection
 
@@ -17,6 +19,7 @@ from app import __version__
 from app.api import admin, auth, contacts, notification_preferences, routes, tfl
 from app.core.config import settings
 from app.core.database import get_engine
+from app.core.telemetry import get_tracer_provider, shutdown_tracer_provider
 
 logger = logging.getLogger(__name__)
 
@@ -67,7 +70,7 @@ def _check_alembic_migrations(sync_conn: Connection) -> str | None:
 
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
-    """Application lifespan - validate database migrations on startup."""
+    """Application lifespan - validate database migrations and initialize OTEL on startup."""
     # Skip all validation in DEBUG mode (tests use mock databases/contexts)
     if settings.DEBUG:
         logger.info("✓ DEBUG mode - skipping startup validation")
@@ -75,8 +78,20 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
         logger.info("✓ Shutdown complete")
         return
 
-    # Production mode: validate database connectivity and migrations
-    logger.info("Starting up: Validating database...")
+    # Production mode: Initialize OTEL and validate database
+    logger.info("Starting up: Initializing observability and validating database...")
+
+    # Initialize OpenTelemetry if enabled
+    if settings.OTEL_ENABLED:
+        provider = get_tracer_provider()
+        if provider:
+            trace.set_tracer_provider(provider)
+            # Instrument FastAPI with excluded URLs
+            FastAPIInstrumentor.instrument_app(
+                app,
+                excluded_urls=",".join(settings.OTEL_EXCLUDED_URLS),
+            )
+            logger.info("✓ OpenTelemetry initialized")
 
     try:
         async with get_engine().begin() as conn:
@@ -104,6 +119,8 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
 
     # Shutdown
     logger.info("Shutting down...")
+    if settings.OTEL_ENABLED:
+        shutdown_tracer_provider()
     await get_engine().dispose()
     logger.info("✓ Shutdown complete")
 

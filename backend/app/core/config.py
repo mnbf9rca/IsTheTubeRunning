@@ -78,6 +78,23 @@ class Settings(BaseSettings):
     # Alembic Settings
     ALEMBIC_INI_PATH: str = "alembic.ini"
 
+    # OpenTelemetry Settings (for observability)
+    OTEL_ENABLED: bool = True
+    OTEL_SERVICE_NAME: str = "isthetuberunning-backend"
+    OTEL_ENVIRONMENT: str = "production"
+    OTEL_EXPORTER_OTLP_ENDPOINT: str | None = None
+    OTEL_EXPORTER_OTLP_HEADERS: str | None = None
+    OTEL_EXPORTER_OTLP_PROTOCOL: str = "http/protobuf"
+    OTEL_TRACES_SAMPLER: str = "parentbased_always_on"
+    OTEL_TRACES_SAMPLER_ARG: float = 1.0  # 100% sampling
+    OTEL_EXCLUDED_URLS: str = "/health,/ready,/metrics"
+
+    @field_validator("OTEL_EXCLUDED_URLS", mode="after")
+    @classmethod
+    def parse_otel_excluded_urls(cls, v: str | list[str]) -> list[str]:
+        """Parse comma-separated excluded URLs or pass through list."""
+        return v if isinstance(v, list) else [url.strip() for url in v.split(",")]
+
 
 settings = Settings()
 
