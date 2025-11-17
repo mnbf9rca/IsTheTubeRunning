@@ -9,7 +9,7 @@ from zoneinfo import ZoneInfo
 
 import redis.asyncio as redis
 import structlog
-from sqlalchemy import and_, or_, select
+from sqlalchemy import and_, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -52,8 +52,9 @@ def create_line_state_hash(line_id: str, status: str, reason: str | None) -> str
         >>> create_line_state_hash("victoria", "Good Service", None)
         'def456...'  # Different hash for different state
     """
-    # Normalize null/empty reason to empty string for consistent hashing
-    normalized_reason = reason or ""
+    # Normalize null/empty/whitespace-only reason to empty string for consistent hashing
+    # This prevents whitespace-only strings from causing unnecessary hash changes
+    normalized_reason = (reason or "").strip() or ""
 
     # Create hash input string
     hash_input = f"{line_id}|{status}|{normalized_reason}"
@@ -220,6 +221,35 @@ class AlertService:
             # This is optional - we can skip it to reduce write volume
             # For now, only log lines that have disruptions (YAGNI principle)
 
+            # Batch-fetch all recent states for all line_ids to avoid N+1 queries
+            line_ids = [d.line_id for d in disruptions]
+            if line_ids:
+                # Subquery to find max detected_at for each line_id
+                subq = (
+                    select(
+                        LineDisruptionStateLog.line_id,
+                        func.max(LineDisruptionStateLog.detected_at).label("max_detected_at"),
+                    )
+                    .where(LineDisruptionStateLog.line_id.in_(line_ids))
+                    .group_by(LineDisruptionStateLog.line_id)
+                    .subquery()
+                )
+
+                # Join to get the full record with matching max detected_at
+                stmt = select(LineDisruptionStateLog.line_id, LineDisruptionStateLog.state_hash).join(
+                    subq,
+                    and_(
+                        LineDisruptionStateLog.line_id == subq.c.line_id,
+                        LineDisruptionStateLog.detected_at == subq.c.max_detected_at,
+                    ),
+                )
+
+                result = await self.db.execute(stmt)
+                # Build dict: {line_id: state_hash}
+                last_state_hashes = {row[0]: row[1] for row in result.all()}
+            else:
+                last_state_hashes = {}
+
             for disruption in disruptions:
                 line_id = disruption.line_id
                 status = disruption.status_severity_description
@@ -230,16 +260,8 @@ class AlertService:
                 state_hash = create_line_state_hash(line_id, status, reason)
 
                 # Check if last logged state for this line has the same hash
-                # Query: SELECT state_hash FROM line_disruption_state_logs
-                # WHERE line_id = ? ORDER BY detected_at DESC LIMIT 1
-                result = await self.db.execute(
-                    select(LineDisruptionStateLog.state_hash)
-                    .where(LineDisruptionStateLog.line_id == line_id)
-                    .order_by(LineDisruptionStateLog.detected_at.desc())
-                    .limit(1)
-                )
-                last_state_row = result.first()
-                last_state_hash = last_state_row[0] if last_state_row else None
+                # Use pre-fetched dict lookup instead of individual query
+                last_state_hash = last_state_hashes.get(line_id)
 
                 # Only log if state changed (or no previous state exists)
                 if state_hash != last_state_hash:
@@ -282,6 +304,7 @@ class AlertService:
                 error=str(e),
                 exc_info=e,
             )
+            await self.db.rollback()
             # Don't raise - logging failures shouldn't block alert processing
             return 0
 
