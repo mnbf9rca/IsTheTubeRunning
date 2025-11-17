@@ -302,3 +302,55 @@ Use inverted index (`route_station_index` table) for station-level matching. Ind
 - **Depends on index completeness:** Routes without index entries won't match (mitigated by automatic index building on route create/update)
 - **Two matching paths:** Index-based (preferred) vs line-level fallback (rare)
 - **TfL data dependency:** Requires `disruption.affected_routes` data from TfL API (currently available for most disruption types)
+
+---
+
+## Line Disruption State Logging
+
+### Status
+Active (Implemented 2025-11-17, Issue #167)
+
+### Context
+Redis stores temporary alert deduplication state with TTL expiration. Once keys expire, historical disruption data is lost. This makes troubleshooting difficult:
+- "When did the Bakerloo line disruption start?"
+- "How long was the Central line disrupted?"
+- "Why didn't I get notified for yesterday's disruption?"
+
+`NotificationLog` tracks user notification delivery (who was notified when via what method), but doesn't track TfL line disruption states over time.
+
+### Decision
+Introduce `LineDisruptionStateLog` table to log TfL line disruption state changes (not every check). Uses content-based deduplication via SHA256 hash (same approach as alert deduplication).
+
+**Implementation:**
+- **Table:** `line_disruption_state_logs` with columns:
+  - `line_id` (VARCHAR(50)): TfL line ID (e.g., "bakerloo", "victoria")
+  - `status_severity_description` (VARCHAR(100)): Disruption status (e.g., "Minor Delays")
+  - `reason` (TEXT, nullable): Full disruption reason text
+  - `state_hash` (VARCHAR(64)): SHA256 hash of {line_id, status, reason} for deduplication
+  - `detected_at` (TIMESTAMP WITH TIME ZONE): When state was detected
+  - Indexes: `(line_id)`, `(state_hash)`, `(detected_at)`, `(line_id, detected_at)` composite
+- **Pure function:** `create_line_state_hash(line_id, status, reason)` for testable hash generation
+- **Service method:** `AlertService._log_line_disruption_state_changes(disruptions)`
+  - Called at start of `process_all_routes()` after fetching all disruptions
+  - Queries last logged state for each line: `SELECT state_hash WHERE line_id=? ORDER BY detected_at DESC LIMIT 1`
+  - Only inserts if hash differs from last state (or no previous state exists)
+  - Non-blocking: errors don't stop alert processing
+  - Batch commits all changes
+- **Scope:** Logs disruptions only (not "Good Service" for lines with no disruptions) following YAGNI principle
+
+### Consequences
+**Easier:**
+- **Historical visibility:** Complete audit trail of line disruption state changes
+- **Troubleshooting:** Can answer "when did disruption start/end" questions
+- **Analytics:** Enables disruption frequency/duration analysis
+- **Low overhead:** ~100-200 rows/day (state changes only, not every 30s check)
+- **Deduplication:** Same hash logic as alerts prevents logging duplicate states
+- **Non-blocking:** Logging failures don't break alert processing
+- **Pure function design:** `create_line_state_hash()` testable without database
+- **Efficient queries:** Composite index `(line_id, detected_at)` for timeline queries
+
+**More Difficult:**
+- **Additional table:** One more table to maintain (but simple schema)
+- **Storage growth:** ~3-5 KB per state change, ~30-50 MB/year (negligible)
+- **Scope limitation:** Doesn't log "Good Service" for lines without disruptions (reduces writes, but means absence of log ≠ good service)
+- **No automatic cleanup:** No TTL like Redis (could add retention policy later if needed)

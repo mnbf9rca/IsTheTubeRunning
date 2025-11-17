@@ -228,6 +228,65 @@ class DisruptionCategory(BaseModel):
         return f"<DisruptionCategory(id={self.id}, name={self.category_name})>"
 
 
+class LineDisruptionStateLog(BaseModel):
+    """Log of TfL line disruption state changes over time.
+
+    This table tracks when line disruption states change (not every check).
+    Enables troubleshooting and analytics by providing historical disruption data.
+
+    State changes are detected via content hash (SHA256 of line_id + status + reason).
+    Only logged when hash differs from previous state for that line.
+
+    Example use cases:
+    - "When did the Bakerloo line disruption start?"
+    - "How long was the Central line disrupted?"
+    - "Why didn't I get alerted for yesterday's disruption?"
+    """
+
+    __tablename__ = "line_disruption_state_logs"
+
+    line_id: Mapped[str] = mapped_column(
+        String(50),
+        nullable=False,
+        index=True,
+        comment="TfL line ID (e.g., 'bakerloo', 'victoria')",
+    )
+    status_severity_description: Mapped[str] = mapped_column(
+        String(100),
+        nullable=False,
+        comment="Disruption status (e.g., 'Good Service', 'Minor Delays', 'Severe Delays')",
+    )
+    reason: Mapped[str | None] = mapped_column(
+        String(1000),
+        nullable=True,
+        comment="Full disruption reason text (nullable for good service)",
+    )
+    state_hash: Mapped[str] = mapped_column(
+        String(64),
+        nullable=False,
+        index=True,
+        comment="SHA256 hash of {line_id, status, reason} for deduplication",
+    )
+    detected_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        index=True,
+        comment="When this state was detected by the alert service",
+    )
+
+    __table_args__ = (
+        # Composite index for querying recent states for a line
+        Index("ix_line_disruption_logs_line_detected", "line_id", "detected_at"),
+    )
+
+    def __repr__(self) -> str:
+        """String representation of the line disruption state log."""
+        return (
+            f"<LineDisruptionStateLog(id={self.id}, line_id={self.line_id}, "
+            f"status={self.status_severity_description}, detected_at={self.detected_at})>"
+        )
+
+
 class StopType(BaseModel):
     """TfL stop point type reference data."""
 
