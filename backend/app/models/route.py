@@ -29,7 +29,7 @@ if TYPE_CHECKING:
     from app.models.route_index import RouteStationIndex
 
 
-class Route(BaseModel):
+class UserRoute(BaseModel):
     """User's commute route."""
 
     __tablename__ = "user_routes"
@@ -62,12 +62,12 @@ class Route(BaseModel):
 
     # Relationships
     user: Mapped["User"] = relationship()
-    segments: Mapped[list["RouteSegment"]] = relationship(
+    segments: Mapped[list["UserRouteSegment"]] = relationship(
         back_populates="route",
         cascade="all, delete-orphan",
-        order_by="RouteSegment.sequence",
+        order_by="UserRouteSegment.sequence",
     )
-    schedules: Mapped[list["RouteSchedule"]] = relationship(
+    schedules: Mapped[list["UserRouteSchedule"]] = relationship(
         back_populates="route",
         cascade="all, delete-orphan",
     )
@@ -82,10 +82,10 @@ class Route(BaseModel):
 
     def __repr__(self) -> str:
         """String representation of the route."""
-        return f"<Route(id={self.id}, name={self.name}, active={self.active})>"
+        return f"<UserRoute(id={self.id}, name={self.name}, active={self.active})>"
 
 
-class RouteSegment(BaseModel):
+class UserRouteSegment(BaseModel):
     """A segment of a route (station + line combination in sequence)."""
 
     __tablename__ = "user_route_segments"
@@ -112,7 +112,7 @@ class RouteSegment(BaseModel):
     )
 
     # Relationships
-    route: Mapped[Route] = relationship(back_populates="segments")
+    route: Mapped[UserRoute] = relationship(back_populates="segments")
     station: Mapped["Station"] = relationship()
     line: Mapped["Line"] = relationship()
 
@@ -141,10 +141,10 @@ class RouteSegment(BaseModel):
 
     def __repr__(self) -> str:
         """String representation of the route segment."""
-        return f"<RouteSegment(id={self.id}, route={self.route_id}, seq={self.sequence})>"
+        return f"<UserRouteSegment(id={self.id}, route={self.route_id}, seq={self.sequence})>"
 
 
-class RouteSchedule(BaseModel):
+class UserRouteSchedule(BaseModel):
     """Schedule for when a route should be monitored for disruptions."""
 
     __tablename__ = "user_route_schedules"
@@ -170,8 +170,8 @@ class RouteSchedule(BaseModel):
     )
 
     # Relationships
-    route: Mapped[Route] = relationship(back_populates="schedules")
+    route: Mapped[UserRoute] = relationship(back_populates="schedules")
 
     def __repr__(self) -> str:
         """String representation of the route schedule."""
-        return f"<RouteSchedule(id={self.id}, route={self.route_id}, days={self.days_of_week})>"
+        return f"<UserRouteSchedule(id={self.id}, route={self.route_id}, days={self.days_of_week})>"

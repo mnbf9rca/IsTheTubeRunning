@@ -14,7 +14,7 @@ from app.models.notification import (
     NotificationMethod,
     NotificationStatus,
 )
-from app.models.route import Route
+from app.models.route import UserRoute
 from app.models.user import (
     EmailAddress,
     PhoneNumber,
@@ -645,7 +645,7 @@ async def test_anonymise_user_success(
         verified=True,
         is_primary=True,
     )
-    route = Route(user_id=user.id, name="Test Route", active=True, timezone="Europe/London")
+    route = UserRoute(user_id=user.id, name="Test Route", active=True, timezone="Europe/London")
     db_session.add_all([email, phone, route])
     await db_session.flush()  # Flush to get email.id
 
@@ -810,13 +810,13 @@ async def test_engagement_metrics_with_data(
     db_session.add_all([email, phone])
 
     # Add routes
-    route1 = Route(
+    route1 = UserRoute(
         user_id=another_user.id,
         name="Active Route",
         active=True,
         timezone="Europe/London",
     )
-    route2 = Route(
+    route2 = UserRoute(
         user_id=another_user.id,
         name="Inactive Route",
         active=False,
@@ -878,7 +878,7 @@ async def test_engagement_metrics_notification_methods(
 ) -> None:
     """Test notification stats are correctly grouped by method."""
     # Create a route
-    route = Route(
+    route = UserRoute(
         user_id=another_user.id,
         name="Test Route",
         active=True,

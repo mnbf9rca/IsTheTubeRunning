@@ -11,7 +11,7 @@ from app.models.notification import (
     NotificationStatus,
 )
 from app.models.rate_limit import RateLimitAction, RateLimitLog
-from app.models.route import Route, RouteSchedule, RouteSegment
+from app.models.route import UserRoute, UserRouteSchedule, UserRouteSegment
 from app.models.route_index import RouteStationIndex
 from app.models.tfl import Line, LineDisruptionStateLog, Station, StationConnection
 from app.models.user import (
@@ -41,9 +41,9 @@ __all__ = [
     "Station",
     "StationConnection",
     # Route models
-    "Route",
-    "RouteSegment",
-    "RouteSchedule",
+    "UserRoute",
+    "UserRouteSegment",
+    "UserRouteSchedule",
     "RouteStationIndex",
     # Notification models
     "NotificationPreference",

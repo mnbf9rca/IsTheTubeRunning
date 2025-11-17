@@ -7,7 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.auth import get_current_user
 from app.core.database import get_db
-from app.models.route import Route, RouteSchedule, RouteSegment
+from app.models.route import UserRoute, UserRouteSchedule, UserRouteSegment
 from app.models.user import User
 from app.schemas.routes import (
     CreateRouteRequest,
@@ -70,7 +70,7 @@ async def create_route(
     request: CreateRouteRequest,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
-) -> Route:
+) -> UserRoute:
     """
     Create a new route.
 
@@ -78,7 +78,7 @@ async def create_route(
     Use the segments and schedules endpoints to add them after creation.
 
     Args:
-        request: Route creation request
+        request: UserRoute creation request
         current_user: Authenticated user
         db: Database session
 
@@ -97,12 +97,12 @@ async def get_route(
     route_id: UUID,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
-) -> Route:
+) -> UserRoute:
     """
     Get a route by ID with all segments and schedules.
 
     Args:
-        route_id: Route UUID
+        route_id: UserRoute UUID
         current_user: Authenticated user
         db: Database session
 
@@ -122,14 +122,14 @@ async def update_route(
     request: UpdateRouteRequest,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
-) -> Route:
+) -> UserRoute:
     """
     Update route metadata (name, description, active status).
 
     Only updates fields that are provided in the request.
 
     Args:
-        route_id: Route UUID
+        route_id: UserRoute UUID
         request: Update request
         current_user: Authenticated user
         db: Database session
@@ -159,7 +159,7 @@ async def delete_route(
     This also deletes all associated segments and schedules (CASCADE).
 
     Args:
-        route_id: Route UUID
+        route_id: UserRoute UUID
         current_user: Authenticated user
         db: Database session
 
@@ -179,7 +179,7 @@ async def upsert_segments(
     request: UpsertSegmentsRequest,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
-) -> list[RouteSegment]:
+) -> list[UserRouteSegment]:
     """
     Replace all segments for a route.
 
@@ -187,7 +187,7 @@ async def upsert_segments(
     Segments must be ordered with consecutive sequences starting from 0.
 
     Args:
-        route_id: Route UUID
+        route_id: UserRoute UUID
         request: Segments to set
         current_user: Authenticated user
         db: Database session
@@ -209,7 +209,7 @@ async def update_segment(
     request: UpdateSegmentRequest,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
-) -> RouteSegment:
+) -> UserRouteSegment:
     """
     Update a single segment.
 
@@ -217,7 +217,7 @@ async def update_segment(
     the update is rolled back.
 
     Args:
-        route_id: Route UUID
+        route_id: UserRoute UUID
         sequence: Segment sequence number (0-based)
         request: Update request
         current_user: Authenticated user
@@ -246,7 +246,7 @@ async def delete_segment(
     Cannot delete if it would leave fewer than 2 segments.
 
     Args:
-        route_id: Route UUID
+        route_id: UserRoute UUID
         sequence: Segment sequence number (0-based)
         current_user: Authenticated user
         db: Database session
@@ -267,14 +267,14 @@ async def create_schedule(
     request: CreateScheduleRequest,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
-) -> RouteSchedule:
+) -> UserRouteSchedule:
     """
     Create a schedule for a route.
 
     A route can have multiple schedules (e.g., different times for weekdays vs weekends).
 
     Args:
-        route_id: Route UUID
+        route_id: UserRoute UUID
         request: Schedule creation request
         current_user: Authenticated user
         db: Database session
@@ -296,14 +296,14 @@ async def update_schedule(
     request: UpdateScheduleRequest,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
-) -> RouteSchedule:
+) -> UserRouteSchedule:
     """
     Update a schedule.
 
     Only updates fields that are provided in the request.
 
     Args:
-        route_id: Route UUID
+        route_id: UserRoute UUID
         schedule_id: Schedule UUID
         request: Update request
         current_user: Authenticated user
@@ -330,7 +330,7 @@ async def delete_schedule(
     Delete a schedule.
 
     Args:
-        route_id: Route UUID
+        route_id: UserRoute UUID
         schedule_id: Schedule UUID
         current_user: Authenticated user
         db: Database session

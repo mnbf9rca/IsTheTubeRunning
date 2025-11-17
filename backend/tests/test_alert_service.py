@@ -18,7 +18,7 @@ from app.models.notification import (
     NotificationPreference,
     NotificationStatus,
 )
-from app.models.route import Route, RouteSchedule, RouteSegment
+from app.models.route import UserRoute, UserRouteSchedule, UserRouteSegment
 from app.models.route_index import RouteStationIndex
 from app.models.tfl import Line, LineDisruptionStateLog, Station
 from app.models.user import EmailAddress, PhoneNumber, User
@@ -107,9 +107,9 @@ async def test_route_with_schedule(
     test_user_with_contacts: User,
     test_line: Line,
     test_station: Station,
-) -> Route:
+) -> UserRoute:
     """Create test route with schedule and notification preferences."""
-    route = Route(
+    route = UserRoute(
         user_id=test_user_with_contacts.id,
         name="Morning Commute",
         active=True,
@@ -119,7 +119,7 @@ async def test_route_with_schedule(
     await db_session.flush()
 
     # Add segment
-    segment = RouteSegment(
+    segment = UserRouteSegment(
         route_id=route.id,
         sequence=0,
         station_id=test_station.id,
@@ -128,7 +128,7 @@ async def test_route_with_schedule(
     db_session.add(segment)
 
     # Add weekday schedule (8:00 AM - 10:00 AM)
-    schedule = RouteSchedule(
+    schedule = UserRouteSchedule(
         route_id=route.id,
         days_of_week=["MON", "TUE", "WED", "THU", "FRI"],
         start_time=time_class(8, 0),
@@ -153,13 +153,13 @@ async def test_route_with_schedule(
 
     # Reload with relationships using selectinload
     result = await db_session.execute(
-        select(Route)
-        .where(Route.id == route.id)
+        select(UserRoute)
+        .where(UserRoute.id == route.id)
         .options(
-            selectinload(Route.segments),
-            selectinload(Route.schedules),
-            selectinload(Route.notification_preferences),
-            selectinload(Route.user).selectinload(User.email_addresses),
+            selectinload(UserRoute.segments),
+            selectinload(UserRoute.schedules),
+            selectinload(UserRoute.notification_preferences),
+            selectinload(UserRoute.user).selectinload(User.email_addresses),
         )
     )
     return result.scalar_one()
@@ -174,16 +174,16 @@ async def populate_route_index(db_session: AsyncSession):
     This is essential for tests that rely on the inverted index for alert matching.
     """
 
-    async def _populate(route: Route) -> Route:
+    async def _populate(route: UserRoute) -> UserRoute:
         """Populate index entries for all segments in the route."""
         # Load segments if not already loaded
         if not route.segments:
             result = await db_session.execute(
-                select(Route)
-                .where(Route.id == route.id)
+                select(UserRoute)
+                .where(UserRoute.id == route.id)
                 .options(
-                    selectinload(Route.segments).selectinload(RouteSegment.line),
-                    selectinload(Route.segments).selectinload(RouteSegment.station),
+                    selectinload(UserRoute.segments).selectinload(UserRouteSegment.line),
+                    selectinload(UserRoute.segments).selectinload(UserRouteSegment.station),
                 )
             )
             route = result.scalar_one()
@@ -231,9 +231,9 @@ async def test_process_all_routes_success(
     mock_notif_class: MagicMock,
     mock_tfl_class: MagicMock,
     alert_service: AlertService,
-    test_route_with_schedule: Route,
+    test_route_with_schedule: UserRoute,
     sample_disruptions: list[DisruptionResponse],
-    populate_route_index: Callable[[Route], Route],
+    populate_route_index: Callable[[UserRoute], UserRoute],
 ) -> None:
     """Test successful processing of all routes."""
     # Populate the route index (required for inverted index matching)
@@ -274,7 +274,7 @@ async def test_process_all_routes_no_active_routes(alert_service: AlertService) 
 async def test_process_all_routes_not_in_schedule(
     mock_tfl_class: MagicMock,
     alert_service: AlertService,
-    test_route_with_schedule: Route,
+    test_route_with_schedule: UserRoute,
 ) -> None:
     """Test processing when route is not in schedule window."""
     # Mock TfL service
@@ -295,7 +295,7 @@ async def test_process_all_routes_not_in_schedule(
 async def test_process_all_routes_no_disruptions(
     mock_tfl_class: MagicMock,
     alert_service: AlertService,
-    test_route_with_schedule: Route,
+    test_route_with_schedule: UserRoute,
 ) -> None:
     """Test processing when there are no disruptions."""
     # Mock TfL service with empty disruptions
@@ -316,7 +316,7 @@ async def test_process_all_routes_no_disruptions(
 async def test_process_all_routes_with_error(
     mock_tfl_class: MagicMock,
     alert_service: AlertService,
-    test_route_with_schedule: Route,
+    test_route_with_schedule: UserRoute,
 ) -> None:
     """Test that errors in individual routes don't stop processing."""
     # Mock TfL service to raise error
@@ -339,7 +339,7 @@ async def test_process_all_routes_skips_duplicate_alert_with_logging(
     mock_notif_class: MagicMock,
     mock_tfl_class: MagicMock,
     alert_service: AlertService,
-    test_route_with_schedule: Route,
+    test_route_with_schedule: UserRoute,
     sample_disruptions: list[DisruptionResponse],
     db_session: AsyncSession,
 ) -> None:
@@ -396,7 +396,7 @@ async def test_get_active_routes_returns_only_active(
 ) -> None:
     """Test that only active routes are returned."""
     # Create active route
-    active_route = Route(
+    active_route = UserRoute(
         user_id=test_user_with_contacts.id,
         name="Active Route",
         active=True,
@@ -405,7 +405,7 @@ async def test_get_active_routes_returns_only_active(
     db_session.add(active_route)
 
     # Create inactive route
-    inactive_route = Route(
+    inactive_route = UserRoute(
         user_id=test_user_with_contacts.id,
         name="Inactive Route",
         active=False,
@@ -429,7 +429,7 @@ async def test_get_active_routes_filters_deleted(
 ) -> None:
     """Test that deleted routes are filtered out."""
     # Create active route
-    active_route = Route(
+    active_route = UserRoute(
         user_id=test_user_with_contacts.id,
         name="Active Route",
         active=True,
@@ -438,7 +438,7 @@ async def test_get_active_routes_filters_deleted(
     db_session.add(active_route)
 
     # Create deleted route
-    deleted_route = Route(
+    deleted_route = UserRoute(
         user_id=test_user_with_contacts.id,
         name="Deleted Route",
         active=True,
@@ -458,7 +458,7 @@ async def test_get_active_routes_filters_deleted(
 @pytest.mark.asyncio
 async def test_get_active_routes_preloads_relationships(
     alert_service: AlertService,
-    test_route_with_schedule: Route,
+    test_route_with_schedule: UserRoute,
 ) -> None:
     """Test that relationships are preloaded."""
     routes = await alert_service._get_active_routes()
@@ -480,7 +480,7 @@ async def test_get_active_routes_preloads_relationships(
 @freeze_time("2025-01-15 08:30:00", tz_offset=0)  # Wednesday 8:30 AM UTC
 async def test_get_active_schedule_in_window(
     alert_service: AlertService,
-    test_route_with_schedule: Route,
+    test_route_with_schedule: UserRoute,
 ) -> None:
     """Test getting active schedule when route is in schedule window."""
     schedule = await alert_service._get_active_schedule(test_route_with_schedule)
@@ -494,7 +494,7 @@ async def test_get_active_schedule_in_window(
 @freeze_time("2025-01-15 07:30:00", tz_offset=0)  # Wednesday 7:30 AM UTC (before schedule)
 async def test_get_active_schedule_outside_window(
     alert_service: AlertService,
-    test_route_with_schedule: Route,
+    test_route_with_schedule: UserRoute,
 ) -> None:
     """Test getting active schedule when route is outside schedule window."""
     schedule = await alert_service._get_active_schedule(test_route_with_schedule)
@@ -506,7 +506,7 @@ async def test_get_active_schedule_outside_window(
 @freeze_time("2025-01-18 08:30:00", tz_offset=0)  # Saturday 8:30 AM UTC
 async def test_get_active_schedule_wrong_day(
     alert_service: AlertService,
-    test_route_with_schedule: Route,
+    test_route_with_schedule: UserRoute,
 ) -> None:
     """Test getting active schedule on weekend (not in schedule days)."""
     schedule = await alert_service._get_active_schedule(test_route_with_schedule)
@@ -525,7 +525,7 @@ async def test_get_active_schedule_different_timezone(
 ) -> None:
     """Test schedule checking with different timezone (America/New_York)."""
     # Create route with New York timezone
-    route = Route(
+    route = UserRoute(
         user_id=test_user_with_contacts.id,
         name="NYC Commute",
         active=True,
@@ -535,7 +535,7 @@ async def test_get_active_schedule_different_timezone(
     await db_session.flush()
 
     # Add segment
-    segment = RouteSegment(
+    segment = UserRouteSegment(
         route_id=route.id,
         sequence=0,
         station_id=test_station.id,
@@ -544,7 +544,7 @@ async def test_get_active_schedule_different_timezone(
     db_session.add(segment)
 
     # Schedule: 8:00 AM - 10:00 AM EST
-    schedule = RouteSchedule(
+    schedule = UserRouteSchedule(
         route_id=route.id,
         days_of_week=["MON", "TUE", "WED", "THU", "FRI"],
         start_time=time_class(8, 0),
@@ -564,7 +564,7 @@ async def test_get_active_schedule_different_timezone(
 @freeze_time("2025-01-15 08:00:00", tz_offset=0)  # Wednesday 8:00 AM UTC (boundary)
 async def test_get_active_schedule_at_start_boundary(
     alert_service: AlertService,
-    test_route_with_schedule: Route,
+    test_route_with_schedule: UserRoute,
 ) -> None:
     """Test schedule matching at exact start time."""
     schedule = await alert_service._get_active_schedule(test_route_with_schedule)
@@ -576,7 +576,7 @@ async def test_get_active_schedule_at_start_boundary(
 @freeze_time("2025-01-15 10:00:00", tz_offset=0)  # Wednesday 10:00 AM UTC (boundary)
 async def test_get_active_schedule_at_end_boundary(
     alert_service: AlertService,
-    test_route_with_schedule: Route,
+    test_route_with_schedule: UserRoute,
 ) -> None:
     """Test schedule matching at exact end time."""
     schedule = await alert_service._get_active_schedule(test_route_with_schedule)
@@ -589,14 +589,14 @@ async def test_get_active_schedule_at_end_boundary(
 async def test_get_active_schedule_multiple_schedules(
     alert_service: AlertService,
     db_session: AsyncSession,
-    test_route_with_schedule: Route,
+    test_route_with_schedule: UserRoute,
 ) -> None:
     """Test that first matching schedule is returned when multiple match."""
     # Get the existing schedule from the fixture
     existing_schedule = test_route_with_schedule.schedules[0]
 
     # Add another schedule that also matches
-    another_schedule = RouteSchedule(
+    another_schedule = UserRouteSchedule(
         route_id=test_route_with_schedule.id,
         days_of_week=["MON", "TUE", "WED", "THU", "FRI"],
         start_time=time_class(8, 0),
@@ -621,9 +621,9 @@ async def test_get_active_schedule_multiple_schedules(
 async def test_get_route_disruptions_returns_relevant(
     mock_tfl_class: MagicMock,
     alert_service: AlertService,
-    test_route_with_schedule: Route,
+    test_route_with_schedule: UserRoute,
     sample_disruptions: list[DisruptionResponse],
-    populate_route_index: Callable[[Route], Route],
+    populate_route_index: Callable[[UserRoute], UserRoute],
 ) -> None:
     """Test that only disruptions for route's lines are returned."""
     # Populate the route index (required for inverted index matching)
@@ -660,8 +660,8 @@ async def test_get_route_disruptions_returns_relevant(
 async def test_get_route_disruptions_empty(
     mock_tfl_class: MagicMock,
     alert_service: AlertService,
-    test_route_with_schedule: Route,
-    populate_route_index: Callable[[Route], Route],
+    test_route_with_schedule: UserRoute,
+    populate_route_index: Callable[[UserRoute], UserRoute],
 ) -> None:
     """Test getting disruptions when there are none."""
     # Populate the route index (required for inverted index matching)
@@ -684,8 +684,8 @@ async def test_get_route_disruptions_filters_correctly(
     mock_tfl_class: MagicMock,
     alert_service: AlertService,
     db_session: AsyncSession,
-    test_route_with_schedule: Route,
-    populate_route_index: Callable[[Route], Route],
+    test_route_with_schedule: UserRoute,
+    populate_route_index: Callable[[UserRoute], UserRoute],
 ) -> None:
     """Test that disruptions are filtered to route's lines only."""
     # Populate the route index (required for inverted index matching)
@@ -721,7 +721,7 @@ async def test_get_route_disruptions_filters_correctly(
 @pytest.mark.asyncio
 async def test_should_send_alert_no_previous_alert(
     alert_service: AlertService,
-    test_route_with_schedule: Route,
+    test_route_with_schedule: UserRoute,
     sample_disruptions: list[DisruptionResponse],
 ) -> None:
     """Test that alert should be sent when no previous alert exists."""
@@ -742,7 +742,7 @@ async def test_should_send_alert_no_previous_alert(
 @pytest.mark.asyncio
 async def test_should_send_alert_same_disruption(
     alert_service: AlertService,
-    test_route_with_schedule: Route,
+    test_route_with_schedule: UserRoute,
     sample_disruptions: list[DisruptionResponse],
 ) -> None:
     """Test that alert should not be sent for same disruption content."""
@@ -781,7 +781,7 @@ async def test_should_send_alert_same_disruption(
 @pytest.mark.asyncio
 async def test_should_send_alert_changed_disruption(
     alert_service: AlertService,
-    test_route_with_schedule: Route,
+    test_route_with_schedule: UserRoute,
     sample_disruptions: list[DisruptionResponse],
 ) -> None:
     """Test that alert should be sent when disruption content changes."""
@@ -823,7 +823,7 @@ async def test_should_send_alert_changed_disruption(
 @pytest.mark.asyncio
 async def test_should_send_alert_redis_error(
     alert_service: AlertService,
-    test_route_with_schedule: Route,
+    test_route_with_schedule: UserRoute,
     sample_disruptions: list[DisruptionResponse],
 ) -> None:
     """Test that alert defaults to sending on Redis error."""
@@ -846,7 +846,7 @@ async def test_should_send_alert_redis_error(
 @pytest.mark.asyncio
 async def test_should_send_alert_invalid_stored_data(
     alert_service: AlertService,
-    test_route_with_schedule: Route,
+    test_route_with_schedule: UserRoute,
     sample_disruptions: list[DisruptionResponse],
 ) -> None:
     """Test that alert is sent when stored data is invalid."""
@@ -873,7 +873,7 @@ async def test_should_send_alert_invalid_stored_data(
 async def test_send_alerts_for_route_success(
     mock_notif_class: MagicMock,
     alert_service: AlertService,
-    test_route_with_schedule: Route,
+    test_route_with_schedule: UserRoute,
     sample_disruptions: list[DisruptionResponse],
     db_session: AsyncSession,
 ) -> None:
@@ -916,7 +916,7 @@ async def test_send_alerts_no_preferences(
 ) -> None:
     """Test that no alerts are sent when route has no notification preferences."""
     # Create route without notification preferences
-    route = Route(
+    route = UserRoute(
         user_id=test_user_with_contacts.id,
         name="No Prefs Route",
         active=True,
@@ -925,7 +925,7 @@ async def test_send_alerts_no_preferences(
     db_session.add(route)
     await db_session.flush()
 
-    segment = RouteSegment(
+    segment = UserRouteSegment(
         route_id=route.id,
         sequence=0,
         station_id=test_station.id,
@@ -933,7 +933,7 @@ async def test_send_alerts_no_preferences(
     )
     db_session.add(segment)
 
-    schedule = RouteSchedule(
+    schedule = UserRouteSchedule(
         route_id=route.id,
         days_of_week=["MON", "TUE", "WED", "THU", "FRI"],
         start_time=time_class(8, 0),
@@ -974,7 +974,7 @@ async def test_send_alerts_unverified_contact(
     await db_session.flush()
 
     # Create route with preference to unverified email
-    route = Route(
+    route = UserRoute(
         user_id=test_user_with_contacts.id,
         name="Unverified Route",
         active=True,
@@ -983,7 +983,7 @@ async def test_send_alerts_unverified_contact(
     db_session.add(route)
     await db_session.flush()
 
-    segment = RouteSegment(
+    segment = UserRouteSegment(
         route_id=route.id,
         sequence=0,
         station_id=test_station.id,
@@ -991,7 +991,7 @@ async def test_send_alerts_unverified_contact(
     )
     db_session.add(segment)
 
-    schedule = RouteSchedule(
+    schedule = UserRouteSchedule(
         route_id=route.id,
         days_of_week=["MON", "TUE", "WED", "THU", "FRI"],
         start_time=time_class(8, 0),
@@ -1057,7 +1057,7 @@ async def test_send_alerts_for_route_skips_unverified_contact_continue(
     await db_session.flush()
 
     # Create route with TWO preferences: one unverified, one verified
-    route = Route(
+    route = UserRoute(
         user_id=test_user_with_contacts.id,
         name="Mixed Verification Route",
         active=True,
@@ -1066,7 +1066,7 @@ async def test_send_alerts_for_route_skips_unverified_contact_continue(
     db_session.add(route)
     await db_session.flush()
 
-    segment = RouteSegment(
+    segment = UserRouteSegment(
         route_id=route.id,
         sequence=0,
         station_id=test_station.id,
@@ -1074,7 +1074,7 @@ async def test_send_alerts_for_route_skips_unverified_contact_continue(
     )
     db_session.add(segment)
 
-    schedule = RouteSchedule(
+    schedule = UserRouteSchedule(
         route_id=route.id,
         days_of_week=["MON", "TUE", "WED", "THU", "FRI"],
         start_time=time_class(8, 0),
@@ -1102,13 +1102,13 @@ async def test_send_alerts_for_route_skips_unverified_contact_continue(
 
     # Reload route with relationships using selectinload
     route_result = await db_session.execute(
-        select(Route)
-        .where(Route.id == route.id)
+        select(UserRoute)
+        .where(UserRoute.id == route.id)
         .options(
-            selectinload(Route.segments),
-            selectinload(Route.schedules),
-            selectinload(Route.notification_preferences),
-            selectinload(Route.user).selectinload(User.email_addresses),
+            selectinload(UserRoute.segments),
+            selectinload(UserRoute.schedules),
+            selectinload(UserRoute.notification_preferences),
+            selectinload(UserRoute.user).selectinload(User.email_addresses),
         )
     )
     route = route_result.scalar_one()
@@ -1136,7 +1136,7 @@ async def test_send_alerts_for_route_skips_unverified_contact_continue(
 async def test_send_alerts_notification_failure(
     mock_notif_class: MagicMock,
     alert_service: AlertService,
-    test_route_with_schedule: Route,
+    test_route_with_schedule: UserRoute,
     sample_disruptions: list[DisruptionResponse],
     db_session: AsyncSession,
 ) -> None:
@@ -1174,7 +1174,7 @@ async def test_send_alerts_notification_failure(
 async def test_send_alerts_stores_state_in_redis(
     mock_notif_class: MagicMock,
     alert_service: AlertService,
-    test_route_with_schedule: Route,
+    test_route_with_schedule: UserRoute,
     sample_disruptions: list[DisruptionResponse],
 ) -> None:
     """Test that alert state is stored in Redis after successful send."""
@@ -1202,7 +1202,7 @@ async def test_send_alerts_stores_state_in_redis(
 @freeze_time("2025-01-15 08:30:00", tz_offset=0)  # 8:30 AM UTC
 async def test_store_alert_state_correct_ttl(
     alert_service: AlertService,
-    test_route_with_schedule: Route,
+    test_route_with_schedule: UserRoute,
     sample_disruptions: list[DisruptionResponse],
 ) -> None:
     """Test that alert state is stored with correct TTL."""
@@ -1226,7 +1226,7 @@ async def test_store_alert_state_correct_ttl(
 @freeze_time("2025-01-15 10:30:00", tz_offset=0)  # 10:30 AM UTC (after schedule end)
 async def test_store_alert_state_schedule_ended(
     alert_service: AlertService,
-    test_route_with_schedule: Route,
+    test_route_with_schedule: UserRoute,
     sample_disruptions: list[DisruptionResponse],
 ) -> None:
     """Test that alert state is not stored when schedule has already ended."""
@@ -1247,7 +1247,7 @@ async def test_store_alert_state_schedule_ended(
 @freeze_time("2025-01-15 08:30:00", tz_offset=0)
 async def test_store_alert_state_stores_disruption_hash(
     alert_service: AlertService,
-    test_route_with_schedule: Route,
+    test_route_with_schedule: UserRoute,
     sample_disruptions: list[DisruptionResponse],
 ) -> None:
     """Test that stored state includes disruption hash."""
@@ -1395,7 +1395,7 @@ async def test_alert_service_skips_duplicate_alerts(
 ) -> None:
     """Test that duplicate alerts are skipped (lines 137-142)."""
     # Test the logic by mocking should_send_alert to return False
-    mock_route = Mock(spec=Route)
+    mock_route = Mock(spec=UserRoute)
     mock_route.id = "test-route"
     mock_route.name = "Test Route"
 
@@ -1461,7 +1461,7 @@ async def test_process_all_routes_exception_handling(
     """
     if mock_config["setup_route"]:
         # Setup for inner exception tests - need a route to process
-        mock_route = Mock(spec=Route)
+        mock_route = Mock(spec=UserRoute)
         mock_route.id = "test-route"
         mock_route.name = "Error Route"
         mock_route.schedules = [Mock()]
@@ -1591,7 +1591,7 @@ async def test_get_verified_contact_sms_unverified(
     await db_session.flush()
 
     # Create route
-    route = Route(user_id=user.id, name="Test", active=True, timezone="UTC")
+    route = UserRoute(user_id=user.id, name="Test", active=True, timezone="UTC")
     db_session.add(route)
     await db_session.flush()
 
@@ -1613,7 +1613,7 @@ async def test_get_user_display_name_no_user(
     alert_service: AlertService,
 ) -> None:
     """Test _get_user_display_name with no user."""
-    route = Mock(spec=Route)
+    route = Mock(spec=UserRoute)
     route.user = None
 
     name = alert_service._get_user_display_name(route)
@@ -1625,7 +1625,7 @@ async def test_get_active_schedule_exception_handling(
     alert_service: AlertService,
 ) -> None:
     """Test _get_active_schedule exception handling (lines 255-262)."""
-    mock_route = Mock(spec=Route)
+    mock_route = Mock(spec=UserRoute)
     mock_route.id = uuid4()
     mock_route.timezone = "Invalid/Timezone"  # Invalid timezone will cause error
     mock_route.schedules = [Mock()]
@@ -1642,7 +1642,7 @@ async def test_send_alerts_for_route_no_preferences(
     alert_service: AlertService,
 ) -> None:
     """Test _send_alerts_for_route with no notification preferences (lines 594-599)."""
-    mock_route = Mock(spec=Route)
+    mock_route = Mock(spec=UserRoute)
     mock_route.id = uuid4()
     mock_route.name = "Test Route"
     mock_route.notification_preferences = []  # No preferences
@@ -1675,7 +1675,7 @@ async def test_send_alerts_for_route_no_preferences(
 async def test_send_alerts_for_route_sms_notification(
     mock_notif_class: MagicMock,
     alert_service: AlertService,
-    test_route_with_schedule: Route,
+    test_route_with_schedule: UserRoute,
     sample_disruptions: list[DisruptionResponse],
     db_session: AsyncSession,
 ) -> None:
@@ -1722,7 +1722,7 @@ async def test_send_alerts_for_route_sms_notification(
 async def test_send_single_notification_sms_success(
     mock_notif_class: MagicMock,
     alert_service: AlertService,
-    test_route_with_schedule: Route,
+    test_route_with_schedule: UserRoute,
     sample_disruptions: list[DisruptionResponse],
     db_session: AsyncSession,
 ) -> None:
@@ -1777,7 +1777,7 @@ async def test_send_single_notification_sms_success(
 async def test_send_alerts_for_route_preference_exception(
     mock_notif_class: MagicMock,
     alert_service: AlertService,
-    test_route_with_schedule: Route,
+    test_route_with_schedule: UserRoute,
     sample_disruptions: list[DisruptionResponse],
 ) -> None:
     """Test unexpected exception in preference processing (lines 635-637)."""
@@ -1803,7 +1803,7 @@ async def test_send_alerts_for_route_preference_exception(
 @freeze_time("2025-01-15 08:30:00", tz_offset=0)
 async def test_store_alert_state_exception_handling(
     alert_service: AlertService,
-    test_route_with_schedule: Route,
+    test_route_with_schedule: UserRoute,
     sample_disruptions: list[DisruptionResponse],
 ) -> None:
     """Test _store_alert_state exception handling (lines 758-759)."""
@@ -1831,7 +1831,7 @@ async def test_store_alert_state_exception_handling(
 async def test_send_alerts_for_route_handles_get_verified_contact_exception(
     mock_notif_class: MagicMock,
     alert_service: AlertService,
-    test_route_with_schedule: Route,
+    test_route_with_schedule: UserRoute,
     sample_disruptions: list[DisruptionResponse],
     db_session: AsyncSession,
 ) -> None:
@@ -1993,7 +1993,7 @@ class TestQueryRoutesByIndex:
         """Test querying index with single (line, station) pair."""
 
         # Create test route
-        route = Route(
+        route = UserRoute(
             user_id=test_user.id,
             name="Test Route",
             active=True,
@@ -2028,7 +2028,7 @@ class TestQueryRoutesByIndex:
         """Test querying multiple stations on same route - should deduplicate to single route ID."""
 
         # Create test route
-        route = Route(
+        route = UserRoute(
             user_id=test_user.id,
             name="King's Cross to Leicester Square",
             active=True,
@@ -2069,13 +2069,13 @@ class TestQueryRoutesByIndex:
         """Test querying index that returns multiple different routes."""
 
         # Create two routes passing through King's Cross
-        route1 = Route(
+        route1 = UserRoute(
             user_id=test_user.id,
             name="Route 1",
             active=True,
             timezone="Europe/London",
         )
-        route2 = Route(
+        route2 = UserRoute(
             user_id=test_user.id,
             name="Route 2",
             active=True,
@@ -2135,7 +2135,7 @@ class TestGetAffectedRoutesForDisruption:
         """Test that method uses inverted index when affected_routes data exists."""
 
         # Create route with index
-        route = Route(
+        route = UserRoute(
             user_id=test_user.id,
             name="Test Route",
             active=True,
@@ -2186,7 +2186,7 @@ class TestGetAffectedRoutesForDisruption:
     ) -> None:
         """Test fallback to line-level matching when affected_routes is None."""
         # Create route with segment on Victoria line
-        route = Route(
+        route = UserRoute(
             user_id=test_user.id,
             name="Test Route",
             active=True,
@@ -2195,7 +2195,7 @@ class TestGetAffectedRoutesForDisruption:
         db_session.add(route)
         await db_session.flush()
 
-        segment = RouteSegment(
+        segment = UserRouteSegment(
             route_id=route.id,
             sequence=1,
             station_id=test_station.id,
@@ -2248,7 +2248,7 @@ class TestGetAffectedRoutesForDisruption:
     ) -> None:
         """Test fallback only returns active, non-deleted routes."""
         # Create active route
-        active_route = Route(
+        active_route = UserRoute(
             user_id=test_user.id,
             name="Active Route",
             active=True,
@@ -2257,7 +2257,7 @@ class TestGetAffectedRoutesForDisruption:
         db_session.add(active_route)
         await db_session.flush()
 
-        segment1 = RouteSegment(
+        segment1 = UserRouteSegment(
             route_id=active_route.id,
             sequence=1,
             station_id=test_station.id,
@@ -2266,7 +2266,7 @@ class TestGetAffectedRoutesForDisruption:
         db_session.add(segment1)
 
         # Create inactive route
-        inactive_route = Route(
+        inactive_route = UserRoute(
             user_id=test_user.id,
             name="Inactive Route",
             active=False,  # Inactive
@@ -2275,7 +2275,7 @@ class TestGetAffectedRoutesForDisruption:
         db_session.add(inactive_route)
         await db_session.flush()
 
-        segment2 = RouteSegment(
+        segment2 = UserRouteSegment(
             route_id=inactive_route.id,
             sequence=1,
             station_id=test_station.id,
@@ -2284,7 +2284,7 @@ class TestGetAffectedRoutesForDisruption:
         db_session.add(segment2)
 
         # Create deleted route
-        deleted_route = Route(
+        deleted_route = UserRoute(
             user_id=test_user.id,
             name="Deleted Route",
             active=True,
@@ -2294,7 +2294,7 @@ class TestGetAffectedRoutesForDisruption:
         db_session.add(deleted_route)
         await db_session.flush()
 
-        segment3 = RouteSegment(
+        segment3 = UserRouteSegment(
             route_id=deleted_route.id,
             sequence=1,
             station_id=test_station.id,
@@ -2352,7 +2352,7 @@ class TestBranchDisambiguation:
         await db_session.flush()
 
         # Create Route A: passes through affected area (King's Cross → Leicester Square)
-        route_a = Route(
+        route_a = UserRoute(
             user_id=test_user.id,
             name="King's Cross to Leicester Square",
             active=True,
@@ -2372,7 +2372,7 @@ class TestBranchDisambiguation:
             db_session.add(index_entry)
 
         # Create Route B: western branch (Earl's Court → Heathrow)
-        route_b = Route(
+        route_b = UserRoute(
             user_id=test_user.id,
             name="Earl's Court to Heathrow",
             active=True,
@@ -2443,7 +2443,7 @@ class TestBranchDisambiguation:
         await db_session.flush()
 
         # Route A: Kennington → Edgware (passes through Camden Town)
-        route_a = Route(
+        route_a = UserRoute(
             user_id=test_user.id,
             name="Kennington to Edgware",
             active=True,
@@ -2463,7 +2463,7 @@ class TestBranchDisambiguation:
             db_session.add(index_entry)
 
         # Route B: Kennington → High Barnet (Bank branch, NOT via Camden Town)
-        route_b = Route(
+        route_b = UserRoute(
             user_id=test_user.id,
             name="Kennington to High Barnet",
             active=True,
@@ -2524,7 +2524,7 @@ class TestPerformance:
         # Create 1000 routes with index entries
         routes = []
         for i in range(1000):
-            route = Route(
+            route = UserRoute(
                 user_id=test_user.id,
                 name=f"Route {i}",
                 active=True,
@@ -2603,7 +2603,7 @@ class TestPerformance:
 
         # Create 10,000 index entries across 100 routes
         for route_num in range(100):
-            route = Route(
+            route = UserRoute(
                 user_id=test_user.id,
                 name=f"Route {route_num}",
                 active=True,

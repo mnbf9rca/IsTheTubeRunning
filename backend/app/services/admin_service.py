@@ -10,7 +10,7 @@ from sqlalchemy.orm import selectinload
 
 from app.models.admin import AdminUser
 from app.models.notification import NotificationLog, NotificationPreference, NotificationStatus
-from app.models.route import Route
+from app.models.route import UserRoute
 from app.models.user import EmailAddress, PhoneNumber, User, VerificationCode
 from app.schemas.admin import (
     DailySignup,
@@ -227,12 +227,12 @@ class AdminService:
             # NotificationLog preserves historical behavior data for analytics.
             await self.db.execute(
                 delete(NotificationPreference).where(
-                    NotificationPreference.route_id.in_(select(Route.id).where(Route.user_id == user_id))
+                    NotificationPreference.route_id.in_(select(UserRoute.id).where(UserRoute.user_id == user_id))
                 )
             )
 
             # 5. Deactivate all routes
-            await self.db.execute(update(Route).where(Route.user_id == user_id).values(active=False))
+            await self.db.execute(update(UserRoute).where(UserRoute.user_id == user_id).values(active=False))
 
             # 6. Update user: anonymise external_id, clear auth_provider, set deleted_at
             await self.db.execute(
@@ -262,10 +262,10 @@ class AdminService:
     async def _count_active_users(self) -> int:
         """Count users with at least one active route."""
         result = await self.db.execute(
-            select(func.count(func.distinct(Route.user_id))).where(
+            select(func.count(func.distinct(UserRoute.user_id))).where(
                 and_(
-                    Route.active.is_(True),
-                    Route.deleted_at.is_(None),
+                    UserRoute.active.is_(True),
+                    UserRoute.deleted_at.is_(None),
                 )
             )
         )
@@ -292,16 +292,16 @@ class AdminService:
 
     async def _count_total_routes(self) -> int:
         """Count total non-deleted routes."""
-        result = await self.db.execute(select(func.count(Route.id)).where(Route.deleted_at.is_(None)))
+        result = await self.db.execute(select(func.count(UserRoute.id)).where(UserRoute.deleted_at.is_(None)))
         return result.scalar() or 0
 
     async def _count_active_routes(self) -> int:
         """Count active non-deleted routes."""
         result = await self.db.execute(
-            select(func.count(Route.id)).where(
+            select(func.count(UserRoute.id)).where(
                 and_(
-                    Route.active.is_(True),
-                    Route.deleted_at.is_(None),
+                    UserRoute.active.is_(True),
+                    UserRoute.deleted_at.is_(None),
                 )
             )
         )
@@ -316,9 +316,9 @@ class AdminService:
         """
         result = await self.db.execute(
             select(
-                func.count(Route.id).label("total_routes"),
-                func.count(func.distinct(Route.user_id)).label("users_with_routes"),
-            ).where(Route.deleted_at.is_(None))
+                func.count(UserRoute.id).label("total_routes"),
+                func.count(func.distinct(UserRoute.user_id)).label("users_with_routes"),
+            ).where(UserRoute.deleted_at.is_(None))
         )
         row = result.one()
         return row.total_routes, row.users_with_routes

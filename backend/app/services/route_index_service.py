@@ -9,7 +9,7 @@ from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from app.models.route import Route, RouteSegment
+from app.models.route import UserRoute, UserRouteSegment
 from app.models.route_index import RouteStationIndex
 from app.models.tfl import Line, Station
 
@@ -82,7 +82,7 @@ class RouteIndexService:
             # Load route with segments and related data
             route = await self._load_route_with_segments(route_id)
             if not route:
-                msg = f"Route {route_id} not found"
+                msg = f"UserRoute {route_id} not found"
                 logger.error("route_not_found", route_id=str(route_id))
                 raise ValueError(msg)
 
@@ -156,7 +156,7 @@ class RouteIndexService:
                     rebuilt_count = 1
                 except Exception as exc:
                     failed_count = 1
-                    errors.append(f"Route {route_id}: {exc!s}")
+                    errors.append(f"UserRoute {route_id}: {exc!s}")
                     logger.error(
                         "rebuild_single_route_failed",
                         route_id=str(route_id),
@@ -164,7 +164,7 @@ class RouteIndexService:
                     )
             else:
                 # Rebuild all routes
-                result = await self.db.execute(select(Route))
+                result = await self.db.execute(select(UserRoute))
                 routes = result.scalars().all()
 
                 for route in routes:
@@ -173,7 +173,7 @@ class RouteIndexService:
                         rebuilt_count += 1
                     except Exception as exc:
                         failed_count += 1
-                        errors.append(f"Route {route.id}: {exc!s}")
+                        errors.append(f"UserRoute {route.id}: {exc!s}")
                         logger.error(
                             "rebuild_route_failed",
                             route_id=str(route.id),
@@ -201,7 +201,7 @@ class RouteIndexService:
             )
             raise
 
-    async def _load_route_with_segments(self, route_id: UUID) -> Route | None:
+    async def _load_route_with_segments(self, route_id: UUID) -> UserRoute | None:
         """
         Load route with segments, stations, and lines eagerly loaded.
 
@@ -209,18 +209,18 @@ class RouteIndexService:
             route_id: UUID of route to load
 
         Returns:
-            Route instance or None if not found
+            UserRoute instance or None if not found
         """
         # Note: Segments MUST be ordered by sequence for _process_segments to work correctly.
-        # The ordering is enforced by the Route.segments relationship default (see route.py:68).
+        # The ordering is enforced by the UserRoute.segments relationship default (see route.py:68).
         # This is critical - if segments are unordered, _process_segments would create incorrect
         # index entries linking non-adjacent stations.
         result = await self.db.execute(
-            select(Route)
-            .where(Route.id == route_id)
+            select(UserRoute)
+            .where(UserRoute.id == route_id)
             .options(
-                selectinload(Route.segments).selectinload(RouteSegment.station),
-                selectinload(Route.segments).selectinload(RouteSegment.line),
+                selectinload(UserRoute.segments).selectinload(UserRouteSegment.station),
+                selectinload(UserRoute.segments).selectinload(UserRouteSegment.line),
             )
         )
         return result.scalar_one_or_none()
@@ -302,7 +302,7 @@ class RouteIndexService:
         )
         raise ValueError(msg)
 
-    async def _process_segments(self, route: Route) -> tuple[int, int]:
+    async def _process_segments(self, route: UserRoute) -> tuple[int, int]:
         """
         Process route segments and create index entries.
 
@@ -310,7 +310,7 @@ class RouteIndexService:
         and creates index entries for each station.
 
         Args:
-            route: Route instance with segments loaded
+            route: UserRoute instance with segments loaded
 
         Returns:
             Tuple of (entries_created, pairs_processed) where:

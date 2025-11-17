@@ -8,7 +8,7 @@ from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.models.base import BaseModel
-from app.models.route import Route
+from app.models.route import UserRoute
 
 
 class RouteStationIndex(BaseModel):
@@ -57,7 +57,7 @@ class RouteStationIndex(BaseModel):
     )
 
     # Relationships
-    route: Mapped[Route] = relationship(back_populates="station_indexes")
+    route: Mapped[UserRoute] = relationship(back_populates="station_indexes")
 
     __table_args__ = (
         # Primary lookup: "Which routes pass through station X on line Y?"

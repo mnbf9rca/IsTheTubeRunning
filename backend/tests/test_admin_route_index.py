@@ -10,7 +10,7 @@ import pytest
 from app.core.config import settings
 from app.core.database import get_db
 from app.main import app
-from app.models.route import Route, RouteSegment
+from app.models.route import UserRoute, UserRouteSegment
 from app.models.route_index import RouteStationIndex
 from app.models.tfl import Line, Station
 from app.models.user import User
@@ -245,13 +245,13 @@ class TestAdminRebuildIndexesIntegration:
         await db_session.flush()
 
         # Create route with segments
-        route = Route(user_id=user.id, name="Integration Test Route", active=True)
+        route = UserRoute(user_id=user.id, name="Integration Test Route", active=True)
         db_session.add(route)
         await db_session.flush()
 
         segments = [
-            RouteSegment(route_id=route.id, sequence=1, station_id=station_a.id, line_id=line.id),
-            RouteSegment(route_id=route.id, sequence=2, station_id=station_b.id, line_id=None),
+            UserRouteSegment(route_id=route.id, sequence=1, station_id=station_a.id, line_id=line.id),
+            UserRouteSegment(route_id=route.id, sequence=2, station_id=station_b.id, line_id=None),
         ]
         db_session.add_all(segments)
         await db_session.commit()
@@ -339,20 +339,20 @@ class TestAdminRebuildIndexesIntegration:
         await db_session.flush()
 
         # Create multiple routes
-        route1 = Route(user_id=user.id, name="Route 1", active=True)
-        route2 = Route(user_id=user.id, name="Route 2", active=True)
+        route1 = UserRoute(user_id=user.id, name="Route 1", active=True)
+        route2 = UserRoute(user_id=user.id, name="Route 2", active=True)
         db_session.add_all([route1, route2])
         await db_session.flush()
 
         # Route 1: X → Y
         segments1 = [
-            RouteSegment(route_id=route1.id, sequence=1, station_id=station_x.id, line_id=line.id),
-            RouteSegment(route_id=route1.id, sequence=2, station_id=station_y.id, line_id=None),
+            UserRouteSegment(route_id=route1.id, sequence=1, station_id=station_x.id, line_id=line.id),
+            UserRouteSegment(route_id=route1.id, sequence=2, station_id=station_y.id, line_id=None),
         ]
         # Route 2: Y → Z
         segments2 = [
-            RouteSegment(route_id=route2.id, sequence=1, station_id=station_y.id, line_id=line.id),
-            RouteSegment(route_id=route2.id, sequence=2, station_id=station_z.id, line_id=None),
+            UserRouteSegment(route_id=route2.id, sequence=1, station_id=station_y.id, line_id=line.id),
+            UserRouteSegment(route_id=route2.id, sequence=2, station_id=station_z.id, line_id=None),
         ]
         db_session.add_all(segments1 + segments2)
         await db_session.commit()

@@ -4,7 +4,7 @@ import uuid
 from datetime import UTC, datetime
 
 import pytest
-from app.models.route import Route, RouteSegment
+from app.models.route import UserRoute, UserRouteSegment
 from app.models.route_index import RouteStationIndex
 from app.models.tfl import Line, Station
 from app.models.user import User
@@ -97,7 +97,7 @@ class TestRouteIndexService:
         await db_session.flush()
 
         # Create route with 2 segments
-        route = Route(
+        route = UserRoute(
             user_id=test_user.id,
             name="Test Route",
             active=True,
@@ -105,13 +105,13 @@ class TestRouteIndexService:
         db_session.add(route)
         await db_session.flush()
 
-        segment1 = RouteSegment(
+        segment1 = UserRouteSegment(
             route_id=route.id,
             sequence=1,
             station_id=station1.id,
             line_id=line.id,
         )
-        segment2 = RouteSegment(
+        segment2 = UserRouteSegment(
             route_id=route.id,
             sequence=2,
             station_id=station2.id,
@@ -175,7 +175,7 @@ class TestRouteIndexService:
         await db_session.flush()
 
         # Create route: parallel-north → parallel-south
-        route = Route(
+        route = UserRoute(
             user_id=test_user.id,
             name="North to South Route",
             active=True,
@@ -183,13 +183,13 @@ class TestRouteIndexService:
         db_session.add(route)
         await db_session.flush()
 
-        segment1 = RouteSegment(
+        segment1 = UserRouteSegment(
             route_id=route.id,
             sequence=1,
             station_id=station_north.id,
             line_id=line.id,
         )
-        segment2 = RouteSegment(
+        segment2 = UserRouteSegment(
             route_id=route.id,
             sequence=2,
             station_id=station_south.id,
@@ -255,7 +255,7 @@ class TestRouteIndexService:
         await db_session.flush()
 
         # Create route: west-fork → fork-south-end (via junction)
-        route = Route(
+        route = UserRoute(
             user_id=test_user.id,
             name="West Branch Route",
             active=True,
@@ -263,13 +263,13 @@ class TestRouteIndexService:
         db_session.add(route)
         await db_session.flush()
 
-        segment1 = RouteSegment(
+        segment1 = UserRouteSegment(
             route_id=route.id,
             sequence=1,
             station_id=station_west_fork.id,
             line_id=line.id,
         )
-        segment2 = RouteSegment(
+        segment2 = UserRouteSegment(
             route_id=route.id,
             sequence=2,
             station_id=station_south.id,
@@ -317,7 +317,7 @@ class TestRouteIndexService:
         await db_session.flush()
 
         # Create route with 4 segments across 2 lines
-        route = Route(
+        route = UserRoute(
             user_id=test_user.id,
             name="Multi-Line Route",
             active=True,
@@ -326,10 +326,10 @@ class TestRouteIndexService:
         await db_session.flush()
 
         segments = [
-            RouteSegment(route_id=route.id, sequence=1, station_id=station1.id, line_id=line1.id),
-            RouteSegment(route_id=route.id, sequence=2, station_id=station2.id, line_id=None),  # Interchange
-            RouteSegment(route_id=route.id, sequence=3, station_id=station3.id, line_id=line2.id),
-            RouteSegment(route_id=route.id, sequence=4, station_id=station4.id, line_id=None),  # Destination
+            UserRouteSegment(route_id=route.id, sequence=1, station_id=station1.id, line_id=line1.id),
+            UserRouteSegment(route_id=route.id, sequence=2, station_id=station2.id, line_id=None),  # Interchange
+            UserRouteSegment(route_id=route.id, sequence=3, station_id=station3.id, line_id=line2.id),
+            UserRouteSegment(route_id=route.id, sequence=4, station_id=station4.id, line_id=None),  # Destination
         ]
         db_session.add_all(segments)
         await db_session.commit()
@@ -384,7 +384,7 @@ class TestRouteIndexService:
     ) -> None:
         """Test building index for route with < 2 segments returns zero entries."""
         # Create route with only 1 segment
-        route = Route(
+        route = UserRoute(
             user_id=test_user.id,
             name="Single Segment Route",
             active=True,
@@ -397,7 +397,7 @@ class TestRouteIndexService:
         db_session.add_all([station, line])
         await db_session.flush()
 
-        segment = RouteSegment(
+        segment = UserRouteSegment(
             route_id=route.id,
             sequence=1,
             station_id=station.id,
@@ -434,7 +434,7 @@ class TestRouteIndexService:
         await db_session.flush()
 
         # Create route
-        route = Route(
+        route = UserRoute(
             user_id=test_user.id,
             name="Test Route",
             active=True,
@@ -442,13 +442,13 @@ class TestRouteIndexService:
         db_session.add(route)
         await db_session.flush()
 
-        segment1 = RouteSegment(
+        segment1 = UserRouteSegment(
             route_id=route.id,
             sequence=1,
             station_id=station1.id,
             line_id=line.id,
         )
-        segment2 = RouteSegment(
+        segment2 = UserRouteSegment(
             route_id=route.id,
             sequence=2,
             station_id=station2.id,
@@ -493,7 +493,7 @@ class TestRouteIndexService:
         await db_session.flush()
 
         # Create route
-        route = Route(
+        route = UserRoute(
             user_id=test_user.id,
             name="Test Route",
             active=True,
@@ -501,13 +501,13 @@ class TestRouteIndexService:
         db_session.add(route)
         await db_session.flush()
 
-        segment1 = RouteSegment(
+        segment1 = UserRouteSegment(
             route_id=route.id,
             sequence=1,
             station_id=station1.id,
             line_id=line.id,
         )
-        segment2 = RouteSegment(
+        segment2 = UserRouteSegment(
             route_id=route.id,
             sequence=2,
             station_id=station2.id,
@@ -540,7 +540,7 @@ class TestRouteIndexService:
         await db_session.flush()
 
         # Create route
-        route = Route(
+        route = UserRoute(
             user_id=test_user.id,
             name="Test Route",
             active=True,
@@ -548,13 +548,13 @@ class TestRouteIndexService:
         db_session.add(route)
         await db_session.flush()
 
-        segment1 = RouteSegment(
+        segment1 = UserRouteSegment(
             route_id=route.id,
             sequence=1,
             station_id=station1.id,
             line_id=line.id,
         )
-        segment2 = RouteSegment(
+        segment2 = UserRouteSegment(
             route_id=route.id,
             sequence=2,
             station_id=station2.id,
@@ -585,7 +585,7 @@ class TestRouteIndexService:
             await service.build_route_station_index(fake_route_id)
 
         # Session should still be usable after rollback
-        result = await db_session.execute(select(Route))
+        result = await db_session.execute(select(UserRoute))
         routes = result.scalars().all()
         assert isinstance(routes, list)  # Session still works
 
@@ -605,7 +605,7 @@ class TestRouteIndexService:
         await db_session.flush()
 
         # Create route
-        route = Route(
+        route = UserRoute(
             user_id=test_user.id,
             name="Test Route",
             active=True,
@@ -613,13 +613,13 @@ class TestRouteIndexService:
         db_session.add(route)
         await db_session.flush()
 
-        segment1 = RouteSegment(
+        segment1 = UserRouteSegment(
             route_id=route.id,
             sequence=1,
             station_id=station1.id,
             line_id=line.id,
         )
-        segment2 = RouteSegment(
+        segment2 = UserRouteSegment(
             route_id=route.id,
             sequence=2,
             station_id=station2.id,
@@ -656,13 +656,13 @@ class TestRouteIndexService:
         await db_session.flush()
 
         # Create route with 2 segments
-        route = Route(user_id=test_user.id, name="Test Route", active=True)
+        route = UserRoute(user_id=test_user.id, name="Test Route", active=True)
         db_session.add(route)
         await db_session.flush()
 
         segments = [
-            RouteSegment(route_id=route.id, sequence=1, station_id=station1.id, line_id=line.id),
-            RouteSegment(route_id=route.id, sequence=2, station_id=station2.id, line_id=None),
+            UserRouteSegment(route_id=route.id, sequence=1, station_id=station1.id, line_id=line.id),
+            UserRouteSegment(route_id=route.id, sequence=2, station_id=station2.id, line_id=None),
         ]
         db_session.add_all(segments)
         await db_session.commit()
@@ -738,24 +738,24 @@ class TestRouteIndexService:
         # Segment 0→1: parallel-north → hubnorth-overground on parallelline
         # Resolution: hubnorth-overground (not on parallelline) should resolve to
         # parallel-north (in same hub, on parallelline)
-        route = Route(user_id=test_user.id, name="Hub Interchange Route", active=True)
+        route = UserRoute(user_id=test_user.id, name="Hub Interchange Route", active=True)
         db_session.add(route)
         await db_session.flush()
 
         segments = [
-            RouteSegment(
+            UserRouteSegment(
                 route_id=route.id,
                 sequence=1,
                 station_id=parallel_north.id,
                 line_id=parallelline.id,
             ),
-            RouteSegment(
+            UserRouteSegment(
                 route_id=route.id,
                 sequence=2,
                 station_id=hubnorth_overground.id,
                 line_id=asymmetricline.id,
             ),
-            RouteSegment(
+            UserRouteSegment(
                 route_id=route.id,
                 sequence=3,
                 station_id=asym_regular_1.id,
@@ -800,18 +800,18 @@ class TestRouteIndexService:
 
         # Create route with a segment where both stations are in hubs
         # This won't actually connect in our test network, but tests the resolution logic
-        route = Route(user_id=test_user.id, name="Two Hubs Route", active=True)
+        route = UserRoute(user_id=test_user.id, name="Two Hubs Route", active=True)
         db_session.add(route)
         await db_session.flush()
 
         segments = [
-            RouteSegment(
+            UserRouteSegment(
                 route_id=route.id,
                 sequence=1,
                 station_id=fork_mid_1.id,
                 line_id=forkedline.id,
             ),
-            RouteSegment(
+            UserRouteSegment(
                 route_id=route.id,
                 sequence=2,
                 station_id=fork_south_end.id,
@@ -845,18 +845,18 @@ class TestRouteIndexService:
         await db_session.flush()
 
         # Create route using station that's already on the line (no resolution needed)
-        route = Route(user_id=test_user.id, name="Direct Hub Station", active=True)
+        route = UserRoute(user_id=test_user.id, name="Direct Hub Station", active=True)
         db_session.add(route)
         await db_session.flush()
 
         segments = [
-            RouteSegment(
+            UserRouteSegment(
                 route_id=route.id,
                 sequence=1,
                 station_id=parallel_north.id,
                 line_id=parallelline.id,
             ),
-            RouteSegment(
+            UserRouteSegment(
                 route_id=route.id,
                 sequence=2,
                 station_id=parallel_split.id,
@@ -901,18 +901,18 @@ class TestRouteIndexService:
         await db_session.flush()
 
         # Create route using the fake hub station
-        route = Route(user_id=test_user.id, name="Broken Hub Route", active=True)
+        route = UserRoute(user_id=test_user.id, name="Broken Hub Route", active=True)
         db_session.add(route)
         await db_session.flush()
 
         segments = [
-            RouteSegment(
+            UserRouteSegment(
                 route_id=route.id,
                 sequence=1,
                 station_id=fake_hub_station.id,
                 line_id=parallelline.id,
             ),
-            RouteSegment(
+            UserRouteSegment(
                 route_id=route.id,
                 sequence=2,
                 station_id=parallel_split.id,
@@ -942,18 +942,18 @@ class TestRouteIndexService:
         db_session.add_all([forkedline, fork_junction, fork_mid_2])
         await db_session.flush()
 
-        route = Route(user_id=test_user.id, name="Non-Hub Route", active=True)
+        route = UserRoute(user_id=test_user.id, name="Non-Hub Route", active=True)
         db_session.add(route)
         await db_session.flush()
 
         segments = [
-            RouteSegment(
+            UserRouteSegment(
                 route_id=route.id,
                 sequence=1,
                 station_id=fork_junction.id,
                 line_id=forkedline.id,
             ),
-            RouteSegment(
+            UserRouteSegment(
                 route_id=route.id,
                 sequence=2,
                 station_id=fork_mid_2.id,
@@ -990,13 +990,13 @@ class TestRebuildRoutes:
         await db_session.flush()
 
         # Create route
-        route = Route(user_id=test_user.id, name="Test Route", active=True)
+        route = UserRoute(user_id=test_user.id, name="Test Route", active=True)
         db_session.add(route)
         await db_session.flush()
 
         segments = [
-            RouteSegment(route_id=route.id, sequence=1, station_id=station1.id, line_id=line.id),
-            RouteSegment(route_id=route.id, sequence=2, station_id=station2.id, line_id=None),
+            UserRouteSegment(route_id=route.id, sequence=1, station_id=station1.id, line_id=line.id),
+            UserRouteSegment(route_id=route.id, sequence=2, station_id=station2.id, line_id=None),
         ]
         db_session.add_all(segments)
         await db_session.commit()
@@ -1049,13 +1049,13 @@ class TestRebuildRoutes:
         # Create 3 routes
         routes = []
         for i in range(3):
-            route = Route(user_id=test_user.id, name=f"Route {i}", active=True)
+            route = UserRoute(user_id=test_user.id, name=f"Route {i}", active=True)
             db_session.add(route)
             await db_session.flush()
 
             segments = [
-                RouteSegment(route_id=route.id, sequence=1, station_id=station1.id, line_id=line.id),
-                RouteSegment(route_id=route.id, sequence=2, station_id=station2.id, line_id=None),
+                UserRouteSegment(route_id=route.id, sequence=1, station_id=station1.id, line_id=line.id),
+                UserRouteSegment(route_id=route.id, sequence=2, station_id=station2.id, line_id=None),
             ]
             db_session.add_all(segments)
             routes.append(route)
@@ -1096,13 +1096,13 @@ class TestRebuildRoutes:
         # Create 2 valid routes
         valid_routes = []
         for i in range(2):
-            route = Route(user_id=test_user.id, name=f"Valid Route {i}", active=True)
+            route = UserRoute(user_id=test_user.id, name=f"Valid Route {i}", active=True)
             db_session.add(route)
             await db_session.flush()
 
             segments = [
-                RouteSegment(route_id=route.id, sequence=1, station_id=station1.id, line_id=line.id),
-                RouteSegment(route_id=route.id, sequence=2, station_id=station2.id, line_id=None),
+                UserRouteSegment(route_id=route.id, sequence=1, station_id=station1.id, line_id=line.id),
+                UserRouteSegment(route_id=route.id, sequence=2, station_id=station2.id, line_id=None),
             ]
             db_session.add_all(segments)
             valid_routes.append(route)
@@ -1153,7 +1153,7 @@ class TestRebuildRoutes:
     ) -> None:
         """Test that rebuild_routes handles different exception types consistently."""
         # Create route with insufficient segments (will cause warning but not exception)
-        route = Route(user_id=test_user.id, name="Insufficient Segments", active=True)
+        route = UserRoute(user_id=test_user.id, name="Insufficient Segments", active=True)
         db_session.add(route)
         await db_session.flush()
 
@@ -1163,7 +1163,7 @@ class TestRebuildRoutes:
         db_session.add_all([line, station])
         await db_session.flush()
 
-        segment = RouteSegment(route_id=route.id, sequence=1, station_id=station.id, line_id=line.id)
+        segment = UserRouteSegment(route_id=route.id, sequence=1, station_id=station.id, line_id=line.id)
         db_session.add(segment)
         await db_session.commit()
 
@@ -1206,14 +1206,14 @@ class TestRebuildRoutes:
         await db_session.flush()
 
         # Create route
-        route = Route(user_id=test_user.id, name="Empty Variant Route", active=True)
+        route = UserRoute(user_id=test_user.id, name="Empty Variant Route", active=True)
         db_session.add(route)
         await db_session.flush()
 
         # Add segments using this line
         segments = [
-            RouteSegment(route_id=route.id, sequence=1, station_id=station1.id, line_id=line.id),
-            RouteSegment(route_id=route.id, sequence=2, station_id=station2.id, line_id=None),
+            UserRouteSegment(route_id=route.id, sequence=1, station_id=station1.id, line_id=line.id),
+            UserRouteSegment(route_id=route.id, sequence=2, station_id=station2.id, line_id=None),
         ]
         db_session.add_all(segments)
         await db_session.commit()

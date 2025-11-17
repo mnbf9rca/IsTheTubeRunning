@@ -14,13 +14,13 @@ from app.models import (
     NotificationPreference,
     NotificationStatus,
     PhoneNumber,
-    Route,
-    RouteSchedule,
-    RouteSegment,
     RouteStationIndex,
     Station,
     StationConnection,
     User,
+    UserRoute,
+    UserRouteSchedule,
+    UserRouteSegment,
     VerificationCode,
     VerificationType,
 )
@@ -453,14 +453,14 @@ class TestRouteModels:
         db_session.add_all([user, line, station1, station2])
         await db_session.flush()  # Flush to get IDs
 
-        route = Route(user=user, name="Morning Commute", active=True)
-        segment1 = RouteSegment(route=route, sequence=0, station_id=station1.id, line_id=line.id)
-        segment2 = RouteSegment(route=route, sequence=1, station_id=station2.id, line_id=line.id)
+        route = UserRoute(user=user, name="Morning Commute", active=True)
+        segment1 = UserRouteSegment(route=route, sequence=0, station_id=station1.id, line_id=line.id)
+        segment2 = UserRouteSegment(route=route, sequence=1, station_id=station2.id, line_id=line.id)
 
         db_session.add_all([route, segment1, segment2])
         await db_session.commit()
 
-        result = await db_session.execute(select(Route).where(Route.id == route.id))
+        result = await db_session.execute(select(UserRoute).where(UserRoute.id == route.id))
         saved_route = result.scalar_one()
         await db_session.refresh(saved_route, ["segments"])
 
@@ -474,8 +474,8 @@ class TestRouteModels:
     async def test_route_schedule(self, db_session: AsyncSession) -> None:
         """Test route schedule."""
         user = User(external_id=make_unique_external_id("auth0|schedule_test"), auth_provider="auth0")
-        route = Route(user=user, name="Test Route", active=True)
-        schedule = RouteSchedule(
+        route = UserRoute(user=user, name="Test Route", active=True)
+        schedule = UserRouteSchedule(
             route=route,
             days_of_week=["MON", "TUE", "WED", "THU", "FRI"],
             start_time=time(8, 0),
@@ -485,7 +485,7 @@ class TestRouteModels:
         db_session.add_all([user, route, schedule])
         await db_session.commit()
 
-        result = await db_session.execute(select(RouteSchedule).where(RouteSchedule.route_id == route.id))
+        result = await db_session.execute(select(UserRouteSchedule).where(UserRouteSchedule.route_id == route.id))
         saved_schedule = result.scalar_one()
 
         assert saved_schedule.days_of_week == ["MON", "TUE", "WED", "THU", "FRI"]
@@ -521,9 +521,9 @@ class TestRouteModels:
         db_session.add_all([user, line, station1, station2])
         await db_session.flush()
 
-        route = Route(user=user, name="Test Route", active=True)
-        segment1 = RouteSegment(route=route, sequence=0, station_id=station1.id, line_id=line.id)
-        segment2 = RouteSegment(route=route, sequence=0, station_id=station2.id, line_id=line.id)
+        route = UserRoute(user=user, name="Test Route", active=True)
+        segment1 = UserRouteSegment(route=route, sequence=0, station_id=station1.id, line_id=line.id)
+        segment2 = UserRouteSegment(route=route, sequence=0, station_id=station2.id, line_id=line.id)
 
         db_session.add_all([route, segment1, segment2])
 
@@ -551,8 +551,8 @@ class TestRouteModels:
         db_session.add_all([user, line, station])
         await db_session.flush()
 
-        route = Route(user=user, name="Test Route", active=True)
-        segment = RouteSegment(route=route, sequence=0, station_id=station.id, line_id=line.id)
+        route = UserRoute(user=user, name="Test Route", active=True)
+        segment = UserRouteSegment(route=route, sequence=0, station_id=station.id, line_id=line.id)
 
         db_session.add_all([route, segment])
         await db_session.commit()
@@ -582,9 +582,9 @@ class TestRouteModels:
         db_session.add_all([user, station])
         await db_session.flush()
 
-        route = Route(user=user, name="Test Route", active=True)
+        route = UserRoute(user=user, name="Test Route", active=True)
         # Create a destination segment with NULL line_id
-        segment = RouteSegment(route=route, sequence=1, station_id=station.id, line_id=None)
+        segment = UserRouteSegment(route=route, sequence=1, station_id=station.id, line_id=None)
 
         db_session.add_all([route, segment])
         await db_session.commit()
@@ -624,11 +624,11 @@ class TestRouteModels:
         db_session.add_all([user, line, station1, station2])
         await db_session.flush()
 
-        route = Route(user=user, name="Mixed Segments Route", active=True)
+        route = UserRoute(user=user, name="Mixed Segments Route", active=True)
         # Segment 0: Has a line (travel from Vauxhall on Victoria line)
-        segment_0 = RouteSegment(route=route, sequence=0, station_id=station1.id, line_id=line.id)
+        segment_0 = UserRouteSegment(route=route, sequence=0, station_id=station1.id, line_id=line.id)
         # Segment 1: Destination (arrive at Pimlico, no outgoing line)
-        segment_1 = RouteSegment(route=route, sequence=1, station_id=station2.id, line_id=None)
+        segment_1 = UserRouteSegment(route=route, sequence=1, station_id=station2.id, line_id=None)
 
         db_session.add_all([route, segment_0, segment_1])
         await db_session.commit()
@@ -652,7 +652,7 @@ class TestNotificationModels:
         """Test notification preference."""
         user = User(external_id=make_unique_external_id("auth0|notif_test"), auth_provider="auth0")
         email = EmailAddress(user=user, email=make_unique_email(), verified=True, is_primary=True)
-        route = Route(user=user, name="Test Route", active=True)
+        route = UserRoute(user=user, name="Test Route", active=True)
 
         db_session.add_all([user, email, route])
         await db_session.flush()  # Flush to get IDs
@@ -675,7 +675,7 @@ class TestNotificationModels:
     async def test_notification_log(self, db_session: AsyncSession) -> None:
         """Test notification log."""
         user = User(external_id=make_unique_external_id("auth0|log_test"), auth_provider="auth0")
-        route = Route(user=user, name="Test Route", active=True)
+        route = UserRoute(user=user, name="Test Route", active=True)
         log = NotificationLog(
             user=user,
             route=route,
@@ -700,7 +700,7 @@ class TestNotificationModels:
         user = User(external_id=make_unique_external_id("auth0|both_targets"), auth_provider="auth0")
         email = EmailAddress(user=user, email=make_unique_email(), verified=True, is_primary=True)
         phone = PhoneNumber(user=user, phone=make_unique_phone(), verified=True, is_primary=True)
-        route = Route(user=user, name="Test Route", active=True)
+        route = UserRoute(user=user, name="Test Route", active=True)
 
         db_session.add_all([user, email, phone, route])
         await db_session.flush()
@@ -776,7 +776,7 @@ class TestRouteStationIndex:
     async def test_create_index_entry(self, db_session: AsyncSession) -> None:
         """Test creating a route station index entry."""
         user = User(external_id=make_unique_external_id("auth0|index_test"), auth_provider="auth0")
-        route = Route(user=user, name="Test Route", active=True)
+        route = UserRoute(user=user, name="Test Route", active=True)
 
         db_session.add_all([user, route])
         await db_session.commit()
@@ -808,8 +808,8 @@ class TestRouteStationIndex:
     async def test_multiple_entries_same_station(self, db_session: AsyncSession) -> None:
         """Test that multiple routes can have entries for the same (line, station) combination."""
         user = User(external_id=make_unique_external_id("auth0|multi_routes"), auth_provider="auth0")
-        route1 = Route(user=user, name="Route 1", active=True)
-        route2 = Route(user=user, name="Route 2", active=True)
+        route1 = UserRoute(user=user, name="Route 1", active=True)
+        route2 = UserRoute(user=user, name="Route 2", active=True)
 
         db_session.add_all([user, route1, route2])
         await db_session.commit()
@@ -850,7 +850,7 @@ class TestRouteStationIndex:
     async def test_cascade_delete_on_route_deletion(self, db_session: AsyncSession) -> None:
         """Test that index entries are deleted when the route is deleted."""
         user = User(external_id=make_unique_external_id("auth0|cascade_test"), auth_provider="auth0")
-        route = Route(user=user, name="Test Route", active=True)
+        route = UserRoute(user=user, name="Test Route", active=True)
 
         db_session.add_all([user, route])
         await db_session.commit()
@@ -889,9 +889,9 @@ class TestRouteStationIndex:
 
     @pytest.mark.asyncio
     async def test_index_relationship(self, db_session: AsyncSession) -> None:
-        """Test the relationship between RouteStationIndex and Route."""
+        """Test the relationship between RouteStationIndex and UserRoute."""
         user = User(external_id=make_unique_external_id("auth0|relationship_test"), auth_provider="auth0")
-        route = Route(user=user, name="Test Route", active=True)
+        route = UserRoute(user=user, name="Test Route", active=True)
 
         db_session.add_all([user, route])
         await db_session.commit()
@@ -916,9 +916,9 @@ class TestRouteStationIndex:
     async def test_index_query_by_line_and_station(self, db_session: AsyncSession) -> None:
         """Test querying index by line and station (the primary use case)."""
         user = User(external_id=make_unique_external_id("auth0|query_test"), auth_provider="auth0")
-        route1 = Route(user=user, name="Route 1", active=True)
-        route2 = Route(user=user, name="Route 2", active=True)
-        route3 = Route(user=user, name="Route 3", active=True)
+        route1 = UserRoute(user=user, name="Route 1", active=True)
+        route2 = UserRoute(user=user, name="Route 2", active=True)
+        route3 = UserRoute(user=user, name="Route 3", active=True)
 
         db_session.add_all([user, route1, route2, route3])
         await db_session.commit()
@@ -962,8 +962,8 @@ class TestRouteStationIndex:
     async def test_index_staleness_query(self, db_session: AsyncSession) -> None:
         """Test querying for stale index entries by line_data_version."""
         user = User(external_id=make_unique_external_id("auth0|staleness_test"), auth_provider="auth0")
-        route1 = Route(user=user, name="Route 1", active=True)
-        route2 = Route(user=user, name="Route 2", active=True)
+        route1 = UserRoute(user=user, name="Route 1", active=True)
+        route2 = UserRoute(user=user, name="Route 2", active=True)
 
         db_session.add_all([user, route1, route2])
         await db_session.commit()

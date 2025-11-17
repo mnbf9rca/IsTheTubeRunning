@@ -8,7 +8,7 @@ from unittest.mock import AsyncMock, patch
 import pytest
 from app.core.database import get_db
 from app.main import app
-from app.models.route import Route, RouteSchedule, RouteSegment
+from app.models.route import UserRoute, UserRouteSchedule, UserRouteSegment
 from app.models.tfl import Line, Station
 from app.models.user import User
 from fastapi import HTTPException, status
@@ -157,8 +157,8 @@ class TestRoutesAPI:
     ) -> None:
         """Test listing all routes for a user."""
         # Create test routes
-        route1 = Route(user_id=test_user.id, name="Route 1", active=True, timezone="Europe/London")
-        route2 = Route(user_id=test_user.id, name="Route 2", active=False, timezone="Europe/London")
+        route1 = UserRoute(user_id=test_user.id, name="Route 1", active=True, timezone="Europe/London")
+        route2 = UserRoute(user_id=test_user.id, name="Route 2", active=False, timezone="Europe/London")
         db_session.add_all([route1, route2])
         await db_session.commit()
 
@@ -199,8 +199,8 @@ class TestRoutesAPI:
         db_session: AsyncSession,
     ) -> None:
         """Test that users can only see their own routes."""
-        route1 = Route(user_id=test_user.id, name="My Route", active=True)
-        route2 = Route(user_id=another_user.id, name="Other Route", active=True)
+        route1 = UserRoute(user_id=test_user.id, name="My Route", active=True)
+        route2 = UserRoute(user_id=another_user.id, name="Other Route", active=True)
         db_session.add_all([route1, route2])
         await db_session.commit()
 
@@ -223,7 +223,7 @@ class TestRoutesAPI:
         db_session: AsyncSession,
     ) -> None:
         """Test getting a single route by ID."""
-        route = Route(
+        route = UserRoute(
             user_id=test_user.id,
             name="Test Route",
             description="Test description",
@@ -268,7 +268,7 @@ class TestRoutesAPI:
         db_session: AsyncSession,
     ) -> None:
         """Test that users cannot access other users' routes."""
-        route = Route(user_id=another_user.id, name="Other Route", active=True)
+        route = UserRoute(user_id=another_user.id, name="Other Route", active=True)
         db_session.add(route)
         await db_session.commit()
         await db_session.refresh(route)
@@ -289,7 +289,7 @@ class TestRoutesAPI:
         db_session: AsyncSession,
     ) -> None:
         """Test updating a route."""
-        route = Route(user_id=test_user.id, name="Old Name", active=True)
+        route = UserRoute(user_id=test_user.id, name="Old Name", active=True)
         db_session.add(route)
         await db_session.commit()
         await db_session.refresh(route)
@@ -319,7 +319,7 @@ class TestRoutesAPI:
         db_session: AsyncSession,
     ) -> None:
         """Test partial update of a route."""
-        route = Route(
+        route = UserRoute(
             user_id=test_user.id,
             name="Old Name",
             description="Old description",
@@ -350,7 +350,7 @@ class TestRoutesAPI:
         db_session: AsyncSession,
     ) -> None:
         """Test deleting a route."""
-        route = Route(user_id=test_user.id, name="Test Route", active=True)
+        route = UserRoute(user_id=test_user.id, name="Test Route", active=True)
         db_session.add(route)
         await db_session.commit()
         route_id = route.id
@@ -363,7 +363,7 @@ class TestRoutesAPI:
         assert response.status_code == status.HTTP_204_NO_CONTENT
 
         # Verify route was deleted
-        result = await db_session.execute(select(Route).where(Route.id == route_id))
+        result = await db_session.execute(select(UserRoute).where(UserRoute.id == route_id))
         assert result.scalar_one_or_none() is None
 
     # ==================== Timezone Tests ====================
@@ -434,7 +434,7 @@ class TestRoutesAPI:
         db_session: AsyncSession,
     ) -> None:
         """Test updating a route's timezone."""
-        route = Route(
+        route = UserRoute(
             user_id=test_user.id,
             name="Test Route",
             active=True,
@@ -463,7 +463,7 @@ class TestRoutesAPI:
         db_session: AsyncSession,
     ) -> None:
         """Test updating a route with invalid timezone fails validation."""
-        route = Route(
+        route = UserRoute(
             user_id=test_user.id,
             name="Test Route",
             active=True,
@@ -492,7 +492,7 @@ class TestRoutesAPI:
         db_session: AsyncSession,
     ) -> None:
         """Test that getting a route returns timezone field."""
-        route = Route(
+        route = UserRoute(
             user_id=test_user.id,
             name="Test Route",
             active=True,
@@ -520,7 +520,7 @@ class TestRoutesAPI:
         db_session: AsyncSession,
     ) -> None:
         """Test that listing routes includes timezone field."""
-        route = Route(
+        route = UserRoute(
             user_id=test_user.id,
             name="Test Route",
             active=True,
@@ -548,7 +548,7 @@ class TestRoutesAPI:
         db_session: AsyncSession,
     ) -> None:
         """Test that updating route with timezone=None preserves existing timezone."""
-        route = Route(
+        route = UserRoute(
             user_id=test_user.id,
             name="Test Route",
             active=True,
@@ -579,7 +579,7 @@ class TestRoutesAPI:
         db_session: AsyncSession,
     ) -> None:
         """Test that updating route with explicit timezone: null preserves existing timezone."""
-        route = Route(
+        route = UserRoute(
             user_id=test_user.id,
             name="Test Route",
             active=True,
@@ -620,7 +620,7 @@ class TestRoutesAPI:
         # Mock validation to pass
         mock_validate.return_value = None
 
-        route = Route(user_id=test_user.id, name="Test Route", active=True)
+        route = UserRoute(user_id=test_user.id, name="Test Route", active=True)
         db_session.add(route)
         await db_session.commit()
         await db_session.refresh(route)
@@ -670,7 +670,7 @@ class TestRoutesAPI:
             detail="Route validation failed: No connection between stations",
         )
 
-        route = Route(user_id=test_user.id, name="Test Route", active=True)
+        route = UserRoute(user_id=test_user.id, name="Test Route", active=True)
         db_session.add(route)
         await db_session.commit()
         await db_session.refresh(route)
@@ -709,7 +709,7 @@ class TestRoutesAPI:
         db_session: AsyncSession,
     ) -> None:
         """Test that non-consecutive sequences are rejected."""
-        route = Route(user_id=test_user.id, name="Test Route", active=True)
+        route = UserRoute(user_id=test_user.id, name="Test Route", active=True)
         db_session.add(route)
         await db_session.commit()
         await db_session.refresh(route)
@@ -752,11 +752,11 @@ class TestRoutesAPI:
         # Mock validation to pass
         mock_validate.return_value = None
 
-        route = Route(user_id=test_user.id, name="Test Route", active=True)
+        route = UserRoute(user_id=test_user.id, name="Test Route", active=True)
         db_session.add(route)
         await db_session.flush()
 
-        segment = RouteSegment(
+        segment = UserRouteSegment(
             route_id=route.id,
             sequence=0,
             station_id=test_station1.id,
@@ -787,13 +787,13 @@ class TestRoutesAPI:
         db_session: AsyncSession,
     ) -> None:
         """Test deleting a segment and resequencing."""
-        route = Route(user_id=test_user.id, name="Test Route", active=True)
+        route = UserRoute(user_id=test_user.id, name="Test Route", active=True)
         db_session.add(route)
         await db_session.flush()
 
         # Create 3 segments
         segments = [
-            RouteSegment(
+            UserRouteSegment(
                 route_id=route.id,
                 sequence=i,
                 station_id=test_station1.id if i % 2 == 0 else test_station2.id,
@@ -813,7 +813,7 @@ class TestRoutesAPI:
 
         # Verify segment was deleted and others resequenced
         result = await db_session.execute(
-            select(RouteSegment).where(RouteSegment.route_id == route.id).order_by(RouteSegment.sequence)
+            select(UserRouteSegment).where(UserRouteSegment.route_id == route.id).order_by(UserRouteSegment.sequence)
         )
         remaining = list(result.scalars().all())
         assert len(remaining) == 2
@@ -832,13 +832,13 @@ class TestRoutesAPI:
         db_session: AsyncSession,
     ) -> None:
         """Test that deletion is prevented if it would leave <2 segments."""
-        route = Route(user_id=test_user.id, name="Test Route", active=True)
+        route = UserRoute(user_id=test_user.id, name="Test Route", active=True)
         db_session.add(route)
         await db_session.flush()
 
         # Create exactly 2 segments (minimum)
         segments = [
-            RouteSegment(
+            UserRouteSegment(
                 route_id=route.id,
                 sequence=i,
                 station_id=test_station1.id if i == 0 else test_station2.id,
@@ -875,7 +875,7 @@ class TestRoutesAPI:
         # Mock validation to pass
         mock_validate.return_value = None
 
-        route = Route(user_id=test_user.id, name="Test Route", active=True)
+        route = UserRoute(user_id=test_user.id, name="Test Route", active=True)
         db_session.add(route)
         await db_session.commit()
         await db_session.refresh(route)
@@ -922,7 +922,7 @@ class TestRoutesAPI:
         db_session: AsyncSession,
     ) -> None:
         """Test creating a schedule for a route."""
-        route = Route(user_id=test_user.id, name="Test Route", active=True)
+        route = UserRoute(user_id=test_user.id, name="Test Route", active=True)
         db_session.add(route)
         await db_session.commit()
         await db_session.refresh(route)
@@ -952,7 +952,7 @@ class TestRoutesAPI:
         db_session: AsyncSession,
     ) -> None:
         """Test that invalid day codes are rejected."""
-        route = Route(user_id=test_user.id, name="Test Route", active=True)
+        route = UserRoute(user_id=test_user.id, name="Test Route", active=True)
         db_session.add(route)
         await db_session.commit()
         await db_session.refresh(route)
@@ -978,7 +978,7 @@ class TestRoutesAPI:
         db_session: AsyncSession,
     ) -> None:
         """Test that end_time must be after start_time."""
-        route = Route(user_id=test_user.id, name="Test Route", active=True)
+        route = UserRoute(user_id=test_user.id, name="Test Route", active=True)
         db_session.add(route)
         await db_session.commit()
         await db_session.refresh(route)
@@ -1004,11 +1004,11 @@ class TestRoutesAPI:
         db_session: AsyncSession,
     ) -> None:
         """Test service-layer validation when partially updating time (only one field)."""
-        route = Route(user_id=test_user.id, name="Test Route", active=True)
+        route = UserRoute(user_id=test_user.id, name="Test Route", active=True)
         db_session.add(route)
         await db_session.flush()
 
-        schedule = RouteSchedule(
+        schedule = UserRouteSchedule(
             route_id=route.id,
             days_of_week=["MON"],
             start_time=time(8, 0),
@@ -1038,11 +1038,11 @@ class TestRoutesAPI:
         db_session: AsyncSession,
     ) -> None:
         """Test updating a schedule."""
-        route = Route(user_id=test_user.id, name="Test Route", active=True)
+        route = UserRoute(user_id=test_user.id, name="Test Route", active=True)
         db_session.add(route)
         await db_session.flush()
 
-        schedule = RouteSchedule(
+        schedule = UserRouteSchedule(
             route_id=route.id,
             days_of_week=["MON", "TUE"],
             start_time=time(8, 0),
@@ -1071,11 +1071,11 @@ class TestRoutesAPI:
         db_session: AsyncSession,
     ) -> None:
         """Test deleting a schedule."""
-        route = Route(user_id=test_user.id, name="Test Route", active=True)
+        route = UserRoute(user_id=test_user.id, name="Test Route", active=True)
         db_session.add(route)
         await db_session.flush()
 
-        schedule = RouteSchedule(
+        schedule = UserRouteSchedule(
             route_id=route.id,
             days_of_week=["MON"],
             start_time=time(8, 0),
@@ -1093,7 +1093,7 @@ class TestRoutesAPI:
         assert response.status_code == status.HTTP_204_NO_CONTENT
 
         # Verify deletion
-        result = await db_session.execute(select(RouteSchedule).where(RouteSchedule.id == schedule_id))
+        result = await db_session.execute(select(UserRouteSchedule).where(UserRouteSchedule.id == schedule_id))
         assert result.scalar_one_or_none() is None
 
     @pytest.mark.asyncio
@@ -1106,11 +1106,11 @@ class TestRoutesAPI:
     ) -> None:
         """Test that users cannot modify other users' schedules."""
         # Create route and schedule for another user
-        route = Route(user_id=another_user.id, name="Other Route", active=True)
+        route = UserRoute(user_id=another_user.id, name="Other Route", active=True)
         db_session.add(route)
         await db_session.flush()
 
-        schedule = RouteSchedule(
+        schedule = UserRouteSchedule(
             route_id=route.id,
             days_of_week=["MON"],
             start_time=time(8, 0),
@@ -1141,7 +1141,7 @@ class TestRoutesAPI:
         db_session: AsyncSession,
     ) -> None:
         """Test updating a non-existent segment."""
-        route = Route(user_id=test_user.id, name="Test Route", active=True)
+        route = UserRoute(user_id=test_user.id, name="Test Route", active=True)
         db_session.add(route)
         await db_session.commit()
         await db_session.refresh(route)
@@ -1167,13 +1167,13 @@ class TestRoutesAPI:
         db_session: AsyncSession,
     ) -> None:
         """Test deleting a non-existent segment."""
-        route = Route(user_id=test_user.id, name="Test Route", active=True)
+        route = UserRoute(user_id=test_user.id, name="Test Route", active=True)
         db_session.add(route)
         await db_session.flush()
 
         # Add 3 segments so we can test deletion without hitting minimum constraint
         segments = [
-            RouteSegment(
+            UserRouteSegment(
                 route_id=route.id,
                 sequence=i,
                 station_id=test_station1.id if i % 2 == 0 else test_station2.id,
@@ -1201,7 +1201,7 @@ class TestRoutesAPI:
         db_session: AsyncSession,
     ) -> None:
         """Test updating/deleting a non-existent schedule."""
-        route = Route(user_id=test_user.id, name="Test Route", active=True)
+        route = UserRoute(user_id=test_user.id, name="Test Route", active=True)
         db_session.add(route)
         await db_session.commit()
         await db_session.refresh(route)
@@ -1234,7 +1234,7 @@ class TestRoutesAPI:
         db_session: AsyncSession,
     ) -> None:
         """Test updating only the description field of a route."""
-        route = Route(
+        route = UserRoute(
             user_id=test_user.id,
             name="Original Name",
             description="Original description",
@@ -1282,11 +1282,11 @@ class TestRoutesAPI:
         await db_session.commit()
         await db_session.refresh(line2)
 
-        route = Route(user_id=test_user.id, name="Test Route", active=True)
+        route = UserRoute(user_id=test_user.id, name="Test Route", active=True)
         db_session.add(route)
         await db_session.flush()
 
-        segment = RouteSegment(
+        segment = UserRouteSegment(
             route_id=route.id,
             sequence=0,
             station_id=test_station1.id,
@@ -1315,11 +1315,11 @@ class TestRoutesAPI:
         db_session: AsyncSession,
     ) -> None:
         """Test updating only the start_time field of a schedule."""
-        route = Route(user_id=test_user.id, name="Test Route", active=True)
+        route = UserRoute(user_id=test_user.id, name="Test Route", active=True)
         db_session.add(route)
         await db_session.flush()
 
-        schedule = RouteSchedule(
+        schedule = UserRouteSchedule(
             route_id=route.id,
             days_of_week=["MON"],
             start_time=time(8, 0),
@@ -1361,7 +1361,7 @@ class TestRoutesAPI:
             detail="Route validation failed: Station not on line (segment index: 1)",
         )
 
-        route = Route(user_id=test_user.id, name="Test Route", active=True)
+        route = UserRoute(user_id=test_user.id, name="Test Route", active=True)
         db_session.add(route)
         await db_session.commit()
         await db_session.refresh(route)
@@ -1410,11 +1410,11 @@ class TestRoutesAPI:
             detail="Route validation failed: Invalid route configuration",
         )
 
-        route = Route(user_id=test_user.id, name="Test Route", active=True)
+        route = UserRoute(user_id=test_user.id, name="Test Route", active=True)
         db_session.add(route)
         await db_session.flush()
 
-        segment = RouteSegment(
+        segment = UserRouteSegment(
             route_id=route.id,
             sequence=0,
             station_id=test_station1.id,
@@ -1441,11 +1441,11 @@ class TestRoutesAPI:
         db_session: AsyncSession,
     ) -> None:
         """Test updating schedule without providing days_of_week (None case)."""
-        route = Route(user_id=test_user.id, name="Test Route", active=True)
+        route = UserRoute(user_id=test_user.id, name="Test Route", active=True)
         db_session.add(route)
         await db_session.flush()
 
-        schedule = RouteSchedule(
+        schedule = UserRouteSchedule(
             route_id=route.id,
             days_of_week=["MON", "TUE"],
             start_time=time(8, 0),
@@ -1484,7 +1484,7 @@ class TestRoutesAPI:
         # Mock TfL service to return validation failure with index
         mock_validate_route.return_value = (False, "Station not on line", 1)
 
-        route = Route(user_id=test_user.id, name="Test Route", active=True)
+        route = UserRoute(user_id=test_user.id, name="Test Route", active=True)
         db_session.add(route)
         await db_session.commit()
         await db_session.refresh(route)
@@ -1531,7 +1531,7 @@ class TestRoutesAPI:
         # Mock TfL service to return validation failure without index
         mock_validate_route.return_value = (False, "Invalid route configuration", None)
 
-        route = Route(user_id=test_user.id, name="Test Route", active=True)
+        route = UserRoute(user_id=test_user.id, name="Test Route", active=True)
         db_session.add(route)
         await db_session.commit()
         await db_session.refresh(route)
@@ -1579,11 +1579,11 @@ class TestRoutesAPI:
         # Mock TfL service to return success
         mock_validate_route.return_value = (True, "", None)
 
-        route = Route(user_id=test_user.id, name="Test Route", active=True)
+        route = UserRoute(user_id=test_user.id, name="Test Route", active=True)
         db_session.add(route)
         await db_session.flush()
 
-        segment = RouteSegment(
+        segment = UserRouteSegment(
             route_id=route.id,
             sequence=0,
             station_id=test_station1.id,
@@ -1611,11 +1611,11 @@ class TestRoutesAPI:
         db_session: AsyncSession,
     ) -> None:
         """Test updating schedule with explicit days_of_week: None to trigger validator line 153."""
-        route = Route(user_id=test_user.id, name="Test Route", active=True)
+        route = UserRoute(user_id=test_user.id, name="Test Route", active=True)
         db_session.add(route)
         await db_session.flush()
 
-        schedule = RouteSchedule(
+        schedule = UserRouteSchedule(
             route_id=route.id,
             days_of_week=["MON", "TUE"],
             start_time=time(8, 0),
@@ -1672,7 +1672,7 @@ class TestRouteSegmentsWithHubCodes:
         - Destination on elizabethline
         """
         # Create route
-        route = Route(user_id=test_user.id, name="Cross-Mode Hub Route", active=True)
+        route = UserRoute(user_id=test_user.id, name="Cross-Mode Hub Route", active=True)
         db_session.add(route)
         await db_session.commit()
 
@@ -1708,7 +1708,7 @@ class TestRouteSegmentsWithHubCodes:
         test_railway_network: RailwayNetworkFixture,
     ) -> None:
         """Test creating route with mix of hub codes and regular station IDs."""
-        route = Route(user_id=test_user.id, name="Mixed Route", active=True)
+        route = UserRoute(user_id=test_user.id, name="Mixed Route", active=True)
         db_session.add(route)
         await db_session.commit()
 
@@ -1758,7 +1758,7 @@ class TestRouteSegmentsWithHubCodes:
         db_session.add_all([line3, other_station])
         await db_session.commit()
 
-        route = Route(user_id=test_user.id, name="Invalid Route", active=True)
+        route = UserRoute(user_id=test_user.id, name="Invalid Route", active=True)
         db_session.add(route)
         await db_session.commit()
 
@@ -1788,7 +1788,7 @@ class TestRouteSegmentsWithHubCodes:
         test_railway_network: RailwayNetworkFixture,
     ) -> None:
         """Test updating an existing segment to use a hub code."""
-        route = Route(user_id=test_user.id, name="Update Test Route", active=True)
+        route = UserRoute(user_id=test_user.id, name="Update Test Route", active=True)
         db_session.add(route)
         await db_session.commit()
 
@@ -1828,7 +1828,7 @@ class TestRouteSegmentsWithHubCodes:
         test_railway_network: RailwayNetworkFixture,
     ) -> None:
         """Test GET route returns hub codes (canonicalize on read)."""
-        route = Route(user_id=test_user.id, name="Canonical Test Route", active=True)
+        route = UserRoute(user_id=test_user.id, name="Canonical Test Route", active=True)
         db_session.add(route)
         await db_session.commit()
 
@@ -1869,7 +1869,7 @@ class TestRouteSegmentsWithHubCodes:
         test_railway_network: RailwayNetworkFixture,
     ) -> None:
         """Test that existing routes using station IDs continue to work."""
-        route = Route(user_id=test_user.id, name="Backward Compat Route", active=True)
+        route = UserRoute(user_id=test_user.id, name="Backward Compat Route", active=True)
         db_session.add(route)
         await db_session.commit()
 

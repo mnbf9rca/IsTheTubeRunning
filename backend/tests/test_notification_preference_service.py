@@ -2,7 +2,7 @@
 
 import pytest
 from app.models.notification import NotificationMethod
-from app.models.route import Route
+from app.models.route import UserRoute
 from app.models.user import EmailAddress, PhoneNumber, User
 from app.services.notification_preference_service import NotificationPreferenceService
 from fastapi import HTTPException, status
@@ -15,9 +15,9 @@ class TestNotificationPreferenceServiceDirect:
     """Test cases for service-level validation bypassing Pydantic."""
 
     @pytest.fixture
-    async def test_route(self, db_session: AsyncSession, test_user: User) -> Route:
+    async def test_route(self, db_session: AsyncSession, test_user: User) -> UserRoute:
         """Create a test route."""
-        route = Route(
+        route = UserRoute(
             user_id=test_user.id,
             name="Test Route",
             active=True,
@@ -68,7 +68,7 @@ class TestNotificationPreferenceServiceDirect:
         self,
         db_session: AsyncSession,
         test_user: User,
-        test_route: Route,
+        test_route: UserRoute,
     ) -> None:
         """Test creating preference with no targets (bypassing Pydantic)."""
         service = NotificationPreferenceService(db_session)
@@ -90,7 +90,7 @@ class TestNotificationPreferenceServiceDirect:
         self,
         db_session: AsyncSession,
         test_user: User,
-        test_route: Route,
+        test_route: UserRoute,
         verified_email: EmailAddress,
         verified_phone: PhoneNumber,
     ) -> None:
@@ -124,7 +124,7 @@ class TestNotificationPreferenceServiceDirect:
         self,
         db_session: AsyncSession,
         test_user: User,
-        test_route: Route,
+        test_route: UserRoute,
         verified_email: EmailAddress,
     ) -> None:
         """Test changing method without providing matching target."""
@@ -158,7 +158,7 @@ class TestNotificationPreferenceServiceDirect:
         self,
         db_session: AsyncSession,
         test_user: User,
-        test_route: Route,
+        test_route: UserRoute,
         verified_phone: PhoneNumber,
     ) -> None:
         """Test changing from SMS to EMAIL method without providing email target."""

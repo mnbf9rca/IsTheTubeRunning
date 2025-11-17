@@ -145,11 +145,28 @@ Each phase must achieve:
 
 ## Learnings Log
 
-### Phase 4: [Agent to fill in]
+### Phase 4: Model Class Renames (COMPLETE)
 - **What worked**:
+  - Using Edit tool with `replace_all=true` for consistent patterns (e.g., `Route(` → `UserRoute(`)
+  - Systematically updating imports first, then type hints, then usages
+  - ast-grep for verification of complete replacement
+  - Mypy caught all type-related issues immediately
+
 - **What didn't**:
+  - Initial approach of doing blanket `replace_all` for `Route` accidentally renamed service classes (RouteService → UserRouteService) and schema names which shouldn't have been changed in Phase 4
+  - `replace_all` on already-replaced imports created double-replacements (UserRoute → UserUserRoute)
+  - Missed references like `select(Route)` and `Route.` that weren't caught by `Route(` pattern
+  - Had to manually fix test files with multiple patterns (`-> Route:`, `route: Route`, `Route.`, `select(Route)`)
+
 - **Gotchas**:
-- **Time taken**:
+  - **Service class names should NOT be renamed in Phase 4** (that's Phase 5) - had to revert RouteService and RouteIndexService
+  - **Schema names should NOT be renamed in Phase 4** (that's Phase 7) - had to revert CreateUserRouteRequest back to CreateRouteRequest
+  - **RouteStationIndex should NOT be renamed** - that's Phase 6
+  - Type annotations in function signatures need separate replacements: `-> Route:`, `route: Route`
+  - SQLAlchemy queries need updates: `select(Route)`, `Route.id`, etc.
+  - Must read files before using Edit tool (encountered multiple "file not read" errors)
+
+- **Time taken**: ~2 hours (including fixing double-replacements and missed patterns)
 
 ### Phase 5: [Agent to fill in]
 - **What worked**:

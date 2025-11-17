@@ -20,7 +20,7 @@ from app.models.notification import (
     NotificationPreference,
     NotificationStatus,
 )
-from app.models.route import Route, RouteSchedule
+from app.models.route import UserRoute, UserRouteSchedule
 from app.models.route_index import RouteStationIndex
 from app.models.tfl import Line, LineDisruptionStateLog
 from app.models.user import EmailAddress, PhoneNumber, User
@@ -437,25 +437,25 @@ class AlertService:
             stats["errors"] += 1
             return stats
 
-    async def _get_active_routes(self) -> list[Route]:
+    async def _get_active_routes(self) -> list[UserRoute]:
         """
         Get all active routes with their relationships.
 
         Returns:
-            List of active Route objects with segments, schedules, preferences, and user loaded
+            List of active UserRoute objects with segments, schedules, preferences, and user loaded
         """
         try:
             result = await self.db.execute(
-                select(Route)
+                select(UserRoute)
                 .where(
-                    Route.active == True,  # noqa: E712
-                    Route.deleted_at.is_(None),
+                    UserRoute.active == True,  # noqa: E712
+                    UserRoute.deleted_at.is_(None),
                 )
                 .options(
-                    selectinload(Route.segments),
-                    selectinload(Route.schedules),
-                    selectinload(Route.notification_preferences),
-                    selectinload(Route.user).selectinload(User.email_addresses),
+                    selectinload(UserRoute.segments),
+                    selectinload(UserRoute.schedules),
+                    selectinload(UserRoute.notification_preferences),
+                    selectinload(UserRoute.user).selectinload(User.email_addresses),
                 )
             )
             return list(result.scalars().all())
@@ -466,16 +466,16 @@ class AlertService:
 
     async def _get_active_schedule(
         self,
-        route: Route,
-        schedules: list[RouteSchedule] | None = None,
-    ) -> RouteSchedule | None:
+        route: UserRoute,
+        schedules: list[UserRouteSchedule] | None = None,
+    ) -> UserRouteSchedule | None:
         """
         Check if the route is currently in any active schedule window.
 
         Converts UTC now to route's timezone and checks against schedule windows.
 
         Args:
-            route: Route to check schedules for
+            route: UserRoute to check schedules for
             schedules: Optional list of schedules. If None, uses route.schedules
                        (but requires schedules to be eagerly loaded)
 
@@ -571,7 +571,7 @@ class AlertService:
         Get (line_tfl_id, station_naptan) pairs for a specific route from the index.
 
         Args:
-            route_id: Route ID to get index pairs for
+            route_id: UserRoute ID to get index pairs for
 
         Returns:
             Set of (line_tfl_id, station_naptan) tuples for this route
@@ -650,11 +650,11 @@ class AlertService:
 
         # Query all routes that have segments on this line
         result = await self.db.execute(
-            select(Route.id)
+            select(UserRoute.id)
             .where(
-                Route.segments.any(line_id=line_db_id),
-                Route.active.is_(True),
-                Route.deleted_at.is_(None),
+                UserRoute.segments.any(line_id=line_db_id),
+                UserRoute.active.is_(True),
+                UserRoute.deleted_at.is_(None),
             )
             .distinct()
         )
@@ -668,7 +668,7 @@ class AlertService:
 
         return affected_route_ids
 
-    async def _get_route_disruptions(self, route: Route) -> tuple[list[DisruptionResponse], bool]:
+    async def _get_route_disruptions(self, route: UserRoute) -> tuple[list[DisruptionResponse], bool]:
         """
         Get current disruptions affecting this route using inverted index.
 
@@ -676,7 +676,7 @@ class AlertService:
         Falls back to line-level matching only when TfL doesn't provide station data.
 
         Args:
-            route: Route to get disruptions for
+            route: UserRoute to get disruptions for
 
         Returns:
             Tuple of (disruptions, error_occurred)
@@ -739,9 +739,9 @@ class AlertService:
 
     async def _should_send_alert(
         self,
-        route: Route,
+        route: UserRoute,
         user_id: UUID,
-        schedule: RouteSchedule,
+        schedule: UserRouteSchedule,
         disruptions: list[DisruptionResponse],
     ) -> bool:
         """
@@ -751,7 +751,7 @@ class AlertService:
         Compares current disruptions with stored state to detect changes.
 
         Args:
-            route: Route to check
+            route: UserRoute to check
             user_id: User ID for deduplication key
             schedule: Active schedule
             disruptions: Current disruptions
@@ -829,7 +829,7 @@ class AlertService:
 
         Args:
             pref: Notification preference
-            route_id: Route ID for logging
+            route_id: UserRoute ID for logging
 
         Returns:
             Contact string (email or phone) if verified, None otherwise
@@ -890,12 +890,12 @@ class AlertService:
         )
         return None
 
-    def _get_user_display_name(self, route: Route) -> str | None:
+    def _get_user_display_name(self, route: UserRoute) -> str | None:
         """
         Get user display name from their primary email address.
 
         Args:
-            route: Route with user relationship loaded
+            route: UserRoute with user relationship loaded
 
         Returns:
             User's email or None
@@ -924,7 +924,7 @@ class AlertService:
 
         Args:
             user_id: User ID
-            route_id: Route ID
+            route_id: UserRoute ID
             method: Notification method
             status: Notification status
             error_message: Optional error message
@@ -943,7 +943,7 @@ class AlertService:
         self,
         pref: NotificationPreference,
         contact_info: str,
-        route: Route,
+        route: UserRoute,
         disruptions: list[DisruptionResponse],
     ) -> tuple[bool, str | None]:
         """
@@ -952,7 +952,7 @@ class AlertService:
         Args:
             pref: Notification preference
             contact_info: Contact string (email or phone)
-            route: Route being alerted
+            route: UserRoute being alerted
             disruptions: List of disruptions
 
         Returns:
@@ -1001,15 +1001,15 @@ class AlertService:
 
     async def _send_alerts_for_route(
         self,
-        route: Route,
-        schedule: RouteSchedule,
+        route: UserRoute,
+        schedule: UserRouteSchedule,
         disruptions: list[DisruptionResponse],
     ) -> int:
         """
         Send alerts for a route to all configured notification preferences.
 
         Args:
-            route: Route to send alerts for
+            route: UserRoute to send alerts for
             schedule: Active schedule
             disruptions: Disruptions to notify about
 
@@ -1105,9 +1105,9 @@ class AlertService:
 
     async def _store_alert_state(
         self,
-        route: Route,
+        route: UserRoute,
         user_id: UUID,
-        schedule: RouteSchedule,
+        schedule: UserRouteSchedule,
         disruptions: list[DisruptionResponse],
     ) -> None:
         """
@@ -1117,7 +1117,7 @@ class AlertService:
         prevents spam; between windows, expired keys allow fresh alerts.
 
         Args:
-            route: Route the alert was sent for
+            route: UserRoute the alert was sent for
             user_id: User ID for deduplication key
             schedule: Active schedule
             disruptions: Disruptions that were alerted
