@@ -131,6 +131,8 @@ This is an automated message from IsTheTubeRunning.
 
         Raises:
             aiosmtplib.SMTPException: If email sending fails
+            asyncio.TimeoutError: If SMTP operation times out
+            OSError: If network/socket errors occur
         """
         try:
             # Create the email message
@@ -154,6 +156,13 @@ This is an automated message from IsTheTubeRunning.
 
             logger.info("email_sent", recipient=to, subject=subject)
 
+        except TimeoutError as e:
+            logger.error("email_send_timeout", recipient=to, subject=subject, error=str(e))
+            raise
+        except OSError as e:
+            # Catches ConnectionRefusedError, ConnectionResetError, socket errors, etc.
+            logger.error("email_send_network_error", recipient=to, subject=subject, error=str(e))
+            raise
         except aiosmtplib.SMTPException as e:
             logger.error("email_send_failed", recipient=to, subject=subject, error=str(e))
             raise

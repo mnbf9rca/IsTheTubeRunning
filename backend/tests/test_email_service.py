@@ -1,5 +1,6 @@
 """Tests for email service."""
 
+import asyncio
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import aiosmtplib
@@ -88,3 +89,33 @@ class TestEmailService:
         mock_smtp_class.assert_called_once_with(
             hostname=service.smtp_host, port=service.smtp_port, timeout=service.smtp_timeout
         )
+
+    @pytest.mark.asyncio
+    @patch("app.services.email_service.aiosmtplib.SMTP")
+    async def test_send_verification_email_timeout(self, mock_smtp_class: MagicMock) -> None:
+        """Test SMTP timeout exception handling when sending verification email."""
+        mock_server = AsyncMock()
+        mock_server.send_message.side_effect = TimeoutError("Timeout occurred")
+        mock_smtp_class.return_value.__aenter__.return_value = mock_server
+
+        service = EmailService()
+        email = "test@example.com"
+        code = "123456"
+
+        with pytest.raises(asyncio.TimeoutError):
+            await service.send_verification_email(email, code)
+
+    @pytest.mark.asyncio
+    @patch("app.services.email_service.aiosmtplib.SMTP")
+    async def test_send_verification_email_connection_refused(self, mock_smtp_class: MagicMock) -> None:
+        """Test network error handling when SMTP connection is refused."""
+        mock_server = AsyncMock()
+        mock_server.send_message.side_effect = ConnectionRefusedError("Connection refused")
+        mock_smtp_class.return_value.__aenter__.return_value = mock_server
+
+        service = EmailService()
+        email = "test@example.com"
+        code = "123456"
+
+        with pytest.raises(ConnectionRefusedError):
+            await service.send_verification_email(email, code)
