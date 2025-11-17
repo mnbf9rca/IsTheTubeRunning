@@ -39,4 +39,10 @@ celery_app.conf.update(
 
 # Import tasks to register them with Celery
 # This must come after celery_app is created so tasks can use the @celery_app.task decorator
-from app.celery import tasks  # noqa: E402, F401
+# Import schedules to configure Celery Beat
+# CRITICAL: This import must remain - it populates celery_app.conf.beat_schedule
+# Removing this import will break all periodic tasks (Issue #167)
+from app.celery import (  # noqa: E402
+    schedules,  # noqa: F401
+    tasks,  # noqa: F401
+)

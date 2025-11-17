@@ -9,7 +9,7 @@ from zoneinfo import ZoneInfo
 
 import redis.asyncio as redis
 import structlog
-from sqlalchemy import and_, or_, select
+from sqlalchemy import and_, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -22,7 +22,7 @@ from app.models.notification import (
 )
 from app.models.route import Route, RouteSchedule
 from app.models.route_index import RouteStationIndex
-from app.models.tfl import Line
+from app.models.tfl import Line, LineDisruptionStateLog
 from app.models.user import EmailAddress, PhoneNumber, User
 from app.schemas.tfl import DisruptionResponse
 from app.services.notification_service import NotificationService
@@ -32,6 +32,37 @@ logger = structlog.get_logger(__name__)
 
 
 # Pure helper functions for testability
+def create_line_state_hash(line_id: str, status: str, reason: str | None) -> str:
+    """
+    Create SHA256 hash of line disruption state for deduplication.
+
+    Pure function for easy testing without database dependencies.
+
+    Args:
+        line_id: TfL line ID (e.g., "bakerloo", "victoria")
+        status: Disruption status (e.g., "Good Service", "Minor Delays")
+        reason: Disruption reason text (nullable for good service)
+
+    Returns:
+        SHA256 hash string (64 characters)
+
+    Example:
+        >>> create_line_state_hash("bakerloo", "Minor Delays", "Signal failure")
+        'abc123...'  # 64-character hex string
+        >>> create_line_state_hash("victoria", "Good Service", None)
+        'def456...'  # Different hash for different state
+    """
+    # Normalize null/empty/whitespace-only reason to empty string for consistent hashing
+    # This prevents whitespace-only strings from causing unnecessary hash changes
+    normalized_reason = (reason or "").strip() or ""
+
+    # Create hash input string
+    hash_input = f"{line_id}|{status}|{normalized_reason}"
+
+    # Return SHA256 hex digest
+    return hashlib.sha256(hash_input.encode("utf-8")).hexdigest()
+
+
 def extract_line_station_pairs(disruption: DisruptionResponse) -> list[tuple[str, str]]:
     """
     Extract (line_id, station_naptan) tuples from disruption data.
@@ -156,6 +187,127 @@ class AlertService:
         self.db = db
         self.redis_client = redis_client
 
+    async def _log_line_disruption_state_changes(
+        self,
+        disruptions: list[DisruptionResponse],
+    ) -> int:
+        """
+        Log line disruption state changes to database for troubleshooting and analytics.
+
+        Only logs when state changes (different hash from last logged state for that line).
+        Uses pure function create_line_state_hash() for testability.
+
+        Args:
+            disruptions: List of current disruptions from TfL API
+
+        Returns:
+            Number of state changes logged (new log entries created)
+
+        Example:
+            >>> # First call with disruption
+            >>> await service._log_line_disruption_state_changes([disruption])
+            1  # Logged because first state
+            >>> # Second call with same disruption
+            >>> await service._log_line_disruption_state_changes([disruption])
+            0  # Not logged because hash unchanged
+            >>> # Third call with different disruption status
+            >>> await service._log_line_disruption_state_changes([updated_disruption])
+            1  # Logged because hash changed
+        """
+        try:
+            logged_count = 0
+
+            # Get all lines to log "Good Service" for lines with no disruptions
+            # This is optional - we can skip it to reduce write volume
+            # For now, only log lines that have disruptions (YAGNI principle)
+
+            # Batch-fetch all recent states for all line_ids to avoid N+1 queries
+            line_ids = [d.line_id for d in disruptions]
+            if line_ids:
+                # Subquery to find max detected_at for each line_id
+                subq = (
+                    select(
+                        LineDisruptionStateLog.line_id,
+                        func.max(LineDisruptionStateLog.detected_at).label("max_detected_at"),
+                    )
+                    .where(LineDisruptionStateLog.line_id.in_(line_ids))
+                    .group_by(LineDisruptionStateLog.line_id)
+                    .subquery()
+                )
+
+                # Join to get the full record with matching max detected_at
+                stmt = select(LineDisruptionStateLog.line_id, LineDisruptionStateLog.state_hash).join(
+                    subq,
+                    and_(
+                        LineDisruptionStateLog.line_id == subq.c.line_id,
+                        LineDisruptionStateLog.detected_at == subq.c.max_detected_at,
+                    ),
+                )
+
+                result = await self.db.execute(stmt)
+                # Build dict: {line_id: state_hash}
+                last_state_hashes = {row[0]: row[1] for row in result.all()}
+            else:
+                last_state_hashes = {}
+
+            for disruption in disruptions:
+                line_id = disruption.line_id
+                status = disruption.status_severity_description
+                # Combine all reasons into single text if multiple exist
+                reason = disruption.reason or None
+
+                # Calculate state hash
+                state_hash = create_line_state_hash(line_id, status, reason)
+
+                # Check if last logged state for this line has the same hash
+                # Use pre-fetched dict lookup instead of individual query
+                last_state_hash = last_state_hashes.get(line_id)
+
+                # Only log if state changed (or no previous state exists)
+                if state_hash != last_state_hash:
+                    # Create new log entry
+                    new_log = LineDisruptionStateLog(
+                        line_id=line_id,
+                        status_severity_description=status,
+                        reason=reason,
+                        state_hash=state_hash,
+                        detected_at=datetime.now(UTC),
+                    )
+                    self.db.add(new_log)
+                    logged_count += 1
+
+                    logger.info(
+                        "line_disruption_state_changed",
+                        line_id=line_id,
+                        status=status,
+                        previous_hash=last_state_hash,
+                        new_hash=state_hash,
+                    )
+                else:
+                    logger.debug(
+                        "line_disruption_state_unchanged",
+                        line_id=line_id,
+                        status=status,
+                        state_hash=state_hash,
+                    )
+
+            # Commit all new log entries
+            if logged_count > 0:
+                await self.db.commit()
+                logger.info("line_disruption_states_logged", count=logged_count)
+
+            return logged_count
+
+        except Exception as e:
+            logger.error(
+                "log_line_disruption_states_failed",
+                error=str(e),
+                exc_info=e,
+            )
+            await self.db.rollback()
+            # Don't raise - logging failures shouldn't block alert processing
+            return 0
+
     async def process_all_routes(self) -> dict[str, Any]:
         """
         Main entry point for processing all active routes.
@@ -177,6 +329,25 @@ class AlertService:
         try:
             routes = await self._get_active_routes()
             logger.info("active_routes_fetched", count=len(routes))
+
+            # Fetch all line disruptions once and log state changes
+            # Uses cache automatically, so subsequent per-route calls will be fast
+            # Errors here are non-fatal - per-route processing will still work
+            try:
+                tfl_service = TfLService(db=self.db)
+                all_disruptions = await tfl_service.fetch_line_disruptions(use_cache=True)
+                logger.info("all_disruptions_fetched", count=len(all_disruptions))
+
+                # Log line disruption state changes (for troubleshooting and analytics)
+                await self._log_line_disruption_state_changes(all_disruptions)
+            except Exception as e:
+                logger.error(
+                    "disruption_logging_failed",
+                    error=str(e),
+                    exc_info=e,
+                )
+                # Don't track as error - per-route processing will handle its own disruptions
+                # This is just for centralized logging
 
             for route in routes:
                 try:

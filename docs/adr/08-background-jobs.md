@@ -302,3 +302,33 @@ Use inverted index (`route_station_index` table) for station-level matching. Ind
 - **Depends on index completeness:** Routes without index entries won't match (mitigated by automatic index building on route create/update)
 - **Two matching paths:** Index-based (preferred) vs line-level fallback (rare)
 - **TfL data dependency:** Requires `disruption.affected_routes` data from TfL API (currently available for most disruption types)
+
+---
+
+## Line Disruption State Logging
+
+### Status
+Active (Implemented 2025-11-17, Issue #167)
+
+### Context
+Redis stores temporary alert deduplication state with TTL expiration. Once keys expire, historical disruption data is lost. This makes troubleshooting difficult:
+- "When did the Bakerloo line disruption start?"
+- "How long was the Central line disrupted?"
+- "Why didn't I get notified for yesterday's disruption?"
+
+`NotificationLog` tracks user notification delivery (who was notified when via what method), but doesn't track TfL line disruption states over time.
+
+### Decision
+Persist line disruption state changes to database for historical visibility. Use content-based deduplication (SHA256 hash) to log only state changes, not every check. Logging is non-blocking - failures don't stop alert processing. Following YAGNI, only log disruptions (not "Good Service" states).
+
+### Consequences
+**Easier:**
+- Historical troubleshooting - can answer "when did disruption start/end" questions
+- Disruption analytics - enables frequency and duration analysis
+- Low storage overhead - only state changes logged, not every check
+- Reliable - failures don't block alert processing
+
+**More Difficult:**
+- Additional table to maintain
+- Absence of log entry doesn't mean "Good Service" (we don't log non-disruption states)
+- No automatic cleanup (could add retention policy later if needed)

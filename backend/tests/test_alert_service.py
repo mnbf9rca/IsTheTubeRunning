@@ -20,10 +20,15 @@ from app.models.notification import (
 )
 from app.models.route import Route, RouteSchedule, RouteSegment
 from app.models.route_index import RouteStationIndex
-from app.models.tfl import Line, Station
+from app.models.tfl import Line, LineDisruptionStateLog, Station
 from app.models.user import EmailAddress, PhoneNumber, User
 from app.schemas.tfl import AffectedRouteInfo, DisruptionResponse
-from app.services.alert_service import AlertService, extract_line_station_pairs, get_redis_client
+from app.services.alert_service import (
+    AlertService,
+    create_line_state_hash,
+    extract_line_station_pairs,
+    get_redis_client,
+)
 from freezegun import freeze_time
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -2632,3 +2637,426 @@ class TestPerformance:
         assert elapsed_ms < index_perf_threshold, (
             f"Index query took {elapsed_ms:.2f}ms (expected < {index_perf_threshold}ms)"
         )
+
+
+class TestLineDisruptionStateLogging:
+    """Tests for line disruption state logging functionality."""
+
+    def test_create_line_state_hash_pure_function(self):
+        """Test that create_line_state_hash produces consistent hashes."""
+        # Same inputs should produce same hash
+        hash1 = create_line_state_hash("bakerloo", "Minor Delays", "Signal failure")
+        hash2 = create_line_state_hash("bakerloo", "Minor Delays", "Signal failure")
+        assert hash1 == hash2
+
+        # Different inputs should produce different hashes
+        hash3 = create_line_state_hash("bakerloo", "Severe Delays", "Signal failure")
+        assert hash1 != hash3
+
+        hash4 = create_line_state_hash("victoria", "Minor Delays", "Signal failure")
+        assert hash1 != hash4
+
+        hash5 = create_line_state_hash("bakerloo", "Minor Delays", "Track fault")
+        assert hash1 != hash5
+
+        # Hash should be 64 characters (SHA256 hex digest)
+        assert len(hash1) == 64
+        assert all(c in "0123456789abcdef" for c in hash1)
+
+    def test_create_line_state_hash_null_reason(self):
+        """Test that create_line_state_hash handles null reasons consistently."""
+        # None and empty string should produce same hash
+        hash_none = create_line_state_hash("victoria", "Good Service", None)
+        hash_empty = create_line_state_hash("victoria", "Good Service", "")
+        assert hash_none == hash_empty
+
+        # Good Service with no reason should differ from disruption with reason
+        hash_with_reason = create_line_state_hash("victoria", "Good Service", "Testing")
+        assert hash_none != hash_with_reason
+
+    async def test_log_line_disruption_state_changes_first_state(
+        self,
+        db_session: AsyncSession,
+        mock_redis: AsyncMock,
+    ):
+        """Test that first disruption state is always logged."""
+        alert_service = AlertService(db=db_session, redis_client=mock_redis)
+
+        # Create disruption
+        disruption = DisruptionResponse(
+            line_id="bakerloo",
+            line_name="Bakerloo",
+            status_severity=10,
+            status_severity_description="Minor Delays",
+            reason="Signal failure at Baker Street",
+        )
+
+        # Log state change
+        logged_count = await alert_service._log_line_disruption_state_changes([disruption])
+
+        # Should log because no previous state
+        assert logged_count == 1
+
+        # Verify database entry
+        result = await db_session.execute(select(LineDisruptionStateLog))
+        logs = result.scalars().all()
+        assert len(logs) == 1
+        assert logs[0].line_id == "bakerloo"
+        assert logs[0].status_severity_description == "Minor Delays"
+        assert logs[0].reason == "Signal failure at Baker Street"
+        assert logs[0].state_hash is not None
+        assert logs[0].detected_at is not None
+
+    async def test_log_line_disruption_state_changes_no_change(
+        self,
+        db_session: AsyncSession,
+        mock_redis: AsyncMock,
+    ):
+        """Test that unchanged disruption state is not logged again."""
+        alert_service = AlertService(db=db_session, redis_client=mock_redis)
+
+        # Create disruption
+        disruption = DisruptionResponse(
+            line_id="central",
+            line_name="Central",
+            status_severity=10,
+            status_severity_description="Minor Delays",
+            reason="Train cancellation",
+        )
+
+        # Log first state
+        logged_count1 = await alert_service._log_line_disruption_state_changes([disruption])
+        assert logged_count1 == 1
+
+        # Log same state again
+        logged_count2 = await alert_service._log_line_disruption_state_changes([disruption])
+        assert logged_count2 == 0  # Should not log duplicate
+
+        # Verify only one database entry
+        result = await db_session.execute(
+            select(LineDisruptionStateLog).where(LineDisruptionStateLog.line_id == "central")
+        )
+        logs = result.scalars().all()
+        assert len(logs) == 1
+
+    async def test_log_line_disruption_state_changes_state_changed(
+        self,
+        db_session: AsyncSession,
+        mock_redis: AsyncMock,
+    ):
+        """Test that changed disruption state is logged."""
+        alert_service = AlertService(db=db_session, redis_client=mock_redis)
+
+        # Create initial disruption
+        disruption1 = DisruptionResponse(
+            line_id="piccadilly",
+            line_name="Piccadilly",
+            status_severity=10,
+            status_severity_description="Minor Delays",
+            reason="Passenger incident",
+        )
+
+        # Log first state
+        logged_count1 = await alert_service._log_line_disruption_state_changes([disruption1])
+        assert logged_count1 == 1
+
+        # Create changed disruption (same line, different status)
+        disruption2 = DisruptionResponse(
+            line_id="piccadilly",
+            line_name="Piccadilly",
+            status_severity=20,
+            status_severity_description="Severe Delays",
+            reason="Passenger incident",
+        )
+
+        # Log changed state
+        logged_count2 = await alert_service._log_line_disruption_state_changes([disruption2])
+        assert logged_count2 == 1  # Should log because state changed
+
+        # Verify two database entries
+        result = await db_session.execute(
+            select(LineDisruptionStateLog)
+            .where(LineDisruptionStateLog.line_id == "piccadilly")
+            .order_by(LineDisruptionStateLog.detected_at)
+        )
+        logs = result.scalars().all()
+        assert len(logs) == 2
+        assert logs[0].status_severity_description == "Minor Delays"
+        assert logs[1].status_severity_description == "Severe Delays"
+
+    async def test_log_line_disruption_state_changes_reason_changed(
+        self,
+        db_session: AsyncSession,
+        mock_redis: AsyncMock,
+    ):
+        """Test that changed disruption reason is logged even if status is same."""
+        alert_service = AlertService(db=db_session, redis_client=mock_redis)
+
+        # Create initial disruption
+        disruption1 = DisruptionResponse(
+            line_id="district",
+            line_name="District",
+            status_severity=10,
+            status_severity_description="Minor Delays",
+            reason="Signal failure at Earl's Court",
+        )
+
+        # Log first state
+        logged_count1 = await alert_service._log_line_disruption_state_changes([disruption1])
+        assert logged_count1 == 1
+
+        # Create disruption with same status but different reason
+        disruption2 = DisruptionResponse(
+            line_id="district",
+            line_name="District",
+            status_severity=10,
+            status_severity_description="Minor Delays",
+            reason="Signal failure at Tower Hill",
+        )
+
+        # Log changed state
+        logged_count2 = await alert_service._log_line_disruption_state_changes([disruption2])
+        assert logged_count2 == 1  # Should log because reason changed
+
+        # Verify two database entries with different reasons
+        result = await db_session.execute(
+            select(LineDisruptionStateLog)
+            .where(LineDisruptionStateLog.line_id == "district")
+            .order_by(LineDisruptionStateLog.detected_at)
+        )
+        logs = result.scalars().all()
+        assert len(logs) == 2
+        assert logs[0].reason == "Signal failure at Earl's Court"
+        assert logs[1].reason == "Signal failure at Tower Hill"
+
+    async def test_log_line_disruption_state_changes_multiple_lines(
+        self,
+        db_session: AsyncSession,
+        mock_redis: AsyncMock,
+    ):
+        """Test that multiple line disruptions are logged correctly."""
+        alert_service = AlertService(db=db_session, redis_client=mock_redis)
+
+        # Create disruptions for multiple lines
+        disruptions = [
+            DisruptionResponse(
+                line_id="northern",
+                line_name="Northern",
+                status_severity=10,
+                status_severity_description="Minor Delays",
+                reason="Train cancellation",
+            ),
+            DisruptionResponse(
+                line_id="jubilee",
+                line_name="Jubilee",
+                status_severity=20,
+                status_severity_description="Severe Delays",
+                reason="Signal failure",
+            ),
+            DisruptionResponse(
+                line_id="metropolitan",
+                line_name="Metropolitan",
+                status_severity=6,
+                status_severity_description="Good Service",
+                reason=None,
+            ),
+        ]
+
+        # Log all states
+        logged_count = await alert_service._log_line_disruption_state_changes(disruptions)
+        assert logged_count == 3
+
+        # Verify database entries
+        result = await db_session.execute(select(LineDisruptionStateLog).order_by(LineDisruptionStateLog.line_id))
+        logs = result.scalars().all()
+        assert len(logs) == 3
+        assert {log.line_id for log in logs} == {"northern", "jubilee", "metropolitan"}
+
+    async def test_log_line_disruption_state_changes_same_line_multiple_times(
+        self,
+        db_session: AsyncSession,
+        mock_redis: AsyncMock,
+    ):
+        """Test behavior when multiple disruptions for same line in single call.
+
+        This scenario is unlikely with real TfL data (API returns one state per line),
+        but tests edge case behavior. Current implementation logs both states since
+        deduplication query doesn't see uncommitted changes from same batch.
+        """
+        alert_service = AlertService(db=db_session, redis_client=mock_redis)
+
+        # Create two disruptions for same line with different statuses
+        disruptions = [
+            DisruptionResponse(
+                line_id="bakerloo",
+                line_name="Bakerloo",
+                status_severity=10,
+                status_severity_description="Minor Delays",
+                reason="Signal failure",
+            ),
+            DisruptionResponse(
+                line_id="bakerloo",
+                line_name="Bakerloo",
+                status_severity=20,
+                status_severity_description="Severe Delays",
+                reason="Signal failure worsening",
+            ),
+        ]
+
+        # Log both states
+        logged_count = await alert_service._log_line_disruption_state_changes(disruptions)
+
+        # Both should be logged (no within-batch deduplication)
+        # This is acceptable behavior given the unlikely scenario
+        assert logged_count == 2
+
+        # Verify both entries exist in database
+        result = await db_session.execute(
+            select(LineDisruptionStateLog)
+            .where(LineDisruptionStateLog.line_id == "bakerloo")
+            .order_by(LineDisruptionStateLog.detected_at)
+        )
+        logs = result.scalars().all()
+        assert len(logs) == 2
+        assert logs[0].status_severity_description == "Minor Delays"
+        assert logs[1].status_severity_description == "Severe Delays"
+
+    async def test_log_line_disruption_state_changes_empty_reason_normalization(
+        self,
+        db_session: AsyncSession,
+        mock_redis: AsyncMock,
+    ):
+        """Test that empty string and whitespace-only reasons are normalized correctly."""
+        alert_service = AlertService(db=db_session, redis_client=mock_redis)
+
+        # Test that None, "", and "   " all produce the same hash
+        hash_none = create_line_state_hash("district", "Good Service", None)
+        hash_empty = create_line_state_hash("district", "Good Service", "")
+        hash_whitespace = create_line_state_hash("district", "Good Service", "   ")
+
+        assert hash_none == hash_empty == hash_whitespace
+
+        # Log first disruption with None reason
+        disruption1 = DisruptionResponse(
+            line_id="district",
+            line_name="District",
+            status_severity=6,
+            status_severity_description="Good Service",
+            reason=None,
+        )
+        logged_count1 = await alert_service._log_line_disruption_state_changes([disruption1])
+        assert logged_count1 == 1
+
+        # Log second disruption with empty string reason - should NOT log (same hash)
+        disruption2 = DisruptionResponse(
+            line_id="district",
+            line_name="District",
+            status_severity=6,
+            status_severity_description="Good Service",
+            reason="",
+        )
+        logged_count2 = await alert_service._log_line_disruption_state_changes([disruption2])
+        assert logged_count2 == 0  # Not logged because hash unchanged
+
+        # Log third disruption with whitespace-only reason - should NOT log (same hash)
+        disruption3 = DisruptionResponse(
+            line_id="district",
+            line_name="District",
+            status_severity=6,
+            status_severity_description="Good Service",
+            reason="   ",
+        )
+        logged_count3 = await alert_service._log_line_disruption_state_changes([disruption3])
+        assert logged_count3 == 0  # Not logged because hash unchanged
+
+        # Verify only one entry exists
+        result = await db_session.execute(
+            select(LineDisruptionStateLog).where(LineDisruptionStateLog.line_id == "district")
+        )
+        logs = result.scalars().all()
+        assert len(logs) == 1
+
+    async def test_log_line_disruption_state_changes_very_long_reason(
+        self,
+        db_session: AsyncSession,
+        mock_redis: AsyncMock,
+    ):
+        """Test that very long reason strings (at 1000 char limit) are handled correctly."""
+        alert_service = AlertService(db=db_session, redis_client=mock_redis)
+
+        # Create reason string at exactly 1000 characters (String(1000) limit)
+        long_reason = "A" * 1000
+
+        disruption = DisruptionResponse(
+            line_id="central",
+            line_name="Central",
+            status_severity=20,
+            status_severity_description="Severe Delays",
+            reason=long_reason,
+        )
+
+        # Log state - should succeed without truncation error
+        logged_count = await alert_service._log_line_disruption_state_changes([disruption])
+        assert logged_count == 1
+
+        # Verify database entry with full 1000-character reason
+        result = await db_session.execute(
+            select(LineDisruptionStateLog).where(LineDisruptionStateLog.line_id == "central")
+        )
+        log = result.scalar_one()
+        assert log.line_id == "central"
+        assert log.status_severity_description == "Severe Delays"
+        assert log.reason == long_reason
+        assert len(log.reason) == 1000
+
+    async def test_log_line_disruption_state_changes_null_reason(
+        self,
+        db_session: AsyncSession,
+        mock_redis: AsyncMock,
+    ):
+        """Test that null reason is handled correctly."""
+        alert_service = AlertService(db=db_session, redis_client=mock_redis)
+
+        # Create disruption with no reason (Good Service)
+        disruption = DisruptionResponse(
+            line_id="circle",
+            line_name="Circle",
+            status_severity=6,
+            status_severity_description="Good Service",
+            reason=None,
+        )
+
+        # Log state
+        logged_count = await alert_service._log_line_disruption_state_changes([disruption])
+        assert logged_count == 1
+
+        # Verify database entry with null reason
+        result = await db_session.execute(
+            select(LineDisruptionStateLog).where(LineDisruptionStateLog.line_id == "circle")
+        )
+        log = result.scalar_one()
+        assert log.line_id == "circle"
+        assert log.status_severity_description == "Good Service"
+        assert log.reason is None
+
+    async def test_log_line_disruption_state_changes_error_handling(
+        self,
+        db_session: AsyncSession,
+        mock_redis: AsyncMock,
+    ):
+        """Test that logging errors don't crash the alert processing."""
+        alert_service = AlertService(db=db_session, redis_client=mock_redis)
+
+        disruption = DisruptionResponse(
+            line_id="hammersmith-city",
+            line_name="Hammersmith & City",
+            status_severity=10,
+            status_severity_description="Minor Delays",
+            reason="Test error",
+        )
+
+        # Mock db.execute to raise an exception
+        with patch.object(db_session, "execute", side_effect=Exception("Database error")):
+            # Should not raise, should return 0
+            logged_count = await alert_service._log_line_disruption_state_changes([disruption])
+            assert logged_count == 0
