@@ -25,7 +25,7 @@ class RouteVariantData(TypedDict, total=False):
 
 
 class RoutesData(TypedDict, total=False):
-    """Routes structure stored in Line.routes JSON field."""
+    """Routes structure stored in Line.route_variants JSON field."""
 
     routes: list[RouteVariantData]
 
@@ -39,7 +39,7 @@ class LineResponse(BaseModel):
     tfl_id: str
     name: str
     mode: str  # Transport mode: "tube", "overground", "dlr", "elizabeth-line", etc.
-    routes: RoutesData | None = None  # Route sequences for branch-aware validation
+    route_variants: RoutesData | None = None  # Route sequences for branch-aware validation
     last_updated: datetime
 
 
@@ -63,7 +63,7 @@ class AffectedRouteInfo(BaseModel):
     """Route segment affected by disruption.
 
     Contains affected stations for matching against user routes.
-    Does NOT include route variant IDs (not available in Line.routes data).
+    Does NOT include route variant IDs (not available in Line.route_variants data).
     """
 
     name: str  # e.g., "Cockfosters → Heathrow Terminal 5"

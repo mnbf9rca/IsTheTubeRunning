@@ -39,7 +39,7 @@ class Line(BaseModel):
         nullable=False,
         default="tube",
     )
-    routes: Mapped[dict[str, Any] | None] = mapped_column(
+    route_variants: Mapped[dict[str, Any] | None] = mapped_column(
         JSON,  # Stores ordered route sequences (station lists for each route variant)
         nullable=True,
         default=None,

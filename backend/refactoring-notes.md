@@ -2,7 +2,7 @@
 
 **Purpose**: Shared knowledge base for agents working on issue #175. Delete this file when Phase 9 is complete.
 
-## Current State (After Phase 3)
+## Current State (After Phase 8)
 
 ✅ **Completed**:
 - Phase 1-3: Database tables renamed
@@ -10,13 +10,13 @@
   - `route_segments` → `user_route_segments`
   - `route_schedules` → `user_route_schedules`
   - `route_station_index` → `user_route_station_index`
+- Phase 4: Model class renames (Route → UserRoute, RouteSegment → UserRouteSegment, RouteSchedule → UserRouteSchedule)
+- Phase 5: Service class renames (RouteService → UserRouteService, RouteIndexService → UserRouteIndexService)
+- Phase 6: RouteStationIndex model renamed to UserRouteStationIndex
+- Phase 7: API schema renames (RouteResponse → UserRouteResponse, etc.)
+- Phase 8: Line.routes → Line.route_variants ✅
 
 ❌ **Not Started**:
-- Phase 4: Model class renames (Route, RouteSegment, RouteSchedule)
-- Phase 5: Service class renames (RouteService, RouteIndexService)
-- Phase 6: RouteStationIndex model rename
-- Phase 7: API schema renames (RouteResponse, etc.)
-- Phase 8: Line.routes → Line.route_variants
 - Phase 9: Documentation updates
 
 ## Test Status
@@ -279,11 +279,64 @@ Each phase must achieve:
   - Schema renames impact OpenAPI docs - always verify /docs endpoint
   - Issue descriptions can be inaccurate - trust the codebase, not the issue text
 
-### Phase 8: [Agent to fill in]
+### Phase 8: Line.routes → Line.route_variants (COMPLETE)
 - **What worked**:
+  - Systematic file-by-file updates: migration → model → schema → services → tests
+  - Using `replace_all=true` on `line.routes` after reading each file
+  - ast-grep verification to find all remaining references
+  - Running full test suite frequently to catch issues early
+  - TypedDict name kept as `RoutesData` (describes JSON structure, not the column name)
+  - All validation passed: mypy (55 files ✓), pytest (1057 tests ✓), coverage (95.87% ✓), pre-commit (✓)
+
 - **What didn't**:
+  - Initial `replace_all` for `routes={` only caught 8-space indented cases, missed other indentations
+  - Had to do second pass with just `routes=` (no indentation) to catch Line() constructor calls
+  - Blanket `replace_all` of `routes=` to `route_variants=` accidentally renamed `affected_routes=` to `affected_route_variants=`
+    - `affected_routes` is a TfL API field, should NOT be renamed
+    - Had to revert those 4 instances back to `affected_routes=`
+
 - **Gotchas**:
-- **Time taken**:
+  - **CRITICAL**: `replace_all` on short patterns like `routes=` can over-replace unrelated fields
+    - Example: `affected_routes=` got changed to `affected_route_variants=` breaking 3 tests
+    - Solution: Use more specific patterns OR manual verification after bulk changes
+  - **Test fixture constructors**: Line() calls with `routes={...}` keyword argument scattered across test files
+    - Not just in obvious places like `test_tfl_service.py`
+    - Also in helpers like `railway_network.py` and other test files
+    - Pattern used: `routes={` with various indentations needed multiple replace_all passes
+  - **JSON structure stays unchanged**: Internal `{"routes": [...]}` structure stays as-is
+    - Only the database column name and Python attribute change to `route_variants`
+    - TypedDict names (RoutesData, RouteVariantData) stay unchanged (describe data, not column)
+  - **Comments and docstrings**: Found references in 6+ locations needing manual updates
+  - **Database column created correctly**: Alembic migration rename worked on first try
+  - **Coverage threshold**: Tests maintain >95% coverage requirement (95.87%)
+
+- **Key patterns used**:
+  - `ast-grep --pattern 'line.routes' backend/` to find all attribute access patterns
+  - `grep -rn "routes={" tests/` to find Line() constructor calls in tests
+  - `replace_all` on `line.routes` → `line.route_variants` (after reading files)
+  - `replace_all` on `routes=` → `route_variants=` (then revert `affected_routes=`)
+  - Manual updates for docstrings mentioning "Line.routes"
+
+- **Verification checklist**:
+  1. Migration column renamed to `route_variants` ✓
+  2. Model field renamed to `route_variants` ✓
+  3. Schema field renamed to `route_variants` ✓
+  4. ast-grep: No `line.routes` references (only `result.routes` which is correct) ✓
+  5. mypy: All type checks pass ✓
+  6. pytest: All 1057 tests pass ✓
+  7. coverage: 95.87% maintained ✓
+  8. pre-commit: All hooks pass ✓
+  9. Database migration works: `alembic upgrade head` succeeds ✓
+
+- **Files affected**:
+  - 1 migration file
+  - 1 model file
+  - 1 schema file
+  - 5 service/helper/API files
+  - 5 test files
+  - Total: 14 files (as expected from research)
+
+- **Time taken**: ~45 minutes (research, updates, verification, fixing over-replacements)
 
 ### Phase 9: Documentation Complete
 **Remember**: DELETE THIS FILE when Phase 9 is complete!

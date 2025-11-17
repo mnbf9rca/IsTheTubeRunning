@@ -495,7 +495,7 @@ class TestUserRouteIndexService:
             tfl_id="testline",
             name="Test Line",
             mode="tube",
-            routes=None,  # No routes data
+            route_variants=None,  # No routes data
             last_updated=datetime.now(UTC),
         )
         station1 = TestRailwayNetwork.create_twostop_west()
@@ -1207,7 +1207,7 @@ class TestRebuildRoutes:
             name="Empty Variant Line",
             mode="tube",
             last_updated=datetime.now(UTC),
-            routes={
+            route_variants={
                 "routes": [
                     {
                         "name": "Route 1",

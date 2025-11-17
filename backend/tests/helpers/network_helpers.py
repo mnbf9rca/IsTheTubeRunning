@@ -99,7 +99,7 @@ def get_stations_on_line(network: RailwayNetworkFixture, line_tfl_id: str) -> li
 
     # Extract unique station IDs from all routes
     station_ids = set()
-    for route in line.routes["routes"]:
+    for route in line.route_variants["routes"]:
         station_ids.update(route["stations"])
 
     # Return corresponding Station objects
@@ -123,7 +123,7 @@ def build_connections_from_routes(line: Line, station_id_map: dict[str, uuid.UUI
     """
     connections_set: set[tuple[uuid.UUID, uuid.UUID, uuid.UUID]] = set()
 
-    for route in line.routes["routes"]:
+    for route in line.route_variants["routes"]:
         stations = route["stations"]
         for i in range(len(stations) - 1):
             from_tfl_id = stations[i]

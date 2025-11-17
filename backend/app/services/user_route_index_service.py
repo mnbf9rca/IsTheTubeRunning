@@ -29,7 +29,7 @@ class UserRouteIndexService:
     Service for building inverted indexes mapping (line, station) → routes.
 
     Enables O(log n) disruption lookup by expanding sparse route segments
-    into complete station lists using Line.routes data.
+    into complete station lists using Line.route_variants data.
     """
 
     def __init__(self, db: AsyncSession) -> None:
@@ -54,7 +54,7 @@ class UserRouteIndexService:
         1. Delete existing index entries for this route (in transaction)
         2. Load route with segments (ordered by sequence)
         3. For each segment pair (current → next):
-           - Get Line.routes JSON for current.line_id
+           - Get Line.route_variants JSON for current.line_id
            - Find ALL route variants containing BOTH stations
            - For EACH matching variant:
              - Extract all stations between current and next (inclusive)
@@ -254,7 +254,7 @@ class UserRouteIndexService:
             line: Line we're traveling on
 
         Returns:
-            TfL ID of the station to use for Line.routes lookup
+            TfL ID of the station to use for Line.route_variants lookup
         """
         # If station not in a hub, use it directly
         if not station.hub_naptan_code:
@@ -420,9 +420,9 @@ class UserRouteIndexService:
         line: Line,
     ) -> list[str]:
         """
-        Expand segment to all intermediate stations using Line.routes data.
+        Expand segment to all intermediate stations using Line.route_variants data.
 
-        Searches through all route variants in Line.routes and extracts
+        Searches through all route variants in Line.route_variants and extracts
         stations between from_station and to_station (inclusive).
         If multiple variants contain the segment, returns stations from ALL variants.
 
@@ -435,9 +435,9 @@ class UserRouteIndexService:
             List of station NaPTAN codes (deduplicated, order preserved)
 
         Raises:
-            ValueError: If Line.routes is None/empty or no variant contains both stations
+            ValueError: If Line.route_variants is None/empty or no variant contains both stations
         """
-        if not line.routes or "routes" not in line.routes:
+        if not line.route_variants or "routes" not in line.route_variants:
             msg = f"Line {line.tfl_id} has no routes data"
             raise ValueError(msg)
 
@@ -445,7 +445,7 @@ class UserRouteIndexService:
         variants_found = 0
 
         # Search through all route variants
-        for variant in line.routes["routes"]:
+        for variant in line.route_variants["routes"]:
             stations = variant.get("stations", [])
             if not stations:
                 continue

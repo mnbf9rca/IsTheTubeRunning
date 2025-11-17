@@ -528,7 +528,7 @@ async def rebuild_route_indexes(
     Rebuild route station indexes for single route or all routes.
 
     Rebuilds the inverted index that maps (line_tfl_id, station_naptan) → route_id.
-    This is useful after Line.routes data updates or for manual maintenance.
+    This is useful after Line.route_variants data updates or for manual maintenance.
 
     **Requires admin privileges.**
 

@@ -1745,7 +1745,7 @@ class TestRouteSegmentsWithHubCodes:
             name="Line 3",
             mode="dlr",
             last_updated=datetime.now(UTC),
-            routes={"routes": [{"name": "Line 3 Route", "stations": ["other-station"]}]},
+            route_variants={"routes": [{"name": "Line 3 Route", "stations": ["other-station"]}]},
         )
         other_station = Station(
             tfl_id="other-station",
