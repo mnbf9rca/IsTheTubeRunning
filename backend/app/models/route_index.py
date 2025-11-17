@@ -36,7 +36,7 @@ class RouteStationIndex(BaseModel):
 
     route_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True),
-        ForeignKey("routes.id", ondelete="CASCADE"),
+        ForeignKey("user_routes.id", ondelete="CASCADE"),
         nullable=False,
         comment="User's route ID",
     )

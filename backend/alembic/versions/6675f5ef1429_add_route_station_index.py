@@ -53,7 +53,7 @@ def upgrade() -> None:
         sa.Column("deleted_at", sa.DateTime(timezone=True), nullable=True),
         sa.ForeignKeyConstraint(
             ["route_id"],
-            ["routes.id"],
+            ["user_routes.id"],
             ondelete="CASCADE",
         ),
         sa.PrimaryKeyConstraint("id"),

@@ -32,7 +32,7 @@ if TYPE_CHECKING:
 class Route(BaseModel):
     """User's commute route."""
 
-    __tablename__ = "routes"
+    __tablename__ = "user_routes"
 
     user_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True),
@@ -88,11 +88,11 @@ class Route(BaseModel):
 class RouteSegment(BaseModel):
     """A segment of a route (station + line combination in sequence)."""
 
-    __tablename__ = "route_segments"
+    __tablename__ = "user_route_segments"
 
     route_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True),
-        ForeignKey("routes.id", ondelete="CASCADE"),
+        ForeignKey("user_routes.id", ondelete="CASCADE"),
         nullable=False,
         index=True,
     )
@@ -119,7 +119,7 @@ class RouteSegment(BaseModel):
     # Ensure unique sequence per route
     __table_args__ = (
         UniqueConstraint("route_id", "sequence", name="uq_route_segment_sequence"),
-        Index("ix_route_segments_route_sequence", "route_id", "sequence"),
+        Index("ix_user_route_segments_route_sequence", "route_id", "sequence"),
     )
 
     @property
@@ -151,7 +151,7 @@ class RouteSchedule(BaseModel):
 
     route_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True),
-        ForeignKey("routes.id", ondelete="CASCADE"),
+        ForeignKey("user_routes.id", ondelete="CASCADE"),
         nullable=False,
         index=True,
     )
