@@ -8,12 +8,15 @@ See Issue #147, #190, #195 and ADR 08 "Worker Pool Fork Safety" for context.
 
 import asyncio
 import inspect
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
+from app.celery import database as db_module
 from app.celery.database import (
     RedisClientProtocol,
     _get_worker_engine,
     cleanup_worker_resources,
+    get_worker_loop,
     get_worker_redis_client,
     get_worker_session,
     init_worker_resources,
@@ -188,3 +191,134 @@ def test_redis_client_protocol_exported() -> None:
     assert "get" in members or hasattr(RedisClientProtocol, "get")
     assert "setex" in members or hasattr(RedisClientProtocol, "setex")
     assert "aclose" in members or hasattr(RedisClientProtocol, "aclose")
+
+
+def test_cleanup_worker_resources_resets_globals_to_none() -> None:
+    """
+    Test that cleanup_worker_resources resets all globals to None.
+
+    This ensures that after cleanup, all worker resources are properly
+    cleared and subsequent access would fail with clear errors.
+    """
+    # Initialize resources first
+    init_worker_resources()
+
+    # Create some resources to ensure they exist
+    _ = get_worker_redis_client()
+    _ = _get_worker_engine()
+
+    # Verify resources exist before cleanup
+    assert db_module._worker_loop is not None
+    assert db_module._worker_engine is not None
+    assert db_module._worker_redis_client is not None
+
+    # Perform cleanup
+    cleanup_worker_resources()
+
+    # Verify all globals are reset to None
+    assert db_module._worker_loop is None
+    assert db_module._worker_engine is None
+    assert db_module._worker_session_factory is None
+    assert db_module._worker_redis_client is None
+
+    # Re-initialize for subsequent tests
+    init_worker_resources()
+
+
+def test_cleanup_worker_resources_calls_dispose_and_close() -> None:
+    """
+    Test that cleanup_worker_resources calls dispose/close on resources.
+
+    This verifies that the cleanup properly disposes the database engine
+    and closes the Redis client during worker shutdown.
+    """
+    # Initialize resources
+    init_worker_resources()
+
+    # Create mock engine and Redis client
+    mock_engine = MagicMock()
+    mock_engine.dispose = AsyncMock()
+
+    mock_redis = MagicMock()
+    mock_redis.aclose = AsyncMock()
+
+    # Inject mocks
+    db_module._worker_engine = mock_engine
+    db_module._worker_redis_client = mock_redis
+
+    # Perform cleanup
+    cleanup_worker_resources()
+
+    # Verify dispose and aclose were called
+    mock_engine.dispose.assert_called_once()
+    mock_redis.aclose.assert_called_once()
+
+    # Re-initialize for subsequent tests
+    init_worker_resources()
+
+
+def test_get_worker_loop_raises_when_not_initialized() -> None:
+    """
+    Test that get_worker_loop raises RuntimeError when worker not initialized.
+
+    This tests the guard that ensures init_worker_resources was called
+    before attempting to run tasks.
+    """
+    # Save current state and clear it
+    original_loop = db_module._worker_loop
+    db_module._worker_loop = None
+
+    try:
+        with pytest.raises(RuntimeError) as exc_info:
+            get_worker_loop()
+
+        assert "Worker event loop not initialized" in str(exc_info.value)
+        assert "init_worker_resources" in str(exc_info.value)
+    finally:
+        # Restore state
+        db_module._worker_loop = original_loop
+
+
+def test_get_worker_loop_raises_when_loop_closed() -> None:
+    """
+    Test that get_worker_loop raises RuntimeError when loop is closed.
+
+    This tests the guard that ensures the event loop has not been closed
+    (e.g., after cleanup_worker_resources was called).
+    """
+    # Create a closed loop
+    closed_loop = asyncio.new_event_loop()
+    closed_loop.close()
+
+    # Save current state and inject closed loop
+    original_loop = db_module._worker_loop
+    db_module._worker_loop = closed_loop
+
+    try:
+        with pytest.raises(RuntimeError) as exc_info:
+            get_worker_loop()
+
+        assert "Worker event loop has been closed" in str(exc_info.value)
+        assert "cleanup_worker_resources" in str(exc_info.value)
+    finally:
+        # Restore state
+        db_module._worker_loop = original_loop
+
+
+def test_get_worker_loop_returns_loop_when_valid() -> None:
+    """
+    Test that get_worker_loop returns the event loop when properly initialized.
+
+    This verifies the happy path where the worker has been initialized
+    and the loop is still running.
+    """
+    # Ensure worker is initialized
+    init_worker_resources()
+
+    # Get the loop
+    loop = get_worker_loop()
+
+    # Verify it's a valid, open event loop
+    assert loop is not None
+    assert not loop.is_closed()
+    assert loop is db_module._worker_loop

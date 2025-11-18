@@ -137,7 +137,7 @@ See `docs/celery-fork-safety.md` for implementation details.
 **More Difficult:**
 - Must ensure sessions are closed per task (session lifecycle still per-task)
 - Worker shutdown must dispose resources before closing loop
-- Shared engine means if one task corrupts state, subsequent tasks affected
+- Shared engine means if one task corrupts state, subsequent tasks are affected
 
 ---
 

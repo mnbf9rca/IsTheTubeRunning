@@ -4,7 +4,6 @@ This module defines all Celery tasks for the application, including the main
 periodic task that checks for TfL disruptions and sends alerts to users.
 """
 
-import asyncio
 from collections.abc import Awaitable, Callable
 from typing import Any, Protocol, TypedDict
 from uuid import UUID
@@ -14,7 +13,7 @@ from sqlalchemy import distinct, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.celery.app import celery_app
-from app.celery.database import get_worker_redis_client, get_worker_session
+from app.celery.database import get_worker_loop, get_worker_redis_client, get_worker_session
 from app.models.tfl import Line
 from app.models.user_route_index import UserRouteStationIndex
 from app.services.alert_service import AlertService
@@ -43,8 +42,11 @@ def run_in_worker_loop[T](
 
     Returns:
         The return value of the async function
+
+    Raises:
+        RuntimeError: If worker not initialized or event loop is closed
     """
-    loop = asyncio.get_event_loop()  # Get worker's persistent loop
+    loop = get_worker_loop()  # Get worker's persistent loop (with guards)
     coro = coro_func(*args, **kwargs)
     return loop.run_until_complete(coro)
 
@@ -183,7 +185,6 @@ async def _check_disruptions_async() -> DisruptionCheckResult:
         )
 
     finally:
-        # Close session only - Redis client lifecycle managed by worker shutdown
         if session is not None:
             await session.close()
 

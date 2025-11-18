@@ -178,7 +178,7 @@ Worker Process Lifecycle:
 - Redis client reused (no per-task connection overhead)
 
 **Cons:**
-- Shared engine means if one task corrupts state, subsequent tasks affected
+- Shared engine means if one task corrupts state, subsequent tasks are affected
 - Must ensure sessions are properly closed (session lifecycle still per-task)
 - More complex shutdown handling (must dispose resources before closing loop)
 

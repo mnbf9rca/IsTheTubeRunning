@@ -12,6 +12,7 @@ See Issue #195, #190, #147 and ADR 08 "Worker Pool Fork Safety" for details.
 """
 
 import asyncio
+import threading
 from collections.abc import AsyncGenerator
 from typing import Protocol, cast
 
@@ -28,6 +29,9 @@ _worker_loop: asyncio.AbstractEventLoop | None = None
 _worker_engine: AsyncEngine | None = None
 _worker_session_factory: async_sessionmaker[AsyncSession] | None = None
 _worker_redis_client: "RedisClientProtocol | None" = None
+
+# Lock for thread-safe lazy initialization
+_init_lock = threading.Lock()
 
 logger = structlog.get_logger(__name__)
 
@@ -72,6 +76,8 @@ def init_worker_resources(
     logger.info("worker_process_init_creating_persistent_loop")
 
     # Create persistent event loop for this worker
+    # Note: We don't reset the event loop policy here because
+    # asyncio.set_event_loop_policy() is deprecated in Python 3.14+
     _worker_loop = asyncio.new_event_loop()
     asyncio.set_event_loop(_worker_loop)
 
@@ -93,19 +99,28 @@ def cleanup_worker_resources(
     logger.info("worker_process_shutdown_cleaning_up")
 
     if _worker_loop is not None:
+        # Capture references and clear globals first to prevent race conditions
+        # This ensures no new sessions/clients are created during disposal
+        loop = _worker_loop
+        engine = _worker_engine
+        redis_client = _worker_redis_client
+
+        # Clear globals immediately
+        _worker_loop = None
+        _worker_engine = None
+        _worker_session_factory = None
+        _worker_redis_client = None
+
         try:
             # Dispose database engine
-            if _worker_engine is not None:
+            if engine is not None:
                 logger.debug("disposing_worker_engine")
-                _worker_loop.run_until_complete(_worker_engine.dispose())
-                _worker_engine = None
-                _worker_session_factory = None
+                loop.run_until_complete(engine.dispose())
 
             # Close Redis client
-            if _worker_redis_client is not None:
+            if redis_client is not None:
                 logger.debug("closing_worker_redis_client")
-                _worker_loop.run_until_complete(_worker_redis_client.aclose())
-                _worker_redis_client = None
+                loop.run_until_complete(redis_client.aclose())
 
         except Exception as exc:
             # Log but don't raise - we're shutting down
@@ -117,9 +132,8 @@ def cleanup_worker_resources(
         finally:
             # Close the event loop
             logger.debug("closing_worker_event_loop")
-            _worker_loop.close()
+            loop.close()
             asyncio.set_event_loop(None)
-            _worker_loop = None
 
     logger.info("worker_process_shutdown_completed")
 
@@ -133,15 +147,20 @@ def _get_worker_engine() -> AsyncEngine:
 
     Uses connection pooling (AsyncAdaptedQueuePool) in all environments.
     The pool is reused across all tasks in the same worker process.
+
+    Thread-safe via double-checked locking pattern.
     """
     global _worker_engine  # noqa: PLW0603
     if _worker_engine is None:
-        _worker_engine = create_async_engine(
-            settings.DATABASE_URL,
-            echo=settings.DATABASE_ECHO,
-            pool_size=settings.DATABASE_POOL_SIZE,
-            max_overflow=settings.DATABASE_MAX_OVERFLOW,
-        )
+        with _init_lock:
+            # Double-check after acquiring lock
+            if _worker_engine is None:
+                _worker_engine = create_async_engine(
+                    settings.DATABASE_URL,
+                    echo=settings.DATABASE_ECHO,
+                    pool_size=settings.DATABASE_POOL_SIZE,
+                    max_overflow=settings.DATABASE_MAX_OVERFLOW,
+                )
     return _worker_engine
 
 
@@ -154,18 +173,23 @@ def get_worker_session() -> AsyncSession:
     Note: Sessions should be closed after use. The underlying engine and
     connection pool persist across tasks for connection reuse.
 
+    Thread-safe via double-checked locking pattern.
+
     Returns:
         AsyncSession: A new database session for the worker task
     """
     global _worker_session_factory  # noqa: PLW0603
     if _worker_session_factory is None:
-        _worker_session_factory = async_sessionmaker(
-            _get_worker_engine(),
-            class_=AsyncSession,
-            expire_on_commit=False,
-            autocommit=False,
-            autoflush=False,
-        )
+        with _init_lock:
+            # Double-check after acquiring lock
+            if _worker_session_factory is None:
+                _worker_session_factory = async_sessionmaker(
+                    _get_worker_engine(),
+                    class_=AsyncSession,
+                    expire_on_commit=False,
+                    autocommit=False,
+                    autoflush=False,
+                )
     return _worker_session_factory()
 
 
@@ -179,20 +203,50 @@ def get_worker_redis_client() -> "RedisClientProtocol":
     Note: Do NOT call aclose() on this client in task code. The client
     lifecycle is managed by the worker shutdown signal handler.
 
+    Thread-safe via double-checked locking pattern.
+
     Returns:
         RedisClientProtocol: Shared Redis client for this worker
     """
     global _worker_redis_client  # noqa: PLW0603
     if _worker_redis_client is None:
-        _worker_redis_client = cast(
-            RedisClientProtocol,
-            redis.asyncio.from_url(
-                settings.REDIS_URL,
-                encoding="utf-8",
-                decode_responses=True,
-            ),
-        )
+        with _init_lock:
+            # Double-check after acquiring lock
+            if _worker_redis_client is None:
+                _worker_redis_client = cast(
+                    RedisClientProtocol,
+                    redis.asyncio.from_url(
+                        settings.REDIS_URL,
+                        encoding="utf-8",
+                        decode_responses=True,
+                    ),
+                )
     return _worker_redis_client
+
+
+def get_worker_loop() -> asyncio.AbstractEventLoop:
+    """Get the worker's persistent event loop.
+
+    This returns the event loop created during worker initialization.
+    Raises RuntimeError if the worker has not been initialized or
+    the loop has been closed.
+
+    Returns:
+        asyncio.AbstractEventLoop: The worker's event loop
+
+    Raises:
+        RuntimeError: If init_worker_resources was not called or loop is closed
+    """
+    if _worker_loop is None:
+        msg = (
+            "Worker event loop not initialized. "
+            "Ensure init_worker_resources was called (via worker_process_init signal)."
+        )
+        raise RuntimeError(msg)
+    if _worker_loop.is_closed():
+        msg = "Worker event loop has been closed. Cannot run tasks after cleanup_worker_resources has been called."
+        raise RuntimeError(msg)
+    return _worker_loop
 
 
 async def get_worker_session_context() -> AsyncGenerator[AsyncSession]:
