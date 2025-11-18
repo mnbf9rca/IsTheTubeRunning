@@ -47,6 +47,9 @@ from tests.helpers.network_helpers import build_connections_from_routes
 from tests.helpers.railway_network import TestRailwayNetwork
 from tests.helpers.types import RailwayNetworkFixture
 
+# Import OTEL fixtures
+pytest_plugins = ["tests.fixtures.otel"]
+
 
 @dataclass
 class TestDatabaseContext:

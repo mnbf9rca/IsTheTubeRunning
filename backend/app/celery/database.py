@@ -20,6 +20,7 @@ from typing import Protocol, cast
 import redis.asyncio
 import structlog
 from celery.signals import worker_process_init, worker_process_shutdown
+from opentelemetry import trace
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker, create_async_engine
 
 from app.core.config import settings
@@ -30,6 +31,9 @@ _worker_loop: asyncio.AbstractEventLoop | None = None
 _worker_engine: AsyncEngine | None = None
 _worker_session_factory: async_sessionmaker[AsyncSession] | None = None
 _worker_redis_client: "RedisClientProtocol | None" = None
+
+# Track if worker SQLAlchemy has been instrumented for OTEL
+_worker_sqlalchemy_instrumented: bool = False
 
 # Lock for thread-safe lazy initialization (RLock for reentrant calls)
 _init_lock = threading.RLock()
@@ -86,6 +90,15 @@ def init_worker_resources(
     _worker_loop = asyncio.new_event_loop()
     asyncio.set_event_loop(_worker_loop)
 
+    # Initialize OpenTelemetry for this worker (fork-safe: each worker gets its own TracerProvider)
+    if settings.OTEL_ENABLED:
+        from app.core.telemetry import get_tracer_provider  # noqa: PLC0415  # Lazy import for fork-safety
+
+        provider = get_tracer_provider()
+        if provider:
+            trace.set_tracer_provider(provider)
+            logger.info("worker_otel_tracer_provider_initialized")
+
     logger.info("worker_process_init_completed")
 
 
@@ -100,7 +113,7 @@ def cleanup_worker_resources(
     It properly disposes the database engine (closes all pooled connections)
     and Redis client, then closes the event loop.
     """
-    global _worker_loop, _worker_engine, _worker_session_factory, _worker_redis_client  # noqa: PLW0603
+    global _worker_loop, _worker_engine, _worker_session_factory, _worker_redis_client, _worker_sqlalchemy_instrumented  # noqa: PLW0603
     logger.info("worker_process_shutdown_cleaning_up")
 
     if _worker_loop is not None:
@@ -115,6 +128,7 @@ def cleanup_worker_resources(
         _worker_engine = None
         _worker_session_factory = None
         _worker_redis_client = None
+        _worker_sqlalchemy_instrumented = False
 
         try:
             # Dispose database engine
@@ -126,6 +140,13 @@ def cleanup_worker_resources(
             if redis_client is not None:
                 logger.debug("closing_worker_redis_client")
                 loop.run_until_complete(redis_client.aclose())
+
+            # Shutdown OpenTelemetry TracerProvider
+            if settings.OTEL_ENABLED:
+                from app.core.telemetry import shutdown_tracer_provider  # noqa: PLC0415  # Lazy import for fork-safety
+
+                shutdown_tracer_provider()
+                logger.debug("worker_otel_tracer_provider_shutdown")
 
         except Exception as exc:
             # Log but don't raise - we're shutting down
@@ -165,7 +186,7 @@ def _get_worker_engine() -> AsyncEngine:
 
     Thread-safe via double-checked locking pattern.
     """
-    global _worker_engine  # noqa: PLW0603
+    global _worker_engine, _worker_sqlalchemy_instrumented  # noqa: PLW0603
     if _worker_engine is None:
         with _init_lock:
             # Double-check after acquiring lock
@@ -176,6 +197,15 @@ def _get_worker_engine() -> AsyncEngine:
                     pool_size=settings.DATABASE_POOL_SIZE,
                     max_overflow=settings.DATABASE_MAX_OVERFLOW,
                 )
+                # Instrument for OpenTelemetry tracing
+                if settings.OTEL_ENABLED and not _worker_sqlalchemy_instrumented:
+                    from opentelemetry.instrumentation.sqlalchemy import (  # noqa: PLC0415
+                        SQLAlchemyInstrumentor,  # Lazy import for fork-safety
+                    )
+
+                    SQLAlchemyInstrumentor().instrument(engine=_worker_engine.sync_engine)
+                    _worker_sqlalchemy_instrumented = True
+                    logger.debug("worker_sqlalchemy_instrumented")
     return _worker_engine
 
 
