@@ -12,6 +12,7 @@ See Issue #195, #190, #147 and ADR 08 "Worker Pool Fork Safety" for details.
 """
 
 import asyncio
+import contextlib
 import threading
 from collections.abc import AsyncGenerator
 from typing import Protocol, cast
@@ -30,8 +31,8 @@ _worker_engine: AsyncEngine | None = None
 _worker_session_factory: async_sessionmaker[AsyncSession] | None = None
 _worker_redis_client: "RedisClientProtocol | None" = None
 
-# Lock for thread-safe lazy initialization
-_init_lock = threading.Lock()
+# Lock for thread-safe lazy initialization (RLock for reentrant calls)
+_init_lock = threading.RLock()
 
 logger = structlog.get_logger(__name__)
 
@@ -73,11 +74,15 @@ def init_worker_resources(
     (engine, Redis) are created lazily on first use, bound to this loop.
     """
     global _worker_loop  # noqa: PLW0603
+
+    # Idempotent: if loop already exists and is open, reuse it
+    if _worker_loop is not None and not _worker_loop.is_closed():
+        logger.debug("worker_process_init_loop_already_exists")
+        return
+
     logger.info("worker_process_init_creating_persistent_loop")
 
     # Create persistent event loop for this worker
-    # Note: We don't reset the event loop policy here because
-    # asyncio.set_event_loop_policy() is deprecated in Python 3.14+
     _worker_loop = asyncio.new_event_loop()
     asyncio.set_event_loop(_worker_loop)
 
@@ -130,6 +135,16 @@ def cleanup_worker_resources(
                 error_type=type(exc).__name__,
             )
         finally:
+            # Cancel any pending tasks before closing the loop
+            pending = asyncio.all_tasks(loop)
+            if pending:
+                logger.debug("cancelling_pending_tasks", count=len(pending))
+                for task in pending:
+                    task.cancel()
+                # Give tasks a chance to handle cancellation
+                with contextlib.suppress(Exception):
+                    loop.run_until_complete(asyncio.gather(*pending, return_exceptions=True))
+
             # Close the event loop
             logger.debug("closing_worker_event_loop")
             loop.close()
@@ -267,19 +282,3 @@ async def get_worker_session_context() -> AsyncGenerator[AsyncSession]:
     """
     async with get_worker_session() as session:
         yield session
-
-
-# Keep reset_worker_engine for backward compatibility during transition
-# This function is deprecated and will be removed in a future version
-async def reset_worker_engine() -> None:
-    """
-    Reset worker engine globals to force fresh creation on next access.
-
-    .. deprecated::
-        This function is deprecated and no longer needed with the persistent
-        event loop pattern. It will be removed in a future version.
-        The engine now persists for the worker lifetime and is disposed
-        during worker shutdown.
-    """
-    # No-op in the new architecture - engine persists with the worker
-    logger.debug("reset_worker_engine_called_deprecated")
