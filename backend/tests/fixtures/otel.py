@@ -65,19 +65,22 @@ def reset_tracer_provider() -> Generator[None]:
         None
     """
     # Import here to avoid circular dependency at module level
+    from app.celery import database as celery_database  # noqa: PLC0415
     from app.core import database, telemetry  # noqa: PLC0415  # Lazy import to avoid circular dependency
 
     # Reset telemetry module globals
     telemetry._tracer_provider = None  # type: ignore[attr-defined]
 
-    # Reset database instrumentation flag
+    # Reset database instrumentation flags (FastAPI and Celery worker)
     database._sqlalchemy_instrumented = False  # type: ignore[attr-defined]
+    celery_database._worker_sqlalchemy_instrumented = False  # type: ignore[attr-defined]
 
     yield
 
     # Reset again after test to clean up
     telemetry._tracer_provider = None  # type: ignore[attr-defined]
     database._sqlalchemy_instrumented = False  # type: ignore[attr-defined]
+    celery_database._worker_sqlalchemy_instrumented = False  # type: ignore[attr-defined]
 
 
 def get_recorded_spans(exporter: InMemorySpanExporter) -> list["ReadableSpan"]:

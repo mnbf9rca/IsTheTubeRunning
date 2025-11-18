@@ -1,8 +1,12 @@
 """Celery application instance and configuration."""
 
+import structlog
+
 from app.core.config import require_config, settings
 from app.core.logging import configure_logging
 from celery import Celery
+
+logger = structlog.get_logger(__name__)
 
 # Configure logging for Celery workers
 # This ensures structlog integrates properly with Celery's logging system
@@ -36,6 +40,16 @@ celery_app.conf.update(
     # Don't hijack root logger - let structlog handle it
     worker_hijack_root_logger=False,
 )
+
+# OpenTelemetry Instrumentation
+# CeleryInstrumentor wraps task execution to create spans and propagate trace context.
+# The TracerProvider is set in worker_process_init (database.py) after fork for fork-safety.
+# This must be called after celery_app creation but before task registration.
+if settings.OTEL_ENABLED:
+    from opentelemetry.instrumentation.celery import CeleryInstrumentor
+
+    CeleryInstrumentor().instrument()
+    logger.info("celery_otel_instrumentation_enabled")
 
 # Import tasks to register them with Celery
 # This must come after celery_app is created so tasks can use the @celery_app.task decorator

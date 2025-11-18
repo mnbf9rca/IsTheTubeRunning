@@ -19,17 +19,15 @@
       "justMyCode": true,
       "env": {
         "PYTHONPATH": "${workspaceFolder}/backend"
-      }
+      },
+      "consoleName": "Backend"
     },
     {
       "name": "Backend: Run Tests",
       "type": "debugpy",
       "request": "launch",
       "module": "pytest",
-      "args": [
-        "-v",
-        "--tb=short"
-      ],
+      "args": ["-v", "--tb=short"],
       "cwd": "${workspaceFolder}/backend",
       "console": "integratedTerminal",
       "justMyCode": false
@@ -39,10 +37,7 @@
       "type": "node",
       "request": "launch",
       "runtimeExecutable": "npm",
-      "runtimeArgs": [
-        "run",
-        "dev"
-      ],
+      "runtimeArgs": ["run", "dev"],
       "cwd": "${workspaceFolder}/frontend",
       "console": "integratedTerminal",
       "internalConsoleOptions": "neverOpen",
@@ -59,8 +54,8 @@
       "runtimeExecutable": "npm",
       "runtimeArgs": [
         "run",
-        "test:ui"
-      ],
+         "test:ui"
+        ],
       "cwd": "${workspaceFolder}/frontend",
       "console": "integratedTerminal"
     },
@@ -73,7 +68,7 @@
         "-A",
         "app.celery.app",
         "worker",
-        "--loglevel=info",
+        "--loglevel=debug",
         "--pool=solo"
       ],
       "cwd": "${workspaceFolder}/backend",
@@ -81,7 +76,8 @@
       "justMyCode": false,
       "env": {
         "PYTHONPATH": "${workspaceFolder}/backend"
-      }
+      },
+      "consoleName": "Celery Worker"
     },
     {
       "name": "Backend: Celery Beat",
@@ -90,16 +86,17 @@
       "module": "celery",
       "args": [
         "-A",
-        "app.celery.app",
+       "app.celery.app",
         "beat",
-        "--loglevel=info"
+        "--loglevel=debug"
       ],
       "cwd": "${workspaceFolder}/backend",
       "console": "integratedTerminal",
       "justMyCode": false,
       "env": {
         "PYTHONPATH": "${workspaceFolder}/backend"
-      }
+      },
+      "consoleName": "Celery Beat"
     }
   ],
   "compounds": [
@@ -107,8 +104,8 @@
       "name": "Full Stack",
       "configurations": [
         "Backend: FastAPI",
-        "Frontend: Vite Dev Server"
-      ],
+         "Frontend: Vite Dev Server"
+        ],
       "stopAll": true,
       "presentation": {
         "hidden": false,
