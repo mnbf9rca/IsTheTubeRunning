@@ -148,7 +148,7 @@ class TestWorkerSqlAlchemyInstrumentation:
             mock_instrumentor.instrument.assert_called_once_with(engine=mock_engine.sync_engine)
 
             # Verify flag was set
-            assert celery_database._worker_sqlalchemy_instrumented is True
+            assert celery_database._worker_sqlalchemy_instrumented
 
             # Clean up
             celery_database._worker_engine = None
@@ -179,7 +179,7 @@ class TestWorkerSqlAlchemyInstrumentation:
             mock_instrumentor_class.assert_not_called()
 
             # Verify flag was not set
-            assert celery_database._worker_sqlalchemy_instrumented is False
+            assert not celery_database._worker_sqlalchemy_instrumented
 
             # Clean up
             celery_database._worker_engine = None
@@ -264,7 +264,7 @@ class TestWorkerOtelShutdown:
             celery_database.cleanup_worker_resources()
 
             # Verify flag was reset
-            assert celery_database._worker_sqlalchemy_instrumented is False
+            assert not celery_database._worker_sqlalchemy_instrumented
 
 
 class TestCeleryAppInstrumentation:
@@ -375,7 +375,7 @@ class TestWorkerOtelForkSafety:
 
             # First access
             celery_database._get_worker_engine()
-            assert celery_database._worker_sqlalchemy_instrumented is True
+            assert celery_database._worker_sqlalchemy_instrumented
 
             # Cleanup simulating worker shutdown
             celery_database._worker_engine = None
@@ -388,7 +388,7 @@ class TestWorkerOtelForkSafety:
             celery_database._get_worker_engine()
 
             # Verify instrumentation was called again for the new "process"
-            assert celery_database._worker_sqlalchemy_instrumented is True
+            assert celery_database._worker_sqlalchemy_instrumented
             mock_instrumentor.instrument.assert_called_once()
 
             # Clean up

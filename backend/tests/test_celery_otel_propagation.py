@@ -182,12 +182,8 @@ class TestContextPropagationMechanics:
         """Test that propagator can inject and extract context."""
         propagator = TraceContextTextMapPropagator()
 
-        # Create a carrier to hold headers
-        carrier: dict[str, str] = {}
-
-        # In a real scenario, inject would add traceparent header
-        # Here we simulate what happens
-        carrier["traceparent"] = "00-12345678901234567890123456789012-1234567890123456-01"
+        # Create a carrier with traceparent header
+        carrier: dict[str, str] = {"traceparent": "00-12345678901234567890123456789012-1234567890123456-01"}
 
         # Extract should return a context
         context = propagator.extract(carrier)
@@ -224,14 +220,10 @@ class TestAsyncWorkerSpanPatterns:
     def test_parent_child_span_relationship_concept(self) -> None:
         """Test the concept of parent-child span relationships."""
         # A child span should reference its parent via parent_id
-        parent_trace_id = 0x12345678901234567890123456789012
+        # Child inherits trace_id from parent but has different span_id
         parent_span_id = 0x1234567890123456
+        child_span_id = 0xABCDEFABCDEFABCD
 
-        # Child span inherits trace_id but has different span_id
-        child_trace_id = parent_trace_id  # Same trace
-        child_span_id = 0xABCDEFABCDEFABCD  # Different span
-
-        assert child_trace_id == parent_trace_id
         assert child_span_id != parent_span_id
 
 

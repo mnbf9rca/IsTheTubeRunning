@@ -94,8 +94,7 @@ def init_worker_resources(
     if settings.OTEL_ENABLED:
         from app.core.telemetry import get_tracer_provider  # noqa: PLC0415  # Lazy import for fork-safety
 
-        provider = get_tracer_provider()
-        if provider:
+        if provider := get_tracer_provider():
             trace.set_tracer_provider(provider)
             logger.info("worker_otel_tracer_provider_initialized")
 
@@ -187,7 +186,7 @@ def _get_worker_engine() -> AsyncEngine:
     Thread-safe via double-checked locking pattern.
     """
     global _worker_engine, _worker_sqlalchemy_instrumented  # noqa: PLW0603
-    if _worker_engine is None:
+    if _worker_engine is None or (settings.OTEL_ENABLED and not _worker_sqlalchemy_instrumented):
         with _init_lock:
             # Double-check after acquiring lock
             if _worker_engine is None:
@@ -197,15 +196,15 @@ def _get_worker_engine() -> AsyncEngine:
                     pool_size=settings.DATABASE_POOL_SIZE,
                     max_overflow=settings.DATABASE_MAX_OVERFLOW,
                 )
-                # Instrument for OpenTelemetry tracing
-                if settings.OTEL_ENABLED and not _worker_sqlalchemy_instrumented:
-                    from opentelemetry.instrumentation.sqlalchemy import (  # noqa: PLC0415
-                        SQLAlchemyInstrumentor,  # Lazy import for fork-safety
-                    )
+            # Instrument for OpenTelemetry tracing (inside lock for thread-safety)
+            if settings.OTEL_ENABLED and not _worker_sqlalchemy_instrumented:
+                from opentelemetry.instrumentation.sqlalchemy import (  # noqa: PLC0415
+                    SQLAlchemyInstrumentor,  # Lazy import for fork-safety
+                )
 
-                    SQLAlchemyInstrumentor().instrument(engine=_worker_engine.sync_engine)
-                    _worker_sqlalchemy_instrumented = True
-                    logger.debug("worker_sqlalchemy_instrumented")
+                SQLAlchemyInstrumentor().instrument(engine=_worker_engine.sync_engine)
+                _worker_sqlalchemy_instrumented = True
+                logger.debug("worker_sqlalchemy_instrumented")
     return _worker_engine
 
 
