@@ -361,9 +361,11 @@ def test_check_disruptions_task_logs_on_success(mock_run_async_task: MagicMock) 
         result = check_disruptions_and_alert()
 
         assert result == mock_result
-        mock_logger.info.assert_called_once()
-        call_args = mock_logger.info.call_args
-        assert call_args[0][0] == "check_disruptions_task_completed"
+        assert mock_logger.info.call_count == 2
+        # First call: task started
+        assert mock_logger.info.call_args_list[0][0][0] == "check_disruptions_task_started"
+        # Second call: task completed
+        assert mock_logger.info.call_args_list[1][0][0] == "check_disruptions_task_completed"
 
 
 @patch("app.celery.tasks.run_in_worker_loop")
@@ -650,9 +652,11 @@ def test_rebuild_indexes_task_logs_on_success(mock_run_async_task: MagicMock) ->
         result = rebuild_route_indexes_task(route_id=None)
 
         assert result == mock_result
-        mock_logger.info.assert_called_once()
-        call_args = mock_logger.info.call_args
-        assert call_args[0][0] == "rebuild_indexes_task_completed"
+        assert mock_logger.info.call_count == 2
+        # First call: task started
+        assert mock_logger.info.call_args_list[0][0][0] == "rebuild_indexes_task_started"
+        # Second call: task completed
+        assert mock_logger.info.call_args_list[1][0][0] == "rebuild_indexes_task_completed"
 
 
 @patch("app.celery.tasks.run_in_worker_loop")
@@ -1050,9 +1054,11 @@ def test_detect_stale_routes_task_logs_on_success(mock_run_async_task: MagicMock
         result = detect_and_rebuild_stale_routes()
 
         assert result == mock_result
-        mock_logger.info.assert_called_once()
-        call_args = mock_logger.info.call_args
-        assert call_args[0][0] == "detect_stale_routes_task_completed"
+        assert mock_logger.info.call_count == 2
+        # First call: task started
+        assert mock_logger.info.call_args_list[0][0][0] == "detect_stale_routes_task_started"
+        # Second call: task completed
+        assert mock_logger.info.call_args_list[1][0][0] == "detect_stale_routes_task_completed"
 
 
 @patch("app.celery.tasks.run_in_worker_loop")
