@@ -142,7 +142,7 @@ def test_parse_otlp_headers_ignores_invalid_pairs(caplog: pytest.LogCaptureFixtu
         "AnotherValid": "test",
     }
     # Verify warning was logged
-    assert any("Malformed OTLP header pair ignored: 'InvalidHeader'" in record.message for record in caplog.records)
+    assert any("otel_malformed_header" in str(record.message) for record in caplog.records)
 
 
 def test_parse_otlp_headers_multiple_equals_signs() -> None:
@@ -226,4 +226,4 @@ def test_create_tracer_provider_without_endpoint_in_debug(
     assert provider is not None
     assert isinstance(provider, TracerProvider)
     # Should log warning about no endpoint
-    assert any("no OTLP endpoint configured" in record.message for record in caplog.records)
+    assert any("otel_no_endpoint_configured" in str(record.message) for record in caplog.records)

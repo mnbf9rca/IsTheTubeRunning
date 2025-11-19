@@ -10,7 +10,7 @@ logger = structlog.get_logger(__name__)
 
 # Configure logging for Celery workers
 # This ensures structlog integrates properly with Celery's logging system
-configure_logging(log_level="INFO")
+configure_logging(log_level=settings.LOG_LEVEL)
 
 # Validate required Celery configuration
 require_config("CELERY_BROKER_URL", "CELERY_RESULT_BACKEND")
