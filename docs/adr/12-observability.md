@@ -25,12 +25,42 @@ Use OpenTelemetry (OTEL) for distributed tracing with OTLP protocol to send trac
 - FastAPI endpoint tracing
 - SQLAlchemy database query tracing
 - Celery worker task tracing with context propagation
+- TfL API call tracing with custom spans (Issue #174)
 - OTLP HTTP export to Grafana Cloud
+- Log-trace correlation (structlog with trace_id/span_id)
 
 **Deferred:**
-- Custom application spans
 - Metrics collection
 - Frontend browser tracing
+
+### TfL API Instrumentation
+
+Custom spans are created for all TfL API calls with the following naming convention:
+
+```
+tfl.api.<endpoint_name>
+```
+
+**Span Attributes:**
+- `tfl.api.endpoint` - API method name (e.g., "MetaModes", "GetByModeByPathModes")
+- `tfl.api.client` - Client type ("line_client" or "stoppoint_client")
+- `tfl.api.mode` - Transport mode when applicable (e.g., "tube", "dlr")
+- `tfl.api.line_id` - Line ID when applicable (e.g., "victoria")
+- `tfl.api.direction` - Direction when applicable ("inbound" or "outbound")
+- `peer.service` - Always "api.tfl.gov.uk"
+- `http.status_code` - HTTP response status code
+
+**Instrumented Methods:**
+- `fetch_available_modes()` - MetaModes
+- `fetch_lines()` - GetByModeByPathModes (per mode)
+- `fetch_severity_codes()` - MetaSeverity
+- `fetch_disruption_categories()` - MetaDisruptionCategories
+- `fetch_stop_types()` - MetaStopTypes
+- `_extract_hub_fields()` - GetByPathIdsQueryIncludeCrowdingData
+- `_fetch_stations_from_api()` - StopPointsByPathIdQueryTflOperatedNationalRailStationsOnly
+- `fetch_line_disruptions()` - StatusByIdsByPathIdsQueryDetail
+- `fetch_station_disruptions()` - DisruptionByModeByPathModesQueryIncludeRouteBlockedStops (per mode)
+- `_fetch_route_sequence()` - RouteSequenceByPathIdPathDirectionQueryServiceTypesQueryExcludeCrowding
 
 **Why OpenTelemetry?**
 - **Industry Standard**: Vendor-neutral, CNCF project with wide adoption
