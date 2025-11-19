@@ -28,6 +28,14 @@ configure_logging(log_level=settings.LOG_LEVEL)
 
 logger = structlog.get_logger(__name__)
 
+# Initialize OpenTelemetry instrumentors at module level (before FastAPI app instantiation)
+# These just patch classes - safe before fork. TracerProvider is set in lifespan (after fork).
+if settings.OTEL_ENABLED:
+    FastAPIInstrumentor().instrument(
+        excluded_urls=",".join(settings.OTEL_EXCLUDED_URLS),
+    )
+    logger.info("otel_fastapi_instrumented")
+
 
 def _check_alembic_migrations(sync_conn: Connection) -> str | None:
     """
@@ -75,26 +83,25 @@ def _check_alembic_migrations(sync_conn: Connection) -> str | None:
 
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
-    """Application lifespan - validate database migrations and initialize OTEL on startup."""
-    # Skip all validation in DEBUG mode (tests use mock databases/contexts)
+    """Application lifespan - initialize OTEL TracerProvider and validate database on startup."""
+    # Initialize TracerProvider in lifespan (after fork) so each worker gets its own
+    # BatchSpanProcessor with proper threading. Instrumentors were already called at module level.
+    if settings.OTEL_ENABLED and (provider := get_tracer_provider()):
+        trace.set_tracer_provider(provider)
+        logger.info("otel_tracer_provider_initialized")
+
+    # Skip database validation in DEBUG mode (tests use mock databases/contexts)
     if settings.DEBUG:
-        logger.info("debug_mode_startup", message="skipping startup validation")
+        logger.info("debug_mode_startup", message="skipping database validation")
         yield
+        # Shutdown OTEL if enabled
+        if settings.OTEL_ENABLED:
+            shutdown_tracer_provider()
         logger.info("shutdown_complete")
         return
 
-    # Production mode: Initialize OTEL and validate database
-    logger.info("startup_initializing", message="initializing observability and validating database")
-
-    # Initialize OpenTelemetry if enabled
-    if settings.OTEL_ENABLED and (provider := get_tracer_provider()):
-        trace.set_tracer_provider(provider)
-        # Instrument FastAPI with excluded URLs
-        FastAPIInstrumentor.instrument_app(
-            app,
-            excluded_urls=",".join(settings.OTEL_EXCLUDED_URLS),
-        )
-        logger.info("otel_initialized")
+    # Production mode: Validate database
+    logger.info("startup_initializing", message="validating database")
 
     try:
         async with get_engine().begin() as conn:

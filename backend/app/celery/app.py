@@ -1,6 +1,8 @@
 """Celery application instance and configuration."""
 
 import structlog
+from celery.signals import beat_init
+from opentelemetry import trace
 
 from app.core.config import require_config, settings
 from app.core.logging import configure_logging
@@ -50,6 +52,33 @@ if settings.OTEL_ENABLED:
 
     CeleryInstrumentor().instrument()
     logger.info("celery_otel_instrumentation_enabled")
+
+
+@beat_init.connect
+def init_beat_otel(
+    **kwargs: object,
+) -> None:
+    """
+    Initialize OpenTelemetry for Celery Beat scheduler process.
+
+    This is called when the Beat scheduler process starts. It initializes
+    the TracerProvider for the Beat process, enabling distributed tracing
+    for scheduled task triggers.
+
+    Note: CeleryInstrumentor is already applied at module level above,
+    this just ensures the Beat process has its own TracerProvider.
+    """
+    if settings.OTEL_ENABLED:
+        try:
+            from app.core.telemetry import get_tracer_provider  # noqa: PLC0415  # Lazy import for fork-safety
+
+            if provider := get_tracer_provider():
+                trace.set_tracer_provider(provider)
+                logger.info("beat_otel_tracer_provider_initialized")
+        except Exception:
+            logger.exception("beat_otel_initialization_failed")
+            # Continue without OTEL - graceful degradation
+
 
 # Import tasks to register them with Celery
 # This must come after celery_app is created so tasks can use the @celery_app.task decorator
