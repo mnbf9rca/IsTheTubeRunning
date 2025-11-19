@@ -6,6 +6,7 @@ from typing import TYPE_CHECKING
 import structlog
 from opentelemetry import trace
 from opentelemetry.exporter.otlp.proto.http.trace_exporter import OTLPSpanExporter
+from opentelemetry.instrumentation.redis import RedisInstrumentor
 from opentelemetry.sdk.resources import Resource
 from opentelemetry.sdk.trace import TracerProvider
 from opentelemetry.sdk.trace.export import BatchSpanProcessor
@@ -21,6 +22,7 @@ logger = structlog.get_logger(__name__)
 # Module-level globals for lazy initialization (fork-safety pattern from ADR 08)
 _tracer_provider: TracerProvider | None = None
 _tracer_provider_lock = threading.Lock()
+_redis_instrumented: bool = False
 
 
 def get_tracer_provider() -> TracerProvider | None:
@@ -78,6 +80,14 @@ def _create_tracer_provider() -> TracerProvider:
 
     # Create provider
     provider = TracerProvider(resource=resource)
+
+    # Instrument Redis for distributed tracing
+    # RedisInstrumentor patches the redis module globally, so only call once
+    global _redis_instrumented  # noqa: PLW0603  # Required for instrumentation tracking
+    if not _redis_instrumented:
+        RedisInstrumentor().instrument()
+        _redis_instrumented = True
+        logger.debug("redis_instrumented_for_otel")
 
     # Add OTLP exporter if endpoint is configured
     if settings.OTEL_EXPORTER_OTLP_ENDPOINT:

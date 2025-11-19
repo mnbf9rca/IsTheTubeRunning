@@ -109,6 +109,105 @@ tfl.api.<endpoint_name>
 - **Test Complexity**: Tests need special handling to disable OTEL
 - **Dependency on External Service**: If Grafana Cloud is down, traces are lost (not critical for hobby project)
 
+---
+
+## Service Name Differentiation
+
+### Status
+Active
+
+### Context
+Multiple components (FastAPI API, Celery Worker, Celery Beat) share the same codebase but run as separate processes. Without differentiation, all components appear as a single service node in Grafana service graphs, making it impossible to visualize the actual service topology and trace flow between components.
+
+### Decision
+Use environment variable `OTEL_SERVICE_NAME` to differentiate components in service graphs:
+- **FastAPI/Backend**: `isthetuberunning-api`
+- **Celery Worker**: `isthetuberunning-worker`
+- **Celery Beat**: `isthetuberunning-beat`
+
+Set via Docker Compose environment variables for containerized deployment. Default value in `.env` is `isthetuberunning-backend` for local development simplicity.
+
+### Consequences
+**Easier:**
+- Clear service graph topology (API → Redis → Worker → PostgreSQL)
+- Identify bottlenecks per component (API vs Worker latency)
+- Correlate traces across component boundaries
+- Debugging which component is slow or failing
+
+**More Difficult:**
+- Must configure `OTEL_SERVICE_NAME` per Docker service
+- Local dev defaults to single service name (less visibility)
+
+---
+
+## Redis Instrumentation
+
+### Status
+Active
+
+### Context
+Redis is used for Celery broker operations, task result storage, and caching. Without Redis instrumentation, these operations are invisible in traces, making it difficult to debug broker/cache performance issues.
+
+### Decision
+Use `opentelemetry-instrumentation-redis` to auto-instrument all Redis operations. The `RedisInstrumentor().instrument()` call patches the redis module globally during TracerProvider initialization.
+
+**Instrumented Operations:**
+- Celery broker operations (task dispatch, result retrieval)
+- Cache operations (if using Redis backend)
+- Alert deduplication state storage
+
+**Semantic Conventions:**
+- `db.system`: "redis"
+- `db.statement`: Redis command
+- `net.peer.name`: Redis host
+- `net.peer.port`: Redis port
+
+### Consequences
+**Easier:**
+- Visibility into Celery broker latency
+- Debug slow cache operations
+- Identify Redis connection issues
+- Complete service graph with Redis node
+
+**More Difficult:**
+- Additional dependency (`opentelemetry-instrumentation-redis`)
+- More spans generated (may increase OTLP data volume)
+
+---
+
+## Celery Beat Instrumentation
+
+### Status
+Active
+
+### Context
+Celery Beat scheduler runs as a separate process from Celery workers. Without OTEL initialization, Beat-triggered tasks don't have proper trace context, breaking the trace chain from scheduled trigger to task execution.
+
+### Decision
+Initialize TracerProvider in Beat process via `beat_init` Celery signal. This mirrors the worker pattern in `worker_process_init` for consistency.
+
+**Implementation:**
+```python
+@beat_init.connect
+def init_beat_otel(**kwargs):
+    if settings.OTEL_ENABLED:
+        from app.core.telemetry import get_tracer_provider
+        if provider := get_tracer_provider():
+            trace.set_tracer_provider(provider)
+```
+
+### Consequences
+**Easier:**
+- Beat scheduler appears in service graph
+- Scheduled tasks have proper trace context
+- Consistent OTEL initialization pattern across all components
+
+**More Difficult:**
+- Additional signal handler to maintain
+- Beat-specific testing required
+
+---
+
 ### Related ADRs
 - **ADR 08**: Worker Pool Fork Safety (Celery worker lazy initialization)
 - **ADR 10**: Testing Strategy (test coverage and mocking approach)

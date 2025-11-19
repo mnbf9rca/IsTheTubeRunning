@@ -53,6 +53,7 @@ services:
   #     - REDIS_URL=redis://redis:6379/0
   #     - CELERY_BROKER_URL=redis://redis:6379/1
   #     - CELERY_RESULT_BACKEND=redis://redis:6379/2
+  #     - OTEL_SERVICE_NAME=isthetuberunning-worker
   #   depends_on:
   #     postgres:
   #       condition: service_healthy
@@ -78,6 +79,7 @@ services:
   #     - REDIS_URL=redis://redis:6379/0
   #     - CELERY_BROKER_URL=redis://redis:6379/1
   #     - CELERY_RESULT_BACKEND=redis://redis:6379/2
+  #     - OTEL_SERVICE_NAME=isthetuberunning-beat
   #   depends_on:
   #     - redis
   #   volumes:
