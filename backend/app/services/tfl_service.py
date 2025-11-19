@@ -13,6 +13,7 @@ Terminology:
 import contextlib
 import hashlib
 import uuid
+from collections.abc import Generator
 from datetime import UTC, datetime
 from typing import Any
 from urllib.parse import urlparse
@@ -21,6 +22,7 @@ import structlog
 from aiocache import Cache
 from aiocache.serializers import PickleSerializer
 from fastapi import HTTPException, status
+from opentelemetry import trace
 from pydantic_tfl_api import AsyncLineClient, AsyncStopPointClient
 from pydantic_tfl_api.core import ApiError, ResponseModel
 from pydantic_tfl_api.models import (
@@ -90,6 +92,48 @@ from app.types.tfl_api import NetworkConnection
 ## package is the source of truth for TfL API data structures.
 
 logger = structlog.get_logger(__name__)
+tracer = trace.get_tracer(__name__)
+
+
+@contextlib.contextmanager
+def tfl_api_span(
+    endpoint: str,
+    client: str,
+    **extra_attrs: str | int,
+) -> Generator[trace.Span]:
+    """Context manager for TfL API call spans with standard attributes.
+
+    Creates an OpenTelemetry span with consistent attributes for TfL API calls.
+    The SDK automatically records exceptions and sets error status if an
+    exception occurs within the span context.
+
+    Args:
+        endpoint: API endpoint name (e.g., "MetaModes", "GetByModeByPathModes")
+        client: Client type ("line_client" or "stoppoint_client")
+        **extra_attrs: Additional span attributes (e.g., tfl.api.mode, tfl.api.line_id)
+
+    Yields:
+        Span: The active span for setting additional attributes like http.status_code
+
+    Example:
+        with tfl_api_span("MetaModes", "line_client") as span:
+            response = await self.line_client.MetaModes()
+            if hasattr(response, "http_status_code"):
+                span.set_attribute("http.status_code", response.http_status_code)
+    """
+    attributes = {
+        "tfl.api.endpoint": endpoint,
+        "tfl.api.client": client,
+        "peer.service": "api.tfl.gov.uk",
+        **extra_attrs,
+    }
+    with tracer.start_as_current_span(
+        f"tfl.api.{endpoint}",
+        kind=trace.SpanKind.CLIENT,
+        attributes=attributes,
+    ) as span:
+        yield span
+
 
 # Default cache TTL values (in seconds) - used if TfL API doesn't provide cache headers
 DEFAULT_LINES_CACHE_TTL = 86400  # 24 hours
@@ -334,7 +378,10 @@ class TfLService:
 
         try:
             # Fetch from TfL API
-            response = await self.line_client.MetaModes()
+            with tfl_api_span("MetaModes", "line_client") as span:
+                response = await self.line_client.MetaModes()
+                if hasattr(response, "http_status_code"):
+                    span.set_attribute("http.status_code", response.http_status_code)
 
             # Check for API error
             self._handle_api_error(response)
@@ -405,7 +452,14 @@ class TfLService:
                 logger.debug("fetching_lines_for_mode", mode=mode)
 
                 # Fetch from TfL API
-                response = await self.line_client.GetByModeByPathModes(mode)
+                with tfl_api_span(
+                    "GetByModeByPathModes",
+                    "line_client",
+                    **{"tfl.api.mode": mode},
+                ) as span:
+                    response = await self.line_client.GetByModeByPathModes(mode)
+                    if hasattr(response, "http_status_code"):
+                        span.set_attribute("http.status_code", response.http_status_code)
 
                 # Check for API error
                 self._handle_api_error(response)
@@ -484,7 +538,10 @@ class TfLService:
 
         try:
             # Fetch from TfL API
-            response = await self.line_client.MetaSeverity()
+            with tfl_api_span("MetaSeverity", "line_client") as span:
+                response = await self.line_client.MetaSeverity()
+                if hasattr(response, "http_status_code"):
+                    span.set_attribute("http.status_code", response.http_status_code)
 
             # Check for API error
             self._handle_api_error(response)
@@ -597,7 +654,10 @@ class TfLService:
 
         try:
             # Fetch from TfL API
-            response = await self.line_client.MetaDisruptionCategories()
+            with tfl_api_span("MetaDisruptionCategories", "line_client") as span:
+                response = await self.line_client.MetaDisruptionCategories()
+                if hasattr(response, "http_status_code"):
+                    span.set_attribute("http.status_code", response.http_status_code)
 
             # Check for API error
             self._handle_api_error(response)
@@ -670,7 +730,10 @@ class TfLService:
 
         try:
             # Fetch from TfL API
-            response = await self.stoppoint_client.MetaStopTypes()
+            with tfl_api_span("MetaStopTypes", "stoppoint_client") as span:
+                response = await self.stoppoint_client.MetaStopTypes()
+                if hasattr(response, "http_status_code"):
+                    span.set_attribute("http.status_code", response.http_status_code)
 
             # Check for API error
             self._handle_api_error(response)
@@ -754,10 +817,17 @@ class TfLService:
         # Fetch hub details from API if hub code exists
         if hub_code:
             try:
-                response = await self.stoppoint_client.GetByPathIdsQueryIncludeCrowdingData(
-                    hub_code,
-                    False,  # includeCrowdingData
-                )
+                with tfl_api_span(
+                    "GetByPathIdsQueryIncludeCrowdingData",
+                    "stoppoint_client",
+                    **{"tfl.api.hub_code": hub_code},
+                ) as span:
+                    response = await self.stoppoint_client.GetByPathIdsQueryIncludeCrowdingData(
+                        hub_code,
+                        False,  # includeCrowdingData
+                    )
+                    if hasattr(response, "http_status_code"):
+                        span.set_attribute("http.status_code", response.http_status_code)
                 if not isinstance(response, ApiError) and response.content and response.content.root:
                     hub_data = response.content.root[0]
                     hub_name = getattr(hub_data, "commonName", None)
@@ -837,10 +907,17 @@ class TfLService:
         """
         # Fetch stations for the line using LineClient with tflOperatedNationalRailStationsOnly=False
         # This ensures we get ALL stations, not just TfL-operated ones
-        response = await self.line_client.StopPointsByPathIdQueryTflOperatedNationalRailStationsOnly(
-            line_tfl_id,
-            False,  # tflOperatedNationalRailStationsOnly=False to get ALL stations
-        )
+        with tfl_api_span(
+            "StopPointsByPathIdQueryTflOperatedNationalRailStationsOnly",
+            "line_client",
+            **{"tfl.api.line_id": line_tfl_id},
+        ) as span:
+            response = await self.line_client.StopPointsByPathIdQueryTflOperatedNationalRailStationsOnly(
+                line_tfl_id,
+                False,  # tflOperatedNationalRailStationsOnly=False to get ALL stations
+            )
+            if hasattr(response, "http_status_code"):
+                span.set_attribute("http.status_code", response.http_status_code)
 
         # Check for API error
         self._handle_api_error(response)
@@ -1443,10 +1520,17 @@ class TfLService:
             logger.debug("fetching_status_for_lines", line_count=len(line_ids), modes=modes)
 
             # Fetch line status for all lines at once
-            response = await self.line_client.StatusByIdsByPathIdsQueryDetail(
-                line_ids_str,
-                True,  # detail=True to get disruption details
-            )
+            with tfl_api_span(
+                "StatusByIdsByPathIdsQueryDetail",
+                "line_client",
+                **{"tfl.api.line_count": len(line_ids)},
+            ) as span:
+                response = await self.line_client.StatusByIdsByPathIdsQueryDetail(
+                    line_ids_str,
+                    True,  # detail=True to get disruption details
+                )
+                if hasattr(response, "http_status_code"):
+                    span.set_attribute("http.status_code", response.http_status_code)
 
             # Check for API error
             self._handle_api_error(response)
@@ -1692,10 +1776,17 @@ class TfLService:
             for mode in modes:
                 logger.debug("fetching_station_disruptions_for_mode", mode=mode)
 
-                response = await self.stoppoint_client.DisruptionByModeByPathModesQueryIncludeRouteBlockedStops(
-                    mode,
-                    True,  # includeRouteBlockedStops=True to get all station-level issues
-                )
+                with tfl_api_span(
+                    "DisruptionByModeByPathModesQueryIncludeRouteBlockedStops",
+                    "stoppoint_client",
+                    **{"tfl.api.mode": mode},
+                ) as span:
+                    response = await self.stoppoint_client.DisruptionByModeByPathModesQueryIncludeRouteBlockedStops(
+                        mode,
+                        True,  # includeRouteBlockedStops=True to get all station-level issues
+                    )
+                    if hasattr(response, "http_status_code"):
+                        span.set_attribute("http.status_code", response.http_status_code)
 
                 # Check for API error
                 self._handle_api_error(response)
@@ -1904,12 +1995,19 @@ class TfLService:
         Raises:
             Exception: If API call fails
         """
-        response = await self.line_client.RouteSequenceByPathIdPathDirectionQueryServiceTypesQueryExcludeCrowding(
-            line_tfl_id,
-            direction,
-            "",  # serviceTypes (empty for all)
-            True,  # excludeCrowding
-        )
+        with tfl_api_span(
+            "RouteSequenceByPathIdPathDirectionQueryServiceTypesQueryExcludeCrowding",
+            "line_client",
+            **{"tfl.api.line_id": line_tfl_id, "tfl.api.direction": direction},
+        ) as span:
+            response = await self.line_client.RouteSequenceByPathIdPathDirectionQueryServiceTypesQueryExcludeCrowding(
+                line_tfl_id,
+                direction,
+                "",  # serviceTypes (empty for all)
+                True,  # excludeCrowding
+            )
+            if hasattr(response, "http_status_code"):
+                span.set_attribute("http.status_code", response.http_status_code)
 
         # Check for API error
         self._handle_api_error(response)
