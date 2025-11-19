@@ -157,15 +157,16 @@ Active (Issue #121, 2025-01-12)
 TfL API provides two endpoints for fetching disruption data: `/Line/Mode/{mode}/Disruption` and `/Line/{ids}/Status`. The Disruption endpoint returns only disruption objects, while Status provides `LineStatus` objects containing structured severity levels (0-20 scale) with `statusSeverity` and `statusSeverityDescription` fields. Initial implementation used Disruption endpoint which required hardcoded mapping from `closureText` strings ("severeDelays") to severity integers - this mapping was incomplete and incorrect.
 
 ### Decision
-Use `/Line/{ids}/Status` endpoint (`StatusByIdsByPathIdsQueryDetail`) instead of `/Line/Mode/{mode}/Disruption`. Fetch line IDs via `fetch_lines()`, join with commas, make single Status API call per request. Extract `statusSeverity` integer directly from `LineStatus` objects - no mapping needed. Filter disruptions by `validityPeriods[].isNow == true` for currently active issues.
+Use `/Line/{ids}/Status` endpoint (`StatusByIdsByPathIdsQueryDetail`) instead of `/Line/Mode/{mode}/Disruption`. Fetch line IDs via `fetch_lines()`, join with commas, make single Status API call per request. Extract `statusSeverity` integer directly from `LineStatus` objects - no mapping needed. When querying without `StartDate` and `EndDate` parameters, the TfL API automatically filters responses to only include currently active statuses.
 
 ### Consequences
 **Easier:**
 - No hardcoded severity mappings - API provides authoritative numeric values
 - Complete disruption data (Status endpoint returns PlannedWork + RealTime simultaneously)
-- Time validity filtering via `isNow` flag (know which disruptions are currently active)
+- Server-side temporal filtering - API returns only currently active statuses when StartDate/EndDate are omitted
 - Structured severity scale (0-20) matches TfL's official MetaSeverity codes
 - More accurate data (real-world testing showed Disruption endpoint missed planned closures)
+- Both RealTime and PlannedWork disruptions included (Issue #208)
 
 **More Difficult:**
 - Requires fetching line IDs first (extra `fetch_lines()` call)

@@ -1426,8 +1426,9 @@ class TfLService:
         Process Line object containing LineStatus data into structured line status responses.
 
         Each Line can have multiple LineStatus objects representing different statuses
-        (e.g., PlannedWork, RealTime issues, Good Service). We filter to only include
-        currently active statuses using the validityPeriods.isNow flag.
+        (e.g., PlannedWork, RealTime issues, Good Service). All returned statuses are
+        already filtered by TfL API to be currently active (because we query without
+        StartDate/EndDate parameters).
 
         Args:
             line_data: Line object from TfL API containing lineStatuses
@@ -1445,24 +1446,8 @@ class TfLService:
             return disruptions
 
         for line_status in line_statuses:
-            # Check if this status is currently active
-            validity_periods = getattr(line_status, "validityPeriods", None)
-            is_active = False
-
-            if validity_periods:
-                # Check if any validity period has isNow=True
-                for period in validity_periods:
-                    if getattr(period, "isNow", False):
-                        is_active = True
-                        break
-            else:
-                # If no validity periods specified, assume it's active
-                is_active = True
-
-            if not is_active:
-                continue
-
-            # Extract line status information
+            # All statuses from API are already filtered to current time
+            # (because we don't pass StartDate/EndDate parameters)
             disruption = self._extract_disruption_from_line_status(
                 line_status,
                 line_id,
@@ -1483,7 +1468,8 @@ class TfLService:
 
         Uses the StatusByIds endpoint to get line status information with detailed
         severity levels (0-20) directly from TfL API. This includes all line statuses
-        (Good Service, disruptions, planned work, etc.) with validity periods to determine active status.
+        (Good Service, disruptions, planned work, etc.). By querying without StartDate/EndDate
+        parameters, the API automatically filters to only return currently active statuses.
 
         Args:
             modes: List of transport modes to fetch statuses for.
@@ -1492,7 +1478,7 @@ class TfLService:
 
         Returns:
             List of line status responses (including both disruptions and good service)
-            for currently active statuses (isNow=true)
+            for currently active statuses
         """
         # Default to major transport modes if not specified
         if modes is None:

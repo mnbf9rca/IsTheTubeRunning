@@ -182,7 +182,11 @@ def create_mock_validity_period(
     to_date: str | None = None,
     **kwargs: Any,  # noqa: ANN401
 ) -> TflValidityPeriod:
-    """Factory for TfL ValidityPeriod mocks using actual pydantic model."""
+    """Factory for TfL ValidityPeriod mocks using actual pydantic model.
+
+    Note: The isNow field indicates disruption category (RealTime vs PlannedWork),
+    not temporal validity. It is no longer used for filtering in the application.
+    """
     return TflValidityPeriod(
         isNow=is_now,
         fromDate=from_date,
@@ -206,7 +210,7 @@ def create_mock_line_status(
         status_severity: Numeric severity (0-20, with 10 = Good Service)
         status_severity_description: Human-readable severity description
         disruption: Optional nested disruption object
-        validity_periods: List of validity periods (defaults to isNow=True if None)
+        validity_periods: List of validity periods (optional, no default)
         reason: Optional reason text
         created: Creation timestamp
     """
@@ -216,10 +220,6 @@ def create_mock_line_status(
         created_str = created.isoformat()
     elif created is not None:
         created_str = str(created)
-
-    # Default to isNow=True if no validity periods provided
-    if validity_periods is None:
-        validity_periods = [create_mock_validity_period(is_now=True)]
 
     return TflLineStatus(
         statusSeverity=status_severity,
@@ -2382,6 +2382,82 @@ async def test_fetch_disruptions_without_affected_routes(
         assert disruptions[1].line_id == "central"
         assert disruptions[1].status_severity == 10
         assert disruptions[1].affected_routes is None  # No disruption at all
+
+
+async def test_fetch_disruptions_includes_both_realtime_and_planned(
+    tfl_service: TfLService,
+) -> None:
+    """Test that both RealTime (isNow=true) and PlannedWork (isNow=false) disruptions are included.
+
+    This test verifies the fix for issue #208. The isNow field indicates disruption
+    category (RealTime vs PlannedWork), not temporal validity. Both types should be
+    included since the TfL API filters by time when StartDate/EndDate are not specified.
+    """
+    with freeze_time("2025-01-01 12:00:00"):
+        # Mock fetch_lines
+        mock_line = Line(tfl_id="victoria", name="Victoria", mode="tube")
+        tfl_service.fetch_lines = AsyncMock(return_value=[mock_line])
+
+        # Create mock line with BOTH RealTime and PlannedWork disruptions
+        mock_lines = [
+            create_mock_line_with_status(
+                line_id="victoria",
+                line_name="Victoria",
+                line_statuses=[
+                    # RealTime disruption (isNow=true)
+                    create_mock_line_status(
+                        status_severity=6,
+                        status_severity_description="Severe Delays",
+                        disruption=create_mock_disruption(
+                            category="RealTime",
+                            description="Signal failure at Victoria",
+                            created=datetime(2025, 1, 1, 11, 30, 0, tzinfo=UTC),
+                        ),
+                        validity_periods=[create_mock_validity_period(is_now=True)],
+                        created=datetime(2025, 1, 1, 11, 30, 0, tzinfo=UTC),
+                    ),
+                    # PlannedWork disruption (isNow=false)
+                    create_mock_line_status(
+                        status_severity=9,
+                        status_severity_description="Minor Delays",
+                        disruption=create_mock_disruption(
+                            category="PlannedWork",
+                            description="Station closure at Pimlico for maintenance",
+                            created=datetime(2025, 1, 1, 10, 0, 0, tzinfo=UTC),
+                        ),
+                        validity_periods=[create_mock_validity_period(is_now=False)],
+                        created=datetime(2025, 1, 1, 10, 0, 0, tzinfo=UTC),
+                    ),
+                ],
+            ),
+        ]
+        mock_response = MockResponse(
+            data=mock_lines,
+            shared_expires=datetime(2025, 1, 1, 12, 2, 0, tzinfo=UTC),
+        )
+
+        # Mock the async client method
+        with patch.object(
+            tfl_service.line_client,
+            "StatusByIdsByPathIdsQueryDetail",
+            new_callable=AsyncMock,
+            return_value=mock_response,
+        ):
+            # Execute
+            disruptions = await tfl_service.fetch_line_disruptions(modes=["tube"], use_cache=False)
+
+        # Verify BOTH disruptions are included (not just isNow=true)
+        assert len(disruptions) == 2
+
+        # First disruption: RealTime (isNow=true)
+        assert disruptions[0].line_id == "victoria"
+        assert disruptions[0].status_severity == 6
+        assert disruptions[0].reason == "Signal failure at Victoria"
+
+        # Second disruption: PlannedWork (isNow=false) - this is the fix for #208
+        assert disruptions[1].line_id == "victoria"
+        assert disruptions[1].status_severity == 9
+        assert disruptions[1].reason == "Station closure at Pimlico for maintenance"
 
 
 async def test_fetch_disruptions_with_empty_affected_station_sequence(
