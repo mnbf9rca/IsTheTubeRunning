@@ -102,25 +102,23 @@ Use `sqlalchemy.pool.NullPool` for database connections in test environments (`a
 ## Async Test Mocking Strategy
 
 ### Status
-Active
+Active (Updated: Issue #200, pydantic-tfl-api v3.0.0)
 
 ### Context
-Testing TfL service requires mocking synchronous library calls wrapped in `run_in_executor()`. Could mock client classes or mock executor directly.
+Testing TfL service requires mocking async client methods from pydantic-tfl-api v3. With native async clients, we can use standard async mocking patterns.
 
 ### Decision
-Mock `asyncio.get_running_loop()` directly instead of mocking client classes in TfL service tests. Pattern: `mock_loop = AsyncMock(); mock_loop.run_in_executor = AsyncMock(return_value=mock_response); mock_get_loop.return_value = mock_loop`
+Mock async client methods directly using `patch.object()` with `AsyncMock`. Pattern: `with patch.object(tfl_service.line_client, "MethodName", new_callable=AsyncMock, return_value=mock_response):`. For multiple responses, use `side_effect=mock_responses`.
 
 ### Consequences
 **Easier:**
-- Simpler mocking (mock executor, not client)
-- More explicit about async behavior
-- Avoids freezegun async complications
-- Works with any synchronous library (not specific to pydantic-tfl-api)
+- Standard Python async mocking (intuitive for developers)
+- Clear what's being mocked (specific client method)
+- Avoids indirect mocking of event loop internals
+- Test helper functions accept `client_attr` and `client_method` parameters for flexibility
 
 **More Difficult:**
-- Less intuitive than mocking client classes
-- Must mock loop for every test
-- Pattern is not obvious to developers unfamiliar with run_in_executor
+- Slightly more verbose for multiple client mocks (need multiple `patch.object` contexts)
 
 ---
 
