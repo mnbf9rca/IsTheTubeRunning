@@ -104,14 +104,15 @@ def upgrade() -> None:
     # This means "Good Service" will NOT trigger alerts
     now = datetime.now(UTC)
     for mode in TFL_MODES:
-        new_id = str(uuid.uuid4())
+        new_id = uuid.uuid4()
         op.execute(
             sa.text(
-                f"""
+                """
                 INSERT INTO alert_disabled_severities (id, mode_id, severity_level, created_at, updated_at)
-                VALUES ('{new_id}'::uuid, :mode_id, :severity_level, :created_at, :updated_at)
+                VALUES (:id, :mode_id, :severity_level, :created_at, :updated_at)
                 """
             ).bindparams(
+                id=new_id,
                 mode_id=mode,
                 severity_level=10,  # Good Service
                 created_at=now,

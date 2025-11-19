@@ -2816,6 +2816,45 @@ async def test_fetch_severity_codes_cache_hit(tfl_service: TfLService) -> None:
     )
 
 
+async def test_fetch_severity_codes_cache_hit_multiple_modes(tfl_service: TfLService) -> None:
+    """Test fetching severity codes from cache with multiple modes."""
+    # Setup cached severity codes with varying mode_id values
+    cached_codes = [
+        SeverityCode(
+            mode_id="tube",
+            severity_level=10,
+            description="Good Service",
+            last_updated=datetime.now(UTC),
+        ),
+        SeverityCode(
+            mode_id="tube",
+            severity_level=5,
+            description="Severe Delays",
+            last_updated=datetime.now(UTC),
+        ),
+        SeverityCode(
+            mode_id="bus",
+            severity_level=10,
+            description="Good Service",
+            last_updated=datetime.now(UTC),
+        ),
+        SeverityCode(
+            mode_id="dlr",
+            severity_level=10,
+            description="Good Service",
+            last_updated=datetime.now(UTC),
+        ),
+    ]
+
+    # Execute with helper
+    await assert_cache_hit(
+        tfl_service=tfl_service,
+        method_callable=lambda: tfl_service.fetch_severity_codes(use_cache=True),
+        cache_key="severity_codes:all",
+        cached_data=cached_codes,
+    )
+
+
 async def test_fetch_severity_codes_cache_miss(
     tfl_service: TfLService,
 ) -> None:

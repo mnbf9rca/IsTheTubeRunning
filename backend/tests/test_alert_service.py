@@ -728,6 +728,61 @@ async def test_get_route_disruptions_filters_correctly(
     assert len(disruptions) == 0
 
 
+@pytest.mark.asyncio
+@patch("app.services.alert_service.TfLService")
+async def test_get_route_disruptions_filters_disabled_severities(
+    mock_tfl_class: MagicMock,
+    alert_service: AlertService,
+    db_session: AsyncSession,
+    test_route_with_schedule: UserRoute,
+    populate_route_index: Callable[[UserRoute], UserRoute],
+) -> None:
+    """Test that disruptions with disabled (mode, severity) pairs are filtered out."""
+    # Populate the route index (required for inverted index matching)
+    await populate_route_index(test_route_with_schedule)
+
+    # Create disruptions including one with disabled severity (tube, 10 = Good Service)
+    mock_tfl_instance = AsyncMock()
+    mock_tfl_instance.fetch_line_disruptions = AsyncMock(
+        return_value=[
+            DisruptionResponse(
+                line_id="victoria",  # In route
+                line_name="Victoria",
+                mode="tube",
+                status_severity=10,  # Good Service - should be filtered
+                status_severity_description="Good Service",
+                reason=None,
+                created_at=datetime.now(UTC),
+            ),
+            DisruptionResponse(
+                line_id="victoria",  # In route
+                line_name="Victoria",
+                mode="tube",
+                status_severity=5,  # Severe Delays - should NOT be filtered
+                status_severity_description="Severe Delays",
+                reason="Signal failure",
+                created_at=datetime.now(UTC),
+            ),
+        ]
+    )
+    mock_tfl_class.return_value = mock_tfl_instance
+
+    # Set up disabled severity pairs - (tube, 10) should be filtered
+    disabled_severity_pairs: set[tuple[str, int]] = {("tube", 10)}
+
+    disruptions, error_occurred = await alert_service._get_route_disruptions(
+        test_route_with_schedule, disabled_severity_pairs
+    )
+
+    # Should return no error
+    assert not error_occurred
+    # Should only return the disruption with severity 5 (Severe Delays)
+    # The Good Service (severity 10) should be filtered out
+    assert len(disruptions) == 1
+    assert disruptions[0].status_severity == 5
+    assert disruptions[0].status_severity_description == "Severe Delays"
+
+
 # ==================== _should_send_alert Tests ====================
 
 

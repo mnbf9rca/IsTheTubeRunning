@@ -564,18 +564,15 @@ class TfLService:
         disabled_severities = {(d.mode_id, d.severity_level) for d in disabled_result.scalars().all()}
 
         # Build the response
-        config = []
-        for code in severity_codes:
-            config.append(
-                {
-                    "mode_id": code.mode_id,
-                    "severity_level": code.severity_level,
-                    "description": code.description,
-                    "alerts_enabled": (code.mode_id, code.severity_level) not in disabled_severities,
-                }
-            )
-
-        return config
+        return [
+            {
+                "mode_id": code.mode_id,
+                "severity_level": code.severity_level,
+                "description": code.description,
+                "alerts_enabled": (code.mode_id, code.severity_level) not in disabled_severities,
+            }
+            for code in severity_codes
+        ]
 
     async def fetch_disruption_categories(self, use_cache: bool = True) -> list[DisruptionCategory]:
         """
