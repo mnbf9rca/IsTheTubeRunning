@@ -135,6 +135,7 @@ def check_disruptions_and_alert(self: BoundTask) -> DisruptionCheckResult:
         Retry: If the task should be retried due to transient failure
     """
     try:
+        logger.info("check_disruptions_task_started")
         # run_in_worker_loop() uses the worker's persistent event loop.
         # This allows database and Redis connections to be pooled and
         # reused across tasks in the same worker process.
@@ -216,6 +217,7 @@ def rebuild_route_indexes_task(
         Retry: If the task should be retried due to transient failure
     """
     try:
+        logger.info("rebuild_indexes_task_started", route_id=route_id)
         # run_in_worker_loop() uses the worker's persistent event loop.
         # This allows database connections to be pooled and reused
         # across tasks in the same worker process.
@@ -344,6 +346,7 @@ def detect_and_rebuild_stale_routes(self: BoundTask) -> DetectStaleRoutesResult:
         Retry: If the task should be retried due to transient failure
     """
     try:
+        logger.info("detect_stale_routes_task_started")
         # run_in_worker_loop() uses the worker's persistent event loop.
         # This allows database connections to be pooled and reused
         # across tasks in the same worker process.
