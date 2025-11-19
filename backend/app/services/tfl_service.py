@@ -10,12 +10,10 @@ Terminology:
 - "pydantic-tfl-api" = The 3rd party client library we use (authoritative for API schemas)
 """
 
-import asyncio
 import contextlib
 import hashlib
 import uuid
 from datetime import UTC, datetime
-from functools import partial
 from typing import Any
 from urllib.parse import urlparse
 
@@ -23,7 +21,7 @@ import structlog
 from aiocache import Cache
 from aiocache.serializers import PickleSerializer
 from fastapi import HTTPException, status
-from pydantic_tfl_api import LineClient, StopPointClient
+from pydantic_tfl_api import AsyncLineClient, AsyncStopPointClient
 from pydantic_tfl_api.core import ApiError, ResponseModel
 from pydantic_tfl_api.models import (
     DisruptedPoint,
@@ -222,9 +220,9 @@ class TfLService:
             db: Database session
         """
         self.db = db
-        # Note: pydantic-tfl-api clients are synchronous
-        self.line_client = LineClient(api_token=settings.TFL_API_KEY)
-        self.stoppoint_client = StopPointClient(api_token=settings.TFL_API_KEY)
+        # pydantic-tfl-api v3 provides native async clients
+        self.line_client = AsyncLineClient(api_token=settings.TFL_API_KEY)
+        self.stoppoint_client = AsyncStopPointClient(api_token=settings.TFL_API_KEY)
 
         # Initialize Redis cache for aiocache
         self.cache = Cache(
@@ -334,12 +332,8 @@ class TfLService:
         logger.info("fetching_modes_from_tfl_api")
 
         try:
-            # Fetch from TfL API (synchronous call wrapped in executor)
-            loop = asyncio.get_running_loop()
-            response = await loop.run_in_executor(
-                None,
-                self.line_client.MetaModes,
-            )
+            # Fetch from TfL API
+            response = await self.line_client.MetaModes()
 
             # Check for API error
             self._handle_api_error(response)
@@ -406,17 +400,11 @@ class TfLService:
             all_lines = []
             ttl = DEFAULT_LINES_CACHE_TTL
 
-            loop = asyncio.get_running_loop()
-
             for mode in modes:
                 logger.debug("fetching_lines_for_mode", mode=mode)
 
-                # Fetch from TfL API (synchronous call wrapped in executor)
-                response = await loop.run_in_executor(
-                    None,
-                    self.line_client.GetByModeByPathModes,
-                    mode,
-                )
+                # Fetch from TfL API
+                response = await self.line_client.GetByModeByPathModes(mode)
 
                 # Check for API error
                 self._handle_api_error(response)
@@ -491,12 +479,8 @@ class TfLService:
         logger.info("fetching_severity_codes_from_tfl_api")
 
         try:
-            # Fetch from TfL API (synchronous call wrapped in executor)
-            loop = asyncio.get_running_loop()
-            response = await loop.run_in_executor(
-                None,
-                self.line_client.MetaSeverity,
-            )
+            # Fetch from TfL API
+            response = await self.line_client.MetaSeverity()
 
             # Check for API error
             self._handle_api_error(response)
@@ -569,12 +553,8 @@ class TfLService:
         logger.info("fetching_disruption_categories_from_tfl_api")
 
         try:
-            # Fetch from TfL API (synchronous call wrapped in executor)
-            loop = asyncio.get_running_loop()
-            response = await loop.run_in_executor(
-                None,
-                self.line_client.MetaDisruptionCategories,
-            )
+            # Fetch from TfL API
+            response = await self.line_client.MetaDisruptionCategories()
 
             # Check for API error
             self._handle_api_error(response)
@@ -646,12 +626,8 @@ class TfLService:
         logger.info("fetching_stop_types_from_tfl_api")
 
         try:
-            # Fetch from TfL API (synchronous call wrapped in executor)
-            loop = asyncio.get_running_loop()
-            response = await loop.run_in_executor(
-                None,
-                self.stoppoint_client.MetaStopTypes,
-            )
+            # Fetch from TfL API
+            response = await self.stoppoint_client.MetaStopTypes()
 
             # Check for API error
             self._handle_api_error(response)
@@ -735,14 +711,10 @@ class TfLService:
         # Fetch hub details from API if hub code exists
         if hub_code:
             try:
-                loop = asyncio.get_running_loop()
-                # Use partial to pass keyword arguments to the API call
-                api_call = partial(
-                    self.stoppoint_client.GetByPathIdsQueryIncludeCrowdingData,
-                    ids=hub_code,
-                    includeCrowdingData=False,
+                response = await self.stoppoint_client.GetByPathIdsQueryIncludeCrowdingData(
+                    hub_code,
+                    False,  # includeCrowdingData
                 )
-                response = await loop.run_in_executor(None, api_call)
                 if not isinstance(response, ApiError) and response.content and response.content.root:
                     hub_data = response.content.root[0]
                     hub_name = getattr(hub_data, "commonName", None)
@@ -822,10 +794,7 @@ class TfLService:
         """
         # Fetch stations for the line using LineClient with tflOperatedNationalRailStationsOnly=False
         # This ensures we get ALL stations, not just TfL-operated ones
-        loop = asyncio.get_running_loop()
-        response = await loop.run_in_executor(
-            None,
-            self.line_client.StopPointsByPathIdQueryTflOperatedNationalRailStationsOnly,
+        response = await self.line_client.StopPointsByPathIdQueryTflOperatedNationalRailStationsOnly(
             line_tfl_id,
             False,  # tflOperatedNationalRailStationsOnly=False to get ALL stations
         )
@@ -1412,7 +1381,6 @@ class TfLService:
 
         try:
             all_disruptions = []
-            loop = asyncio.get_running_loop()
 
             # First, fetch all lines for the specified modes to get line IDs
             lines = await self.fetch_lines(modes=modes, use_cache=use_cache)
@@ -1427,9 +1395,7 @@ class TfLService:
             logger.debug("fetching_status_for_lines", line_count=len(line_ids), modes=modes)
 
             # Fetch line status for all lines at once
-            response = await loop.run_in_executor(
-                None,
-                self.line_client.StatusByIdsByPathIdsQueryDetail,
+            response = await self.line_client.StatusByIdsByPathIdsQueryDetail(
                 line_ids_str,
                 True,  # detail=True to get disruption details
             )
@@ -1673,15 +1639,12 @@ class TfLService:
 
             all_disruptions: list[StationDisruptionResponse] = []
             ttl = DEFAULT_DISRUPTIONS_CACHE_TTL
-            loop = asyncio.get_running_loop()
 
             # Fetch station disruptions for each mode
             for mode in modes:
                 logger.debug("fetching_station_disruptions_for_mode", mode=mode)
 
-                response = await loop.run_in_executor(
-                    None,
-                    self.stoppoint_client.DisruptionByModeByPathModesQueryIncludeRouteBlockedStops,
+                response = await self.stoppoint_client.DisruptionByModeByPathModesQueryIncludeRouteBlockedStops(
                     mode,
                     True,  # includeRouteBlockedStops=True to get all station-level issues
                 )
@@ -1893,10 +1856,7 @@ class TfLService:
         Raises:
             Exception: If API call fails
         """
-        loop = asyncio.get_running_loop()
-        response = await loop.run_in_executor(
-            None,
-            self.line_client.RouteSequenceByPathIdPathDirectionQueryServiceTypesQueryExcludeCrowding,
+        response = await self.line_client.RouteSequenceByPathIdPathDirectionQueryServiceTypesQueryExcludeCrowding(
             line_tfl_id,
             direction,
             "",  # serviceTypes (empty for all)

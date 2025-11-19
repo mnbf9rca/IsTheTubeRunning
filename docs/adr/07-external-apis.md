@@ -3,24 +3,25 @@
 ## pydantic-tfl-api Integration
 
 ### Status
-Active
+Active (Updated: Issue #200, pydantic-tfl-api v3.0.0)
 
 ### Context
-The `pydantic-tfl-api` library provides type-safe TfL API client with Pydantic models, but it's synchronous. Our FastAPI backend is async. Need to integrate synchronous library into async codebase.
+The `pydantic-tfl-api` library provides type-safe TfL API client with Pydantic models. Version 3.0.0 introduced native async clients (`AsyncLineClient`, `AsyncStopPointClient`), eliminating the need for thread pool wrappers.
 
 ### Decision
-Wrap all TfL API calls in `asyncio.get_running_loop().run_in_executor()` to maintain async compatibility. Client initialization uses optional `app_key` parameter (for rate limit increase). Responses are either `ApiError` or success objects with `.content` attribute containing Pydantic models.
+Use native async clients from pydantic-tfl-api v3. Initialize with `AsyncLineClient(api_token=...)` and `AsyncStopPointClient(api_token=...)`. Call methods directly with `await client.MethodName(args)`. Responses are either `ApiError` or success objects with `.content` attribute containing Pydantic models.
 
 ### Consequences
 **Easier:**
 - Type-safe API responses (Pydantic models)
 - Maintained library (don't need to write TfL client from scratch)
-- Maintains async compatibility in FastAPI
+- Native async - no `run_in_executor()` boilerplate
+- Standard async testing patterns (mock client methods with `AsyncMock`)
+- Better performance (no thread pool overhead)
 
 **More Difficult:**
-- Wrapper boilerplate for every TfL API call
-- Executor runs in thread pool (slight overhead)
-- Testing requires mocking `asyncio.get_running_loop()`
+- Must use v3.0.0+ of pydantic-tfl-api
+- Async method signatures (must `await` all API calls)
 
 ---
 
