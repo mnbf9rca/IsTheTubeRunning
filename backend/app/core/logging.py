@@ -45,7 +45,9 @@ def configure_logging(*, log_level: str = "INFO") -> None:
             # Format exceptions
             structlog.processors.format_exc_info,
             # Render as JSON or key-value depending on environment
-            structlog.processors.JSONRenderer() if log_level.upper() == "DEBUG" else structlog.dev.ConsoleRenderer(),
+            structlog.processors.JSONRenderer()
+            if log_level.upper() == "DEBUG"
+            else structlog.dev.ConsoleRenderer(colors=True),
         ],
         # Use LoggerFactory for stdlib integration
         logger_factory=structlog.stdlib.LoggerFactory(),
