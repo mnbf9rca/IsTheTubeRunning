@@ -7,10 +7,12 @@ from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
+from app.models.tfl import Line
 from app.services import tfl_service
 from app.services.tfl_service import TfLService
 from opentelemetry.sdk.trace import TracerProvider
 from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanExporter
+from opentelemetry.trace import StatusCode
 from pydantic_tfl_api.models import (
     Line as TflLine,
 )
@@ -327,3 +329,377 @@ class TestTflApiSpans:
 
         # Verify result came from cache
         assert result == cached_modes
+
+    @pytest.mark.asyncio
+    async def test_fetch_severity_codes_creates_span(
+        self,
+        tfl_service_with_mock: TfLService,
+        in_memory_span_exporter: InMemorySpanExporter,
+        test_tracer_provider: TracerProvider,
+    ) -> None:
+        """Test that fetch_severity_codes creates a span with correct attributes."""
+        exporter = in_memory_span_exporter
+        test_tracer = test_tracer_provider.get_tracer(tfl_service.__name__)
+
+        # Setup mock response - severity codes response
+        mock_severity = MagicMock()
+        mock_severity.severityLevel = 0
+        mock_severity.modeName = "tube"
+        mock_severity.description = "Good Service"
+        mock_response = MockResponse(
+            data=[mock_severity],
+            shared_expires=datetime.now(UTC) + timedelta(days=7),
+        )
+
+        # Mock database operations - these methods do async db.execute calls
+        mock_scalars = MagicMock()
+        mock_scalars.all.return_value = []
+        mock_result = MagicMock()
+        mock_result.scalars.return_value = mock_scalars
+        tfl_service_with_mock.db.execute = AsyncMock(return_value=mock_result)
+        tfl_service_with_mock.db.commit = AsyncMock()
+        tfl_service_with_mock.db.refresh = AsyncMock()
+
+        with (
+            patch.object(tfl_service, "tracer", test_tracer),
+            patch.object(
+                tfl_service_with_mock.line_client,
+                "MetaSeverity",
+                new_callable=AsyncMock,
+                return_value=mock_response,
+            ),
+        ):
+            await tfl_service_with_mock.fetch_severity_codes()
+
+        # Verify span was created
+        spans = get_recorded_spans(exporter)
+        assert len(spans) == 1
+
+        span = spans[0]
+        assert span.name == "tfl.api.MetaSeverity"
+        assert span.attributes is not None
+        assert span.attributes["tfl.api.endpoint"] == "MetaSeverity"
+        assert span.attributes["tfl.api.client"] == "line_client"
+        assert span.attributes["peer.service"] == "api.tfl.gov.uk"
+        assert span.attributes["http.status_code"] == 200
+
+    @pytest.mark.asyncio
+    async def test_fetch_disruption_categories_creates_span(
+        self,
+        tfl_service_with_mock: TfLService,
+        in_memory_span_exporter: InMemorySpanExporter,
+        test_tracer_provider: TracerProvider,
+    ) -> None:
+        """Test that fetch_disruption_categories creates a span with correct attributes."""
+        exporter = in_memory_span_exporter
+        test_tracer = test_tracer_provider.get_tracer(tfl_service.__name__)
+
+        # Setup mock response - disruption categories response
+        mock_response = MockResponse(
+            data=["RealTime", "PlannedWork", "Information"],
+            shared_expires=datetime.now(UTC) + timedelta(days=7),
+        )
+
+        # Mock database operations
+        mock_scalars = MagicMock()
+        mock_scalars.all.return_value = []
+        mock_result = MagicMock()
+        mock_result.scalars.return_value = mock_scalars
+        tfl_service_with_mock.db.execute = AsyncMock(return_value=mock_result)
+        tfl_service_with_mock.db.commit = AsyncMock()
+        tfl_service_with_mock.db.refresh = AsyncMock()
+
+        with (
+            patch.object(tfl_service, "tracer", test_tracer),
+            patch.object(
+                tfl_service_with_mock.line_client,
+                "MetaDisruptionCategories",
+                new_callable=AsyncMock,
+                return_value=mock_response,
+            ),
+        ):
+            await tfl_service_with_mock.fetch_disruption_categories()
+
+        # Verify span was created
+        spans = get_recorded_spans(exporter)
+        assert len(spans) == 1
+
+        span = spans[0]
+        assert span.name == "tfl.api.MetaDisruptionCategories"
+        assert span.attributes is not None
+        assert span.attributes["tfl.api.endpoint"] == "MetaDisruptionCategories"
+        assert span.attributes["tfl.api.client"] == "line_client"
+        assert span.attributes["peer.service"] == "api.tfl.gov.uk"
+        assert span.attributes["http.status_code"] == 200
+
+    @pytest.mark.asyncio
+    async def test_fetch_stop_types_creates_span(
+        self,
+        tfl_service_with_mock: TfLService,
+        in_memory_span_exporter: InMemorySpanExporter,
+        test_tracer_provider: TracerProvider,
+    ) -> None:
+        """Test that fetch_stop_types creates a span with correct attributes."""
+        exporter = in_memory_span_exporter
+        test_tracer = test_tracer_provider.get_tracer(tfl_service.__name__)
+
+        # Setup mock response - stop types response
+        mock_response = MockResponse(
+            data=["NaptanMetroStation", "NaptanRailStation"],
+            shared_expires=datetime.now(UTC) + timedelta(days=7),
+        )
+
+        # Mock database operations
+        mock_scalars = MagicMock()
+        mock_scalars.all.return_value = []
+        mock_result = MagicMock()
+        mock_result.scalars.return_value = mock_scalars
+        tfl_service_with_mock.db.execute = AsyncMock(return_value=mock_result)
+        tfl_service_with_mock.db.commit = AsyncMock()
+        tfl_service_with_mock.db.refresh = AsyncMock()
+
+        with (
+            patch.object(tfl_service, "tracer", test_tracer),
+            patch.object(
+                tfl_service_with_mock.stoppoint_client,
+                "MetaStopTypes",
+                new_callable=AsyncMock,
+                return_value=mock_response,
+            ),
+        ):
+            await tfl_service_with_mock.fetch_stop_types()
+
+        # Verify span was created
+        spans = get_recorded_spans(exporter)
+        assert len(spans) == 1
+
+        span = spans[0]
+        assert span.name == "tfl.api.MetaStopTypes"
+        assert span.attributes is not None
+        assert span.attributes["tfl.api.endpoint"] == "MetaStopTypes"
+        assert span.attributes["tfl.api.client"] == "stoppoint_client"
+        assert span.attributes["peer.service"] == "api.tfl.gov.uk"
+        assert span.attributes["http.status_code"] == 200
+
+    @pytest.mark.asyncio
+    async def test_fetch_line_disruptions_creates_span(
+        self,
+        tfl_service_with_mock: TfLService,
+        in_memory_span_exporter: InMemorySpanExporter,
+        test_tracer_provider: TracerProvider,
+    ) -> None:
+        """Test that fetch_line_disruptions creates a span with correct attributes."""
+        exporter = in_memory_span_exporter
+        test_tracer = test_tracer_provider.get_tracer(tfl_service.__name__)
+
+        # Setup mock response - line status response
+        mock_line_status = MagicMock()
+        mock_line_status.id = "victoria"
+        mock_line_status.name = "Victoria"
+        mock_line_status.lineStatuses = []
+        mock_response = MockResponse(
+            data=[mock_line_status],
+            shared_expires=datetime.now(UTC) + timedelta(minutes=2),
+        )
+
+        # Create mock Line objects for fetch_lines to return from cache
+        mock_line = MagicMock(spec=Line)
+        mock_line.tfl_id = "victoria"
+        mock_line.name = "Victoria"
+
+        # Set up cache to return lines (bypass fetch_lines API call)
+        cache_key = tfl_service_with_mock._build_modes_cache_key("lines", ["tube"])
+        tfl_service_with_mock.cache.get = AsyncMock(side_effect=lambda key: [mock_line] if key == cache_key else None)
+
+        with (
+            patch.object(tfl_service, "tracer", test_tracer),
+            patch.object(
+                tfl_service_with_mock.line_client,
+                "StatusByIdsByPathIdsQueryDetail",
+                new_callable=AsyncMock,
+                return_value=mock_response,
+            ),
+        ):
+            await tfl_service_with_mock.fetch_line_disruptions(modes=["tube"])
+
+        # Verify span was created (only the disruptions span, not the lines span)
+        spans = get_recorded_spans(exporter)
+        assert len(spans) == 1
+
+        span = spans[0]
+        assert span.name == "tfl.api.StatusByIdsByPathIdsQueryDetail"
+        assert span.attributes is not None
+        assert span.attributes["tfl.api.endpoint"] == "StatusByIdsByPathIdsQueryDetail"
+        assert span.attributes["tfl.api.client"] == "line_client"
+        assert span.attributes["tfl.api.line_count"] == 1
+        assert span.attributes["peer.service"] == "api.tfl.gov.uk"
+        assert span.attributes["http.status_code"] == 200
+
+    @pytest.mark.asyncio
+    async def test_fetch_station_disruptions_creates_span(
+        self,
+        tfl_service_with_mock: TfLService,
+        in_memory_span_exporter: InMemorySpanExporter,
+        test_tracer_provider: TracerProvider,
+    ) -> None:
+        """Test that fetch_station_disruptions creates a span for each mode."""
+        exporter = in_memory_span_exporter
+        test_tracer = test_tracer_provider.get_tracer(tfl_service.__name__)
+
+        # Setup mock response - station disruptions response
+        mock_response = MockResponse(
+            data=[],  # Empty list - no disruptions
+            shared_expires=datetime.now(UTC) + timedelta(minutes=2),
+        )
+
+        with (
+            patch.object(tfl_service, "tracer", test_tracer),
+            patch.object(
+                tfl_service_with_mock.stoppoint_client,
+                "DisruptionByModeByPathModesQueryIncludeRouteBlockedStops",
+                new_callable=AsyncMock,
+                return_value=mock_response,
+            ),
+        ):
+            await tfl_service_with_mock.fetch_station_disruptions(modes=["tube"])
+
+        # Verify span was created
+        spans = get_recorded_spans(exporter)
+        assert len(spans) == 1
+
+        span = spans[0]
+        assert span.name == "tfl.api.DisruptionByModeByPathModesQueryIncludeRouteBlockedStops"
+        assert span.attributes is not None
+        assert span.attributes["tfl.api.endpoint"] == "DisruptionByModeByPathModesQueryIncludeRouteBlockedStops"
+        assert span.attributes["tfl.api.client"] == "stoppoint_client"
+        assert span.attributes["tfl.api.mode"] == "tube"
+        assert span.attributes["peer.service"] == "api.tfl.gov.uk"
+        assert span.attributes["http.status_code"] == 200
+
+
+class TestTflApiSpanErrorHandling:
+    """Test class for TfL API span error recording.
+
+    The OpenTelemetry SDK automatically records exceptions and sets span status
+    to ERROR when an exception occurs within a span context. These tests verify
+    that behavior works correctly with the tfl_api_span helper.
+    """
+
+    @pytest.mark.asyncio
+    async def test_span_records_exception_on_api_error(
+        self,
+        tfl_service_with_mock: TfLService,
+        in_memory_span_exporter: InMemorySpanExporter,
+        test_tracer_provider: TracerProvider,
+    ) -> None:
+        """Test that span records exception when API call fails."""
+        exporter = in_memory_span_exporter
+        test_tracer = test_tracer_provider.get_tracer(tfl_service.__name__)
+
+        # Mock API to raise an exception
+        api_error = Exception("TfL API connection error")
+
+        with (
+            patch.object(tfl_service, "tracer", test_tracer),
+            patch.object(
+                tfl_service_with_mock.line_client,
+                "MetaModes",
+                new_callable=AsyncMock,
+                side_effect=api_error,
+            ),
+            pytest.raises(Exception, match="Failed to fetch transport modes"),
+        ):
+            await tfl_service_with_mock.fetch_available_modes()
+
+        # Verify span was created and has error status
+        spans = get_recorded_spans(exporter)
+        assert len(spans) == 1
+
+        span = spans[0]
+        assert span.name == "tfl.api.MetaModes"
+        assert span.status.status_code == StatusCode.ERROR
+
+        # Verify exception was recorded
+        assert len(span.events) >= 1
+        exception_event = next((e for e in span.events if e.name == "exception"), None)
+        assert exception_event is not None
+        assert "TfL API connection error" in str(exception_event.attributes)
+
+    @pytest.mark.asyncio
+    async def test_span_records_exception_on_fetch_lines_error(
+        self,
+        tfl_service_with_mock: TfLService,
+        in_memory_span_exporter: InMemorySpanExporter,
+        test_tracer_provider: TracerProvider,
+    ) -> None:
+        """Test that span records exception when fetch_lines API call fails."""
+        exporter = in_memory_span_exporter
+        test_tracer = test_tracer_provider.get_tracer(tfl_service.__name__)
+
+        # Mock database execute to succeed for the delete
+        tfl_service_with_mock.db.execute = AsyncMock()
+
+        # Mock API to raise an exception
+        api_error = Exception("Network timeout")
+
+        with (
+            patch.object(tfl_service, "tracer", test_tracer),
+            patch.object(
+                tfl_service_with_mock.line_client,
+                "GetByModeByPathModes",
+                new_callable=AsyncMock,
+                side_effect=api_error,
+            ),
+            pytest.raises(Exception, match="Failed to fetch lines"),
+        ):
+            await tfl_service_with_mock.fetch_lines(modes=["tube"])
+
+        # Verify span was created and has error status
+        spans = get_recorded_spans(exporter)
+        assert len(spans) == 1
+
+        span = spans[0]
+        assert span.name == "tfl.api.GetByModeByPathModes"
+        assert span.status.status_code == StatusCode.ERROR
+
+    @pytest.mark.asyncio
+    async def test_span_records_exception_on_hub_fetch_error(
+        self,
+        tfl_service_with_mock: TfLService,
+        in_memory_span_exporter: InMemorySpanExporter,
+        test_tracer_provider: TracerProvider,
+    ) -> None:
+        """Test that span records exception when hub API call fails."""
+        exporter = in_memory_span_exporter
+        test_tracer = test_tracer_provider.get_tracer(tfl_service.__name__)
+
+        # Create stop point with hub code
+        stop_point = create_mock_stop_point()
+        object.__setattr__(stop_point, "hubNaptanCode", "HUBVIC")
+
+        # Mock API to raise an exception
+        api_error = Exception("Hub API error")
+
+        with (
+            patch.object(tfl_service, "tracer", test_tracer),
+            patch.object(
+                tfl_service_with_mock.stoppoint_client,
+                "GetByPathIdsQueryIncludeCrowdingData",
+                new_callable=AsyncMock,
+                side_effect=api_error,
+            ),
+        ):
+            # _extract_hub_fields catches exceptions and returns original hub_code, None for hub_name
+            hub_code, hub_name = await tfl_service_with_mock._extract_hub_fields(stop_point)
+
+        # Verify span was created and has error status
+        spans = get_recorded_spans(exporter)
+        assert len(spans) == 1
+
+        span = spans[0]
+        assert span.name == "tfl.api.GetByPathIdsQueryIncludeCrowdingData"
+        assert span.status.status_code == StatusCode.ERROR
+
+        # Verify the method returns hub_code (from stop_point) and None for hub_name on error
+        assert hub_code == "HUBVIC"
+        assert hub_name is None
