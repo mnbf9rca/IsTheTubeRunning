@@ -111,3 +111,36 @@ class TestParseAuth0AlgorithmsValidator:
         result = Settings.parse_auth0_algorithms(input_list)
         assert result == input_list
         assert result is input_list  # Same object, not a copy
+
+
+class TestValidateLogLevelValidator:
+    """Tests for validate_log_level field validator."""
+
+    def test_validate_log_level_with_valid_levels(self) -> None:
+        """Test validate_log_level accepts all valid log levels."""
+        valid_levels = ["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"]
+        for level in valid_levels:
+            result = Settings.validate_log_level(level)
+            assert result == level
+
+    def test_validate_log_level_normalizes_to_uppercase(self) -> None:
+        """Test validate_log_level converts lowercase to uppercase."""
+        result = Settings.validate_log_level("debug")
+        assert result == "DEBUG"
+
+        result = Settings.validate_log_level("info")
+        assert result == "INFO"
+
+        result = Settings.validate_log_level("Warning")
+        assert result == "WARNING"
+
+    def test_validate_log_level_raises_on_invalid(self) -> None:
+        """Test validate_log_level raises ValueError for invalid levels."""
+        with pytest.raises(ValueError, match="Invalid LOG_LEVEL"):
+            Settings.validate_log_level("INVALID")
+
+        with pytest.raises(ValueError, match="Invalid LOG_LEVEL"):
+            Settings.validate_log_level("TRACE")
+
+        with pytest.raises(ValueError, match="Invalid LOG_LEVEL"):
+            Settings.validate_log_level("")

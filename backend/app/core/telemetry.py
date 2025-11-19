@@ -1,9 +1,9 @@
 """OpenTelemetry distributed tracing configuration."""
 
-import logging
 import threading
 from typing import TYPE_CHECKING
 
+import structlog
 from opentelemetry import trace
 from opentelemetry.exporter.otlp.proto.http.trace_exporter import OTLPSpanExporter
 from opentelemetry.sdk.resources import Resource
@@ -16,7 +16,7 @@ from app.core.config import require_config, settings
 if TYPE_CHECKING:
     from opentelemetry.trace.span import Span
 
-logger = logging.getLogger(__name__)
+logger = structlog.get_logger(__name__)
 
 # Module-level globals for lazy initialization (fork-safety pattern from ADR 08)
 _tracer_provider: TracerProvider | None = None
@@ -95,14 +95,13 @@ def _create_tracer_provider() -> TracerProvider:
         provider.add_span_processor(span_processor)
 
         logger.info(
-            f"OTEL TracerProvider created with OTLP exporter: {settings.OTEL_EXPORTER_OTLP_ENDPOINT}",
-            extra={
-                "service_name": settings.OTEL_SERVICE_NAME,
-                "environment": settings.OTEL_ENVIRONMENT,
-            },
+            "otel_tracer_provider_created",
+            endpoint=settings.OTEL_EXPORTER_OTLP_ENDPOINT,
+            service_name=settings.OTEL_SERVICE_NAME,
+            environment=settings.OTEL_ENVIRONMENT,
         )
     else:
-        logger.warning("OTEL enabled but no OTLP endpoint configured - traces will not be exported")
+        logger.warning("otel_no_endpoint_configured", message="traces will not be exported")
 
     return provider
 
@@ -131,7 +130,7 @@ def _parse_otlp_headers(headers_str: str) -> dict[str, str]:
             key, value = pair.split("=", 1)
             headers[key.strip()] = value.strip()
         elif pair:  # Non-empty string without equals sign
-            logger.warning(f"Malformed OTLP header pair ignored: '{pair}'")
+            logger.warning("otel_malformed_header", pair=pair)
 
     return headers
 
@@ -145,7 +144,7 @@ def shutdown_tracer_provider() -> None:
     """
     if _tracer_provider is not None:
         _tracer_provider.shutdown()
-        logger.info("OTEL TracerProvider shutdown complete")
+        logger.info("otel_tracer_provider_shutdown")
 
 
 def get_current_span() -> "Span | None":

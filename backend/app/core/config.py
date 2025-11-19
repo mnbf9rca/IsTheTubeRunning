@@ -8,6 +8,8 @@ from dotenv_vault import load_dotenv
 # override=False ensures existing environment variables take precedence (important for tests)
 load_dotenv(override=False)
 
+import logging  # noqa: E402
+
 from pydantic import field_validator  # noqa: E402
 from pydantic_settings import BaseSettings, SettingsConfigDict  # noqa: E402
 
@@ -97,6 +99,20 @@ class Settings(BaseSettings):
         if isinstance(v, list):
             return [url for url in v if url]
         return [url.strip() for url in v.split(",") if url.strip()]
+
+    # Logging Settings
+    LOG_LEVEL: str = "INFO"
+
+    @field_validator("LOG_LEVEL", mode="after")
+    @classmethod
+    def validate_log_level(cls, v: str) -> str:
+        """Validate and normalize log level."""
+        normalized = v.upper()
+        valid_levels = logging.getLevelNamesMapping()
+        if normalized not in valid_levels:
+            msg = f"Invalid LOG_LEVEL '{v}'. Must be one of: {', '.join(sorted(valid_levels.keys()))}"
+            raise ValueError(msg)
+        return normalized
 
 
 settings = Settings()

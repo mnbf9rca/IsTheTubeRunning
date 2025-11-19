@@ -144,6 +144,7 @@ async def test_lifespan_debug_mode() -> None:
 
     with patch("app.main.settings") as mock_settings:
         mock_settings.DEBUG = True
+        mock_settings.LOG_LEVEL = "INFO"
 
         async with lifespan(mock_app):
             # In DEBUG mode, no database checks should happen
@@ -160,6 +161,8 @@ async def test_lifespan_production_success() -> None:
         patch("app.main._check_alembic_migrations", return_value="test_revision"),
     ):
         mock_settings.DEBUG = False
+        mock_settings.LOG_LEVEL = "INFO"
+        mock_settings.OTEL_ENABLED = False
 
         # Lifespan should complete without raising exceptions
         async with lifespan(mock_app):
@@ -176,6 +179,8 @@ async def test_lifespan_production_runtime_error() -> None:
         patch("app.main._check_alembic_migrations", side_effect=RuntimeError("Migration failed")),
     ):
         mock_settings.DEBUG = False
+        mock_settings.LOG_LEVEL = "INFO"
+        mock_settings.OTEL_ENABLED = False
 
         with pytest.raises(RuntimeError, match="Migration failed"):
             async with lifespan(mock_app):
@@ -192,6 +197,8 @@ async def test_lifespan_production_os_error() -> None:
         patch("app.main._check_alembic_migrations", side_effect=OSError("File error")),
     ):
         mock_settings.DEBUG = False
+        mock_settings.LOG_LEVEL = "INFO"
+        mock_settings.OTEL_ENABLED = False
 
         with pytest.raises(OSError, match="File error"):
             async with lifespan(mock_app):
