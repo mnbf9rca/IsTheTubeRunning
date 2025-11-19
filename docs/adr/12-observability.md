@@ -174,9 +174,9 @@ if settings.OTEL_ENABLED:
 
 ### Verification
 Tests verify the instrumentation pattern in `tests/test_otel_integration.py`:
-- `test_fastapi_request_creates_parent_span` - HTTP requests create SERVER spans
-- `test_fastapi_excluded_urls_not_traced` - Health/metrics endpoints excluded
-- `test_fastapi_database_spans_are_children` - All operations share same trace_id
+- `test_fastapi_instrumentation_pattern` - Verifies app loads with OTEL enabled
+- `test_fastapi_not_instrumented_when_otel_disabled` - Verifies instrumentation is NOT applied when OTEL disabled
+- `test_fastapi_spans_with_real_request` - Verifies HTTP requests create parent spans and downstream operations share same trace_id
 
 ---
 

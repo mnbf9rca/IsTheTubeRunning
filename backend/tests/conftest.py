@@ -301,6 +301,38 @@ async def async_client() -> AsyncGenerator[AsyncClient]:
         yield ac
 
 
+@pytest.fixture
+async def async_client_with_db(db_session: AsyncSession) -> AsyncGenerator[AsyncClient]:
+    """
+    Async HTTP client with test database override.
+
+    This fixture automatically configures the FastAPI app to use the test database session,
+    eliminating the need for manual dependency override boilerplate in tests.
+
+    Args:
+        db_session: Test database session fixture
+
+    Yields:
+        Async HTTP client configured with test database
+
+    Example:
+        async def test_endpoint(async_client_with_db: AsyncClient):
+            response = await async_client_with_db.get("/api/v1/endpoint")
+            assert response.status_code == 200
+    """
+
+    async def override_get_db() -> AsyncGenerator[AsyncSession]:
+        yield db_session
+
+    app.dependency_overrides[get_db] = override_get_db
+
+    try:
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            yield client
+    finally:
+        app.dependency_overrides.clear()
+
+
 # Auth fixtures
 
 
