@@ -61,6 +61,7 @@ from app.helpers.station_resolution import (
     select_station_from_candidates,
 )
 from app.models.tfl import (
+    AlertDisabledSeverity,
     DisruptionCategory,
     Line,
     SeverityCode,
@@ -461,6 +462,9 @@ class TfLService:
         """
         Fetch severity codes metadata from TfL API.
 
+        The TfL API returns severity codes with mode information (e.g., tube, dlr).
+        Each mode has its own set of severity levels.
+
         Args:
             use_cache: Whether to use Redis cache (default: True)
 
@@ -490,19 +494,30 @@ class TfLService:
             ttl = self._extract_cache_ttl(response) or DEFAULT_METADATA_CACHE_TTL
 
             # Process and upsert severity codes (avoids race conditions)
-            # response.content is a SeverityCodeArray (RootModel), access via .root
+            # response.content is a StatusSeveritiesArray (RootModel), access via .root
             severity_data_list = response.content.root
 
             now = datetime.now(UTC)
             for severity_data in severity_data_list:
+                # Skip entries with missing required fields
+                if severity_data.modeName is None or severity_data.severityLevel is None:
+                    logger.warning(
+                        "skipping_severity_code_missing_fields",
+                        mode_name=severity_data.modeName,
+                        severity_level=severity_data.severityLevel,
+                    )
+                    continue
+
                 # Use PostgreSQL INSERT ... ON CONFLICT to atomically upsert
+                # Now keyed on (mode_id, severity_level)
                 stmt = insert(SeverityCode).values(
+                    mode_id=severity_data.modeName,
                     severity_level=severity_data.severityLevel,
-                    description=severity_data.description,
+                    description=severity_data.description or "",
                     last_updated=now,
                 )
                 stmt = stmt.on_conflict_do_update(
-                    index_elements=["severity_level"],
+                    constraint="uq_severity_code_mode_level",
                     set_={
                         "description": stmt.excluded.description,
                         "last_updated": stmt.excluded.last_updated,
@@ -530,6 +545,34 @@ class TfLService:
                 status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
                 detail="Failed to fetch severity codes from TfL API.",
             ) from e
+
+    async def get_alert_config(self) -> list[dict[str, Any]]:
+        """
+        Get the alert configuration showing which severities trigger alerts.
+
+        Returns a list of all severity codes with their alert status.
+
+        Returns:
+            List of dicts with mode_id, severity_level, description, alerts_enabled
+        """
+        # Fetch all severity codes
+        result = await self.db.execute(select(SeverityCode).order_by(SeverityCode.mode_id, SeverityCode.severity_level))
+        severity_codes = result.scalars().all()
+
+        # Fetch all disabled severities
+        disabled_result = await self.db.execute(select(AlertDisabledSeverity))
+        disabled_severities = {(d.mode_id, d.severity_level) for d in disabled_result.scalars().all()}
+
+        # Build the response
+        return [
+            {
+                "mode_id": code.mode_id,
+                "severity_level": code.severity_level,
+                "description": code.description,
+                "alerts_enabled": (code.mode_id, code.severity_level) not in disabled_severities,
+            }
+            for code in severity_codes
+        ]
 
     async def fetch_disruption_categories(self, use_cache: bool = True) -> list[DisruptionCategory]:
         """
@@ -1250,6 +1293,7 @@ class TfLService:
         line_status: LineStatus,
         line_id: str,
         line_name: str,
+        mode: str,
     ) -> DisruptionResponse:
         """
         Extract line status information from a LineStatus object.
@@ -1261,6 +1305,7 @@ class TfLService:
             line_status: LineStatus object from TfL API containing statusSeverity and nested disruption
             line_id: ID of the line
             line_name: Name of the line
+            mode: Transport mode (tube, dlr, overground, etc.)
 
         Returns:
             DisruptionResponse object containing current line status
@@ -1283,6 +1328,7 @@ class TfLService:
         return DisruptionResponse(
             line_id=line_id,
             line_name=line_name,
+            mode=mode,
             status_severity=status_severity,
             status_severity_description=status_severity_description,
             reason=reason,
@@ -1308,8 +1354,9 @@ class TfLService:
             List of line status responses for all currently active statuses (including Good Service and disruptions)
         """
         disruptions: list[DisruptionResponse] = []
-        line_id = getattr(line_data, "id", "unknown")
-        line_name = getattr(line_data, "name", "Unknown")
+        line_id = getattr(line_data, "id", None) or "unknown"
+        line_name = getattr(line_data, "name", None) or "Unknown"
+        mode_name = getattr(line_data, "modeName", None) or "unknown"
         line_statuses = getattr(line_data, "lineStatuses", None)
 
         if not line_statuses:
@@ -1338,6 +1385,7 @@ class TfLService:
                 line_status,
                 line_id,
                 line_name,
+                mode_name,
             )
             disruptions.append(disruption)
 

@@ -11,7 +11,14 @@ from app.models.notification import (
     NotificationStatus,
 )
 from app.models.rate_limit import RateLimitAction, RateLimitLog
-from app.models.tfl import Line, LineDisruptionStateLog, Station, StationConnection
+from app.models.tfl import (
+    AlertDisabledSeverity,
+    Line,
+    LineDisruptionStateLog,
+    SeverityCode,
+    Station,
+    StationConnection,
+)
 from app.models.user import (
     EmailAddress,
     PhoneNumber,
@@ -36,8 +43,10 @@ __all__ = [
     "RateLimitLog",
     "RateLimitAction",
     # TfL models
+    "AlertDisabledSeverity",
     "Line",
     "LineDisruptionStateLog",
+    "SeverityCode",
     "Station",
     "StationConnection",
     # Route models

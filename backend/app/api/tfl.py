@@ -11,10 +11,12 @@ from app.core.auth import get_current_user
 from app.core.database import get_db
 from app.models.user import User
 from app.schemas.tfl import (
+    AlertConfigResponse,
     DisruptionCategoryResponse,
     DisruptionResponse,
     LineResponse,
     LineRoutesResponse,
+    LineStateResponse,
     RouteValidationRequest,
     RouteValidationResponse,
     SeverityCodeResponse,
@@ -431,3 +433,62 @@ async def get_station_routes(
     """
     tfl_service = TfLService(db)
     return await tfl_service.get_station_routes(station_tfl_id)
+
+
+@router.get("/line-states", response_model=list[LineStateResponse])
+async def get_line_states(
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> list[LineStateResponse]:
+    """
+    Get current status of all lines.
+
+    Returns the current disruption/status information for all TfL lines.
+    Useful for debugging and understanding which lines have alerts.
+
+    Args:
+        current_user: Authenticated user
+        db: Database session
+
+    Returns:
+        List of line states with current severity information
+    """
+    tfl_service = TfLService(db)
+    disruptions = await tfl_service.fetch_line_disruptions(use_cache=True)
+
+    # Convert disruptions to line states (mode is now included in DisruptionResponse)
+    return [
+        LineStateResponse(
+            line_id=d.line_id,
+            line_name=d.line_name,
+            mode=d.mode,
+            status_severity=d.status_severity,
+            status_severity_description=d.status_severity_description,
+            reason=d.reason,
+        )
+        for d in disruptions
+    ]
+
+
+@router.get("/alert-config", response_model=list[AlertConfigResponse])
+async def get_alert_config(
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> list[AlertConfigResponse]:
+    """
+    Get alert configuration showing which severities trigger alerts.
+
+    Returns a list of all severity codes with their alert enabled/disabled status.
+    Severity codes are populated by syncing with the TfL API via POST /admin/tfl/sync-metadata.
+
+    Args:
+        current_user: Authenticated user
+        db: Database session
+
+    Returns:
+        List of severity codes with their alert configuration
+    """
+    tfl_service = TfLService(db)
+    config = await tfl_service.get_alert_config()
+
+    return [AlertConfigResponse(**item) for item in config]

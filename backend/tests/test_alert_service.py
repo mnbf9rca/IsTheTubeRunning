@@ -212,6 +212,7 @@ def sample_disruptions() -> list[DisruptionResponse]:
         DisruptionResponse(
             line_id="victoria",
             line_name="Victoria",
+            mode="tube",
             status_severity=5,
             status_severity_description="Severe Delays",
             reason="Signal failure at King's Cross",
@@ -637,6 +638,7 @@ async def test_get_route_disruptions_returns_relevant(
         DisruptionResponse(
             line_id="northern",
             line_name="Northern",
+            mode="tube",
             status_severity=6,
             status_severity_description="Minor Delays",
             reason="Train cancellations",
@@ -646,7 +648,11 @@ async def test_get_route_disruptions_returns_relevant(
     mock_tfl_instance.fetch_line_disruptions = AsyncMock(return_value=all_disruptions)
     mock_tfl_class.return_value = mock_tfl_instance
 
-    disruptions, error_occurred = await alert_service._get_route_disruptions(test_route_with_schedule)
+    disabled_severity_pairs: set[tuple[str, int]] = set()
+
+    disruptions, error_occurred = await alert_service._get_route_disruptions(
+        test_route_with_schedule, disabled_severity_pairs
+    )
 
     # Should return no error
     assert not error_occurred
@@ -672,7 +678,10 @@ async def test_get_route_disruptions_empty(
     mock_tfl_instance.fetch_line_disruptions = AsyncMock(return_value=[])
     mock_tfl_class.return_value = mock_tfl_instance
 
-    disruptions, error_occurred = await alert_service._get_route_disruptions(test_route_with_schedule)
+    disabled_severity_pairs: set[tuple[str, int]] = set()
+    disruptions, error_occurred = await alert_service._get_route_disruptions(
+        test_route_with_schedule, disabled_severity_pairs
+    )
 
     assert not error_occurred
     assert len(disruptions) == 0
@@ -698,6 +707,7 @@ async def test_get_route_disruptions_filters_correctly(
             DisruptionResponse(
                 line_id="central",  # Not in route
                 line_name="Central",
+                mode="tube",
                 status_severity=5,
                 status_severity_description="Severe Delays",
                 reason="Signal failure",
@@ -707,12 +717,70 @@ async def test_get_route_disruptions_filters_correctly(
     )
     mock_tfl_class.return_value = mock_tfl_instance
 
-    disruptions, error_occurred = await alert_service._get_route_disruptions(test_route_with_schedule)
+    disabled_severity_pairs: set[tuple[str, int]] = set()
+    disruptions, error_occurred = await alert_service._get_route_disruptions(
+        test_route_with_schedule, disabled_severity_pairs
+    )
 
     # Should return no error
     assert not error_occurred
     # Should return empty since central line is not in route
     assert len(disruptions) == 0
+
+
+@pytest.mark.asyncio
+@patch("app.services.alert_service.TfLService")
+async def test_get_route_disruptions_filters_disabled_severities(
+    mock_tfl_class: MagicMock,
+    alert_service: AlertService,
+    db_session: AsyncSession,
+    test_route_with_schedule: UserRoute,
+    populate_route_index: Callable[[UserRoute], UserRoute],
+) -> None:
+    """Test that disruptions with disabled (mode, severity) pairs are filtered out."""
+    # Populate the route index (required for inverted index matching)
+    await populate_route_index(test_route_with_schedule)
+
+    # Create disruptions including one with disabled severity (tube, 10 = Good Service)
+    mock_tfl_instance = AsyncMock()
+    mock_tfl_instance.fetch_line_disruptions = AsyncMock(
+        return_value=[
+            DisruptionResponse(
+                line_id="victoria",  # In route
+                line_name="Victoria",
+                mode="tube",
+                status_severity=10,  # Good Service - should be filtered
+                status_severity_description="Good Service",
+                reason=None,
+                created_at=datetime.now(UTC),
+            ),
+            DisruptionResponse(
+                line_id="victoria",  # In route
+                line_name="Victoria",
+                mode="tube",
+                status_severity=5,  # Severe Delays - should NOT be filtered
+                status_severity_description="Severe Delays",
+                reason="Signal failure",
+                created_at=datetime.now(UTC),
+            ),
+        ]
+    )
+    mock_tfl_class.return_value = mock_tfl_instance
+
+    # Set up disabled severity pairs - (tube, 10) should be filtered
+    disabled_severity_pairs: set[tuple[str, int]] = {("tube", 10)}
+
+    disruptions, error_occurred = await alert_service._get_route_disruptions(
+        test_route_with_schedule, disabled_severity_pairs
+    )
+
+    # Should return no error
+    assert not error_occurred
+    # Should only return the disruption with severity 5 (Severe Delays)
+    # The Good Service (severity 10) should be filtered out
+    assert len(disruptions) == 1
+    assert disruptions[0].status_severity == 5
+    assert disruptions[0].status_severity_description == "Severe Delays"
 
 
 # ==================== _should_send_alert Tests ====================
@@ -792,6 +860,7 @@ async def test_should_send_alert_changed_disruption(
         DisruptionResponse(
             line_id="victoria",
             line_name="Victoria",
+            mode="tube",
             status_severity=6,
             status_severity_description="Minor Delays",  # Changed
             reason="Different reason",  # Changed
@@ -1279,6 +1348,7 @@ def test_create_disruption_hash_stable(alert_service: AlertService) -> None:
         DisruptionResponse(
             line_id="victoria",
             line_name="Victoria",
+            mode="tube",
             status_severity=5,
             status_severity_description="Severe Delays",
             reason="Signal failure",
@@ -1298,6 +1368,7 @@ def test_create_disruption_hash_different_for_different_content(alert_service: A
         DisruptionResponse(
             line_id="victoria",
             line_name="Victoria",
+            mode="tube",
             status_severity=5,
             status_severity_description="Severe Delays",
             reason="Signal failure",
@@ -1309,6 +1380,7 @@ def test_create_disruption_hash_different_for_different_content(alert_service: A
         DisruptionResponse(
             line_id="victoria",
             line_name="Victoria",
+            mode="tube",
             status_severity=6,
             status_severity_description="Minor Delays",  # Different
             reason="Signal failure",
@@ -1336,6 +1408,7 @@ def test_create_disruption_hash_order_independent(alert_service: AlertService) -
         DisruptionResponse(
             line_id="victoria",
             line_name="Victoria",
+            mode="tube",
             status_severity=5,
             status_severity_description="Severe Delays",
             reason="Signal failure",
@@ -1344,6 +1417,7 @@ def test_create_disruption_hash_order_independent(alert_service: AlertService) -
         DisruptionResponse(
             line_id="northern",
             line_name="Northern",
+            mode="tube",
             status_severity=6,
             status_severity_description="Minor Delays",
             reason="Train cancellations",
@@ -1355,6 +1429,7 @@ def test_create_disruption_hash_order_independent(alert_service: AlertService) -
         DisruptionResponse(
             line_id="northern",
             line_name="Northern",
+            mode="tube",
             status_severity=6,
             status_severity_description="Minor Delays",
             reason="Train cancellations",
@@ -1363,6 +1438,7 @@ def test_create_disruption_hash_order_independent(alert_service: AlertService) -
         DisruptionResponse(
             line_id="victoria",
             line_name="Victoria",
+            mode="tube",
             status_severity=5,
             status_severity_description="Severe Delays",
             reason="Signal failure",
@@ -1403,6 +1479,7 @@ async def test_alert_service_skips_duplicate_alerts(
         DisruptionResponse(
             line_id="victoria",
             line_name="Victoria",
+            mode="tube",
             status_severity=5,
             status_severity_description="Severe Delays",
             reason="Signal failure",
@@ -1652,6 +1729,7 @@ async def test_send_alerts_for_route_no_preferences(
         DisruptionResponse(
             line_id="victoria",
             line_name="Victoria",
+            mode="tube",
             status_severity=5,
             status_severity_description="Severe Delays",
             reason="Signal failure",
@@ -1873,6 +1951,7 @@ class TestExtractLineStationPairs:
         disruption = DisruptionResponse(
             line_id="piccadilly",
             line_name="Piccadilly",
+            mode="tube",
             status_severity=10,
             status_severity_description="Minor Delays",
             reason="Signal failure",
@@ -1899,6 +1978,7 @@ class TestExtractLineStationPairs:
         disruption = DisruptionResponse(
             line_id="northern",
             line_name="Northern",
+            mode="tube",
             status_severity=15,
             status_severity_description="Severe Delays",
             reason="Customer incident",
@@ -1930,6 +2010,7 @@ class TestExtractLineStationPairs:
         disruption = DisruptionResponse(
             line_id="victoria",
             line_name="Victoria",
+            mode="tube",
             status_severity=10,
             status_severity_description="Minor Delays",
             reason="Earlier signal failure",
@@ -1947,6 +2028,7 @@ class TestExtractLineStationPairs:
         disruption = DisruptionResponse(
             line_id="district",
             line_name="District",
+            mode="tube",
             status_severity=10,
             status_severity_description="Good Service",
             created_at=datetime.now(UTC),
@@ -1963,6 +2045,7 @@ class TestExtractLineStationPairs:
         disruption = DisruptionResponse(
             line_id="central",
             line_name="Central",
+            mode="tube",
             status_severity=10,
             status_severity_description="Minor Delays",
             created_at=datetime.now(UTC),
@@ -2158,6 +2241,7 @@ class TestGetAffectedRoutesForDisruption:
         disruption = DisruptionResponse(
             line_id="victoria",
             line_name="Victoria",
+            mode="tube",
             status_severity=10,
             status_severity_description="Minor Delays",
             reason="Signal failure",
@@ -2208,6 +2292,7 @@ class TestGetAffectedRoutesForDisruption:
         disruption = DisruptionResponse(
             line_id="victoria",
             line_name="Victoria",
+            mode="tube",
             status_severity=10,
             status_severity_description="Minor Delays",
             reason="Earlier signal failure",
@@ -2229,6 +2314,7 @@ class TestGetAffectedRoutesForDisruption:
         disruption = DisruptionResponse(
             line_id="imaginary-line",
             line_name="Imaginary Line",
+            mode="tube",
             status_severity=10,
             status_severity_description="Minor Delays",
             created_at=datetime.now(UTC),
@@ -2308,6 +2394,7 @@ class TestGetAffectedRoutesForDisruption:
         disruption = DisruptionResponse(
             line_id="victoria",
             line_name="Victoria",
+            mode="tube",
             status_severity=10,
             status_severity_description="Minor Delays",
             created_at=datetime.now(UTC),
@@ -2397,6 +2484,7 @@ class TestBranchDisambiguation:
         disruption = DisruptionResponse(
             line_id="piccadilly",
             line_name="Piccadilly",
+            mode="tube",
             status_severity=10,
             status_severity_description="Minor Delays",
             reason="Signal failure at Russell Square",
@@ -2488,6 +2576,7 @@ class TestBranchDisambiguation:
         disruption = DisruptionResponse(
             line_id="northern",
             line_name="Northern",
+            mode="tube",
             status_severity=15,
             status_severity_description="Severe Delays",
             reason="Customer incident",
@@ -2564,6 +2653,7 @@ class TestPerformance:
             disruption = DisruptionResponse(
                 line_id="piccadilly",
                 line_name="Piccadilly",
+                mode="tube",
                 status_severity=10,
                 status_severity_description="Minor Delays",
                 reason=f"Disruption {i}",
@@ -2686,6 +2776,7 @@ class TestLineDisruptionStateLogging:
         disruption = DisruptionResponse(
             line_id="bakerloo",
             line_name="Bakerloo",
+            mode="tube",
             status_severity=10,
             status_severity_description="Minor Delays",
             reason="Signal failure at Baker Street",
@@ -2719,6 +2810,7 @@ class TestLineDisruptionStateLogging:
         disruption = DisruptionResponse(
             line_id="central",
             line_name="Central",
+            mode="tube",
             status_severity=10,
             status_severity_description="Minor Delays",
             reason="Train cancellation",
@@ -2751,6 +2843,7 @@ class TestLineDisruptionStateLogging:
         disruption1 = DisruptionResponse(
             line_id="piccadilly",
             line_name="Piccadilly",
+            mode="tube",
             status_severity=10,
             status_severity_description="Minor Delays",
             reason="Passenger incident",
@@ -2764,6 +2857,7 @@ class TestLineDisruptionStateLogging:
         disruption2 = DisruptionResponse(
             line_id="piccadilly",
             line_name="Piccadilly",
+            mode="tube",
             status_severity=20,
             status_severity_description="Severe Delays",
             reason="Passenger incident",
@@ -2796,6 +2890,7 @@ class TestLineDisruptionStateLogging:
         disruption1 = DisruptionResponse(
             line_id="district",
             line_name="District",
+            mode="tube",
             status_severity=10,
             status_severity_description="Minor Delays",
             reason="Signal failure at Earl's Court",
@@ -2809,6 +2904,7 @@ class TestLineDisruptionStateLogging:
         disruption2 = DisruptionResponse(
             line_id="district",
             line_name="District",
+            mode="tube",
             status_severity=10,
             status_severity_description="Minor Delays",
             reason="Signal failure at Tower Hill",
@@ -2842,6 +2938,7 @@ class TestLineDisruptionStateLogging:
             DisruptionResponse(
                 line_id="northern",
                 line_name="Northern",
+                mode="tube",
                 status_severity=10,
                 status_severity_description="Minor Delays",
                 reason="Train cancellation",
@@ -2849,6 +2946,7 @@ class TestLineDisruptionStateLogging:
             DisruptionResponse(
                 line_id="jubilee",
                 line_name="Jubilee",
+                mode="tube",
                 status_severity=20,
                 status_severity_description="Severe Delays",
                 reason="Signal failure",
@@ -2856,6 +2954,7 @@ class TestLineDisruptionStateLogging:
             DisruptionResponse(
                 line_id="metropolitan",
                 line_name="Metropolitan",
+                mode="tube",
                 status_severity=6,
                 status_severity_description="Good Service",
                 reason=None,
@@ -2890,6 +2989,7 @@ class TestLineDisruptionStateLogging:
             DisruptionResponse(
                 line_id="bakerloo",
                 line_name="Bakerloo",
+                mode="tube",
                 status_severity=10,
                 status_severity_description="Minor Delays",
                 reason="Signal failure",
@@ -2897,6 +2997,7 @@ class TestLineDisruptionStateLogging:
             DisruptionResponse(
                 line_id="bakerloo",
                 line_name="Bakerloo",
+                mode="tube",
                 status_severity=20,
                 status_severity_description="Severe Delays",
                 reason="Signal failure worsening",
@@ -2940,6 +3041,7 @@ class TestLineDisruptionStateLogging:
         disruption1 = DisruptionResponse(
             line_id="district",
             line_name="District",
+            mode="tube",
             status_severity=6,
             status_severity_description="Good Service",
             reason=None,
@@ -2951,6 +3053,7 @@ class TestLineDisruptionStateLogging:
         disruption2 = DisruptionResponse(
             line_id="district",
             line_name="District",
+            mode="tube",
             status_severity=6,
             status_severity_description="Good Service",
             reason="",
@@ -2962,6 +3065,7 @@ class TestLineDisruptionStateLogging:
         disruption3 = DisruptionResponse(
             line_id="district",
             line_name="District",
+            mode="tube",
             status_severity=6,
             status_severity_description="Good Service",
             reason="   ",
@@ -2990,6 +3094,7 @@ class TestLineDisruptionStateLogging:
         disruption = DisruptionResponse(
             line_id="central",
             line_name="Central",
+            mode="tube",
             status_severity=20,
             status_severity_description="Severe Delays",
             reason=long_reason,
@@ -3021,6 +3126,7 @@ class TestLineDisruptionStateLogging:
         disruption = DisruptionResponse(
             line_id="circle",
             line_name="Circle",
+            mode="tube",
             status_severity=6,
             status_severity_description="Good Service",
             reason=None,
@@ -3050,6 +3156,7 @@ class TestLineDisruptionStateLogging:
         disruption = DisruptionResponse(
             line_id="hammersmith-city",
             line_name="Hammersmith & City",
+            mode="tube",
             status_severity=10,
             status_severity_description="Minor Delays",
             reason="Test error",

@@ -25,6 +25,7 @@ class TestNotificationService:
             DisruptionResponse(
                 line_id="victoria",
                 line_name="Victoria",
+                mode="tube",
                 status_severity=6,
                 status_severity_description="Minor Delays",
                 reason="Signal failure at Oxford Circus",
@@ -50,6 +51,7 @@ class TestNotificationService:
             DisruptionResponse(
                 line_id="victoria",
                 line_name="Victoria",
+                mode="tube",
                 status_severity=6,
                 status_severity_description="Minor Delays",
                 reason=None,
@@ -75,6 +77,7 @@ class TestNotificationService:
             DisruptionResponse(
                 line_id="victoria",
                 line_name="Victoria",
+                mode="tube",
                 status_severity=6,
                 status_severity_description="Minor Delays",
                 reason="Signal failure",
@@ -82,6 +85,7 @@ class TestNotificationService:
             DisruptionResponse(
                 line_id="northern",
                 line_name="Northern",
+                mode="tube",
                 status_severity=3,
                 status_severity_description="Severe Delays",
                 reason="Train breakdown",
@@ -106,6 +110,7 @@ class TestNotificationService:
             DisruptionResponse(
                 line_id="victoria",
                 line_name="Victoria",
+                mode="tube",
                 status_severity=6,
                 status_severity_description="Minor Delays",
             )
@@ -125,6 +130,7 @@ class TestNotificationService:
             DisruptionResponse(
                 line_id="victoria",
                 line_name="Victoria",
+                mode="tube",
                 status_severity=6,
                 status_severity_description="Minor Delays",
                 reason="Signal failure",
@@ -150,18 +156,21 @@ class TestNotificationService:
             DisruptionResponse(
                 line_id="victoria",
                 line_name="Victoria",
+                mode="tube",
                 status_severity=6,
                 status_severity_description="Minor Delays",
             ),
             DisruptionResponse(
                 line_id="northern",
                 line_name="Northern",
+                mode="tube",
                 status_severity=3,
                 status_severity_description="Severe Delays",
             ),
             DisruptionResponse(
                 line_id="central",
                 line_name="Central",
+                mode="tube",
                 status_severity=6,
                 status_severity_description="Minor Delays",
             ),
@@ -180,6 +189,7 @@ class TestNotificationService:
             DisruptionResponse(
                 line_id="victoria",
                 line_name="Victoria",
+                mode="tube",
                 status_severity=6,
                 status_severity_description="Minor Delays",
                 reason="Signal failure",
@@ -209,6 +219,7 @@ class TestNotificationService:
             DisruptionResponse(
                 line_id="victoria",
                 line_name="Victoria",
+                mode="tube",
                 status_severity=6,
                 status_severity_description="Minor Delays",
                 reason="Signal failure at Oxford Circus",
@@ -236,6 +247,7 @@ class TestNotificationService:
             DisruptionResponse(
                 line_id="victoria",
                 line_name="Victoria",
+                mode="tube",
                 status_severity=6,
                 status_severity_description="Minor Delays",
             )
@@ -264,6 +276,7 @@ class TestNotificationService:
             DisruptionResponse(
                 line_id=f"line-{i}",
                 line_name=f"Line {i}",
+                mode="tube",
                 status_severity=5,
                 status_severity_description="Severe Delays",
                 reason=f"Signal failure at station {i}",
@@ -287,6 +300,7 @@ class TestNotificationService:
             DisruptionResponse(
                 line_id="victoria",
                 line_name="Victoria",
+                mode="tube",
                 status_severity=5,
                 status_severity_description="Severe Delays",
                 reason="Signal failure",
@@ -312,6 +326,7 @@ class TestNotificationService:
             DisruptionResponse(
                 line_id="victoria",
                 line_name="Victoria",
+                mode="tube",
                 status_severity=5,
                 status_severity_description="Severe Delays",
                 reason="Signal failure",
@@ -339,6 +354,7 @@ class TestNotificationService:
             DisruptionResponse(
                 line_id="line-1",
                 line_name="Line 1",
+                mode="tube",
                 status_severity=5,
                 status_severity_description="Severe Delays" * 20,  # Make it very long
                 reason="Signal failure " * 50,  # Very long reason
@@ -385,6 +401,7 @@ class TestNotificationService:
             DisruptionResponse(
                 line_id="metropolitan",
                 line_name="Metropolitan Line Experiencing",
+                mode="tube",
                 status_severity="9",
                 status_severity_description="Severe Delays and Signal Failures Throughout",
                 reason="Signal failure",
@@ -392,6 +409,7 @@ class TestNotificationService:
             DisruptionResponse(
                 line_id="hammersmith-city",
                 line_name="Hammersmith & City Line Now",
+                mode="tube",
                 status_severity="10",
                 status_severity_description="Part Suspended Between Multiple Stations",
                 reason="Engineering works",

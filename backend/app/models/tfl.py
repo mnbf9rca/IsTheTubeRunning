@@ -180,13 +180,22 @@ class StationConnection(BaseModel):
 
 
 class SeverityCode(BaseModel):
-    """TfL severity code reference data."""
+    """TfL severity code reference data, per transport mode.
+
+    The TfL API returns severity codes that vary by mode (tube, dlr, overground, etc.).
+    Each mode has its own set of severity levels with potentially different descriptions.
+    """
 
     __tablename__ = "severity_codes"
 
+    mode_id: Mapped[str] = mapped_column(
+        String(50),
+        nullable=False,
+        index=True,
+        comment="Transport mode (e.g., 'tube', 'dlr', 'overground')",
+    )
     severity_level: Mapped[int] = mapped_column(
         nullable=False,
-        unique=True,
         index=True,
     )
     description: Mapped[str] = mapped_column(
@@ -198,9 +207,56 @@ class SeverityCode(BaseModel):
         nullable=False,
     )
 
+    __table_args__ = (
+        UniqueConstraint(
+            "mode_id",
+            "severity_level",
+            name="uq_severity_code_mode_level",
+        ),
+    )
+
     def __repr__(self) -> str:
         """String representation of the severity code."""
-        return f"<SeverityCode(id={self.id}, level={self.severity_level}, description={self.description})>"
+        return (
+            f"<SeverityCode(id={self.id}, mode={self.mode_id}, "
+            f"level={self.severity_level}, description={self.description})>"
+        )
+
+
+class AlertDisabledSeverity(BaseModel):
+    """Severity levels that should NOT trigger alerts.
+
+    This table stores (mode_id, severity_level) combinations that should be
+    excluded from alert processing. The default behavior is to alert for all
+    severities unless they appear in this table.
+
+    Example: Good Service (severity_level=10) should not trigger alerts.
+    """
+
+    __tablename__ = "alert_disabled_severities"
+
+    mode_id: Mapped[str] = mapped_column(
+        String(50),
+        nullable=False,
+        index=True,
+        comment="Transport mode (e.g., 'tube', 'dlr', 'overground')",
+    )
+    severity_level: Mapped[int] = mapped_column(
+        nullable=False,
+        index=True,
+    )
+
+    __table_args__ = (
+        UniqueConstraint(
+            "mode_id",
+            "severity_level",
+            name="uq_alert_disabled_severity_mode_level",
+        ),
+    )
+
+    def __repr__(self) -> str:
+        """String representation of the alert disabled severity."""
+        return f"<AlertDisabledSeverity(id={self.id}, mode={self.mode_id}, level={self.severity_level})>"
 
 
 class DisruptionCategory(BaseModel):
