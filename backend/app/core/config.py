@@ -64,6 +64,7 @@ class Settings(BaseSettings):
     SMTP_PASSWORD: str | None = None
     SMTP_FROM_EMAIL: str | None = None
     SMTP_TIMEOUT: int = 10  # Connection timeout in seconds (prevents indefinite hangs)
+    SMTP_REQUIRE_TLS: bool = False  # If True, require STARTTLS upgrade on ports 25/587
 
     # SMS Settings (for Phase 4)
     SMS_LOG_DIR: str | None = None  # Directory for SMS stub logging (optional)
