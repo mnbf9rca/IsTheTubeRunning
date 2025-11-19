@@ -1,6 +1,5 @@
 """Tests for TfL service OpenTelemetry instrumentation."""
 
-import os
 from collections.abc import Generator
 from datetime import UTC, datetime, timedelta
 from typing import Any
@@ -24,22 +23,18 @@ from pydantic_tfl_api.models import (
 )
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from tests.fixtures.otel import get_recorded_spans
+from tests.helpers.otel import get_recorded_spans
 
 
 # Re-enable OTEL for these tests
 # conftest.py sets OTEL_SDK_DISABLED=true by default
 @pytest.fixture(autouse=True)
-def enable_otel_for_tests() -> Generator[None]:
+def enable_otel_for_tests(monkeypatch: pytest.MonkeyPatch) -> Generator[None]:
     """Enable OTEL SDK for tests in this module."""
-    original = os.environ.get("OTEL_SDK_DISABLED")
-    if "OTEL_SDK_DISABLED" in os.environ:
-        del os.environ["OTEL_SDK_DISABLED"]
-    yield
-    if original is not None:
-        os.environ["OTEL_SDK_DISABLED"] = original
-    elif "OTEL_SDK_DISABLED" in os.environ:
-        del os.environ["OTEL_SDK_DISABLED"]
+    # Remove OTEL_SDK_DISABLED if present (enables OTEL)
+    monkeypatch.delenv("OTEL_SDK_DISABLED", raising=False)
+    return
+    # Monkeypatch automatically restores original environment on cleanup
 
 
 class MockResponse:

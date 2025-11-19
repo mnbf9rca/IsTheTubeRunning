@@ -28,13 +28,8 @@ configure_logging(log_level=settings.LOG_LEVEL)
 
 logger = structlog.get_logger(__name__)
 
-# Initialize OpenTelemetry instrumentors at module level (before FastAPI app instantiation)
-# These just patch classes - safe before fork. TracerProvider is set in lifespan (after fork).
-if settings.OTEL_ENABLED:
-    FastAPIInstrumentor().instrument(
-        excluded_urls=",".join(settings.OTEL_EXCLUDED_URLS),
-    )
-    logger.info("otel_fastapi_instrumented")
+# OpenTelemetry instrumentors will be initialized after app creation
+# TracerProvider is set in lifespan (after fork) for fork-safety
 
 
 def _check_alembic_migrations(sync_conn: Connection) -> str | None:
@@ -141,6 +136,16 @@ app = FastAPI(
     version=__version__,
     lifespan=lifespan,
 )
+
+# Initialize OpenTelemetry FastAPI instrumentation (must be after app creation)
+# Instrumentor wraps the ASGI application to create HTTP request spans
+# TracerProvider is set later in lifespan (after fork) for fork-safety
+if settings.OTEL_ENABLED:
+    FastAPIInstrumentor().instrument_app(
+        app,
+        excluded_urls=",".join(settings.OTEL_EXCLUDED_URLS),
+    )
+    logger.info("otel_fastapi_instrumented", excluded_urls=settings.OTEL_EXCLUDED_URLS)
 
 # Configure CORS
 app.add_middleware(
