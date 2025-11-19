@@ -137,7 +137,7 @@ class TestTflApiSpans:
 
         # Patch the tracer and mock the API call
         with (
-            patch.object(tfl_service, "tracer", test_tracer),
+            patch("opentelemetry.trace.get_tracer", return_value=test_tracer),
             patch.object(
                 tfl_service_with_mock.line_client,
                 "MetaModes",
@@ -179,7 +179,7 @@ class TestTflApiSpans:
 
         # Patch the tracer and mock the API call (will be called twice, once per mode)
         with (
-            patch.object(tfl_service, "tracer", test_tracer),
+            patch("opentelemetry.trace.get_tracer", return_value=test_tracer),
             patch.object(
                 tfl_service_with_mock.line_client,
                 "GetByModeByPathModes",
@@ -222,7 +222,7 @@ class TestTflApiSpans:
 
         # Patch the tracer and mock the API call
         with (
-            patch.object(tfl_service, "tracer", test_tracer),
+            patch("opentelemetry.trace.get_tracer", return_value=test_tracer),
             patch.object(
                 tfl_service_with_mock.stoppoint_client,
                 "GetByPathIdsQueryIncludeCrowdingData",
@@ -256,7 +256,7 @@ class TestTflApiSpans:
         stop_point = create_mock_stop_point()
         # hubNaptanCode is None by default
 
-        with patch.object(tfl_service, "tracer", test_tracer):
+        with patch("opentelemetry.trace.get_tracer", return_value=test_tracer):
             hub_code, hub_name = await tfl_service_with_mock._extract_hub_fields(stop_point)
 
         # Verify no span was created
@@ -285,7 +285,7 @@ class TestTflApiSpans:
         mock_response.content = mock_route_sequence
 
         with (
-            patch.object(tfl_service, "tracer", test_tracer),
+            patch("opentelemetry.trace.get_tracer", return_value=test_tracer),
             patch.object(
                 tfl_service_with_mock.line_client,
                 "RouteSequenceByPathIdPathDirectionQueryServiceTypesQueryExcludeCrowding",
@@ -320,7 +320,7 @@ class TestTflApiSpans:
         cached_modes = ["tube", "dlr"]
         tfl_service_with_mock.cache.get = AsyncMock(return_value=cached_modes)
 
-        with patch.object(tfl_service, "tracer", test_tracer):
+        with patch("opentelemetry.trace.get_tracer", return_value=test_tracer):
             result = await tfl_service_with_mock.fetch_available_modes()
 
         # Verify no spans were created
@@ -361,7 +361,7 @@ class TestTflApiSpans:
         tfl_service_with_mock.db.refresh = AsyncMock()
 
         with (
-            patch.object(tfl_service, "tracer", test_tracer),
+            patch("opentelemetry.trace.get_tracer", return_value=test_tracer),
             patch.object(
                 tfl_service_with_mock.line_client,
                 "MetaSeverity",
@@ -410,7 +410,7 @@ class TestTflApiSpans:
         tfl_service_with_mock.db.refresh = AsyncMock()
 
         with (
-            patch.object(tfl_service, "tracer", test_tracer),
+            patch("opentelemetry.trace.get_tracer", return_value=test_tracer),
             patch.object(
                 tfl_service_with_mock.line_client,
                 "MetaDisruptionCategories",
@@ -459,7 +459,7 @@ class TestTflApiSpans:
         tfl_service_with_mock.db.refresh = AsyncMock()
 
         with (
-            patch.object(tfl_service, "tracer", test_tracer),
+            patch("opentelemetry.trace.get_tracer", return_value=test_tracer),
             patch.object(
                 tfl_service_with_mock.stoppoint_client,
                 "MetaStopTypes",
@@ -512,7 +512,7 @@ class TestTflApiSpans:
         tfl_service_with_mock.cache.get = AsyncMock(side_effect=lambda key: [mock_line] if key == cache_key else None)
 
         with (
-            patch.object(tfl_service, "tracer", test_tracer),
+            patch("opentelemetry.trace.get_tracer", return_value=test_tracer),
             patch.object(
                 tfl_service_with_mock.line_client,
                 "StatusByIdsByPathIdsQueryDetail",
@@ -553,7 +553,7 @@ class TestTflApiSpans:
         )
 
         with (
-            patch.object(tfl_service, "tracer", test_tracer),
+            patch("opentelemetry.trace.get_tracer", return_value=test_tracer),
             patch.object(
                 tfl_service_with_mock.stoppoint_client,
                 "DisruptionByModeByPathModesQueryIncludeRouteBlockedStops",
@@ -600,7 +600,7 @@ class TestTflApiSpanErrorHandling:
         api_error = Exception("TfL API connection error")
 
         with (
-            patch.object(tfl_service, "tracer", test_tracer),
+            patch("opentelemetry.trace.get_tracer", return_value=test_tracer),
             patch.object(
                 tfl_service_with_mock.line_client,
                 "MetaModes",
@@ -643,7 +643,7 @@ class TestTflApiSpanErrorHandling:
         api_error = Exception("Network timeout")
 
         with (
-            patch.object(tfl_service, "tracer", test_tracer),
+            patch("opentelemetry.trace.get_tracer", return_value=test_tracer),
             patch.object(
                 tfl_service_with_mock.line_client,
                 "GetByModeByPathModes",
@@ -681,7 +681,7 @@ class TestTflApiSpanErrorHandling:
         api_error = Exception("Hub API error")
 
         with (
-            patch.object(tfl_service, "tracer", test_tracer),
+            patch("opentelemetry.trace.get_tracer", return_value=test_tracer),
             patch.object(
                 tfl_service_with_mock.stoppoint_client,
                 "GetByPathIdsQueryIncludeCrowdingData",
