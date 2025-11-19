@@ -164,10 +164,12 @@ def create_mock_disruption(
 def create_mock_severity_code(
     severity_level: int = 10,
     description: str = "Good Service",
+    mode_name: str = "tube",
     **kwargs: Any,  # noqa: ANN401
 ) -> TflStatusSeverity:
     """Factory for TfL StatusSeverity mocks using actual pydantic model."""
     return TflStatusSeverity(
+        modeName=mode_name,
         severityLevel=severity_level,
         description=description,
         **kwargs,
@@ -2130,6 +2132,7 @@ async def test_fetch_disruptions_cache_hit(tfl_service: TfLService) -> None:
         DisruptionResponse(
             line_id="northern",
             line_name="Northern",
+            mode="tube",
             status_severity=5,
             status_severity_description="Severe Delays",
             reason="Signal failure",
@@ -2784,8 +2787,10 @@ async def test_fetch_severity_codes(
         )
 
         # Verify specific attributes
+        assert codes[0].mode_id == "tube"
         assert codes[0].severity_level == 0
         assert codes[0].description == "Special Service"
+        assert codes[3].mode_id == "tube"
         assert codes[3].severity_level == 10
         assert codes[3].description == "Good Service"
 
@@ -2795,6 +2800,7 @@ async def test_fetch_severity_codes_cache_hit(tfl_service: TfLService) -> None:
     # Setup cached severity codes
     cached_codes = [
         SeverityCode(
+            mode_id="tube",
             severity_level=10,
             description="Good Service",
             last_updated=datetime.now(UTC),

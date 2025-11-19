@@ -76,6 +76,7 @@ class DisruptionResponse(BaseModel):
 
     line_id: str  # TfL line ID
     line_name: str
+    mode: str  # Transport mode (tube, dlr, overground, etc.)
     status_severity: int  # 0-20 (0=special service, 10=good service, 20=closed)
     status_severity_description: str  # e.g., "Good Service", "Severe Delays"
     reason: str | None = None  # Description of disruption
@@ -197,9 +198,30 @@ class SeverityCodeResponse(BaseModel):
 
     model_config = ConfigDict(from_attributes=True)
 
+    mode_id: str = Field(..., description="Transport mode (e.g., 'tube', 'dlr')")
     severity_level: int = Field(..., description="Severity level (0-20)")
     description: str = Field(..., description="Description of severity level")
     last_updated: datetime = Field(..., description="When this code was last updated")
+
+
+class AlertConfigResponse(BaseModel):
+    """Response schema for alert configuration per severity code."""
+
+    mode_id: str = Field(..., description="Transport mode (e.g., 'tube', 'dlr')")
+    severity_level: int = Field(..., description="Severity level (0-20)")
+    description: str = Field(..., description="Description of severity level")
+    alerts_enabled: bool = Field(..., description="Whether alerts are enabled for this severity")
+
+
+class LineStateResponse(BaseModel):
+    """Response schema for current line status."""
+
+    line_id: str = Field(..., description="TfL line ID")
+    line_name: str = Field(..., description="Line name")
+    mode: str = Field(..., description="Transport mode")
+    status_severity: int = Field(..., description="Current severity level")
+    status_severity_description: str = Field(..., description="Current status description")
+    reason: str | None = Field(None, description="Disruption reason if any")
 
 
 class DisruptionCategoryResponse(BaseModel):

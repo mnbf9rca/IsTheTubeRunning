@@ -258,6 +258,7 @@ async def test_get_disruptions(
         {
             "line_id": "victoria",
             "line_name": "Victoria",
+            "mode": "tube",
             "status_severity": 5,
             "status_severity_description": "Severe Delays",
             "reason": "Signal failure at Victoria",

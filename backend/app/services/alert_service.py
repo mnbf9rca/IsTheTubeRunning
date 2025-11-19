@@ -20,7 +20,7 @@ from app.models.notification import (
     NotificationPreference,
     NotificationStatus,
 )
-from app.models.tfl import Line, LineDisruptionStateLog
+from app.models.tfl import AlertDisabledSeverity, Line, LineDisruptionStateLog
 from app.models.user import EmailAddress, PhoneNumber, User
 from app.models.user_route import UserRoute, UserRouteSchedule
 from app.models.user_route_index import UserRouteStationIndex
@@ -333,6 +333,9 @@ class AlertService:
             # Fetch all line disruptions once and log state changes
             # Uses cache automatically, so subsequent per-route calls will be fast
             # Errors here are non-fatal - per-route processing will still work
+            all_disruptions: list[DisruptionResponse] = []
+            disabled_severity_pairs: set[tuple[str, int]] = set()
+
             try:
                 tfl_service = TfLService(db=self.db)
                 all_disruptions = await tfl_service.fetch_line_disruptions(use_cache=True)
@@ -340,6 +343,11 @@ class AlertService:
 
                 # Log line disruption state changes (for troubleshooting and analytics)
                 await self._log_line_disruption_state_changes(all_disruptions)
+
+                # Fetch disabled severity pairs once for all routes
+                disabled_result = await self.db.execute(select(AlertDisabledSeverity))
+                disabled_severity_pairs = {(d.mode_id, d.severity_level) for d in disabled_result.scalars().all()}
+
             except Exception as e:
                 logger.error(
                     "disruption_logging_failed",
@@ -372,7 +380,7 @@ class AlertService:
                     )
 
                     # Get disruptions for this route
-                    disruptions, error_occurred = await self._get_route_disruptions(route)
+                    disruptions, error_occurred = await self._get_route_disruptions(route, disabled_severity_pairs)
 
                     # Track error if one occurred
                     if error_occurred:
@@ -668,7 +676,11 @@ class AlertService:
 
         return affected_route_ids
 
-    async def _get_route_disruptions(self, route: UserRoute) -> tuple[list[DisruptionResponse], bool]:
+    async def _get_route_disruptions(
+        self,
+        route: UserRoute,
+        disabled_severity_pairs: set[tuple[str, int]],
+    ) -> tuple[list[DisruptionResponse], bool]:
         """
         Get current disruptions affecting this route using inverted index.
 
@@ -677,6 +689,7 @@ class AlertService:
 
         Args:
             route: UserRoute to get disruptions for
+            disabled_severity_pairs: Set of (mode_id, severity_level) pairs to filter out
 
         Returns:
             Tuple of (disruptions, error_occurred)
@@ -719,6 +732,9 @@ class AlertService:
                 elif disruption.line_id in route_line_ids:
                     route_disruptions.append(disruption)
 
+            # Filter disruptions by severity (remove non-alertable severities like "Good Service")
+            route_disruptions = self._filter_alertable_disruptions(route_disruptions, disabled_severity_pairs)
+
             logger.debug(
                 "route_disruptions_filtered",
                 route_id=str(route.id),
@@ -736,6 +752,55 @@ class AlertService:
                 exc_info=e,
             )
             return [], True
+
+    def _filter_alertable_disruptions(
+        self,
+        disruptions: list[DisruptionResponse],
+        disabled_severity_pairs: set[tuple[str, int]],
+    ) -> list[DisruptionResponse]:
+        """
+        Filter disruptions to only include those that should trigger alerts.
+
+        Removes disruptions with severity levels that are configured as non-alertable
+        (e.g., "Good Service" with severity_level=10).
+
+        Args:
+            disruptions: List of disruptions to filter
+            disabled_severity_pairs: Set of (mode_id, severity_level) pairs to filter out
+
+        Returns:
+            List of disruptions that should trigger alerts
+        """
+        if not disruptions:
+            return []
+
+        # Filter disruptions
+        alertable_disruptions = []
+        filtered_count = 0
+
+        for disruption in disruptions:
+            # Check if this (mode, severity) should be filtered
+            if (disruption.mode, disruption.status_severity) in disabled_severity_pairs:
+                filtered_count += 1
+                logger.debug(
+                    "disruption_filtered_by_severity",
+                    line_id=disruption.line_id,
+                    mode=disruption.mode,
+                    severity=disruption.status_severity,
+                    description=disruption.status_severity_description,
+                )
+            else:
+                alertable_disruptions.append(disruption)
+
+        if filtered_count > 0:
+            logger.info(
+                "disruptions_filtered_by_severity",
+                total=len(disruptions),
+                filtered=filtered_count,
+                remaining=len(alertable_disruptions),
+            )
+
+        return alertable_disruptions
 
     async def _should_send_alert(
         self,
