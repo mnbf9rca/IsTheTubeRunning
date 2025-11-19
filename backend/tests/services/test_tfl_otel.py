@@ -151,6 +151,7 @@ class TestTflApiSpans:
 
         span = spans[0]
         assert span.name == "tfl.api.MetaModes"
+        assert span.attributes is not None
         assert span.attributes["tfl.api.endpoint"] == "MetaModes"
         assert span.attributes["tfl.api.client"] == "line_client"
         assert span.attributes["peer.service"] == "api.tfl.gov.uk"
@@ -192,6 +193,7 @@ class TestTflApiSpans:
 
         for span in spans:
             assert span.name == "tfl.api.GetByModeByPathModes"
+            assert span.attributes is not None
             assert span.attributes["tfl.api.endpoint"] == "GetByModeByPathModes"
             assert span.attributes["tfl.api.client"] == "line_client"
             assert "tfl.api.mode" in span.attributes
@@ -234,6 +236,7 @@ class TestTflApiSpans:
 
         span = spans[0]
         assert span.name == "tfl.api.GetByPathIdsQueryIncludeCrowdingData"
+        assert span.attributes is not None
         assert span.attributes["tfl.api.hub_code"] == "HUBVIC"
 
     @pytest.mark.asyncio
@@ -296,6 +299,7 @@ class TestTflApiSpans:
 
         span = spans[0]
         assert span.name == "tfl.api.RouteSequenceByPathIdPathDirectionQueryServiceTypesQueryExcludeCrowding"
+        assert span.attributes is not None
         assert span.attributes["tfl.api.line_id"] == "victoria"
         assert span.attributes["tfl.api.direction"] == "outbound"
 
