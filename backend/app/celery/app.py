@@ -69,11 +69,15 @@ def init_beat_otel(
     this just ensures the Beat process has its own TracerProvider.
     """
     if settings.OTEL_ENABLED:
-        from app.core.telemetry import get_tracer_provider  # noqa: PLC0415  # Lazy import for fork-safety
+        try:
+            from app.core.telemetry import get_tracer_provider  # noqa: PLC0415  # Lazy import for fork-safety
 
-        if provider := get_tracer_provider():
-            trace.set_tracer_provider(provider)
-            logger.info("beat_otel_tracer_provider_initialized")
+            if provider := get_tracer_provider():
+                trace.set_tracer_provider(provider)
+                logger.info("beat_otel_tracer_provider_initialized")
+        except Exception:
+            logger.exception("beat_otel_initialization_failed")
+            # Continue without OTEL - graceful degradation
 
 
 # Import tasks to register them with Celery

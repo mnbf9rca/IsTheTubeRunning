@@ -125,6 +125,38 @@ class TestRedisInstrumentation:
             telemetry_module._tracer_provider = None
             telemetry_module._redis_instrumented = False
 
+    def test_redis_instrumentor_exception_handling(self) -> None:
+        """Test that RedisInstrumentor.instrument() exception is handled gracefully."""
+        # Reset module state
+        telemetry_module._tracer_provider = None
+        telemetry_module._redis_instrumented = False
+
+        with (
+            patch.object(telemetry_module.settings, "OTEL_ENABLED", True),
+            patch.object(telemetry_module.settings, "DEBUG", True),
+            patch.object(telemetry_module.settings, "OTEL_SERVICE_NAME", "test-service"),
+            patch.object(telemetry_module.settings, "OTEL_ENVIRONMENT", "test"),
+            patch.object(telemetry_module.settings, "OTEL_EXPORTER_OTLP_ENDPOINT", ""),
+            patch.object(telemetry_module, "RedisInstrumentor") as mock_redis_instrumentor_class,
+        ):
+            # Setup mock instrumentor to raise exception
+            mock_instrumentor = MagicMock()
+            mock_instrumentor.instrument.side_effect = Exception("Redis instrumentation failed")
+            mock_redis_instrumentor_class.return_value = mock_instrumentor
+
+            # Call get_tracer_provider - should not raise
+            provider = telemetry_module.get_tracer_provider()
+
+            # Verify provider was still created (graceful degradation)
+            assert provider is not None
+
+            # Verify _redis_instrumented remains False after failure
+            assert telemetry_module._redis_instrumented is False
+
+            # Clean up
+            telemetry_module._tracer_provider = None
+            telemetry_module._redis_instrumented = False
+
 
 class TestRedisInstrumentationCoverage:
     """Additional tests for edge cases and coverage."""

@@ -93,6 +93,40 @@ class TestBeatOtelInitialization:
             # Verify logging was called
             mock_logger_info.assert_called_once_with("beat_otel_tracer_provider_initialized")
 
+    def test_beat_init_handles_get_tracer_provider_exception(self) -> None:
+        """Test that beat_init handles exception from get_tracer_provider gracefully."""
+        with (
+            patch.object(celery_app_module.settings, "OTEL_ENABLED", True),
+            patch(
+                "app.core.telemetry.get_tracer_provider",
+                side_effect=Exception("Test get_tracer_provider error"),
+            ),
+            patch("opentelemetry.trace.set_tracer_provider") as mock_set_provider,
+        ):
+            # Call the signal handler - should not raise
+            celery_app_module.init_beat_otel()
+
+            # Verify set_tracer_provider was NOT called (exception was caught)
+            mock_set_provider.assert_not_called()
+
+    def test_beat_init_handles_set_tracer_provider_exception(self) -> None:
+        """Test that beat_init handles exception from set_tracer_provider gracefully."""
+        test_provider = TracerProvider(resource=Resource(attributes={"service.name": "test-beat"}))
+        with (
+            patch.object(celery_app_module.settings, "OTEL_ENABLED", True),
+            patch(
+                "app.core.telemetry.get_tracer_provider",
+                return_value=test_provider,
+            ),
+            patch(
+                "opentelemetry.trace.set_tracer_provider",
+                side_effect=Exception("Test set_tracer_provider error"),
+            ),
+        ):
+            # Call the signal handler - should not raise
+            celery_app_module.init_beat_otel()
+            # If we get here, the exception was handled gracefully
+
 
 class TestBeatOtelForkSafety:
     """Tests for fork-safety of Beat OTEL initialization."""

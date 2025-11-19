@@ -28,7 +28,7 @@ configure_logging(log_level=settings.LOG_LEVEL)
 
 logger = structlog.get_logger(__name__)
 
-# Initialize OpenTelemetry instrumentors at module level (before app creation)
+# Initialize OpenTelemetry instrumentors at module level (before FastAPI app instantiation)
 # These just patch classes - safe before fork. TracerProvider is set in lifespan (after fork).
 if settings.OTEL_ENABLED:
     FastAPIInstrumentor().instrument(

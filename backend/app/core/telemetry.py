@@ -83,11 +83,17 @@ def _create_tracer_provider() -> TracerProvider:
 
     # Instrument Redis for distributed tracing
     # RedisInstrumentor patches the redis module globally, so only call once
+    # Note: This code is protected by _tracer_provider_lock via get_tracer_provider()
+    # which is the only caller of this private function (see docstring above)
     global _redis_instrumented  # noqa: PLW0603  # Required for instrumentation tracking
     if not _redis_instrumented:
-        RedisInstrumentor().instrument()
-        _redis_instrumented = True
-        logger.debug("redis_instrumented_for_otel")
+        try:
+            RedisInstrumentor().instrument()
+            _redis_instrumented = True
+            logger.debug("redis_instrumented_for_otel")
+        except Exception:
+            logger.exception("redis_instrumentation_failed")
+            # Continue without Redis instrumentation - graceful degradation
 
     # Add OTLP exporter if endpoint is configured
     if settings.OTEL_EXPORTER_OTLP_ENDPOINT:
