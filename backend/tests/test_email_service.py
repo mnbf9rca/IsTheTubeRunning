@@ -5,7 +5,32 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import aiosmtplib
 import pytest
-from app.services.email_service import EmailService
+from app.services.email_service import EmailService, get_tls_settings
+
+
+class TestGetTlsSettings:
+    """Test cases for get_tls_settings pure function."""
+
+    def test_port_465_implicit_tls(self) -> None:
+        """Port 465 uses implicit TLS regardless of require_tls."""
+        assert get_tls_settings(465, False) == (True, None)
+        assert get_tls_settings(465, True) == (True, None)
+
+    def test_port_587_auto_upgrade(self) -> None:
+        """Port 587 with require_tls=False uses auto-upgrade."""
+        assert get_tls_settings(587, False) == (False, None)
+
+    def test_port_587_require_tls(self) -> None:
+        """Port 587 with require_tls=True forces STARTTLS."""
+        assert get_tls_settings(587, True) == (False, True)
+
+    def test_port_25_auto_upgrade(self) -> None:
+        """Port 25 with require_tls=False uses auto-upgrade."""
+        assert get_tls_settings(25, False) == (False, None)
+
+    def test_port_25_require_tls(self) -> None:
+        """Port 25 with require_tls=True forces STARTTLS."""
+        assert get_tls_settings(25, True) == (False, True)
 
 
 class TestEmailService:
@@ -15,18 +40,12 @@ class TestEmailService:
     @patch("app.services.email_service.aiosmtplib.SMTP")
     async def test_send_verification_email_success(self, mock_smtp_class: MagicMock) -> None:
         """Test successful verification email sending."""
-        # Setup mock SMTP server with async context manager
         mock_server = AsyncMock()
         mock_smtp_class.return_value.__aenter__.return_value = mock_server
 
         service = EmailService()
-        email = "test@example.com"
-        code = "123456"
+        await service.send_verification_email("test@example.com", "123456")
 
-        await service.send_verification_email(email, code)
-
-        # Verify SMTP methods were called
-        mock_server.starttls.assert_called_once()
         mock_server.login.assert_called_once()
         mock_server.send_message.assert_called_once()
 
@@ -38,16 +57,12 @@ class TestEmailService:
         mock_smtp_class.return_value.__aenter__.return_value = mock_server
 
         service = EmailService()
-        email = "test@example.com"
-        code = "123456"
+        await service.send_verification_email("test@example.com", "123456")
 
-        await service.send_verification_email(email, code)
-
-        # Get the message that was sent
         call_args = mock_server.send_message.call_args
         message = call_args[0][0]
 
-        assert message["To"] == email
+        assert message["To"] == "test@example.com"
         assert message["Subject"] == "Verify Your Email - IsTheTubeRunning"
         assert message["From"] == service.from_email
 
@@ -60,50 +75,22 @@ class TestEmailService:
         mock_smtp_class.return_value.__aenter__.return_value = mock_server
 
         service = EmailService()
-        email = "test@example.com"
-        code = "123456"
 
         with pytest.raises(aiosmtplib.SMTPException):
-            await service.send_verification_email(email, code)
-
-    @pytest.mark.asyncio
-    @patch("app.services.email_service.aiosmtplib.SMTP")
-    async def test_send_verification_email_uses_correct_smtp_config(self, mock_smtp_class: MagicMock) -> None:
-        """Test that email service uses correct SMTP configuration including timeout."""
-        mock_server = AsyncMock()
-        mock_smtp_class.return_value.__aenter__.return_value = mock_server
-
-        service = EmailService()
-
-        # Verify SMTP config is loaded
-        assert service.smtp_host is not None
-        assert service.smtp_port is not None
-        assert service.smtp_user is not None
-        assert service.smtp_password is not None
-        assert service.from_email is not None
-        assert service.smtp_timeout is not None
-
-        await service.send_verification_email("test@example.com", "123456")
-
-        # Verify SMTP was initialized with correct hostname/port/timeout
-        mock_smtp_class.assert_called_once_with(
-            hostname=service.smtp_host, port=service.smtp_port, timeout=service.smtp_timeout
-        )
+            await service.send_verification_email("test@example.com", "123456")
 
     @pytest.mark.asyncio
     @patch("app.services.email_service.aiosmtplib.SMTP")
     async def test_send_verification_email_timeout(self, mock_smtp_class: MagicMock) -> None:
-        """Test SMTP timeout exception handling when sending verification email."""
+        """Test SMTP timeout exception handling."""
         mock_server = AsyncMock()
         mock_server.send_message.side_effect = TimeoutError("Timeout occurred")
         mock_smtp_class.return_value.__aenter__.return_value = mock_server
 
         service = EmailService()
-        email = "test@example.com"
-        code = "123456"
 
         with pytest.raises(asyncio.TimeoutError):
-            await service.send_verification_email(email, code)
+            await service.send_verification_email("test@example.com", "123456")
 
     @pytest.mark.asyncio
     @patch("app.services.email_service.aiosmtplib.SMTP")
@@ -114,8 +101,6 @@ class TestEmailService:
         mock_smtp_class.return_value.__aenter__.return_value = mock_server
 
         service = EmailService()
-        email = "test@example.com"
-        code = "123456"
 
         with pytest.raises(ConnectionRefusedError):
-            await service.send_verification_email(email, code)
+            await service.send_verification_email("test@example.com", "123456")

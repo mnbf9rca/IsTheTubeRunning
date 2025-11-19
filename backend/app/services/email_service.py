@@ -14,6 +14,46 @@ require_config("SMTP_HOST", "SMTP_PORT", "SMTP_USER", "SMTP_PASSWORD", "SMTP_FRO
 
 logger = structlog.get_logger(__name__)
 
+# Standard SMTP port for implicit TLS (SMTPS)
+SMTPS_PORT = 465
+
+
+def get_tls_settings(port: int, require_tls: bool) -> tuple[bool, bool | None]:
+    """
+    Determine TLS settings based on port and require_tls flag.
+
+    Args:
+        port: SMTP port number
+        require_tls: Whether to require STARTTLS upgrade on non-465 ports
+
+    Returns:
+        Tuple of (use_tls, start_tls) for aiosmtplib.SMTP
+    """
+    """
+    from https://aiosmtplib.readthedocs.io/en/stable/encryption.html and the signature of aiosmtplib.SMTP:
+
+    | Port | Type         | REQUIRE_TLS | use_tls | start_tls | Behavior                             |
+    |------|--------------|-------------|---------|-----------|--------------------------------------|
+    | 25   | Plaintext    | False       | False   | None      | Auto-upgrade if available            |
+    | 25   | Plaintext    | True        | False   | True      | Force upgrade, fail if not supported |
+    | 465  | Implicit TLS | False       | True    | N/A       | Always TLS (port behavior)           |
+    | 465  | Implicit TLS | True        | True    | N/A       | Always TLS (port behavior)           |
+    | 587  | STARTTLS     | False       | False   | None      | Auto-upgrade if available            |
+    | 587  | STARTTLS     | True        | False   | True      | Force upgrade, fail if not supported |
+
+    So the logic:
+    - Port 465: use_tls=True (always, regardless of REQUIRE_TLS)
+    - Other ports: use_tls=False, start_tls=True if REQUIRE_TLS else None
+
+    This way REQUIRE_TLS controls whether we require the STARTTLS upgrade to succeed on ports 25/587.
+
+    """
+
+    if port == SMTPS_PORT:
+        return (True, None)  # Implicit TLS, start_tls N/A
+    return (False, True if require_tls else None)
+
+
 # Initialize Jinja2 environment for email templates
 # Security: Using autoescape with select_autoescape for HTML/XML provides XSS protection
 # by automatically escaping all variables in templates. This is equivalent to Flask's
@@ -47,6 +87,7 @@ class EmailService:
         self.smtp_password: str = settings.SMTP_PASSWORD
         self.from_email: str = settings.SMTP_FROM_EMAIL
         self.smtp_timeout = settings.SMTP_TIMEOUT
+        self.require_tls = settings.SMTP_REQUIRE_TLS
 
     async def send_email(
         self,
@@ -147,10 +188,15 @@ This is an automated message from IsTheTubeRunning.
 
             # Send the email via SMTP (async network I/O)
             # timeout parameter prevents indefinite hangs on unreachable hosts
+            use_tls, start_tls = get_tls_settings(self.smtp_port, self.require_tls)
+
             async with aiosmtplib.SMTP(
-                hostname=self.smtp_host, port=self.smtp_port, timeout=self.smtp_timeout
+                hostname=self.smtp_host,
+                port=self.smtp_port,
+                timeout=self.smtp_timeout,
+                use_tls=use_tls,
+                start_tls=start_tls,
             ) as server:
-                await server.starttls()
                 await server.login(self.smtp_user, self.smtp_password)
                 await server.send_message(message)
 
