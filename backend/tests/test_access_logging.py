@@ -50,10 +50,10 @@ class TestAccessLoggingMiddleware:
             assert call_args[1]["client_ip"] == "127.0.0.1"
 
     @pytest.mark.asyncio
-    async def test_extracts_client_ip_from_forwarded_for(
+    async def test_logs_both_client_ip_and_forwarded_for(
         self, middleware: AccessLoggingMiddleware, mock_request: MagicMock
     ) -> None:
-        """Test that middleware extracts client IP from X-Forwarded-For header."""
+        """Test that middleware logs both direct client IP and X-Forwarded-For value."""
         mock_request.headers = {"x-forwarded-for": "203.0.113.195, 70.41.3.18"}
         response = Response(status_code=200)
         call_next = AsyncMock(return_value=response)
@@ -62,7 +62,26 @@ class TestAccessLoggingMiddleware:
             await middleware.dispatch(mock_request, call_next)
 
             call_args = mock_logger.info.call_args
-            assert call_args[1]["client_ip"] == "203.0.113.195"
+            # client_ip should be the direct connection
+            assert call_args[1]["client_ip"] == "127.0.0.1"
+            # forwarded_for should be the first IP from X-Forwarded-For
+            assert call_args[1]["forwarded_for"] == "203.0.113.195"
+
+    @pytest.mark.asyncio
+    async def test_no_forwarded_for_when_header_missing(
+        self, middleware: AccessLoggingMiddleware, mock_request: MagicMock
+    ) -> None:
+        """Test that forwarded_for is not logged when X-Forwarded-For header is missing."""
+        # mock_request.headers is already empty by default
+        response = Response(status_code=200)
+        call_next = AsyncMock(return_value=response)
+
+        with patch("app.middleware.access_logging.logger") as mock_logger:
+            await middleware.dispatch(mock_request, call_next)
+
+            call_args = mock_logger.info.call_args
+            assert call_args[1]["client_ip"] == "127.0.0.1"
+            assert "forwarded_for" not in call_args[1]
 
     @pytest.mark.asyncio
     async def test_handles_missing_client(self, middleware: AccessLoggingMiddleware, mock_request: MagicMock) -> None:

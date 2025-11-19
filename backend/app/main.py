@@ -23,6 +23,9 @@ from app.core.logging import configure_logging
 from app.core.telemetry import get_tracer_provider, shutdown_tracer_provider
 from app.middleware import AccessLoggingMiddleware
 
+# Configure logging at module level so Uvicorn startup logs go through structlog pipeline
+configure_logging(log_level=settings.LOG_LEVEL)
+
 logger = structlog.get_logger(__name__)
 
 
@@ -73,9 +76,6 @@ def _check_alembic_migrations(sync_conn: Connection) -> str | None:
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
     """Application lifespan - validate database migrations and initialize OTEL on startup."""
-    # Configure logging first
-    configure_logging(log_level=settings.LOG_LEVEL)
-
     # Skip all validation in DEBUG mode (tests use mock databases/contexts)
     if settings.DEBUG:
         logger.info("debug_mode_startup", message="skipping startup validation")

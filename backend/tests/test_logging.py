@@ -3,10 +3,11 @@
 import logging
 import sys
 from io import StringIO
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 import structlog
-from app.core.logging import configure_logging
+from app.core.logging import _add_otel_context, configure_logging
+from opentelemetry import trace
 
 
 class TestConfigureLogging:
@@ -114,3 +115,91 @@ class TestConfigureLoggingIdempotent:
         assert len(logging.getLogger().handlers) == 1
         # Should be at the last configured level
         assert logging.getLogger().level == logging.WARNING
+
+
+class TestAddOtelContext:
+    """Tests for _add_otel_context processor."""
+
+    def test_adds_trace_and_span_ids_with_active_span(self) -> None:
+        """Test that trace_id and span_id are added when there is an active span."""
+        # Mock the span context
+        mock_span_context = MagicMock()
+        mock_span_context.trace_id = 0x1234567890ABCDEF1234567890ABCDEF
+        mock_span_context.span_id = 0x1234567890ABCDEF
+
+        # Mock the span
+        mock_span = MagicMock()
+        mock_span.is_recording.return_value = True
+        mock_span.get_span_context.return_value = mock_span_context
+
+        with patch.object(trace, "get_current_span", return_value=mock_span):
+            event_dict: dict[str, str] = {"event": "test_event"}
+            result = _add_otel_context(logging.getLogger(), "info", event_dict)
+
+            # Should have trace_id and span_id
+            assert "trace_id" in result
+            assert "span_id" in result
+            # Should be 32 and 16 character hex strings
+            assert len(result["trace_id"]) == 32
+            assert len(result["span_id"]) == 16
+            # Should match the expected values
+            assert result["trace_id"] == "1234567890abcdef1234567890abcdef"
+            assert result["span_id"] == "1234567890abcdef"
+
+    def test_no_trace_ids_without_active_span(self) -> None:
+        """Test that trace_id and span_id are not added when there is no active span."""
+        # Mock a non-recording span (default when no span is active)
+        mock_span = MagicMock()
+        mock_span.is_recording.return_value = False
+
+        with patch.object(trace, "get_current_span", return_value=mock_span):
+            event_dict: dict[str, str] = {"event": "test_event"}
+            result = _add_otel_context(logging.getLogger(), "info", event_dict)
+
+            # Should not have trace_id or span_id (no active span)
+            assert "trace_id" not in result
+            assert "span_id" not in result
+            # Original event should be preserved
+            assert result["event"] == "test_event"
+
+    def test_no_trace_ids_with_none_span(self) -> None:
+        """Test that trace_id and span_id are not added when span is None."""
+        with patch.object(trace, "get_current_span", return_value=None):
+            event_dict: dict[str, str] = {"event": "test_event"}
+            result = _add_otel_context(logging.getLogger(), "info", event_dict)
+
+            # Should not have trace_id or span_id
+            assert "trace_id" not in result
+            assert "span_id" not in result
+            # Original event should be preserved
+            assert result["event"] == "test_event"
+
+    def test_preserves_existing_event_dict_fields(self) -> None:
+        """Test that existing event dict fields are preserved."""
+        # Mock the span context
+        mock_span_context = MagicMock()
+        mock_span_context.trace_id = 0xABCDEF1234567890ABCDEF1234567890
+        mock_span_context.span_id = 0xABCDEF12345678
+
+        # Mock the span
+        mock_span = MagicMock()
+        mock_span.is_recording.return_value = True
+        mock_span.get_span_context.return_value = mock_span_context
+
+        with patch.object(trace, "get_current_span", return_value=mock_span):
+            event_dict: dict[str, str | int] = {
+                "event": "test_event",
+                "user_id": "123",
+                "action": "login",
+                "count": 42,
+            }
+            result = _add_otel_context(logging.getLogger(), "info", event_dict)
+
+            # Original fields should be preserved
+            assert result["event"] == "test_event"
+            assert result["user_id"] == "123"
+            assert result["action"] == "login"
+            assert result["count"] == 42
+            # And trace context should be added
+            assert "trace_id" in result
+            assert "span_id" in result
