@@ -18,7 +18,8 @@
       "console": "integratedTerminal",
       "justMyCode": true,
       "env": {
-        "PYTHONPATH": "${workspaceFolder}/backend"
+        "PYTHONPATH": "${workspaceFolder}/backend",
+        "OTEL_SERVICE_NAME": "isthetuberunning-api"
       },
       "consoleName": "Backend"
     },
@@ -75,7 +76,8 @@
       "console": "integratedTerminal",
       "justMyCode": false,
       "env": {
-        "PYTHONPATH": "${workspaceFolder}/backend"
+        "PYTHONPATH": "${workspaceFolder}/backend",
+        "OTEL_SERVICE_NAME": "isthetuberunning-worker"
       },
       "consoleName": "Celery Worker"
     },
@@ -94,7 +96,8 @@
       "console": "integratedTerminal",
       "justMyCode": false,
       "env": {
-        "PYTHONPATH": "${workspaceFolder}/backend"
+        "PYTHONPATH": "${workspaceFolder}/backend",
+        "OTEL_SERVICE_NAME": "isthetuberunning-beat"
       },
       "consoleName": "Celery Beat"
     }

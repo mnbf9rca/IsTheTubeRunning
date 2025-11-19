@@ -92,7 +92,6 @@ from app.types.tfl_api import NetworkConnection
 ## package is the source of truth for TfL API data structures.
 
 logger = structlog.get_logger(__name__)
-tracer = trace.get_tracer(__name__)
 
 
 @contextlib.contextmanager
@@ -106,6 +105,10 @@ def tfl_api_span(
     Creates an OpenTelemetry span with consistent attributes for TfL API calls.
     The SDK automatically records exceptions and sets error status if an
     exception occurs within the span context.
+
+    Note: The tracer is acquired at call time (not module import time) to ensure
+    it uses the TracerProvider set during application startup. This enables proper
+    trace context propagation from parent spans (e.g., FastAPI HTTP requests).
 
     Args:
         endpoint: API endpoint name (e.g., "MetaModes", "GetByModeByPathModes")
@@ -121,6 +124,8 @@ def tfl_api_span(
             if hasattr(response, "http_status_code"):
                 span.set_attribute("http.status_code", response.http_status_code)
     """
+    # Get tracer at call time to use the correct TracerProvider (set in FastAPI lifespan)
+    tracer = trace.get_tracer(__name__)
     attributes = {
         "tfl.api.endpoint": endpoint,
         "tfl.api.client": client,

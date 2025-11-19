@@ -1,8 +1,25 @@
-# Celery Fork Safety Implementation
+# Fork Safety Implementation
 
-This document describes the implementation details for Issue #195 - Persistent event loop per Celery worker.
+This document describes fork safety implementation for Celery workers and FastAPI (uvicorn workers), including OpenTelemetry, SQLAlchemy, and Redis considerations.
 
-## Problem
+## Overview
+
+When using fork-based multiprocessing (Celery fork pool, uvicorn `--workers > 1`), certain resources must be created **after fork** in each worker process:
+
+| Resource | Why | When to Create |
+|----------|-----|----------------|
+| SQLAlchemy AsyncEngine | `asyncio.Queue` bound to event loop | After fork (lazy init) |
+| OpenTelemetry TracerProvider | `BatchSpanProcessor` has threads | After fork (lifespan/signal) |
+| OpenTelemetry Instrumentors | Just patch classes, no runtime state | Before fork (module level) |
+| Redis async client | Connection bound to event loop | After fork (lazy init) |
+
+---
+
+## Celery Worker Fork Safety
+
+This section describes the implementation details for Issue #195 - Persistent event loop per Celery worker.
+
+### Problem
 
 SQLAlchemy's async engine creates `asyncio.Queue` objects at construction time that become permanently bound to the event loop that created them. This causes conflicts in forked Celery workers:
 
@@ -190,10 +207,100 @@ Worker Process Lifecycle:
 - `backend/tests/test_celery_database_integration.py` - Added lifecycle tests for init/cleanup
 - `docs/adr/08-background-jobs.md` - Documented updated decision
 
+---
+
+## FastAPI Fork Safety (Uvicorn Workers)
+
+When running FastAPI with multiple uvicorn workers (`--workers > 1`), the same fork safety considerations apply.
+
+### Implementation
+
+```python
+# main.py
+
+# Module level - BEFORE fork, safe to call
+if settings.OTEL_ENABLED:
+    FastAPIInstrumentor().instrument(excluded_urls=...)  # Just patches FastAPI class
+
+# Lifespan - AFTER fork, runs in each worker
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # Create TracerProvider per-worker (has threads that don't survive fork)
+    if settings.OTEL_ENABLED and (provider := get_tracer_provider()):
+        trace.set_tracer_provider(provider)
+
+    yield
+
+    # Cleanup
+    if settings.OTEL_ENABLED:
+        shutdown_tracer_provider()
+```
+
+### Key Points
+
+1. **Instrumentors at module level** - `FastAPIInstrumentor().instrument()` just patches the FastAPI class, no runtime state
+2. **TracerProvider in lifespan** - Created per-worker after fork, has its own BatchSpanProcessor threads
+3. **Database engine** - Uses lazy initialization pattern in `get_engine()` (see ADR 08)
+
+---
+
+## OpenTelemetry Fork Safety
+
+### TracerProvider
+
+The `TracerProvider` with `BatchSpanProcessor` has background threads for batching and exporting spans. These threads don't survive `fork()`, so each forked process must create its own TracerProvider.
+
+**Pattern:**
+```python
+# telemetry.py - Lazy singleton per process
+_tracer_provider: TracerProvider | None = None
+
+def get_tracer_provider() -> TracerProvider | None:
+    """Create TracerProvider lazily (per-process after fork)."""
+    global _tracer_provider
+    if _tracer_provider is None:
+        _tracer_provider = _create_tracer_provider()
+    return _tracer_provider
+```
+
+### Instrumentors
+
+Instrumentors (FastAPI, Redis, SQLAlchemy, Celery) just patch classes/modules. They're safe to call before fork:
+
+```python
+# Safe at module level
+FastAPIInstrumentor().instrument()
+RedisInstrumentor().instrument()
+CeleryInstrumentor().instrument()
+```
+
+### Tracers
+
+When acquiring a tracer with `trace.get_tracer(__name__)`, do it at **call time**, not module import time:
+
+```python
+# BAD - tracer bound to default provider before TracerProvider is set
+tracer = trace.get_tracer(__name__)  # Module level
+
+def my_function():
+    with tracer.start_as_current_span(...):  # Uses wrong provider
+        ...
+
+# GOOD - tracer acquired when TracerProvider is active
+def my_function():
+    tracer = trace.get_tracer(__name__)  # Call time
+    with tracer.start_as_current_span(...):  # Uses correct provider
+        ...
+```
+
+---
+
 ## References
 
 - Issue #195: https://github.com/mnbf9rca/IsTheTubeRunning/issues/195
 - Issue #190: https://github.com/mnbf9rca/IsTheTubeRunning/issues/190 (original event loop errors)
 - Issue #147: https://github.com/mnbf9rca/IsTheTubeRunning/issues/147 (original fork safety implementation)
+- Issue #198: https://github.com/mnbf9rca/IsTheTubeRunning/issues/198 (OTEL service graph instrumentation)
 - SQLAlchemy docs: [Using Connection Pools with Multiprocessing](https://docs.sqlalchemy.org/en/20/core/pooling.html#using-connection-pools-with-multiprocessing-or-os-fork)
 - Celery signals: [worker_process_init](https://docs.celeryq.dev/en/stable/userguide/signals.html#worker-process-init)
+- OpenTelemetry Python: [BatchSpanProcessor](https://opentelemetry-python.readthedocs.io/en/latest/sdk/trace.export.html)
