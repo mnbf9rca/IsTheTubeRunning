@@ -111,6 +111,75 @@ tfl.api.<endpoint_name>
 
 ---
 
+## FastAPI Instrumentation Pattern
+
+### Status
+Active (Issue #210)
+
+### Context
+OpenTelemetry's `FastAPIInstrumentor` must wrap the ASGI application to intercept HTTP requests and create trace spans. The instrumentor needs access to the FastAPI app instance to modify its middleware stack.
+
+**Problem**: Calling `FastAPIInstrumentor().instrument()` at module level (before app creation) prevents the instrumentor from wrapping the app, resulting in no HTTP request spans being created.
+
+**Symptoms**:
+- Incoming API requests don't generate parent trace spans
+- Downstream operations (DB queries, Redis, external APIs) create separate root traces with different trace IDs
+- Service graph shows disconnected operations instead of request → dependency flow
+- Cannot correlate operations back to the API request that triggered them
+
+### Decision
+Instrument FastAPI using `instrument_app(app)` after app instantiation, not using automatic `instrument()` at module level.
+
+**Pattern**:
+```python
+# main.py
+
+# Create app first
+app = FastAPI(
+    title="IsTheTubeRunning API",
+    description="TfL Disruption Alert System Backend",
+    version=__version__,
+    lifespan=lifespan,
+)
+
+# Then instrument (module level, after app exists)
+if settings.OTEL_ENABLED:
+    FastAPIInstrumentor().instrument_app(
+        app,
+        excluded_urls=",".join(settings.OTEL_EXCLUDED_URLS),
+    )
+    logger.info("otel_fastapi_instrumented", excluded_urls=settings.OTEL_EXCLUDED_URLS)
+
+# TracerProvider is set later in lifespan (after fork) for fork-safety
+```
+
+**Key Points**:
+1. App must exist before instrumentation
+2. Use `instrument_app(app)` not `instrument()` for explicit control
+3. TracerProvider still set in lifespan for fork-safety (instrumentation just patches middleware)
+4. Excluded URLs (health/metrics) configured at instrumentation time
+
+### Consequences
+
+**Easier:**
+- HTTP request spans are properly created as root spans
+- Downstream operations (DB, Redis, external APIs) become child spans
+- Complete trace hierarchy enables end-to-end request tracing
+- Service graph shows proper topology: Client → FastAPI → [PostgreSQL, Redis, TfL API]
+- Log-trace correlation works correctly (same trace_id across all operations)
+
+**More Difficult:**
+- Must remember to instrument after app creation (pattern is less obvious)
+- Can't rely on automatic discovery (more explicit code)
+
+### Verification
+Tests verify the instrumentation pattern in `tests/test_otel_integration.py`:
+- `test_fastapi_request_creates_parent_span` - HTTP requests create SERVER spans
+- `test_fastapi_excluded_urls_not_traced` - Health/metrics endpoints excluded
+- `test_fastapi_database_spans_are_children` - All operations share same trace_id
+
+---
+
 ## Service Name Differentiation
 
 ### Status

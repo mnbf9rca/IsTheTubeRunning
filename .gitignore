@@ -408,3 +408,6 @@ settings.local.json
 
 .playwright-mcp/
 coverage.*
+
+# OpenTelemetry Collector binary
+otelcol
