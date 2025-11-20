@@ -124,6 +124,10 @@ async def sync_tfl_metadata(
     disruption_categories = await tfl_service.fetch_disruption_categories()
     stop_types = await tfl_service.fetch_stop_types()
 
+    # Explicit commit to ensure data persists before session closes
+    # Service methods already commit, but this ensures no rollback occurs
+    await db.commit()
+
     return SyncMetadataResponse(
         success=True,
         message="TfL metadata synchronized successfully.",
