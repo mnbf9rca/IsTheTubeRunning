@@ -9,6 +9,7 @@ os.environ["DEBUG"] = "true"
 os.environ["SMS_LOG_DIR"] = tempfile.gettempdir()  # For SMS service tests
 os.environ["OTEL_SDK_DISABLED"] = "true"  # Disable OpenTelemetry SDK for tests by default
 
+import asyncio
 import uuid
 from collections.abc import AsyncGenerator, Generator
 from contextlib import suppress
@@ -128,7 +129,9 @@ def db_engine() -> Generator[TestDatabaseContext]:
 
         yield TestDatabaseContext(engine=engine, session_factory=session_factory, db_name=test_db_name)
 
-        # Cleanup handled by DatabaseJanitor context manager
+        # Dispose the async engine to close all connections
+        # DatabaseJanitor only drops the database, not the engine's connections
+        asyncio.run(engine.dispose())
 
 
 @pytest.fixture
@@ -181,6 +184,9 @@ async def db_session(db_engine: TestDatabaseContext) -> AsyncGenerator[AsyncSess
                     sess.begin_nested()
 
             yield session
+
+            # Remove event listener to prevent reference leaks
+            event.remove(session.sync_session, "after_transaction_end", _restart_savepoint)
 
         # Rollback outer transaction for cleanup
         with suppress(Exception):
