@@ -38,7 +38,7 @@ from fastapi.testclient import TestClient
 from httpx import ASGITransport, AsyncClient
 from pytest_postgresql.janitor import DatabaseJanitor
 from sqlalchemy import event
-from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
+from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.orm import Session
 from sqlalchemy.orm.session import SessionTransaction
 from sqlalchemy.pool import NullPool
@@ -195,13 +195,13 @@ async def db_session(db_engine: TestDatabaseContext) -> AsyncGenerator[AsyncSess
 
 
 @pytest.fixture
-async def fresh_db_session() -> AsyncGenerator[AsyncSession]:
+async def fresh_db_engine() -> AsyncGenerator[tuple[AsyncEngine, str]]:
     """
-    Fresh database with migrations for each test (IntegrityError recovery tests).
+    Fresh database engine for each test (IntegrityError recovery tests).
 
-    Creates a new test database per test, runs Alembic migrations, provides a session,
-    and cleans up. This allows IntegrityError recovery tests to work correctly because
-    commits are REAL database commits to a real database, not just transaction commits.
+    Creates a new test database per test, runs Alembic migrations, provides engine
+    and database URL, then cleans up. This is the foundation for fresh_db_session
+    and fresh_db_session_factory fixtures.
 
     Use this fixture only for tests that require IntegrityError recovery (duplicate
     constraint violations). Standard tests should use db_session for better performance.
@@ -210,7 +210,7 @@ async def fresh_db_session() -> AsyncGenerator[AsyncSession]:
     error recovery code paths.
 
     Yields:
-        Async SQLAlchemy session with full migrated schema
+        Tuple of (AsyncEngine, database_url_string)
     """
     # Generate unique database name
     test_db_name = f"test_{uuid.uuid4().hex[:8]}"
@@ -244,14 +244,67 @@ async def fresh_db_session() -> AsyncGenerator[AsyncSession]:
             msg = f"Alembic migration failed: {e}"
             raise RuntimeError(msg) from e
 
-        # Create async engine and session
+        # Create async engine
         engine = create_async_engine(async_db_url, echo=False, poolclass=NullPool)
-        async_session_factory = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
 
-        async with async_session_factory() as session:
-            yield session
+        yield (engine, async_db_url)
 
         await engine.dispose()
+
+
+@pytest.fixture
+async def fresh_db_session(fresh_db_engine: tuple[AsyncEngine, str]) -> AsyncGenerator[AsyncSession]:
+    """
+    Fresh database session for each test (IntegrityError recovery tests).
+
+    Uses fresh_db_engine fixture to create a session from a fresh database.
+    This allows IntegrityError recovery tests to work correctly because
+    commits are REAL database commits to a real database, not just transaction commits.
+
+    Use this fixture only for tests that require IntegrityError recovery (duplicate
+    constraint violations). Standard tests should use db_session for better performance.
+
+    Trade-off: ~2s per test vs ~0.1s with db_session, but enables testing critical
+    error recovery code paths.
+
+    Args:
+        fresh_db_engine: Fresh database engine fixture
+
+    Yields:
+        Async SQLAlchemy session with full migrated schema
+    """
+    engine, _db_url = fresh_db_engine
+    async_session_factory = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
+
+    async with async_session_factory() as session:
+        yield session
+
+
+@pytest.fixture
+async def fresh_db_session_factory(fresh_db_engine: tuple[AsyncEngine, str]) -> async_sessionmaker[AsyncSession]:
+    """
+    Fresh database session factory for each test (IntegrityError recovery tests).
+
+    Uses fresh_db_engine fixture to create a session factory. This allows tests
+    to create multiple sessions connected to the same test database, enabling
+    testing of cross-session persistence and database commits.
+
+    Use this fixture when you need to verify data persists across session boundaries,
+    which is critical for testing warm-up functions and database commit behavior.
+
+    Args:
+        fresh_db_engine: Fresh database engine fixture
+
+    Returns:
+        async_sessionmaker that creates sessions connected to the test database
+
+    Example:
+        async with session_factory() as new_session:
+            result = await new_session.execute(select(Model))
+            ...
+    """
+    engine, _db_url = fresh_db_engine
+    return async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
 
 
 @pytest.fixture
