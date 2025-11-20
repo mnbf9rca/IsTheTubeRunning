@@ -210,10 +210,22 @@ def create_mock_line_status(
         status_severity: Numeric severity (0-20, with 10 = Good Service)
         status_severity_description: Human-readable severity description
         disruption: Optional nested disruption object
-        validity_periods: List of validity periods (optional, no default)
+        validity_periods: List of validity periods. Defaults to empty list (no validity periods),
+            which matches typical "Good Service" statuses. For disruptions, explicitly pass
+            validity periods to match real API responses.
         reason: Optional reason text
         created: Creation timestamp
+
+    Note:
+        validity_periods can contain ValidityPeriod objects with isNow field, but this field
+        is NOT used for filtering (it indicates category: RealTime vs PlannedWork, not temporal
+        validity). The TfL API handles temporal filtering server-side when StartDate/EndDate
+        are omitted from requests.
     """
+    # Default to empty list for validity periods (common for Good Service statuses)
+    if validity_periods is None:
+        validity_periods = []
+
     # Convert created to string format if it's a datetime
     created_str = None
     if isinstance(created, datetime):
@@ -2458,6 +2470,48 @@ async def test_fetch_disruptions_includes_both_realtime_and_planned(
         assert disruptions[1].line_id == "victoria"
         assert disruptions[1].status_severity == 9
         assert disruptions[1].reason == "Station closure at Pimlico for maintenance"
+
+
+async def test_fetch_disruptions_no_disruptions(
+    tfl_service: TfLService,
+) -> None:
+    """Test that the service handles empty responses correctly when no disruptions are present.
+
+    This test confirms that when the TfL API returns lines with no line statuses,
+    the service correctly returns an empty list rather than failing or returning
+    incorrect data.
+    """
+    with freeze_time("2025-01-01 12:00:00"):
+        # Mock fetch_lines
+        mock_line = Line(tfl_id="victoria", name="Victoria", mode="tube")
+        tfl_service.fetch_lines = AsyncMock(return_value=[mock_line])
+
+        # Create mock line with NO line statuses (no disruptions, not even Good Service)
+        mock_lines = [
+            create_mock_line_with_status(
+                line_id="victoria",
+                line_name="Victoria",
+                line_statuses=[],  # Empty - no statuses at all
+            ),
+        ]
+        mock_response = MockResponse(
+            data=mock_lines,
+            shared_expires=datetime(2025, 1, 1, 12, 2, 0, tzinfo=UTC),
+        )
+
+        # Mock the async client method
+        with patch.object(
+            tfl_service.line_client,
+            "StatusByIdsByPathIdsQueryDetail",
+            new_callable=AsyncMock,
+            return_value=mock_response,
+        ):
+            # Execute
+            disruptions = await tfl_service.fetch_line_disruptions(modes=["tube"], use_cache=False)
+
+        # Verify empty list returned (not None, not an error)
+        assert disruptions == []
+        assert len(disruptions) == 0
 
 
 async def test_fetch_disruptions_with_empty_affected_station_sequence(

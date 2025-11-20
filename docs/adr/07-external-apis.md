@@ -167,6 +167,9 @@ Use `/Line/{ids}/Status` endpoint (`StatusByIdsByPathIdsQueryDetail`) instead of
 - Structured severity scale (0-20) matches TfL's official MetaSeverity codes
 - More accurate data (real-world testing showed Disruption endpoint missed planned closures)
 - Both RealTime and PlannedWork disruptions included (Issue #208)
+  - Note: The `ValidityPeriod.isNow` field indicates disruption category (RealTime vs PlannedWork), NOT temporal validity
+  - We do NOT use `isNow` for filtering - TfL API handles temporal filtering server-side
+  - The `isNow` field cannot be removed from `pydantic_tfl_api.ValidityPeriod` as it's defined by the external library
 
 **More Difficult:**
 - Requires fetching line IDs first (extra `fetch_lines()` call)
