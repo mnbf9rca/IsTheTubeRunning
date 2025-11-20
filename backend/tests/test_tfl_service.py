@@ -10,7 +10,6 @@ import pytest
 from aiocache import Cache
 from aiocache.serializers import PickleSerializer
 from app.core.config import settings
-from app.core.database import get_session_factory
 from app.models.tfl import (
     DisruptionCategory,
     Line,
@@ -63,7 +62,7 @@ from pydantic_tfl_api.models import (
     ValidityPeriod as TflValidityPeriod,
 )
 from sqlalchemy import select, text
-from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 # Mock Factory Functions using pydantic_tfl_api models
 
@@ -3030,9 +3029,9 @@ async def test_fetch_severity_codes_api_failure(
     )
 
 
-@pytest.mark.skip(reason="Test isolation bug - queries production DB instead of test DB. See issue #220")
 async def test_fetch_severity_codes_database_persistence(
     fresh_db_session: AsyncSession,
+    fresh_db_session_factory: async_sessionmaker[AsyncSession],
 ) -> None:
     """Test that severity codes persist in database across sessions.
 
@@ -3043,6 +3042,10 @@ async def test_fetch_severity_codes_database_persistence(
     Uses fresh_db_session fixture (not db_session) to test real database commits.
     The standard db_session uses SAVEPOINT transactions which don't accurately
     test persistence (ADR 10: IntegrityError Recovery Test Pattern).
+
+    Uses fresh_db_session_factory to create a second session connected to the
+    same test database, verifying cross-session persistence without querying
+    the production database.
     """
 
     with freeze_time("2025-01-01 12:00:00"):
@@ -3079,8 +3082,9 @@ async def test_fetch_severity_codes_database_persistence(
         # Close the original session
         await fresh_db_session.close()
 
-        # Create a NEW session to verify persistence
-        async with get_session_factory()() as new_session:
+        # Create a NEW session from the test database's session factory
+        # This verifies persistence across sessions in the SAME test database
+        async with fresh_db_session_factory() as new_session:
             # Query all severity codes (test DB should only have our 2 codes)
             result = await new_session.execute(select(SeverityCode))
             codes_new_session = list(result.scalars().all())
