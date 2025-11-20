@@ -125,8 +125,8 @@ async def test_refresh_metadata_async_ensures_session_cleanup(
     mock_tfl_service.refresh_metadata_with_change_detection = AsyncMock(side_effect=Exception("Database error"))
     mock_tfl_service_class.return_value = mock_tfl_service
 
-    # Execute async function - should handle exception gracefully
-    # (actually it will return error result due to MetadataChangeDetectedError handling)
+    # Execute async function - generic exceptions will propagate up
+    # The test suppresses them to verify session cleanup still happens
     with contextlib.suppress(Exception):
         await _refresh_metadata_async()
 

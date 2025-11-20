@@ -16,7 +16,7 @@ import json
 import uuid
 from collections.abc import Generator
 from datetime import UTC, datetime
-from typing import Any
+from typing import Any, cast
 from urllib.parse import urlparse
 
 import structlog
@@ -160,26 +160,32 @@ def _compute_metadata_hash(
         # Sort by mode_id, severity_level
         data = [
             {
-                "mode_id": item.mode_id,  # type: ignore[attr-defined]
-                "severity_level": item.severity_level,  # type: ignore[attr-defined]
-                "description": item.description,  # type: ignore[attr-defined]
+                "mode_id": item.mode_id,
+                "severity_level": item.severity_level,
+                "description": item.description,
             }
             for item in sorted(
-                items,
+                cast(list[SeverityCode], items),
                 key=lambda x: (x.mode_id, x.severity_level),
             )
         ]
     elif isinstance(items[0], DisruptionCategory):
         # Sort by category_name
         data = [
-            {"category_name": item.category_name, "description": item.description}  # type: ignore[attr-defined]
-            for item in sorted(items, key=lambda x: x.category_name)
+            {"category_name": item.category_name, "description": item.description}
+            for item in sorted(
+                cast(list[DisruptionCategory], items),
+                key=lambda x: x.category_name,
+            )
         ]
     elif isinstance(items[0], StopType):
         # Sort by type_name
         data = [
-            {"type_name": item.type_name, "description": item.description}  # type: ignore[attr-defined]
-            for item in sorted(items, key=lambda x: x.type_name)
+            {"type_name": item.type_name, "description": item.description}
+            for item in sorted(
+                cast(list[StopType], items),
+                key=lambda x: x.type_name,
+            )
         ]
     else:
         msg = f"Unsupported metadata type: {type(items[0])}"
@@ -1074,6 +1080,26 @@ class TfLService:
             severity_hash_after = _compute_metadata_hash(severity_codes_after)
             categories_hash_after = _compute_metadata_hash(disruption_categories_after)
             types_hash_after = _compute_metadata_hash(stop_types_after)
+
+            # Check if this is initial population (empty database)
+            is_initial_population = (
+                len(severity_codes_before) == 0
+                and len(disruption_categories_before) == 0
+                and len(stop_types_before) == 0
+            )
+
+            if is_initial_population:
+                logger.info(
+                    "initial_metadata_population",
+                    severity_codes_count=len(severity_codes_after),
+                    disruption_categories_count=len(disruption_categories_after),
+                    stop_types_count=len(stop_types_after),
+                )
+                return (
+                    len(severity_codes_after),
+                    len(disruption_categories_after),
+                    len(stop_types_after),
+                )
 
             # Step 5: Detect changes
             changes_detected = []

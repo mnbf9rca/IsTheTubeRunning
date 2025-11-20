@@ -319,13 +319,12 @@ async def test_refresh_metadata_with_change_detection_empty_database(
             return_value=[StopType(type_name="NaptanMetroStation", description="Metro", last_updated=now)],
         ),
     ):
-        # Should raise exception because empty -> populated is a change
-        with pytest.raises(MetadataChangeDetectedError) as exc_info:
-            await tfl_service.refresh_metadata_with_change_detection()
+        # Should NOT raise exception - this is initial population (empty database)
+        # Returns counts successfully without raising MetadataChangeDetectedError
+        counts = await tfl_service.refresh_metadata_with_change_detection()
 
-        error = exc_info.value
-        # All three types changed (empty to populated)
-        assert len(error.details["changed_types"]) == 3
+        # Verify counts match the fetched data
+        assert counts == (1, 1, 1)
 
 
 @pytest.mark.asyncio
