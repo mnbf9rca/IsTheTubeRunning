@@ -17,6 +17,7 @@ from app.celery.database import get_worker_loop, get_worker_redis_client, get_wo
 from app.models.tfl import Line
 from app.models.user_route_index import UserRouteStationIndex
 from app.services.alert_service import AlertService
+from app.services.tfl_service import MetadataChangeDetectedError, TfLService
 from app.services.user_route_index_service import UserRouteIndexService
 
 logger = structlog.get_logger(__name__)
@@ -105,6 +106,27 @@ class DetectStaleRoutesResult(TypedDict):
     stale_count: int
     triggered_count: int
     errors: list[str]
+
+
+class MetadataRefreshResult(TypedDict):
+    """Result from refresh_tfl_metadata task."""
+
+    status: str
+    severity_codes_count: int
+    disruption_categories_count: int
+    stop_types_count: int
+    changes_detected: bool
+    error: str | None
+
+
+class GraphRebuildResult(TypedDict):
+    """Result from rebuild_network_graph task."""
+
+    status: str
+    lines_count: int
+    connections_count: int
+    stale_detection_triggered: bool
+    error: str | None
 
 
 @celery_app.task(  # type: ignore[arg-type]
@@ -432,5 +454,216 @@ async def _detect_stale_routes_async() -> DetectStaleRoutesResult:
 
     finally:
         # Ensure resources are properly closed
+        if session is not None:
+            await session.close()
+
+
+@celery_app.task(  # type: ignore[arg-type]
+    bind=True,
+    max_retries=3,
+    name="app.celery.tasks.refresh_tfl_metadata",
+)
+def refresh_tfl_metadata_task(self: BoundTask) -> MetadataRefreshResult:
+    """
+    Refresh TfL metadata from API with change detection.
+
+    This task runs periodically via Celery Beat (daily) and:
+    1. Fetches current metadata from database
+    2. Computes hash of current state
+    3. Fetches fresh metadata from TfL API
+    4. Computes hash of new state
+    5. Raises MetadataChangeDetectedError if hashes differ
+
+    The task uses strict change detection to alert on unexpected changes
+    to "super static" data like severity codes, disruption categories,
+    and stop types.
+
+    Args:
+        self: Celery task instance (bound via bind=True)
+
+    Returns:
+        MetadataRefreshResult: Task execution result with status and counts
+
+    Raises:
+        Retry: If the task should be retried due to transient failure
+    """
+    try:
+        logger.info("refresh_metadata_task_started")
+        result = run_in_worker_loop(_refresh_metadata_async)
+        logger.info("refresh_metadata_task_completed", result=result)
+        return result
+
+    except Exception as exc:
+        logger.error(
+            "refresh_metadata_task_failed",
+            error=str(exc),
+            error_type=type(exc).__name__,
+            retry_count=self.request.retries,
+        )
+        # Retry with exponential backoff (60s countdown)
+        raise self.retry(exc=exc, countdown=60) from exc
+
+
+async def _refresh_metadata_async() -> MetadataRefreshResult:
+    """
+    Async implementation of metadata refresh with change detection.
+
+    This function contains all the async database and API operations needed
+    to refresh TfL metadata. It properly manages the database session lifecycle.
+
+    Returns:
+        MetadataRefreshResult: Execution statistics including counts and change detection status
+
+    Raises:
+        MetadataChangeDetectedError: If metadata has changed (will be caught by task wrapper)
+    """
+    session = None
+    try:
+        # Get database session
+        session = get_worker_session()
+
+        # Create TfLService instance and refresh metadata with change detection
+        tfl_service = TfLService(db=session)
+        counts = await tfl_service.refresh_metadata_with_change_detection()
+
+        # Commit the transaction
+        await session.commit()
+
+        return MetadataRefreshResult(
+            status="success",
+            severity_codes_count=counts[0],
+            disruption_categories_count=counts[1],
+            stop_types_count=counts[2],
+            changes_detected=False,
+            error=None,
+        )
+
+    except MetadataChangeDetectedError as exc:
+        # Changes detected - this is expected to be rare
+        # Re-raise to fail the task and trigger alerts
+        logger.error(
+            "metadata_changed_during_refresh",
+            details=exc.details,
+        )
+        # Return result indicating change detection (don't re-raise, let task complete)
+        # The error will be logged and can be monitored via Sentry
+        return MetadataRefreshResult(
+            status="changes_detected",
+            severity_codes_count=0,
+            disruption_categories_count=0,
+            stop_types_count=0,
+            changes_detected=True,
+            error=str(exc),
+        )
+
+    finally:
+        if session is not None:
+            await session.close()
+
+
+@celery_app.task(  # type: ignore[arg-type]
+    bind=True,
+    max_retries=3,
+    name="app.celery.tasks.rebuild_network_graph",
+)
+def rebuild_network_graph_task(self: BoundTask) -> GraphRebuildResult:
+    """
+    Rebuild TfL network graph (stations and connections).
+
+    This task runs periodically via Celery Beat (daily) and:
+    1. Fetches all lines from TfL API
+    2. Fetches stations for each line
+    3. Builds station connection graph
+    4. Updates route variants in database
+    5. Triggers stale route detection
+
+    The task is expensive (50+ API calls) and should be run infrequently
+    (daily or weekly) unless TfL data changes.
+
+    Args:
+        self: Celery task instance (bound via bind=True)
+
+    Returns:
+        GraphRebuildResult: Task execution result with status and statistics
+
+    Raises:
+        Retry: If the task should be retried due to transient failure
+    """
+    try:
+        logger.info("rebuild_graph_task_started")
+        result = run_in_worker_loop(_rebuild_graph_async)
+        logger.info("rebuild_graph_task_completed", result=result)
+        return result
+
+    except Exception as exc:
+        logger.error(
+            "rebuild_graph_task_failed",
+            error=str(exc),
+            error_type=type(exc).__name__,
+            retry_count=self.request.retries,
+        )
+        # Retry with exponential backoff (60s countdown)
+        raise self.retry(exc=exc, countdown=60) from exc
+
+
+async def _rebuild_graph_async() -> GraphRebuildResult:
+    """
+    Async implementation of network graph rebuild.
+
+    This function contains all the async database and API operations needed
+    to rebuild the TfL network graph. It properly manages the database
+    session lifecycle and triggers stale route detection on success.
+
+    Returns:
+        GraphRebuildResult: Execution statistics including lines/connections counts
+    """
+    session = None
+    try:
+        # Get database session
+        session = get_worker_session()
+
+        # Create TfLService instance and rebuild graph
+        tfl_service = TfLService(db=session)
+        result = await tfl_service.build_station_graph()
+
+        # Commit the transaction
+        await session.commit()
+
+        # Trigger stale route detection (event-driven pattern)
+        # This queues a background task without blocking
+        try:
+            detect_and_rebuild_stale_routes.delay()
+            stale_detection_triggered = True
+            logger.info("stale_detection_triggered_after_graph_rebuild")
+        except Exception as exc:
+            stale_detection_triggered = False
+            logger.warning(
+                "failed_to_trigger_stale_detection",
+                error=str(exc),
+            )
+
+        return GraphRebuildResult(
+            status="success",
+            lines_count=result["lines_count"],
+            connections_count=result["connections_count"],
+            stale_detection_triggered=stale_detection_triggered,
+            error=None,
+        )
+
+    except Exception as exc:
+        logger.error(
+            "graph_rebuild_failed",
+            error=str(exc),
+            error_type=type(exc).__name__,
+        )
+        return GraphRebuildResult(
+            status="failure",
+            lines_count=0,
+            connections_count=0,
+            stale_detection_triggered=False,
+            error=str(exc),
+        )
+
+    finally:
         if session is not None:
             await session.close()

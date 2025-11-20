@@ -12,6 +12,7 @@ Terminology:
 
 import contextlib
 import hashlib
+import json
 import uuid
 from collections.abc import Generator
 from datetime import UTC, datetime
@@ -94,6 +95,101 @@ from app.types.tfl_api import NetworkConnection
 ## package is the source of truth for TfL API data structures.
 
 logger = structlog.get_logger(__name__)
+
+
+# Custom domain exceptions
+
+
+class MetadataChangeDetectedError(Exception):
+    """
+    Raised when TfL metadata changes unexpectedly during refresh.
+
+    This indicates that TfL API data has changed, which should be rare for
+    "super static" data like severity codes, disruption categories, and stop types.
+    When this occurs, it may indicate:
+    - TfL API schema changes (needs code update)
+    - Unexpected TfL behavior (needs investigation)
+    - Cache/persistence logic issues
+
+    The error message includes details about what changed for debugging.
+    """
+
+    def __init__(self, message: str, details: dict[str, Any] | None = None) -> None:
+        """
+        Initialize metadata change error.
+
+        Args:
+            message: Human-readable error description
+            details: Optional dict with change details (old/new hashes, counts, etc.)
+        """
+        super().__init__(message)
+        self.details = details or {}
+
+
+def _compute_metadata_hash(
+    items: list[SeverityCode] | list[DisruptionCategory] | list[StopType],
+) -> str:
+    """
+    Compute stable SHA256 hash of metadata collection.
+
+    This pure function creates a deterministic hash by:
+    1. Sorting items by their unique identifier fields
+    2. Serializing to JSON with sorted keys
+    3. Computing SHA256 hash
+
+    Used for change detection - if hash changes, metadata has changed.
+
+    Args:
+        items: List of metadata objects (all must be same type)
+
+    Returns:
+        Hex digest of SHA256 hash
+
+    Examples:
+        >>> codes = [SeverityCode(mode_id="tube", severity_level=10, ...)]
+        >>> hash1 = _compute_metadata_hash(codes)
+        >>> hash2 = _compute_metadata_hash(codes)  # Same data
+        >>> assert hash1 == hash2  # Stable hashing
+    """
+    # Sort items to ensure stable ordering
+    if not items:
+        return hashlib.sha256(b"[]").hexdigest()
+
+    # Determine item type and extract sortable data
+    if isinstance(items[0], SeverityCode):
+        # Sort by mode_id, severity_level
+        data = [
+            {
+                "mode_id": item.mode_id,  # type: ignore[attr-defined]
+                "severity_level": item.severity_level,  # type: ignore[attr-defined]
+                "description": item.description,  # type: ignore[attr-defined]
+            }
+            for item in sorted(
+                items,
+                key=lambda x: (x.mode_id, x.severity_level),
+            )
+        ]
+    elif isinstance(items[0], DisruptionCategory):
+        # Sort by category_name
+        data = [
+            {"category_name": item.category_name, "description": item.description}  # type: ignore[attr-defined]
+            for item in sorted(items, key=lambda x: x.category_name)
+        ]
+    elif isinstance(items[0], StopType):
+        # Sort by type_name
+        data = [
+            {"type_name": item.type_name, "description": item.description}  # type: ignore[attr-defined]
+            for item in sorted(items, key=lambda x: x.type_name)
+        ]
+    else:
+        msg = f"Unsupported metadata type: {type(items[0])}"
+        raise TypeError(msg)
+
+    # Serialize to JSON with sorted keys for stability
+    json_str = json.dumps(data, sort_keys=True, ensure_ascii=True)
+
+    # Compute SHA256 hash
+    return hashlib.sha256(json_str.encode("utf-8")).hexdigest()
 
 
 @contextlib.contextmanager
@@ -922,6 +1018,130 @@ class TfLService:
             raise HTTPException(
                 status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
                 detail="Failed to fetch stop types from TfL API.",
+            ) from e
+
+    async def refresh_metadata_with_change_detection(
+        self,
+    ) -> tuple[int, int, int]:
+        """
+        Refresh all TfL metadata and detect changes.
+
+        Fetches fresh metadata from TfL API and compares with current database state.
+        Raises MetadataChangeDetectedError if any changes are detected.
+
+        This method is used by scheduled Celery tasks to ensure metadata stays
+        current while alerting on unexpected changes (which are rare for "super
+        static" data like severity codes and disruption categories).
+
+        Returns:
+            Tuple of (severity_codes_count, disruption_categories_count, stop_types_count)
+
+        Raises:
+            MetadataChangeDetectedError: If metadata has changed
+            HTTPException: If TfL API calls fail
+
+        Example:
+            >>> counts = await tfl_service.refresh_metadata_with_change_detection()
+            >>> print(f"Refreshed {counts[0]} severity codes")
+        """
+        try:
+            # Step 1: Fetch current state from database
+            severity_codes_before = list((await self.db.execute(select(SeverityCode))).scalars().all())
+            disruption_categories_before = list((await self.db.execute(select(DisruptionCategory))).scalars().all())
+            stop_types_before = list((await self.db.execute(select(StopType))).scalars().all())
+
+            # Step 2: Compute hashes of current state
+            severity_hash_before = _compute_metadata_hash(severity_codes_before)
+            categories_hash_before = _compute_metadata_hash(disruption_categories_before)
+            types_hash_before = _compute_metadata_hash(stop_types_before)
+
+            logger.info(
+                "metadata_refresh_started",
+                severity_codes_count=len(severity_codes_before),
+                disruption_categories_count=len(disruption_categories_before),
+                stop_types_count=len(stop_types_before),
+                severity_hash=severity_hash_before[:8],  # First 8 chars for logging
+                categories_hash=categories_hash_before[:8],
+                types_hash=types_hash_before[:8],
+            )
+
+            # Step 3: Fetch fresh data from TfL API (bypass cache)
+            severity_codes_after = await self.fetch_severity_codes(use_cache=False)
+            disruption_categories_after = await self.fetch_disruption_categories(use_cache=False)
+            stop_types_after = await self.fetch_stop_types(use_cache=False)
+
+            # Step 4: Compute hashes of new state
+            severity_hash_after = _compute_metadata_hash(severity_codes_after)
+            categories_hash_after = _compute_metadata_hash(disruption_categories_after)
+            types_hash_after = _compute_metadata_hash(stop_types_after)
+
+            # Step 5: Detect changes
+            changes_detected = []
+            if severity_hash_before != severity_hash_after:
+                changes_detected.append("severity_codes")
+            if categories_hash_before != categories_hash_after:
+                changes_detected.append("disruption_categories")
+            if types_hash_before != types_hash_after:
+                changes_detected.append("stop_types")
+
+            # Step 6: Raise exception if changes detected
+            if changes_detected:
+                details = {
+                    "changed_types": changes_detected,
+                    "severity_codes": {
+                        "before_count": len(severity_codes_before),
+                        "after_count": len(severity_codes_after),
+                        "before_hash": severity_hash_before,
+                        "after_hash": severity_hash_after,
+                    },
+                    "disruption_categories": {
+                        "before_count": len(disruption_categories_before),
+                        "after_count": len(disruption_categories_after),
+                        "before_hash": categories_hash_before,
+                        "after_hash": categories_hash_after,
+                    },
+                    "stop_types": {
+                        "before_count": len(stop_types_before),
+                        "after_count": len(stop_types_after),
+                        "before_hash": types_hash_before,
+                        "after_hash": types_hash_after,
+                    },
+                }
+                logger.error(
+                    "metadata_changed_unexpectedly",
+                    changes=changes_detected,
+                    details=details,
+                )
+                msg = f"TfL metadata changed unexpectedly: {', '.join(changes_detected)}"
+                raise MetadataChangeDetectedError(
+                    msg,
+                    details=details,
+                )
+
+            logger.info(
+                "metadata_refresh_completed_no_changes",
+                severity_codes_count=len(severity_codes_after),
+                disruption_categories_count=len(disruption_categories_after),
+                stop_types_count=len(stop_types_after),
+            )
+
+            return (
+                len(severity_codes_after),
+                len(disruption_categories_after),
+                len(stop_types_after),
+            )
+
+        except MetadataChangeDetectedError:
+            # Re-raise to preserve exception details
+            raise
+        except HTTPException:
+            # Re-raise HTTP exceptions from fetch methods
+            raise
+        except Exception as e:
+            logger.error("metadata_refresh_failed", error=str(e), error_type=type(e).__name__, exc_info=e)
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="Failed to refresh TfL metadata.",
             ) from e
 
     async def _extract_hub_fields(self, stop_point: StopPoint) -> tuple[str | None, str | None]:
