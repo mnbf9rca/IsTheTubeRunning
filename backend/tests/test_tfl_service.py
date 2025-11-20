@@ -3080,32 +3080,29 @@ async def test_fetch_severity_codes_database_persistence(
 
         # Create a NEW session to verify persistence
         async with get_session_factory()() as new_session:
-            # Query for our specific test data (tube mode, levels 0 and 10)
-            result = await new_session.execute(
-                select(SeverityCode).where(
-                    SeverityCode.mode_id == "tube",
-                    SeverityCode.severity_level.in_([0, 10]),
-                )
-            )
+            # Query all severity codes (test DB should only have our 2 codes)
+            result = await new_session.execute(select(SeverityCode))
             codes_new_session = list(result.scalars().all())
 
             # CRITICAL: Data should persist across sessions
-            # Note: May find more than 2 if production data exists, but must find at least 2
-            assert len(codes_new_session) >= 2, (
-                f"Expected at least 2 severity codes in new session, got {len(codes_new_session)}. "
-                "This indicates database commit is not persisting data."
+            # Mock inserted exactly 2 codes, so we expect exactly 2
+            assert len(codes_new_session) == 2, (
+                f"Expected exactly 2 severity codes in new session, got {len(codes_new_session)}. "
+                "This indicates database commit is not persisting data or test isolation is broken."
             )
 
             # Verify our specific test data exists
             level_0_codes = [c for c in codes_new_session if c.severity_level == 0]
             level_10_codes = [c for c in codes_new_session if c.severity_level == 10]
 
-            assert len(level_0_codes) >= 1, "Expected at least one severity code with level 0"
-            assert len(level_10_codes) >= 1, "Expected at least one severity code with level 10"
+            assert len(level_0_codes) == 1, f"Expected exactly 1 severity code with level 0, got {len(level_0_codes)}"
+            assert len(level_10_codes) == 1, (
+                f"Expected exactly 1 severity code with level 10, got {len(level_10_codes)}"
+            )
 
-            # Verify at least one code has our test data
-            assert any(c.description == "Special Service" for c in level_0_codes)
-            assert any(c.description == "Good Service" for c in level_10_codes)
+            # Verify descriptions match our mock data
+            assert level_0_codes[0].description == "Special Service"
+            assert level_10_codes[0].description == "Good Service"
 
 
 # ==================== fetch_disruption_categories Tests ====================
