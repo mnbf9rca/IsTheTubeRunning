@@ -18,10 +18,11 @@ from sqlalchemy.engine import Connection
 from app import __version__
 from app.api import admin, auth, contacts, notification_preferences, routes, tfl
 from app.core.config import settings
-from app.core.database import get_engine
+from app.core.database import get_engine, get_session_factory
 from app.core.logging import configure_logging
 from app.core.telemetry import get_tracer_provider, shutdown_tracer_provider
 from app.middleware import AccessLoggingMiddleware
+from app.services.tfl_service import warm_up_metadata_cache
 
 # Configure logging at module level so Uvicorn startup logs go through structlog pipeline
 configure_logging(log_level=settings.LOG_LEVEL)
@@ -117,6 +118,17 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
     except Exception as e:
         logger.error("startup_failed", error=str(e))
         raise
+
+    # Warm up Redis cache from database (eliminates cold-start TfL API dependency)
+    # warm_up_metadata_cache handles all exceptions internally
+    async with get_session_factory()() as session:
+        counts = await warm_up_metadata_cache(session, settings.REDIS_URL)
+        logger.info(
+            "redis_cache_warmup_complete",
+            severity_codes=counts["severity_codes_count"],
+            disruption_categories=counts["disruption_categories_count"],
+            stop_types=counts["stop_types_count"],
+        )
 
     logger.info("startup_complete")
 

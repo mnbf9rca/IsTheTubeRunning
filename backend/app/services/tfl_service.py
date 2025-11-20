@@ -38,8 +38,10 @@ from pydantic_tfl_api.models import (
 from pydantic_tfl_api.models import (
     Line as TflLine,
 )
+from redis.exceptions import RedisError
 from sqlalchemy import delete, func, or_, select
 from sqlalchemy.dialects.postgresql import insert
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import aliased
 
@@ -144,7 +146,7 @@ def tfl_api_span(
 DEFAULT_LINES_CACHE_TTL = 86400  # 24 hours
 DEFAULT_STATIONS_CACHE_TTL = 86400  # 24 hours
 DEFAULT_DISRUPTIONS_CACHE_TTL = 120  # 2 minutes
-DEFAULT_METADATA_CACHE_TTL = 604800  # 7 days
+DEFAULT_METADATA_CACHE_TTL = 86400  # 24 hours (matches typical TfL API expiry)
 
 # TfL API constants
 MIN_ROUTE_SEGMENTS = 2  # Minimum number of segments required for route validation
@@ -253,6 +255,125 @@ def _extract_station_atco_code(disrupted_point: DisruptedPoint) -> str | None:
     # Fall back to atcoCode (less specific but often same value)
     atco_code: str | None = getattr(disrupted_point, "atcoCode", None)
     return atco_code
+
+
+async def _cache_metadata_items(
+    cache: Cache,
+    cache_key: str,
+    items: list[Any],
+    ttl: int,
+    metadata_type: str,
+) -> None:
+    """
+    Helper function to cache metadata items with logging.
+
+    Args:
+        cache: Cache instance to use
+        cache_key: Redis key to store items under
+        items: List of items to cache
+        ttl: Time-to-live in seconds
+        metadata_type: Type name for logging (e.g., "severity_codes")
+    """
+    if items:
+        await cache.set(cache_key, items, ttl=ttl)
+        logger.info(
+            f"{metadata_type}_cache_warmed",
+            count=len(items),
+            ttl=ttl,
+        )
+    else:
+        logger.warning(f"{metadata_type}_table_empty_skipping_cache_warmup")
+
+
+async def warm_up_metadata_cache(db: AsyncSession, redis_url: str) -> dict[str, int]:
+    """
+    Warm up Redis cache with metadata from database on application startup.
+
+    Called during application lifespan to rehydrate Redis from PostgreSQL,
+    eliminating cold-start dependency on TfL API. If database tables are empty
+    (fresh installation), returns zero counts and logs warnings.
+
+    Args:
+        db: Database session for querying metadata tables
+        redis_url: Redis connection URL for cache initialization
+
+    Returns:
+        dict with counts: {
+            "severity_codes_count": int,
+            "disruption_categories_count": int,
+            "stop_types_count": int
+        }
+
+    Raises:
+        Does not raise exceptions - logs warnings for graceful degradation.
+        Application startup continues even if warm-up fails.
+
+    Example:
+        >>> async with get_session_factory()() as session:
+        ...     counts = await warm_up_metadata_cache(session, "redis://localhost:6379/0")
+        ...     print(counts)
+        {"severity_codes_count": 233, "disruption_categories_count": 7, "stop_types_count": 3}
+    """
+    try:
+        # Query all metadata from database
+        severity_result = await db.execute(select(SeverityCode))
+        severity_codes = list(severity_result.scalars().all())
+
+        disruption_result = await db.execute(select(DisruptionCategory))
+        disruption_categories = list(disruption_result.scalars().all())
+
+        stop_result = await db.execute(select(StopType))
+        stop_types = list(stop_result.scalars().all())
+
+        # Initialize cache (same configuration as TfLService)
+        # Parse Redis URL to extract host and port
+        parsed = urlparse(redis_url)
+        redis_host = parsed.hostname or "localhost"
+        redis_port = parsed.port or 6379
+
+        cache = Cache(
+            Cache.REDIS,
+            endpoint=redis_host,
+            port=redis_port,
+            serializer=PickleSerializer(),
+            namespace="tfl",
+        )
+
+        try:
+            # Populate Redis with same keys used by fetch_* methods
+            # Use DEFAULT_METADATA_CACHE_TTL (24 hours) matching typical TfL API expiry
+            ttl = DEFAULT_METADATA_CACHE_TTL
+
+            # Cache each metadata type using helper function
+            await _cache_metadata_items(cache, "severity_codes:all", severity_codes, ttl, "severity_codes")
+            await _cache_metadata_items(
+                cache, "disruption_categories:all", disruption_categories, ttl, "disruption_categories"
+            )
+            await _cache_metadata_items(cache, "stop_types:all", stop_types, ttl, "stop_types")
+
+            return {
+                "severity_codes_count": len(severity_codes),
+                "disruption_categories_count": len(disruption_categories),
+                "stop_types_count": len(stop_types),
+            }
+        finally:
+            await cache.close()
+
+    except (SQLAlchemyError, RedisError) as exc:
+        # Log error but don't block application startup
+        # Catches database errors (SQLAlchemyError) and Redis errors (RedisError)
+        logger.error(
+            "metadata_cache_warmup_failed",
+            error=str(exc),
+            error_type=type(exc).__name__,
+            exc_info=exc,
+        )
+        # Return zero counts to indicate failure
+        return {
+            "severity_codes_count": 0,
+            "disruption_categories_count": 0,
+            "stop_types_count": 0,
+        }
 
 
 class TfLService:
@@ -587,11 +708,15 @@ class TfLService:
                 )
                 await self.db.execute(stmt)
 
+            # DEBUG: Log before commit
+            logger.debug("severity_codes_committing_to_database", severity_count=len(severity_data_list))
             await self.db.commit()
+            logger.info("severity_codes_committed_to_database", severity_count=len(severity_data_list))
 
             # Fetch all codes from database to return
             result = await self.db.execute(select(SeverityCode))
             codes = list(result.scalars().all())
+            logger.debug("severity_codes_queried_from_database_after_commit", query_result_count=len(codes))
 
             # Cache the results
             await self.cache.set(cache_key, codes, ttl=ttl)
