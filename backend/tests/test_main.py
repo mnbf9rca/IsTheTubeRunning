@@ -159,6 +159,10 @@ async def test_lifespan_production_success() -> None:
     with (
         patch("app.main.settings") as mock_settings,
         patch("app.main._check_alembic_migrations", return_value="test_revision"),
+        patch(
+            "app.main.warm_up_metadata_cache",
+            return_value={"severity_codes_count": 0, "disruption_categories_count": 0, "stop_types_count": 0},
+        ),
     ):
         mock_settings.DEBUG = False
         mock_settings.LOG_LEVEL = "INFO"

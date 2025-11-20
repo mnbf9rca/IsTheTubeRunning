@@ -8932,29 +8932,32 @@ async def test_warm_up_metadata_cache_populates_redis(
         namespace="tfl",
     )
 
-    # Check severity codes
-    cached_severity_codes = await cache.get("severity_codes:all")
-    assert cached_severity_codes is not None
-    assert len(cached_severity_codes) == 1
-    assert cached_severity_codes[0].mode_id == "tube"
-    assert cached_severity_codes[0].severity_level == 10
+    try:
+        # Check severity codes
+        cached_severity_codes = await cache.get("severity_codes:all")
+        assert cached_severity_codes is not None
+        assert len(cached_severity_codes) == 1
+        assert cached_severity_codes[0].mode_id == "tube"
+        assert cached_severity_codes[0].severity_level == 10
 
-    # Check disruption categories
-    cached_categories = await cache.get("disruption_categories:all")
-    assert cached_categories is not None
-    assert len(cached_categories) == 1
-    assert cached_categories[0].category_name == "PlannedWork"
+        # Check disruption categories
+        cached_categories = await cache.get("disruption_categories:all")
+        assert cached_categories is not None
+        assert len(cached_categories) == 1
+        assert cached_categories[0].category_name == "PlannedWork"
 
-    # Check stop types
-    cached_stop_types = await cache.get("stop_types:all")
-    assert cached_stop_types is not None
-    assert len(cached_stop_types) == 1
-    assert cached_stop_types[0].type_name == "NaptanMetroStation"
+        # Check stop types
+        cached_stop_types = await cache.get("stop_types:all")
+        assert cached_stop_types is not None
+        assert len(cached_stop_types) == 1
+        assert cached_stop_types[0].type_name == "NaptanMetroStation"
 
-    # Clean up Redis cache after test
-    await cache.delete("severity_codes:all")
-    await cache.delete("disruption_categories:all")
-    await cache.delete("stop_types:all")
+        # Clean up Redis cache after test
+        await cache.delete("severity_codes:all")
+        await cache.delete("disruption_categories:all")
+        await cache.delete("stop_types:all")
+    finally:
+        await cache.close()
 
 
 async def test_warm_up_metadata_cache_uses_correct_ttl(
@@ -8984,16 +8987,19 @@ async def test_warm_up_metadata_cache_uses_correct_ttl(
         namespace="tfl",
     )
 
-    # Check TTL on the severity_codes key
-    # aiocache RedisCache stores keys with namespace prefix
-    redis_ttl = await cache.client.ttl("tfl:severity_codes:all")
-    # TTL should be close to DEFAULT_METADATA_CACHE_TTL (allow small margin for execution time)
-    assert redis_ttl > 0, "TTL should be set (positive value)"
-    assert redis_ttl <= DEFAULT_METADATA_CACHE_TTL, "TTL should not exceed DEFAULT_METADATA_CACHE_TTL"
-    assert redis_ttl >= DEFAULT_METADATA_CACHE_TTL - 10, "TTL should be close to DEFAULT_METADATA_CACHE_TTL"
+    try:
+        # Check TTL on the severity_codes key
+        # aiocache RedisCache stores keys with namespace prefix
+        redis_ttl = await cache.client.ttl("tfl:severity_codes:all")
+        # TTL should be close to DEFAULT_METADATA_CACHE_TTL (allow small margin for execution time)
+        assert redis_ttl > 0, "TTL should be set (positive value)"
+        assert redis_ttl <= DEFAULT_METADATA_CACHE_TTL, "TTL should not exceed DEFAULT_METADATA_CACHE_TTL"
+        assert redis_ttl >= DEFAULT_METADATA_CACHE_TTL - 10, "TTL should be close to DEFAULT_METADATA_CACHE_TTL"
 
-    # Clean up
-    await cache.delete("severity_codes:all")
+        # Clean up
+        await cache.delete("severity_codes:all")
+    finally:
+        await cache.close()
 
 
 async def test_warm_up_metadata_cache_handles_redis_failure_gracefully(

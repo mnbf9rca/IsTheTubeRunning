@@ -339,22 +339,25 @@ async def warm_up_metadata_cache(db: AsyncSession, redis_url: str) -> dict[str, 
             namespace="tfl",
         )
 
-        # Populate Redis with same keys used by fetch_* methods
-        # Use DEFAULT_METADATA_CACHE_TTL (24 hours) matching typical TfL API expiry
-        ttl = DEFAULT_METADATA_CACHE_TTL
+        try:
+            # Populate Redis with same keys used by fetch_* methods
+            # Use DEFAULT_METADATA_CACHE_TTL (24 hours) matching typical TfL API expiry
+            ttl = DEFAULT_METADATA_CACHE_TTL
 
-        # Cache each metadata type using helper function
-        await _cache_metadata_items(cache, "severity_codes:all", severity_codes, ttl, "severity_codes")
-        await _cache_metadata_items(
-            cache, "disruption_categories:all", disruption_categories, ttl, "disruption_categories"
-        )
-        await _cache_metadata_items(cache, "stop_types:all", stop_types, ttl, "stop_types")
+            # Cache each metadata type using helper function
+            await _cache_metadata_items(cache, "severity_codes:all", severity_codes, ttl, "severity_codes")
+            await _cache_metadata_items(
+                cache, "disruption_categories:all", disruption_categories, ttl, "disruption_categories"
+            )
+            await _cache_metadata_items(cache, "stop_types:all", stop_types, ttl, "stop_types")
 
-        return {
-            "severity_codes_count": len(severity_codes),
-            "disruption_categories_count": len(disruption_categories),
-            "stop_types_count": len(stop_types),
-        }
+            return {
+                "severity_codes_count": len(severity_codes),
+                "disruption_categories_count": len(disruption_categories),
+                "stop_types_count": len(stop_types),
+            }
+        finally:
+            await cache.close()
 
     except (SQLAlchemyError, RedisError) as exc:
         # Log error but don't block application startup

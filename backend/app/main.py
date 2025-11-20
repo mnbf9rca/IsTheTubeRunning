@@ -120,21 +120,14 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
         raise
 
     # Warm up Redis cache from database (eliminates cold-start TfL API dependency)
-    try:
-        async with get_session_factory()() as session:
-            counts = await warm_up_metadata_cache(session, settings.REDIS_URL)
-            logger.info(
-                "redis_cache_warmup_complete",
-                severity_codes=counts["severity_codes_count"],
-                disruption_categories=counts["disruption_categories_count"],
-                stop_types=counts["stop_types_count"],
-            )
-    except Exception as exc:
-        # Log warning but don't block startup - application can fetch from TfL API on demand
-        logger.warning(
-            "redis_cache_warmup_failed",
-            error=str(exc),
-            error_type=type(exc).__name__,
+    # warm_up_metadata_cache handles all exceptions internally
+    async with get_session_factory()() as session:
+        counts = await warm_up_metadata_cache(session, settings.REDIS_URL)
+        logger.info(
+            "redis_cache_warmup_complete",
+            severity_codes=counts["severity_codes_count"],
+            disruption_categories=counts["disruption_categories_count"],
+            stop_types=counts["stop_types_count"],
         )
 
     logger.info("startup_complete")
