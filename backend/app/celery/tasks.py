@@ -5,7 +5,7 @@ periodic task that checks for TfL disruptions and sends alerts to users.
 """
 
 from collections.abc import Awaitable, Callable
-from typing import Any, Protocol, TypedDict
+from typing import Any, NotRequired, Protocol, TypedDict
 from uuid import UUID
 
 import structlog
@@ -117,6 +117,8 @@ class MetadataRefreshResult(TypedDict):
     stop_types_count: int
     changes_detected: bool
     error: str | None
+    before_counts: NotRequired[tuple[int, int, int] | None]
+    after_counts: NotRequired[tuple[int, int, int] | None]
 
 
 class GraphRebuildResult(TypedDict):
@@ -547,13 +549,18 @@ async def _refresh_metadata_async() -> MetadataRefreshResult:
         )
         # Return result indicating change detection (don't re-raise, let task complete)
         # The error will be logged and can be monitored via Sentry
+        # Include actual counts for better diagnostics
+        after_counts = exc.after_counts or (0, 0, 0)
+        before_counts = exc.before_counts
         return MetadataRefreshResult(
             status="changes_detected",
-            severity_codes_count=0,
-            disruption_categories_count=0,
-            stop_types_count=0,
+            severity_codes_count=after_counts[0],
+            disruption_categories_count=after_counts[1],
+            stop_types_count=after_counts[2],
             changes_detected=True,
             error=str(exc),
+            before_counts=before_counts,
+            after_counts=after_counts,
         )
 
     finally:

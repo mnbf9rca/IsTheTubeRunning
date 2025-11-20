@@ -114,16 +114,26 @@ class MetadataChangeDetectedError(Exception):
     The error message includes details about what changed for debugging.
     """
 
-    def __init__(self, message: str, details: dict[str, Any] | None = None) -> None:
+    def __init__(
+        self,
+        message: str,
+        details: dict[str, Any] | None = None,
+        before_counts: tuple[int, int, int] | None = None,
+        after_counts: tuple[int, int, int] | None = None,
+    ) -> None:
         """
         Initialize metadata change error.
 
         Args:
             message: Human-readable error description
             details: Optional dict with change details (old/new hashes, counts, etc.)
+            before_counts: Tuple of (severity_codes, categories, stop_types) before refresh
+            after_counts: Tuple of (severity_codes, categories, stop_types) after refresh
         """
         super().__init__(message)
         self.details = details or {}
+        self.before_counts = before_counts
+        self.after_counts = after_counts
 
 
 def _compute_metadata_hash(
@@ -1083,9 +1093,7 @@ class TfLService:
 
             # Check if this is initial population (empty database)
             is_initial_population = (
-                len(severity_codes_before) == 0
-                and len(disruption_categories_before) == 0
-                and len(stop_types_before) == 0
+                not severity_codes_before and not disruption_categories_before and not stop_types_before
             )
 
             if is_initial_population:
@@ -1142,6 +1150,16 @@ class TfLService:
                 raise MetadataChangeDetectedError(
                     msg,
                     details=details,
+                    before_counts=(
+                        len(severity_codes_before),
+                        len(disruption_categories_before),
+                        len(stop_types_before),
+                    ),
+                    after_counts=(
+                        len(severity_codes_after),
+                        len(disruption_categories_after),
+                        len(stop_types_after),
+                    ),
                 )
 
             logger.info(
