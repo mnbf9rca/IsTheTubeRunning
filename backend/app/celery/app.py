@@ -1,7 +1,7 @@
 """Celery application instance and configuration."""
 
 import structlog
-from celery.signals import beat_init
+from celery.signals import beat_init, worker_ready
 from opentelemetry import trace
 
 from app.core.config import require_config, settings
@@ -78,6 +78,38 @@ def init_beat_otel(
         except Exception:
             logger.exception("beat_otel_initialization_failed")
             # Continue without OTEL - graceful degradation
+
+
+@worker_ready.connect
+def trigger_startup_tasks(
+    **kwargs: object,
+) -> None:
+    """
+    Trigger initial data population tasks when Celery worker starts.
+
+    This ensures metadata and graph data are populated immediately on deployment
+    with empty database, rather than waiting 24 hours for first scheduled run.
+
+    The tasks use INSERT ... ON CONFLICT DO UPDATE, so if data already exists
+    (populated by FastAPI startup cache warmup or manual admin API calls),
+    this is a no-op that just validates the data.
+
+    Handles race condition with FastAPI startup gracefully - both paths are idempotent.
+    """
+    try:
+        # Trigger metadata refresh immediately
+        # This populates severity_codes, disruption_categories, stop_types tables
+        celery_app.send_task("app.celery.tasks.refresh_tfl_metadata")
+        logger.info("worker_startup_metadata_refresh_triggered")
+
+        # Trigger network graph rebuild immediately
+        # This populates lines, stations, connections tables
+        celery_app.send_task("app.celery.tasks.rebuild_network_graph")
+        logger.info("worker_startup_graph_rebuild_triggered")
+
+    except Exception:
+        logger.exception("worker_startup_tasks_failed")
+        # Continue without blocking worker startup - tasks will run on schedule
 
 
 # Import tasks to register them with Celery

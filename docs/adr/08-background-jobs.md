@@ -337,3 +337,40 @@ Persist line disruption state changes to database for historical visibility. Use
 - Additional table to maintain
 - Absence of log entry doesn't mean "Good Service" (we don't log non-disruption states)
 - No automatic cleanup (could add retention policy later if needed)
+
+---
+
+## Scheduled TfL Data Refresh
+
+### Status
+Active (Implemented 2025-11-20, Issue #218)
+
+### Context
+TfL metadata (severity codes, disruption categories, stop types) and network graph (stations, connections) need periodic refresh to stay current. Manual refresh via admin endpoints is error-prone and requires remembering to execute. Station graph is particularly important as route validation depends on it being up-to-date.
+
+### Decision
+Implement two scheduled Celery Beat tasks:
+1. **Metadata Refresh** (`refresh_tfl_metadata`) - Daily (86400s) refresh of severity codes, disruption categories, and stop types with strict change detection
+2. **Network Graph Rebuild** (`rebuild_network_graph`) - Daily (86400s) rebuild of station graph with automatic stale route detection trigger
+
+**Scheduling Strategy**: Fixed daily intervals rather than dynamic TTL-based scheduling. The existing cache layer with dynamic TTL (from TfL API `shared_expires` headers) handles freshness automatically. Tasks run daily to ensure database stays synchronized even if cache expires.
+
+**Change Detection**: Metadata refresh uses SHA256 hash comparison (before/after fetch). ANY change raises `MetadataChangeDetectedError` for investigation. Rationale: This data is "super static" - unexpected changes indicate TfL API schema changes, bugs in our persistence logic, or unusual TfL behavior requiring manual review.
+
+**Event-Driven Pattern**: Graph rebuild triggers `detect_and_rebuild_stale_routes` on success, following existing event-driven pattern for route index maintenance.
+
+### Consequences
+**Easier:**
+- Automated freshness - no manual admin intervention needed
+- Early detection of TfL API changes via strict change detection
+- Consistent scheduling (daily) - predictable, easy to monitor
+- Existing cache layer handles fine-grained freshness (2-minute disruptions, 24-hour metadata)
+- Route indexes automatically rebuild when station graph changes
+- Simple to tune (can adjust to weekly: 604800s if daily is excessive)
+
+**More Difficult:**
+- False positives possible if TfL adds new severity codes/categories (requires manual investigation)
+- Two separate scheduled tasks to monitor (metadata + graph)
+- Daily graph rebuild is expensive (~50 API calls) even if nothing changed
+- Fixed schedule doesn't adapt to actual TfL data change frequency
+- Must ensure tasks complete before next execution (1-hour expiry set as safeguard)
