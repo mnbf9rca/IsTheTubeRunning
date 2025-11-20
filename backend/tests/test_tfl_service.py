@@ -22,6 +22,7 @@ from app.models.tfl import (
 )
 from app.schemas.tfl import DisruptionResponse, RouteSegmentRequest, StationDisruptionResponse
 from app.services.tfl_service import (
+    DEFAULT_METADATA_CACHE_TTL,
     TfLService,
     _extract_station_atco_code,
     _generate_station_disruption_tfl_id,
@@ -2916,8 +2917,8 @@ async def test_fetch_severity_codes(
             mock_data=mock_severity_codes,
             expected_count=4,
             cache_key="severity_codes:all",
-            expected_ttl=86400,  # 24 hours
-            shared_expires=datetime(2025, 1, 8, 12, 0, 0, tzinfo=UTC),
+            expected_ttl=86400,  # 24 hours (DEFAULT_METADATA_CACHE_TTL)
+            shared_expires=datetime(2025, 1, 2, 12, 0, 0, tzinfo=UTC),  # 24 hours from frozen time
             client_attr="line_client",
             client_method="MetaSeverity",
         )
@@ -3123,8 +3124,8 @@ async def test_fetch_disruption_categories(
             mock_data=mock_categories,
             expected_count=4,
             cache_key="disruption_categories:all",
-            expected_ttl=86400,  # 24 hours
-            shared_expires=datetime(2025, 1, 8, 12, 0, 0, tzinfo=UTC),
+            expected_ttl=86400,  # 24 hours (DEFAULT_METADATA_CACHE_TTL)
+            shared_expires=datetime(2025, 1, 2, 12, 0, 0, tzinfo=UTC),  # 24 hours from frozen time
             client_attr="line_client",
             client_method="MetaDisruptionCategories",
         )
@@ -3168,7 +3169,7 @@ async def test_fetch_disruption_categories_cache_miss(
             method_callable=lambda: tfl_service.fetch_disruption_categories(use_cache=True),
             mock_data=mock_categories,
             expected_count=2,
-            shared_expires=datetime(2025, 1, 8, 12, 0, 0, tzinfo=UTC),
+            shared_expires=datetime(2025, 1, 2, 12, 0, 0, tzinfo=UTC),  # 24 hours from frozen time
             client_attr="line_client",
             client_method="MetaDisruptionCategories",
         )
@@ -3215,8 +3216,8 @@ async def test_fetch_stop_types(
             mock_data=mock_stop_types,
             expected_count=3,  # Only 3 relevant types
             cache_key="stop_types:all",
-            expected_ttl=86400,  # 24 hours
-            shared_expires=datetime(2025, 1, 8, 12, 0, 0, tzinfo=UTC),
+            expected_ttl=86400,  # 24 hours (DEFAULT_METADATA_CACHE_TTL)
+            shared_expires=datetime(2025, 1, 2, 12, 0, 0, tzinfo=UTC),  # 24 hours from frozen time
             client_attr="stoppoint_client",
             client_method="MetaStopTypes",
         )
@@ -3264,7 +3265,7 @@ async def test_fetch_stop_types_cache_miss(
             method_callable=lambda: tfl_service.fetch_stop_types(use_cache=True),
             mock_data=mock_stop_types,
             expected_count=2,
-            shared_expires=datetime(2025, 1, 8, 12, 0, 0, tzinfo=UTC),
+            shared_expires=datetime(2025, 1, 2, 12, 0, 0, tzinfo=UTC),  # 24 hours from frozen time
             client_attr="stoppoint_client",
             client_method="MetaStopTypes",
         )
@@ -8959,7 +8960,7 @@ async def test_warm_up_metadata_cache_populates_redis(
 async def test_warm_up_metadata_cache_uses_correct_ttl(
     db_session: AsyncSession,
 ) -> None:
-    """Test warm-up uses DEFAULT_METADATA_CACHE_TTL (7 days)."""
+    """Test warm-up uses DEFAULT_METADATA_CACHE_TTL (24 hours)."""
     # Seed one severity code
     severity_code = SeverityCode(
         mode_id="tube",
@@ -8973,12 +8974,7 @@ async def test_warm_up_metadata_cache_uses_correct_ttl(
     # Warm up cache
     await warm_up_metadata_cache(db_session, settings.REDIS_URL)
 
-    # Verify TTL is set correctly (check Redis TTL command)
-    # Note: aiocache doesn't expose TTL directly, but we can verify by checking expiry
-    # This test verifies the TTL parameter is passed correctly to cache.set()
-    # The actual TTL value is logged and can be verified in production logs
-
-    # Clean up
+    # Verify TTL is set correctly by checking Redis directly
     parsed = urlparse(settings.REDIS_URL)
     cache = Cache(
         Cache.REDIS,
@@ -8987,6 +8983,16 @@ async def test_warm_up_metadata_cache_uses_correct_ttl(
         serializer=PickleSerializer(),
         namespace="tfl",
     )
+
+    # Check TTL on the severity_codes key
+    # aiocache RedisCache stores keys with namespace prefix
+    redis_ttl = await cache.client.ttl("tfl:severity_codes:all")
+    # TTL should be close to DEFAULT_METADATA_CACHE_TTL (allow small margin for execution time)
+    assert redis_ttl > 0, "TTL should be set (positive value)"
+    assert redis_ttl <= DEFAULT_METADATA_CACHE_TTL, "TTL should not exceed DEFAULT_METADATA_CACHE_TTL"
+    assert redis_ttl >= DEFAULT_METADATA_CACHE_TTL - 10, "TTL should be close to DEFAULT_METADATA_CACHE_TTL"
+
+    # Clean up
     await cache.delete("severity_codes:all")
 
 

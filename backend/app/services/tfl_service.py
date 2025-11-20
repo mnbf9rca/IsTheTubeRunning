@@ -38,8 +38,10 @@ from pydantic_tfl_api.models import (
 from pydantic_tfl_api.models import (
     Line as TflLine,
 )
+from redis.exceptions import RedisError
 from sqlalchemy import delete, func, or_, select
 from sqlalchemy.dialects.postgresql import insert
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import aliased
 
@@ -255,6 +257,34 @@ def _extract_station_atco_code(disrupted_point: DisruptedPoint) -> str | None:
     return atco_code
 
 
+async def _cache_metadata_items(
+    cache: Cache,
+    cache_key: str,
+    items: list[Any],
+    ttl: int,
+    metadata_type: str,
+) -> None:
+    """
+    Helper function to cache metadata items with logging.
+
+    Args:
+        cache: Cache instance to use
+        cache_key: Redis key to store items under
+        items: List of items to cache
+        ttl: Time-to-live in seconds
+        metadata_type: Type name for logging (e.g., "severity_codes")
+    """
+    if items:
+        await cache.set(cache_key, items, ttl=ttl)
+        logger.info(
+            f"{metadata_type}_cache_warmed",
+            count=len(items),
+            ttl=ttl,
+        )
+    else:
+        logger.warning(f"{metadata_type}_table_empty_skipping_cache_warmup")
+
+
 async def warm_up_metadata_cache(db: AsyncSession, redis_url: str) -> dict[str, int]:
     """
     Warm up Redis cache with metadata from database on application startup.
@@ -313,35 +343,12 @@ async def warm_up_metadata_cache(db: AsyncSession, redis_url: str) -> dict[str, 
         # Use DEFAULT_METADATA_CACHE_TTL (24 hours) matching typical TfL API expiry
         ttl = DEFAULT_METADATA_CACHE_TTL
 
-        if severity_codes:
-            await cache.set("severity_codes:all", severity_codes, ttl=ttl)
-            logger.info(
-                "severity_codes_cache_warmed",
-                count=len(severity_codes),
-                ttl=ttl,
-            )
-        else:
-            logger.warning("severity_codes_table_empty_skipping_cache_warmup")
-
-        if disruption_categories:
-            await cache.set("disruption_categories:all", disruption_categories, ttl=ttl)
-            logger.info(
-                "disruption_categories_cache_warmed",
-                count=len(disruption_categories),
-                ttl=ttl,
-            )
-        else:
-            logger.warning("disruption_categories_table_empty_skipping_cache_warmup")
-
-        if stop_types:
-            await cache.set("stop_types:all", stop_types, ttl=ttl)
-            logger.info(
-                "stop_types_cache_warmed",
-                count=len(stop_types),
-                ttl=ttl,
-            )
-        else:
-            logger.warning("stop_types_table_empty_skipping_cache_warmup")
+        # Cache each metadata type using helper function
+        await _cache_metadata_items(cache, "severity_codes:all", severity_codes, ttl, "severity_codes")
+        await _cache_metadata_items(
+            cache, "disruption_categories:all", disruption_categories, ttl, "disruption_categories"
+        )
+        await _cache_metadata_items(cache, "stop_types:all", stop_types, ttl, "stop_types")
 
         return {
             "severity_codes_count": len(severity_codes),
@@ -349,8 +356,9 @@ async def warm_up_metadata_cache(db: AsyncSession, redis_url: str) -> dict[str, 
             "stop_types_count": len(stop_types),
         }
 
-    except Exception as exc:
+    except (SQLAlchemyError, RedisError) as exc:
         # Log error but don't block application startup
+        # Catches database errors (SQLAlchemyError) and Redis errors (RedisError)
         logger.error(
             "metadata_cache_warmup_failed",
             error=str(exc),
