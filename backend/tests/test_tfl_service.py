@@ -697,7 +697,7 @@ async def test_fetch_available_modes_from_api(
             mock_data=mock_modes,
             expected_count=5,
             cache_key="modes:all",
-            expected_ttl=604800,  # 7 days (DEFAULT_METADATA_CACHE_TTL)
+            expected_ttl=86400,  # 24 hours (DEFAULT_METADATA_CACHE_TTL)
             shared_expires=datetime(2025, 1, 8, 12, 0, 0, tzinfo=UTC),
         )
 
@@ -2916,7 +2916,7 @@ async def test_fetch_severity_codes(
             mock_data=mock_severity_codes,
             expected_count=4,
             cache_key="severity_codes:all",
-            expected_ttl=604800,  # 7 days
+            expected_ttl=86400,  # 24 hours
             shared_expires=datetime(2025, 1, 8, 12, 0, 0, tzinfo=UTC),
             client_attr="line_client",
             client_method="MetaSeverity",
@@ -3123,7 +3123,7 @@ async def test_fetch_disruption_categories(
             mock_data=mock_categories,
             expected_count=4,
             cache_key="disruption_categories:all",
-            expected_ttl=604800,  # 7 days
+            expected_ttl=86400,  # 24 hours
             shared_expires=datetime(2025, 1, 8, 12, 0, 0, tzinfo=UTC),
             client_attr="line_client",
             client_method="MetaDisruptionCategories",
@@ -3215,7 +3215,7 @@ async def test_fetch_stop_types(
             mock_data=mock_stop_types,
             expected_count=3,  # Only 3 relevant types
             cache_key="stop_types:all",
-            expected_ttl=604800,  # 7 days
+            expected_ttl=86400,  # 24 hours
             shared_expires=datetime(2025, 1, 8, 12, 0, 0, tzinfo=UTC),
             client_attr="stoppoint_client",
             client_method="MetaStopTypes",
