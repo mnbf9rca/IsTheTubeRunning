@@ -4,7 +4,7 @@ from typing import TypedDict
 from uuid import UUID
 
 import structlog
-from sqlalchemy import cast, delete, select
+from sqlalchemy import cast, func, select, update
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
@@ -163,8 +163,8 @@ class UserRouteIndexService:
                         error=str(exc),
                     )
             else:
-                # Rebuild all routes
-                result = await self.db.execute(select(UserRoute))
+                # Rebuild all routes (exclude soft-deleted)
+                result = await self.db.execute(select(UserRoute).where(UserRoute.deleted_at.is_(None)))
                 routes = result.scalars().all()
 
                 for route in routes:
@@ -217,7 +217,10 @@ class UserRouteIndexService:
         # index entries linking non-adjacent stations.
         result = await self.db.execute(
             select(UserRoute)
-            .where(UserRoute.id == route_id)
+            .where(
+                UserRoute.id == route_id,
+                UserRoute.deleted_at.is_(None),
+            )
             .options(
                 selectinload(UserRoute.segments).selectinload(UserRouteSegment.station),
                 selectinload(UserRoute.segments).selectinload(UserRouteSegment.line),
@@ -227,13 +230,21 @@ class UserRouteIndexService:
 
     async def _delete_existing_index(self, route_id: UUID) -> None:
         """
-        Delete all existing index entries for a route.
+        Soft delete all existing index entries for a route.
 
         Args:
             route_id: UUID of route
         """
-        await self.db.execute(delete(UserRouteStationIndex).where(UserRouteStationIndex.route_id == route_id))
-        logger.debug("deleted_existing_index", route_id=str(route_id))
+        # Soft delete existing index entries (Issue #233)
+        await self.db.execute(
+            update(UserRouteStationIndex)
+            .where(
+                UserRouteStationIndex.route_id == route_id,
+                UserRouteStationIndex.deleted_at.is_(None),
+            )
+            .values(deleted_at=func.now())
+        )
+        logger.debug("soft_deleted_existing_index", route_id=str(route_id))
 
     async def _resolve_station_for_line(
         self,

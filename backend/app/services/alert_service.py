@@ -563,7 +563,12 @@ class AlertService:
             for line_tfl_id, station_naptan in line_station_pairs
         ]
 
-        result = await self.db.execute(select(UserRouteStationIndex.route_id).where(or_(*conditions)))
+        result = await self.db.execute(
+            select(UserRouteStationIndex.route_id).where(
+                or_(*conditions),
+                UserRouteStationIndex.deleted_at.is_(None),
+            )
+        )
         route_ids = {row[0] for row in result.all()}
 
         logger.info(
@@ -588,7 +593,10 @@ class AlertService:
             select(
                 UserRouteStationIndex.line_tfl_id,
                 UserRouteStationIndex.station_naptan,
-            ).where(UserRouteStationIndex.route_id == route_id)
+            ).where(
+                UserRouteStationIndex.route_id == route_id,
+                UserRouteStationIndex.deleted_at.is_(None),
+            )
         )
         return {(row[0], row[1]) for row in result.all()}
 

@@ -13,7 +13,6 @@ from sqlalchemy import (
     String,
     Text,
     Time,
-    UniqueConstraint,
     text,
 )
 from sqlalchemy.dialects.postgresql import UUID
@@ -116,9 +115,15 @@ class UserRouteSegment(BaseModel):
     station: Mapped["Station"] = relationship()
     line: Mapped["Line"] = relationship()
 
-    # Ensure unique sequence per route
+    # Ensure unique sequence per route (partial unique index for soft delete support)
     __table_args__ = (
-        UniqueConstraint("route_id", "sequence", name="uq_route_segment_sequence"),
+        Index(
+            "uq_route_segment_sequence_active",
+            "route_id",
+            "sequence",
+            unique=True,
+            postgresql_where=text("deleted_at IS NULL"),
+        ),
         Index("ix_user_route_segments_route_sequence", "route_id", "sequence"),
     )
 

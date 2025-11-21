@@ -3,7 +3,7 @@
 import uuid
 
 from fastapi import HTTPException, status
-from sqlalchemy import func, select
+from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
@@ -209,6 +209,7 @@ class NotificationPreferenceService:
             select(UserRoute).where(
                 UserRoute.id == route_id,
                 UserRoute.user_id == user_id,
+                UserRoute.deleted_at.is_(None),
             )
         )
 
@@ -256,6 +257,7 @@ class NotificationPreferenceService:
             select(UserRoute).where(
                 UserRoute.id == route_id,
                 UserRoute.user_id == user_id,
+                UserRoute.deleted_at.is_(None),
             )
         )
 
@@ -449,8 +451,16 @@ class NotificationPreferenceService:
         Raises:
             HTTPException: 404 if preference not found
         """
-        # Validate ownership
-        preference = await self.get_preference_by_id(preference_id, user_id)
+        # Validate ownership (will raise 404 if not found or not owned by user)
+        await self.get_preference_by_id(preference_id, user_id)
 
-        await self.db.delete(preference)
+        # Soft delete the notification preference (Issue #233)
+        await self.db.execute(
+            update(NotificationPreference)
+            .where(
+                NotificationPreference.id == preference_id,
+                NotificationPreference.deleted_at.is_(None),
+            )
+            .values(deleted_at=func.now())
+        )
         await self.db.commit()
