@@ -476,9 +476,12 @@ class TestUserRouteIndexService:
         result2 = await service.build_route_station_index(route.id)
         assert result2["entries_created"] == 2
 
-        # Verify still only 2 entries (old ones were deleted)
+        # Verify still only 2 active entries (old ones were soft deleted - Issue #233)
         index_result = await db_session.execute(
-            select(UserRouteStationIndex).where(UserRouteStationIndex.route_id == route.id)
+            select(UserRouteStationIndex).where(
+                UserRouteStationIndex.route_id == route.id,
+                UserRouteStationIndex.deleted_at.is_(None),
+            )
         )
         index_entries = index_result.scalars().all()
         assert len(index_entries) == 2

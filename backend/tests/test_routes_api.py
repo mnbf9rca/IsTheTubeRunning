@@ -362,9 +362,11 @@ class TestRoutesAPI:
 
         assert response.status_code == status.HTTP_204_NO_CONTENT
 
-        # Verify route was deleted
+        # Verify route was soft deleted (Issue #233)
         result = await db_session.execute(select(UserRoute).where(UserRoute.id == route_id))
-        assert result.scalar_one_or_none() is None
+        deleted_route = result.scalar_one_or_none()
+        assert deleted_route is not None
+        assert deleted_route.deleted_at is not None
 
     # ==================== Timezone Tests ====================
 
@@ -811,9 +813,14 @@ class TestRoutesAPI:
 
         assert response.status_code == status.HTTP_204_NO_CONTENT
 
-        # Verify segment was deleted and others resequenced
+        # Verify segment was soft deleted and others resequenced (Issue #233)
         result = await db_session.execute(
-            select(UserRouteSegment).where(UserRouteSegment.route_id == route.id).order_by(UserRouteSegment.sequence)
+            select(UserRouteSegment)
+            .where(
+                UserRouteSegment.route_id == route.id,
+                UserRouteSegment.deleted_at.is_(None),
+            )
+            .order_by(UserRouteSegment.sequence)
         )
         remaining = list(result.scalars().all())
         assert len(remaining) == 2
@@ -1092,9 +1099,11 @@ class TestRoutesAPI:
 
         assert response.status_code == status.HTTP_204_NO_CONTENT
 
-        # Verify deletion
+        # Verify soft deletion (Issue #233)
         result = await db_session.execute(select(UserRouteSchedule).where(UserRouteSchedule.id == schedule_id))
-        assert result.scalar_one_or_none() is None
+        deleted_schedule = result.scalar_one_or_none()
+        assert deleted_schedule is not None
+        assert deleted_schedule.deleted_at is not None
 
     @pytest.mark.asyncio
     async def test_schedule_ownership_validation(
