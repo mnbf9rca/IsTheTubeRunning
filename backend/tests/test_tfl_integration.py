@@ -241,8 +241,8 @@ async def test_integration_build_station_graph(db_session: AsyncSession, setting
     assert result["stations_count"] > 0, "Should find at least one station"
     assert result["connections_count"] > 0, "Should create at least one connection"
 
-    # Verify database has connections
-    db_result = await db_session.execute(select(StationConnection))
+    # Verify database has connections (filter out soft-deleted)
+    db_result = await db_session.execute(select(StationConnection).where(StationConnection.deleted_at.is_(None)))
     db_connections = db_result.scalars().all()
     assert len(db_connections) > 0, "Connections should be persisted to database"
     assert len(db_connections) == result["connections_count"], "Connection count should match"

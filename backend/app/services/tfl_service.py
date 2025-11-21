@@ -40,7 +40,7 @@ from pydantic_tfl_api.models import (
     Line as TflLine,
 )
 from redis.exceptions import RedisError
-from sqlalchemy import delete, func, or_, select
+from sqlalchemy import delete, func, or_, select, update
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -2265,6 +2265,7 @@ class TfLService:
                 StationConnection.from_station_id == from_station_id,
                 StationConnection.to_station_id == to_station_id,
                 StationConnection.line_id == line_id,
+                StationConnection.deleted_at.is_(None),  # Only check active connections
             )
         )
         return result.scalar_one_or_none() is not None
@@ -2574,12 +2575,16 @@ class TfLService:
 
             logger.info("stations_validated", station_count=station_count)
 
-            # Clear existing connections (within transaction - will rollback if building fails)
-            await self.db.execute(delete(StationConnection))
-            # Required: flush prevents unique constraint violations when rebuilding connections.
-            # Without this, SQLAlchemy may reorder operations causing duplicate key errors.
-            await self.db.flush()
-            logger.info("existing_connections_cleared")
+            # Soft delete existing connections (within transaction - will rollback if building fails)
+            # Use soft delete instead of hard delete to eliminate 503 window during rebuild.
+            # Old connections remain visible until new connections are committed (issue #230).
+            await self.db.execute(
+                update(StationConnection).where(StationConnection.deleted_at.is_(None)).values(deleted_at=func.now())
+            )
+            # No flush() needed! Partial unique index (WHERE deleted_at IS NULL) allows
+            # soft-deleted and new records to coexist until commit. This enables atomic
+            # transition with zero downtime.
+            logger.info("existing_connections_soft_deleted")
 
             stations_set: set[str] = set()
             pending_connections: set[tuple[uuid.UUID, uuid.UUID, uuid.UUID]] = set()
@@ -2683,8 +2688,10 @@ class TfLService:
         logger.info("fetching_network_graph")
 
         try:
-            # Check if graph exists
-            result = await self.db.execute(select(StationConnection).limit(1))
+            # Check if graph exists (filter out soft-deleted connections)
+            result = await self.db.execute(
+                select(StationConnection).where(StationConnection.deleted_at.is_(None)).limit(1)
+            )
             if not result.scalar_one_or_none():
                 raise HTTPException(
                     status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
@@ -2692,6 +2699,7 @@ class TfLService:
                 )
 
             # Get all connections with from_station, to_station, and line data using aliased joins
+            # Filter out soft-deleted connections
             from_station_alias = aliased(Station)
             to_station_alias = aliased(Station)
 
@@ -2700,6 +2708,7 @@ class TfLService:
                 .join(from_station_alias, from_station_alias.id == StationConnection.from_station_id)
                 .join(to_station_alias, to_station_alias.id == StationConnection.to_station_id)
                 .join(Line, Line.id == StationConnection.line_id)
+                .where(StationConnection.deleted_at.is_(None))
             )
             connections = result.all()
 

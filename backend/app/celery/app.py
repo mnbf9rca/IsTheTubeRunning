@@ -104,6 +104,7 @@ def trigger_startup_tasks(
 
         # Trigger network graph rebuild immediately
         # This populates lines, stations, connections tables
+        # Re-enabled after fixing #230 - now uses soft delete to eliminate 503 window
         celery_app.send_task("app.celery.tasks.rebuild_network_graph")
         logger.info("worker_startup_graph_rebuild_triggered")
 
