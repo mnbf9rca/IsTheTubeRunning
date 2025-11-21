@@ -29,7 +29,14 @@ if TYPE_CHECKING:
 
 
 class UserRoute(BaseModel):
-    """User's commute route."""
+    """
+    User's commute route.
+
+    Soft Delete: This model uses soft delete (deleted_at column from BaseModel).
+    When deleting via user_route_service.delete_route(), all related entities
+    (segments, schedules, station_indexes, notification_preferences) are also
+    soft deleted. See Issue #233.
+    """
 
     __tablename__ = "user_routes"
 
@@ -85,7 +92,14 @@ class UserRoute(BaseModel):
 
 
 class UserRouteSegment(BaseModel):
-    """A segment of a route (station + line combination in sequence)."""
+    """
+    A segment of a route (station + line combination in sequence).
+
+    Soft Delete: This model uses soft delete (deleted_at column from BaseModel).
+    Soft deleted via user_route_service.delete_segment() or cascade from parent route.
+    Partial unique index on (route_id, sequence) WHERE deleted_at IS NULL allows
+    reuse of sequence numbers after soft delete. See Issue #233.
+    """
 
     __tablename__ = "user_route_segments"
 
@@ -150,7 +164,13 @@ class UserRouteSegment(BaseModel):
 
 
 class UserRouteSchedule(BaseModel):
-    """Schedule for when a route should be monitored for disruptions."""
+    """
+    Schedule for when a route should be monitored for disruptions.
+
+    Soft Delete: This model uses soft delete (deleted_at column from BaseModel).
+    Soft deleted via user_route_service.delete_schedule() or cascade from parent route.
+    See Issue #233.
+    """
 
     __tablename__ = "user_route_schedules"
 

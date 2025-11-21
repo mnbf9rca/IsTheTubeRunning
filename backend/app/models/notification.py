@@ -39,7 +39,13 @@ class NotificationStatus(str, enum.Enum):
 
 
 class NotificationPreference(BaseModel):
-    """User's notification preferences for a route."""
+    """
+    User's notification preferences for a route.
+
+    Soft Delete: This model uses soft delete (deleted_at column from BaseModel).
+    Soft deleted via notification_preference_service.delete_preference() or
+    cascade from parent route. See Issue #233.
+    """
 
     __tablename__ = "notification_preferences"
 
