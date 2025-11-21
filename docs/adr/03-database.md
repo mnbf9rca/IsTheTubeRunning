@@ -29,13 +29,21 @@ Use UUIDs (UUID4) for all primary keys instead of auto-incrementing integers.
 ## Soft Deletes
 
 ### Status
-Active
+Active (Updated 2025-11-21, Issue #233)
 
 ### Context
 Hard deletes permanently remove data, making audit trails impossible and preventing data recovery if deletion was accidental or malicious. GDPR compliance also requires ability to restore data in some cases.
 
+For models with unique constraints (e.g., route segments with sequence numbers), soft-deleted records must not conflict with active records using the same unique key.
+
 ### Decision
-Implement soft deletes using `deleted_at` timestamp column. Records with `deleted_at != NULL` are considered deleted. Queries must filter by `deleted_at IS NULL` by default.
+Implement soft deletes using `deleted_at` timestamp column from `BaseModel`. Records with `deleted_at != NULL` are considered deleted. All SELECT queries must filter by `deleted_at IS NULL`.
+
+For unique constraints on soft-deletable models, use partial unique indexes with `WHERE deleted_at IS NULL` to allow key reuse after soft delete.
+
+For foreign key relationships, use `ondelete="RESTRICT"` and implement application-level cascading soft deletes in service layer for explicit control.
+
+See `/docs/soft-delete-implementation.md` for implementation patterns.
 
 ### Consequences
 **Easier:**
@@ -43,12 +51,20 @@ Implement soft deletes using `deleted_at` timestamp column. Records with `delete
 - Data recovery possible (change `deleted_at` back to NULL)
 - Compliance with data retention policies
 - Analytics can include deleted records if needed
+- Partial unique indexes allow key reuse after soft delete
+- Application-level cascades provide explicit control and logging
 
 **More Difficult:**
-- Must remember to filter by `deleted_at IS NULL` in all queries
+- Must remember to filter by `deleted_at IS NULL` in all queries (critical)
 - Database grows larger over time (deleted records remain)
 - Need periodic cleanup jobs to permanently remove old soft-deleted records
-- Unique constraints must account for soft-deleted records
+- Unique constraints must use partial indexes (`WHERE deleted_at IS NULL`)
+- FK constraints must be RESTRICT with manual cascade implementation in services
+
+### References
+- Implementation Guide: `/docs/soft-delete-implementation.md`
+- User Routes Implementation: Issue #233
+- Station Connections Implementation: PR #231
 
 ---
 
