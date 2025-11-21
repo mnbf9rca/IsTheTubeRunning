@@ -344,7 +344,8 @@ class TestTfLModels:
         db_session.add_all([line, station1, station2, connection])
         await db_session.commit()
 
-        result = await db_session.execute(select(StationConnection))
+        # Query for active connection (filter out soft-deleted)
+        result = await db_session.execute(select(StationConnection).where(StationConnection.deleted_at.is_(None)))
         saved_connection = result.scalar_one()
 
         assert saved_connection.from_station_id == station1.id

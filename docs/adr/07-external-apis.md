@@ -348,3 +348,67 @@ Database-only for public endpoints: validate line exists before database query, 
 - Requires `/admin/tfl/build-graph` before queries work
 - New TfL lines require manual graph rebuild
 - Additional database query on cache miss (minimal: indexed lookup)
+
+---
+
+## Soft Delete with Partial Unique Index for Network Graph Rebuild
+
+### Status
+Active (Issue #230, implemented 2025-11-21)
+
+### Context
+When `build_station_graph()` rebuilt the network graph, it used hard DELETE to remove all existing `StationConnection` records before rebuilding. With PostgreSQL's default `READ COMMITTED` isolation level, the `flush()` operation made the deletion visible to concurrent transactions before the rebuild completed. This created a 30-60 second window where GET `/api/v1/tfl/network-graph` returned 503 errors because the table appeared empty to other sessions.
+
+The issue was triggered by the startup task (PR #218) that automatically rebuilds the graph when Celery workers start. During the rebuild:
+1. `delete(StationConnection)` + `flush()` at line 2578-2581 made table appear empty
+2. 50+ TfL API calls to rebuild connections took 30-60 seconds
+3. Concurrent GET requests found zero connections and returned 503
+4. After `commit()`, new connections became visible
+
+**Initial soft delete attempt failed** because the standard unique constraint required `flush()` to avoid violations when inserting new connections with the same keys. The flush() made UPDATE (soft delete) visible immediately while INSERT (new connections) only became visible after commit(), recreating the 503 window.
+
+### Decision
+Use soft delete pattern **with partial unique index** for network graph rebuilds. The `StationConnection` model already has a `deleted_at` field from `SoftDeleteMixin`. Implementation:
+
+1. **Alembic migration (9888a309ff57)**: Replace standard unique constraint with partial unique index:
+   ```sql
+   CREATE UNIQUE INDEX uq_station_connection_active
+   ON station_connections (from_station_id, to_station_id, line_id)
+   WHERE deleted_at IS NULL;
+   ```
+2. **build_station_graph()**: Replace `delete(StationConnection)` with `update(StationConnection).where(deleted_at.is_(None)).values(deleted_at=NOW())` and **remove flush() call**
+3. **get_network_graph()**: Add `.where(deleted_at.is_(None))` filter to all queries
+4. **_connection_exists()**: Add `deleted_at.is_(None)` filter to only check active connections
+5. **StationConnection model**: Update `__table_args__` to use `Index(..., unique=True, postgresql_where=text("deleted_at IS NULL"))`
+6. **Test queries**: Update all test queries to filter out soft-deleted connections
+
+**Why partial unique index is critical:**
+- Standard unique constraint applies to ALL rows (including soft-deleted)
+- Partial unique index only applies WHERE deleted_at IS NULL (active rows only)
+- Allows soft-deleted and new records with same keys to coexist until commit
+- Eliminates need for flush(), enabling true atomic commit
+
+During rebuild:
+- Old connections are marked `deleted_at=NOW()` (UPDATE, no flush)
+- New connections are created with `deleted_at=NULL` (INSERT, no flush)
+- Transaction commits atomically (old deleted, new active simultaneously)
+- Concurrent queries see old connections until commit (no 503 window)
+
+### Consequences
+**Easier:**
+- Zero downtime during graph rebuilds (eliminates 503 window)
+- Old connections remain visible to concurrent queries until new ones commit
+- Atomic transition from old to new graph data
+- No flush() needed - true ACID transaction
+- Startup rebuild can be re-enabled safely
+
+**More Difficult:**
+- Table accumulates soft-deleted records over time (one full graph per rebuild)
+- All `StationConnection` queries must filter `deleted_at.is_(None)` for correctness
+- Slightly larger table size (mitigated: daily rebuilds = ~365 old graphs per year = minimal)
+- Requires partial index migration (PostgreSQL-specific feature)
+- Future cleanup task may be needed if growth becomes issue (deferred as YAGNI)
+
+### Related Decisions
+- Builds on "Admin Endpoint for Graph Building" (scheduled rebuilds via Celery)
+- Uses soft delete pattern consistent with other models (ADR 06: User Management)

@@ -12,6 +12,7 @@ from sqlalchemy import (
     Index,
     String,
     UniqueConstraint,
+    text,
 )
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
@@ -161,13 +162,17 @@ class StationConnection(BaseModel):
     )
     line: Mapped[Line] = relationship(back_populates="station_connections")
 
-    # Ensure unique connections per line
+    # Ensure unique connections per line (active records only)
+    # Partial unique index allows soft-deleted records to accumulate
+    # while maintaining uniqueness for active connections (Issue #230)
     __table_args__ = (
-        UniqueConstraint(
+        Index(
+            "uq_station_connection_active",
             "from_station_id",
             "to_station_id",
             "line_id",
-            name="uq_station_connection",
+            unique=True,
+            postgresql_where=text("deleted_at IS NULL"),
         ),
         Index("ix_station_connections_from_station", "from_station_id"),
         Index("ix_station_connections_to_station", "to_station_id"),

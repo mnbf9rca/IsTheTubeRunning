@@ -3853,8 +3853,10 @@ async def test_build_station_graph(
         stations = stations_result.scalars().all()
         assert len(stations) == 3
 
-        # Verify connections were created in database
-        connections_result = await db_session.execute(select(StationConnection))
+        # Verify connections were created in database (filter out soft-deleted)
+        connections_result = await db_session.execute(
+            select(StationConnection).where(StationConnection.deleted_at.is_(None))
+        )
         connections = connections_result.scalars().all()
         assert len(connections) == 4
 
@@ -4059,8 +4061,10 @@ async def test_build_station_graph_no_duplicate_connections(
         assert result["stations_count"] == 3
         assert result["connections_count"] == 4, "Should create exactly 4 connections, not duplicates"
 
-        # Verify in database - should have exactly 4 connections
-        connections_result = await db_session.execute(select(StationConnection))
+        # Verify in database - should have exactly 4 connections (filter out soft-deleted)
+        connections_result = await db_session.execute(
+            select(StationConnection).where(StationConnection.deleted_at.is_(None))
+        )
         connections = connections_result.scalars().all()
         assert len(connections) == 4, "Database should have exactly 4 connections"
 
