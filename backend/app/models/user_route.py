@@ -42,7 +42,7 @@ class UserRoute(BaseModel):
 
     user_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True),
-        ForeignKey("users.id", ondelete="CASCADE"),
+        ForeignKey("users.id", ondelete="RESTRICT"),
         nullable=False,
         index=True,
     )
@@ -105,7 +105,7 @@ class UserRouteSegment(BaseModel):
 
     route_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True),
-        ForeignKey("user_routes.id", ondelete="CASCADE"),
+        ForeignKey("user_routes.id", ondelete="RESTRICT"),
         nullable=False,
         index=True,
     )
@@ -115,12 +115,12 @@ class UserRouteSegment(BaseModel):
     )
     station_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True),
-        ForeignKey("stations.id", ondelete="CASCADE"),
+        ForeignKey("stations.id", ondelete="RESTRICT"),
         nullable=False,
     )
     line_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True),
-        ForeignKey("lines.id", ondelete="CASCADE"),
+        ForeignKey("lines.id", ondelete="RESTRICT"),
         nullable=True,
     )
 
@@ -176,7 +176,7 @@ class UserRouteSchedule(BaseModel):
 
     route_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True),
-        ForeignKey("user_routes.id", ondelete="CASCADE"),
+        ForeignKey("user_routes.id", ondelete="RESTRICT"),
         nullable=False,
         index=True,
     )

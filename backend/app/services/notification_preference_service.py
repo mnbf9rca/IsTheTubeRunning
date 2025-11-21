@@ -3,10 +3,11 @@
 import uuid
 
 from fastapi import HTTPException, status
-from sqlalchemy import func, select, update
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
+from app.helpers.soft_delete_filters import add_active_filter, add_active_filters, soft_delete
 from app.models.notification import NotificationMethod, NotificationPreference
 from app.models.user import EmailAddress, PhoneNumber
 from app.models.user_route import UserRoute
@@ -129,6 +130,8 @@ class NotificationPreferenceService:
             NotificationPreference.route_id == route_id,
             NotificationPreference.method == method,
         )
+        # Only check active (non-deleted) preferences (Issue #233)
+        query = add_active_filter(query, NotificationPreference)
 
         if exclude_preference_id is not None:
             query = query.where(NotificationPreference.id != exclude_preference_id)
@@ -175,6 +178,8 @@ class NotificationPreferenceService:
                 UserRoute.user_id == user_id,
             )
         )
+        # Only retrieve active (non-deleted) preferences and routes (Issue #233)
+        query = add_active_filters(query, NotificationPreference, UserRoute)
 
         result = await self.db.execute(query)
 
@@ -219,12 +224,12 @@ class NotificationPreferenceService:
                 detail="UserRoute not found.",
             )
 
-        # Get preferences
-        result = await self.db.execute(
-            select(NotificationPreference)
-            .where(NotificationPreference.route_id == route_id)
-            .order_by(NotificationPreference.created_at.desc())
-        )
+        # Get preferences (only active/non-deleted) (Issue #233)
+        query = select(NotificationPreference).where(NotificationPreference.route_id == route_id)
+        query = add_active_filter(query, NotificationPreference)
+        query = query.order_by(NotificationPreference.created_at.desc())
+
+        result = await self.db.execute(query)
 
         return list(result.scalars().all())
 
@@ -304,10 +309,12 @@ class NotificationPreferenceService:
             phone_id=target_phone_id,
         )
 
-        # Check preference count limit
-        count_result = await self.db.execute(
+        # Check preference count limit (only active/non-deleted) (Issue #233)
+        count_query = (
             select(func.count()).select_from(NotificationPreference).where(NotificationPreference.route_id == route_id)
         )
+        count_query = add_active_filter(count_query, NotificationPreference)
+        count_result = await self.db.execute(count_query)
 
         count = count_result.scalar_one()
 
@@ -455,12 +462,5 @@ class NotificationPreferenceService:
         await self.get_preference_by_id(preference_id, user_id)
 
         # Soft delete the notification preference (Issue #233)
-        await self.db.execute(
-            update(NotificationPreference)
-            .where(
-                NotificationPreference.id == preference_id,
-                NotificationPreference.deleted_at.is_(None),
-            )
-            .values(deleted_at=func.now())
-        )
+        await soft_delete(self.db, NotificationPreference, NotificationPreference.id == preference_id)
         await self.db.commit()

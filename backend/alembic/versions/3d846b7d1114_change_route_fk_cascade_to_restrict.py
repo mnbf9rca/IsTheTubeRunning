@@ -123,8 +123,12 @@ def upgrade() -> None:
         ondelete="RESTRICT",
     )
 
-    # NOTE: notification_logs.route_id → user_routes.id remains CASCADE
-    # This is intentional - we want to preserve logs for analytics even when routes are deleted
+    # NOTE: notification_logs.route_id → user_routes.id remains ON DELETE CASCADE.
+    # This is intentional: notification_logs are analytics data that should NOT use soft delete.
+    # In practice, notification logs are preserved because user_routes are soft-deleted;
+    # CASCADE only applies during hard deletes (which we avoid in normal operation).
+    # If hard deletes for user_routes are introduced in the future, consider whether
+    # notification_logs should also be hard-deleted or if the FK should change to RESTRICT.
 
 
 def downgrade() -> None:

@@ -6,7 +6,7 @@ This document provides implementation patterns for soft deletes in the IsTheTube
 
 ## Overview
 
-All models inherit `deleted_at` timestamp column from `BaseModel`. When a record is soft-deleted, `deleted_at` is set to the current timestamp instead of removing the record from the database.
+All models inherit the `deleted_at` timestamp column from `BaseModel`. When a record is soft-deleted, `deleted_at` is set to the current timestamp instead of removing the record from the database.
 
 ## Pattern 1: Soft Delete Operation
 
@@ -279,3 +279,70 @@ class UserRoute(BaseModel):
 5. **Forgetting to cascade to children**
    - Symptom: Parent soft-deleted but children remain active (orphaned)
    - Fix: Explicitly soft-delete all children before parent in service layer
+
+## Helper Functions
+
+To reduce repetitive code and prevent mistakes, use the soft delete helpers in `app/helpers/soft_delete_filters.py`.
+
+### Query Filtering
+
+```python
+from app.helpers.soft_delete_filters import add_active_filter, add_active_filters
+
+# Filter single model
+query = select(UserRoute).where(UserRoute.user_id == user_id)
+query = add_active_filter(query, UserRoute)
+
+# Filter multiple models in a join
+query = (
+    select(NotificationPreference)
+    .join(UserRoute)
+    .where(NotificationPreference.route_id == route_id)
+)
+query = add_active_filters(query, NotificationPreference, UserRoute)
+```
+
+### Soft Delete Execution
+
+```python
+from app.helpers.soft_delete_filters import soft_delete
+
+# Soft delete an entity
+await soft_delete(db, UserRoute, UserRoute.id == route_id)
+
+# With multiple conditions
+await soft_delete(
+    db,
+    UserRouteSegment,
+    UserRouteSegment.route_id == route_id,
+    UserRouteSegment.sequence > 5,
+)
+```
+
+### Testing Helpers
+
+```python
+from tests.helpers.soft_delete_assertions import (
+    assert_soft_deleted,
+    assert_cascade_soft_deleted,
+    assert_not_in_api_list,
+    assert_api_returns_404,
+)
+
+# Verify entity is soft deleted
+await assert_soft_deleted(db, UserRoute, route_id)
+
+# Verify cascade deletion
+await assert_cascade_soft_deleted(
+    db,
+    route_id,
+    {
+        UserRouteSegment: UserRouteSegment.route_id,
+        UserRouteSchedule: UserRouteSchedule.route_id,
+    }
+)
+
+# Verify API visibility
+await assert_not_in_api_list(client, "/routes", route_id, auth_headers)
+await assert_api_returns_404(client, f"/routes/{route_id}", auth_headers)
+```

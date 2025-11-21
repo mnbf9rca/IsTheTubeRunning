@@ -66,6 +66,17 @@ See `/docs/soft-delete-implementation.md` for implementation patterns.
 - User Routes Implementation: Issue #233
 - Station Connections Implementation: PR #231
 
+### NotificationLog CASCADE Exception
+
+NotificationLog is intentionally exempt from the soft delete pattern and uses CASCADE foreign keys to user_routes. This is because:
+
+1. **Analytics Data**: Logs are append-only analytics data for debugging and metrics
+2. **No User Access**: Users never directly access or delete logs
+3. **Preservation via Soft Delete**: In practice, logs are preserved because routes use soft delete
+4. **CASCADE is Dormant**: The CASCADE behavior only triggers during hard deletes, which we avoid
+
+If hard deletes are introduced for user_routes in the future, the behavior should be reconsidered.
+
 ---
 
 ## JSON for Route Schedules
