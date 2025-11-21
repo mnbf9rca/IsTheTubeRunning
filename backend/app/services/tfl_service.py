@@ -2579,9 +2579,7 @@ class TfLService:
             # Use soft delete instead of hard delete to eliminate 503 window during rebuild.
             # Old connections remain visible until new connections are committed (issue #230).
             await self.db.execute(
-                update(StationConnection)
-                .where(StationConnection.deleted_at.is_(None))
-                .values(deleted_at=datetime.now(UTC))
+                update(StationConnection).where(StationConnection.deleted_at.is_(None)).values(deleted_at=func.now())
             )
             # No flush() needed! Partial unique index (WHERE deleted_at IS NULL) allows
             # soft-deleted and new records to coexist until commit. This enables atomic

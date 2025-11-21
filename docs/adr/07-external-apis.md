@@ -407,7 +407,7 @@ During rebuild:
 - All `StationConnection` queries must filter `deleted_at.is_(None)` for correctness
 - Slightly larger table size (mitigated: daily rebuilds = ~365 old graphs per year = minimal)
 - Requires partial index migration (PostgreSQL-specific feature)
-- Future cleanup task may be needed if growth becomes issue (deferred as YAGNI)
+- Future cleanup task may be needed if growth becomes an issue (deferred as YAGNI)
 
 ### Related Decisions
 - Builds on "Admin Endpoint for Graph Building" (scheduled rebuilds via Celery)
