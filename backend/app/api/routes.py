@@ -145,6 +145,9 @@ async def get_route_disruptions(
     # 3. Filter by active_only if needed
     if active_only:
         routes = [route for route in routes if route.active]
+        # Early return if no active routes (avoid unnecessary TfL API call)
+        if not routes:
+            return []
 
     # 4. Try to fetch all TfL disruptions
     try:
