@@ -280,9 +280,36 @@ class UserRoute(BaseModel):
    - Symptom: Parent soft-deleted but children remain active (orphaned)
    - Fix: Explicitly soft-delete all children before parent in service layer
 
+6. **Relationship loading includes soft-deleted records**
+   - Symptom: Soft-deleted children appear in relationship collections (e.g., `route.segments`, `route.schedules`)
+   - Explanation: SQLAlchemy relationships (like `route.segments`, `route.schedules`) don't automatically filter by `deleted_at IS NULL`. When using `selectinload()` or accessing lazy-loaded relationships, soft-deleted children will be included unless explicitly filtered.
+   - Fix options:
+     - Filter after loading: `active_segments = [s for s in route.segments if s.deleted_at is None]`
+     - Query children directly with filter: `query = select(UserRouteSegment).where(UserRouteSegment.route_id == route_id)` then `add_active_filter(query, UserRouteSegment)`
+     - Configure relationship with `primaryjoin` filtering (advanced, not recommended for simple cases)
+
 ## Helper Functions
 
 To reduce repetitive code and prevent mistakes, use the soft delete helpers in `app/helpers/soft_delete_filters.py`.
+
+### When to Use Helpers
+
+**Always use helpers for consistency:**
+- Use `add_active_filter()` instead of `.where(Model.deleted_at.is_(None))` for single models
+- Use `add_active_filters()` instead of multiple `.where()` clauses for joins
+- Use `soft_delete()` instead of manual `update().where().values(deleted_at=func.now())` patterns
+
+**Benefits:**
+- **DRY (Don't Repeat Yourself)**: Single source of truth for filtering logic
+- **Consistency**: All code uses the same pattern, easier to review and maintain
+- **Safety**: `soft_delete()` requires at least one WHERE clause to prevent accidental mass deletions
+- **Type Safety**: Helpers maintain SQLAlchemy type information
+- **Readability**: Intent is clearer (`add_active_filter(query, Model)` vs `.where(Model.deleted_at.is_(None))`)
+
+**When NOT to use:**
+- Non-soft-deletable models (models without `deleted_at` column)
+- When you intentionally need to query deleted records for admin/audit purposes
+- Complex relationship queries where `primaryjoin` filtering is more appropriate
 
 ### Query Filtering
 

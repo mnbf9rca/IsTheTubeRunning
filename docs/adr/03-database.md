@@ -32,7 +32,7 @@ Use UUIDs (UUID4) for all primary keys instead of auto-incrementing integers.
 Active (Updated 2025-11-21, Issue #233)
 
 ### Context
-Hard deletes permanently remove data, making audit trails impossible and preventing data recovery if deletion was accidental or malicious. GDPR compliance also requires ability to restore data in some cases.
+Hard deletes permanently remove data, making audit trails impossible and preventing data recovery if deletion was accidental or malicious. GDPR compliance also requires the ability to restore data in some cases.
 
 For models with unique constraints (e.g., route segments with sequence numbers), soft-deleted records must not conflict with active records using the same unique key.
 

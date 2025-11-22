@@ -4,11 +4,12 @@ from typing import TypedDict
 from uuid import UUID
 
 import structlog
-from sqlalchemy import cast, func, select, update
+from sqlalchemy import cast, select
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
+from app.helpers.soft_delete_filters import add_active_filter, soft_delete
 from app.models.tfl import Line, Station
 from app.models.user_route import UserRoute, UserRouteSegment
 from app.models.user_route_index import UserRouteStationIndex
@@ -164,7 +165,9 @@ class UserRouteIndexService:
                     )
             else:
                 # Rebuild all routes (exclude soft-deleted)
-                result = await self.db.execute(select(UserRoute).where(UserRoute.deleted_at.is_(None)))
+                query = select(UserRoute)
+                query = add_active_filter(query, UserRoute)
+                result = await self.db.execute(query)
                 routes = result.scalars().all()
 
                 for route in routes:
@@ -236,13 +239,10 @@ class UserRouteIndexService:
             route_id: UUID of route
         """
         # Soft delete existing index entries (Issue #233)
-        await self.db.execute(
-            update(UserRouteStationIndex)
-            .where(
-                UserRouteStationIndex.route_id == route_id,
-                UserRouteStationIndex.deleted_at.is_(None),
-            )
-            .values(deleted_at=func.now())
+        await soft_delete(
+            self.db,
+            UserRouteStationIndex,
+            UserRouteStationIndex.route_id == route_id,
         )
         logger.debug("soft_deleted_existing_index", route_id=str(route_id))
 

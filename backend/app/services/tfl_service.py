@@ -40,7 +40,7 @@ from pydantic_tfl_api.models import (
     Line as TflLine,
 )
 from redis.exceptions import RedisError
-from sqlalchemy import delete, func, or_, select, update
+from sqlalchemy import delete, func, or_, select
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -48,6 +48,7 @@ from sqlalchemy.orm import aliased
 
 from app.core.config import settings
 from app.helpers.route_validation import find_valid_connection_in_routes
+from app.helpers.soft_delete_filters import add_active_filter, soft_delete
 from app.helpers.station_fetching import (
     DatabaseNotInitializedError,
     LineNotFoundError,
@@ -2578,9 +2579,8 @@ class TfLService:
             # Soft delete existing connections (within transaction - will rollback if building fails)
             # Use soft delete instead of hard delete to eliminate 503 window during rebuild.
             # Old connections remain visible until new connections are committed (issue #230).
-            await self.db.execute(
-                update(StationConnection).where(StationConnection.deleted_at.is_(None)).values(deleted_at=func.now())
-            )
+            # Note: StationConnection.id.isnot(None) is always true - this is intentional bulk soft-delete
+            await soft_delete(self.db, StationConnection, StationConnection.id.isnot(None))
             # No flush() needed! Partial unique index (WHERE deleted_at IS NULL) allows
             # soft-deleted and new records to coexist until commit. This enables atomic
             # transition with zero downtime.
@@ -2689,9 +2689,9 @@ class TfLService:
 
         try:
             # Check if graph exists (filter out soft-deleted connections)
-            result = await self.db.execute(
-                select(StationConnection).where(StationConnection.deleted_at.is_(None)).limit(1)
-            )
+            query = select(StationConnection).limit(1)
+            query = add_active_filter(query, StationConnection)
+            result = await self.db.execute(query)
             if not result.scalar_one_or_none():
                 raise HTTPException(
                     status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
@@ -2703,13 +2703,14 @@ class TfLService:
             from_station_alias = aliased(Station)
             to_station_alias = aliased(Station)
 
-            result = await self.db.execute(
+            base_query = (
                 select(StationConnection, from_station_alias, to_station_alias, Line)
                 .join(from_station_alias, from_station_alias.id == StationConnection.from_station_id)
                 .join(to_station_alias, to_station_alias.id == StationConnection.to_station_id)
                 .join(Line, Line.id == StationConnection.line_id)
-                .where(StationConnection.deleted_at.is_(None))
             )
+            filtered_query = add_active_filter(base_query, StationConnection)
+            result = await self.db.execute(filtered_query)
             connections = result.all()
 
             # Build adjacency list

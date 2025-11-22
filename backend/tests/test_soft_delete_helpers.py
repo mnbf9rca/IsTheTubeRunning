@@ -197,6 +197,18 @@ class TestSoftDeleteFilters:
         assert route1.deleted_at is not None
         assert route2.deleted_at is None
 
+    async def test_soft_delete_requires_where_clause(
+        self,
+        db_session: AsyncSession,
+    ) -> None:
+        """Test soft_delete raises ValueError if no where_clauses provided."""
+        # Attempt to soft delete without any where clauses
+        with pytest.raises(
+            ValueError,
+            match="soft_delete requires at least one WHERE clause to prevent accidental mass deletion",
+        ):
+            await soft_delete(db_session, UserRoute)
+
     def test_is_soft_deleted_returns_true_for_deleted(
         self,
         test_user: User,

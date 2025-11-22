@@ -87,7 +87,7 @@ def add_active_filters(  # noqa: UP047
         # )
     """
     for model in models:
-        query = query.where(model.deleted_at.is_(None))
+        query = add_active_filter(query, model)
     return query
 
 
@@ -106,7 +106,13 @@ async def soft_delete(
     Args:
         db: Database session
         model: Model class to soft delete
-        *where_clauses: Additional WHERE conditions (e.g., model.id == some_id)
+        *where_clauses: Additional WHERE conditions (e.g., model.id == some_id).
+                       At least one WHERE clause is required to prevent
+                       accidental mass deletion.
+
+    Raises:
+        ValueError: If no where_clauses are provided (prevents accidental
+                   mass soft-deletion of all records)
 
     Example:
         # Delete a single route
@@ -122,6 +128,13 @@ async def soft_delete(
     Note:
         This does NOT call db.commit() - caller must commit the transaction.
     """
+    if not where_clauses:
+        msg = (
+            f"soft_delete requires at least one WHERE clause to prevent "
+            f"accidental mass deletion. Attempted to delete all {model.__name__} records."
+        )
+        raise ValueError(msg)
+
     await db.execute(
         update(model)
         .where(
