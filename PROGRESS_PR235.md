@@ -144,6 +144,27 @@
 **Evidence**: Helper test `test_assert_not_in_api_list` now passing
 **Fix**: Updated test to use correct endpoint path `/api/v1/routes` instead of `/routes`
 
+#### ✅ CASCADE to RESTRICT Verification
+**Verification Method**: Used grep and ast-grep to search entire backend codebase
+**Status**: ALL EXPECTED CHANGES COMPLETE
+
+**Confirmed CASCADE → RESTRICT Changes** (7 foreign keys):
+1. ✅ user_routes.user_id → users.id (user_route.py:45)
+2. ✅ user_route_segments.route_id → user_routes.id (user_route.py:108)
+3. ✅ user_route_segments.station_id → stations.id (user_route.py:118)
+4. ✅ user_route_segments.line_id → lines.id (user_route.py:123)
+5. ✅ user_route_schedules.route_id → user_routes.id (user_route.py:179)
+6. ✅ user_route_station_index.route_id → user_routes.id (user_route_index.py:43)
+7. ✅ notification_preferences.route_id → user_routes.id (notification.py:54)
+
+**Confirmed Intentional CASCADE Exceptions** (4 foreign keys - per user decision):
+1. ✅ notification_preferences.target_email_id → email_addresses.id (CASCADE)
+2. ✅ notification_preferences.target_phone_id → phone_numbers.id (CASCADE)
+3. ✅ notification_logs.user_id → users.id (CASCADE)
+4. ✅ notification_logs.route_id → user_routes.id (CASCADE - documented in migration)
+
+**Database Verification**: `alembic check` confirms database at revision 3d846b7d1114 with all CASCADE→RESTRICT changes applied correctly.
+
 ---
 
 ### Test Execution Commands
