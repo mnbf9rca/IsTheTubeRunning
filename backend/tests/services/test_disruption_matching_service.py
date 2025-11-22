@@ -4,18 +4,18 @@ from datetime import UTC, datetime
 from uuid import UUID, uuid4
 
 import pytest
-from app.models.tfl import AlertDisabledSeverity, Line, Station
-from app.models.user import User
-from app.models.user_route import UserRoute, UserRouteSegment
-from app.models.user_route_index import UserRouteStationIndex
-from app.schemas.tfl import AffectedRouteInfo, DisruptionResponse
-from app.services.disruption_matching_service import (
-    DisruptionMatchingService,
+from app.helpers.disruption_helpers import (
     calculate_affected_segments,
     calculate_affected_stations,
     disruption_affects_route,
     extract_line_station_pairs,
 )
+from app.models.tfl import AlertDisabledSeverity, Line, Station
+from app.models.user import User
+from app.models.user_route import UserRoute, UserRouteSegment
+from app.models.user_route_index import UserRouteStationIndex
+from app.schemas.tfl import AffectedRouteInfo, DisruptionResponse
+from app.services.disruption_matching_service import DisruptionMatchingService
 from sqlalchemy.ext.asyncio import AsyncSession
 
 # ==================== Test Pure Helper Functions ====================
