@@ -85,12 +85,19 @@ class Settings(BaseSettings):
     OTEL_ENABLED: bool = True
     OTEL_SERVICE_NAME: str = "isthetuberunning-backend"
     OTEL_ENVIRONMENT: str = "production"
-    OTEL_EXPORTER_OTLP_ENDPOINT: str | None = None
+
+    # OTLP Exporter Endpoints (separate for traces and logs)
+    OTEL_EXPORTER_OTLP_TRACES_ENDPOINT: str | None = None
+    OTEL_EXPORTER_OTLP_LOGS_ENDPOINT: str | None = None
     OTEL_EXPORTER_OTLP_HEADERS: str | None = None
     OTEL_EXPORTER_OTLP_PROTOCOL: str = "http/protobuf"
     OTEL_TRACES_SAMPLER: str = "parentbased_always_on"
     OTEL_TRACES_SAMPLER_ARG: float = 1.0  # 100% sampling
     OTEL_EXCLUDED_URLS: str = "/health,/ready,/metrics"
+
+    # Log level for OTLP log export (NOTSET exports all levels)
+    # Valid values: NOTSET, DEBUG, INFO, WARNING, ERROR, CRITICAL
+    OTEL_LOG_LEVEL: str = "NOTSET"
 
     @field_validator("OTEL_EXCLUDED_URLS", mode="after")
     @classmethod
@@ -99,6 +106,17 @@ class Settings(BaseSettings):
         if isinstance(v, list):
             return [url for url in v if url]
         return [url.strip() for url in v.split(",") if url.strip()]
+
+    @field_validator("OTEL_LOG_LEVEL", mode="after")
+    @classmethod
+    def validate_otel_log_level(cls, v: str) -> str:
+        """Validate and normalize OTEL log level."""
+        normalized = v.upper()
+        valid_levels = logging.getLevelNamesMapping()
+        if normalized not in valid_levels:
+            msg = f"Invalid OTEL_LOG_LEVEL '{v}'. Must be one of: {', '.join(sorted(valid_levels.keys()))}"
+            raise ValueError(msg)
+        return normalized
 
     # Logging Settings
     LOG_LEVEL: str = "INFO"

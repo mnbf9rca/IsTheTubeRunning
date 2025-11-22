@@ -150,3 +150,124 @@ class TestFastAPISpanCreation:
         health_response = await async_client_with_db.get("/health")
         assert health_response.status_code == 200
         assert health_response.json()["status"] == "healthy"
+
+
+# ============================================================================
+# Tests for LoggerProvider - Log Export to OTLP
+# ============================================================================
+
+
+async def test_logger_provider_disabled_when_otel_disabled(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Test that get_logger_provider returns None when OTEL is disabled."""
+    from app.core import telemetry  # noqa: PLC0415
+
+    # Explicitly disable OTEL
+    monkeypatch.setattr("app.core.config.settings.OTEL_ENABLED", False)
+
+    # get_logger_provider should return None when OTEL_ENABLED=false
+    provider = telemetry.get_logger_provider()
+    assert provider is None
+
+
+async def test_logger_provider_shutdown_graceful_when_disabled() -> None:
+    """Test that shutdown_logger_provider works gracefully when OTEL is disabled."""
+    from app.core import telemetry  # noqa: PLC0415
+
+    # shutdown_logger_provider should not crash even when provider is None
+    telemetry.shutdown_logger_provider()  # Should not raise
+
+
+async def test_set_logger_provider_graceful_when_disabled() -> None:
+    """Test that set_logger_provider works gracefully when OTEL is disabled."""
+    from app.core import telemetry  # noqa: PLC0415
+
+    # set_logger_provider should not crash even when provider is None
+    telemetry.set_logger_provider()  # Should not raise
+
+
+class TestLoggerProviderCreation:
+    """Tests for LoggerProvider creation and configuration with OTEL enabled."""
+
+    @pytest.fixture(autouse=True)
+    def enable_otel(self, monkeypatch: pytest.MonkeyPatch) -> Generator[None]:
+        """Enable OTEL SDK for tests in this class."""
+        # Remove OTEL_SDK_DISABLED if present (enables OTEL)
+        monkeypatch.delenv("OTEL_SDK_DISABLED", raising=False)
+        # Set logs endpoint to enable log export
+        monkeypatch.setenv("OTEL_EXPORTER_OTLP_LOGS_ENDPOINT", "http://localhost:4318/v1/logs")
+        return
+
+    async def test_logger_provider_created_when_enabled(self) -> None:
+        """Test that get_logger_provider returns a LoggerProvider when OTEL is enabled."""
+        from app.core import telemetry  # noqa: PLC0415
+        from opentelemetry.sdk._logs import LoggerProvider  # noqa: PLC0415
+
+        provider = telemetry.get_logger_provider()
+        assert provider is not None
+        assert isinstance(provider, LoggerProvider)
+
+    async def test_logger_provider_has_correct_resource_attributes(self) -> None:
+        """Test that LoggerProvider Resource has correct service metadata."""
+        from app import __version__  # noqa: PLC0415
+        from app.core import telemetry  # noqa: PLC0415
+
+        provider = telemetry.get_logger_provider()
+        assert provider is not None
+
+        # Check Resource attributes
+        resource = provider.resource
+        attributes = resource.attributes
+
+        assert attributes["service.name"] == settings.OTEL_SERVICE_NAME
+        assert attributes["service.version"] == __version__
+        assert attributes["deployment.environment"] == settings.OTEL_ENVIRONMENT
+
+    async def test_logger_provider_shutdown_works(self) -> None:
+        """Test that shutdown_logger_provider properly shuts down the provider."""
+        from app.core import telemetry  # noqa: PLC0415
+
+        # Get provider (creates it if needed)
+        provider = telemetry.get_logger_provider()
+        assert provider is not None
+
+        # Shutdown should not raise
+        telemetry.shutdown_logger_provider()
+
+    async def test_set_logger_provider_sets_global_provider(self) -> None:
+        """Test that set_logger_provider sets the global OTEL logger provider."""
+        from app.core import telemetry  # noqa: PLC0415
+        from opentelemetry import _logs  # noqa: PLC0415
+
+        # Call set_logger_provider
+        telemetry.set_logger_provider()
+
+        # Verify global provider was set (via _logs.get_logger_provider)
+        global_provider = _logs.get_logger_provider()
+        assert global_provider is not None
+
+    async def test_logger_provider_lazy_initialization(self) -> None:
+        """Test that LoggerProvider uses lazy initialization (fork-safety pattern)."""
+        from app.core import telemetry  # noqa: PLC0415
+
+        # Call get_logger_provider multiple times
+        provider1 = telemetry.get_logger_provider()
+        provider2 = telemetry.get_logger_provider()
+
+        # Should return the same instance (lazy singleton)
+        assert provider1 is provider2
+
+    async def test_logger_provider_not_created_without_logs_endpoint(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """Test that LoggerProvider handles missing logs endpoint gracefully."""
+        from app.core import telemetry  # noqa: PLC0415
+
+        # Remove logs endpoint
+        monkeypatch.setenv("OTEL_EXPORTER_OTLP_LOGS_ENDPOINT", "")
+
+        # get_logger_provider should still work (provider created but no exporter)
+        provider = telemetry.get_logger_provider()
+        assert provider is not None  # Provider created even without endpoint

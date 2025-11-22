@@ -10,6 +10,7 @@ When using fork-based multiprocessing (Celery fork pool, uvicorn `--workers > 1`
 |----------|-----|----------------|
 | SQLAlchemy AsyncEngine | `asyncio.Queue` bound to event loop | After fork (lazy init) |
 | OpenTelemetry TracerProvider | `BatchSpanProcessor` has threads | After fork (lifespan/signal) |
+| OpenTelemetry LoggerProvider | `BatchLogRecordProcessor` has threads | After fork (lifespan/signal) |
 | OpenTelemetry Instrumentors | Just patch classes, no runtime state | Before fork (module level) |
 | Redis async client | Connection bound to event loop | After fork (lazy init) |
 
@@ -262,6 +263,35 @@ def get_tracer_provider() -> TracerProvider | None:
         _tracer_provider = _create_tracer_provider()
     return _tracer_provider
 ```
+
+### LoggerProvider
+
+The `LoggerProvider` with `BatchLogRecordProcessor` follows the same fork-safety pattern as TracerProvider. It has background threads for batching and exporting log records to OTLP, which don't survive `fork()`.
+
+**Pattern:**
+```python
+# telemetry.py - Lazy singleton per process
+_logger_provider: LoggerProvider | None = None
+
+def get_logger_provider() -> LoggerProvider | None:
+    """Create LoggerProvider lazily (per-process after fork)."""
+    global _logger_provider
+    if _logger_provider is None:
+        _logger_provider = _create_logger_provider()
+    return _logger_provider
+```
+
+**Initialization:**
+- **FastAPI**: `set_logger_provider()` called in lifespan (after fork)
+- **Celery Worker**: `set_logger_provider()` called in `worker_process_init` signal
+- **Celery Beat**: `set_logger_provider()` called in `beat_init` signal
+
+**LoggingHandler:**
+The `LoggingHandler` is attached to Python's root logger during `configure_logging()` (module-level). The handler references the LoggerProvider, which is created lazily per-process. This means:
+1. Handler attached at module level (before fork)
+2. Handler references LoggerProvider (None initially)
+3. After fork, `set_logger_provider()` creates provider in each process
+4. Handler now uses correct per-process LoggerProvider
 
 ### Instrumentors
 

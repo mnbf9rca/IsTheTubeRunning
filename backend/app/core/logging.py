@@ -10,7 +10,7 @@ Configures structlog to integrate with Python's logging module so that:
 import logging
 import sys
 from collections.abc import MutableMapping
-from typing import Any
+from typing import Any, ClassVar
 
 import structlog
 from opentelemetry import trace
@@ -88,6 +88,55 @@ def configure_logging(*, log_level: str = "INFO") -> None:
     root_logger.handlers.clear()
     root_logger.addHandler(handler)
     root_logger.setLevel(getattr(logging, normalized_level))
+
+    # Add OTLP log exporter if enabled
+    # Lazy import to avoid circular dependency (telemetry imports logging for logger)
+    from app.core.config import settings  # noqa: PLC0415
+
+    if settings.OTEL_ENABLED:
+        # Import OTEL logging components only when needed
+        from opentelemetry.sdk._logs import LoggingHandler  # noqa: PLC0415
+        from opentelemetry.util.types import Attributes  # noqa: PLC0415
+
+        from app.core.telemetry import get_logger_provider  # noqa: PLC0415
+
+        if logger_provider := get_logger_provider():
+            # Determine log level for OTLP export
+            otel_log_level = getattr(logging, settings.OTEL_LOG_LEVEL)
+
+            # Custom LoggingHandler that filters non-serializable attributes
+            # See: https://github.com/open-telemetry/opentelemetry-python/issues/3649
+            # OTEL's LoggingHandler doesn't call formatters/processors, so structlog's
+            # _logger attribute never gets removed. Override _get_attributes() to filter it.
+            class AttrFilteredLoggingHandler(LoggingHandler):
+                """LoggingHandler that removes non-serializable attributes from log records."""
+
+                # Attributes to drop (structlog adds _logger, websockets adds websocket, etc.)
+                DROP_ATTRIBUTES: ClassVar[list[str]] = ["_logger", "websocket"]
+
+                @staticmethod
+                def _get_attributes(record: logging.LogRecord) -> Attributes:  # type: ignore[override]
+                    """Extract attributes from log record, filtering non-serializable ones."""
+                    attributes = LoggingHandler._get_attributes(record)
+                    if attributes is None:
+                        return None
+                    # Convert immutable Mapping to mutable dict to allow deletion
+                    attributes_dict = dict(attributes)
+                    for attr in AttrFilteredLoggingHandler.DROP_ATTRIBUTES:
+                        attributes_dict.pop(attr, None)
+                    return attributes_dict  # type: ignore[return-value]
+
+            # Create handler that exports logs to OTLP
+            otel_handler = AttrFilteredLoggingHandler(level=otel_log_level, logger_provider=logger_provider)
+            root_logger.addHandler(otel_handler)
+
+            # Use structlog to log this (since we're in configuration phase)
+            logger = structlog.get_logger(__name__)
+            logger.info(
+                "otel_logging_handler_attached",
+                level=settings.OTEL_LOG_LEVEL,
+                endpoint=settings.OTEL_EXPORTER_OTLP_LOGS_ENDPOINT,
+            )
 
     # Silence noisy third-party loggers (reduce to WARNING level)
     # These produce verbose INFO/DEBUG logs that clutter output
