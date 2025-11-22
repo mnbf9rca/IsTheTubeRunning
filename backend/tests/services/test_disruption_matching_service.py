@@ -1,7 +1,7 @@
 """Tests for DisruptionMatchingService."""
 
 from datetime import UTC, datetime
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 import pytest
 from app.models.tfl import AlertDisabledSeverity, Line, Station
@@ -19,6 +19,25 @@ from app.services.disruption_matching_service import (
 from sqlalchemy.ext.asyncio import AsyncSession
 
 # ==================== Test Pure Helper Functions ====================
+
+
+def create_test_segment(
+    route_id: UUID,
+    sequence: int,
+    station: Station,
+    line: Line | None = None,
+) -> UserRouteSegment:
+    """Create a test UserRouteSegment with related objects."""
+    segment = UserRouteSegment(
+        id=uuid4(),
+        route_id=route_id,
+        sequence=sequence,
+        station_id=station.id,
+        line_id=line.id if line else None,
+    )
+    segment.line = line  # type: ignore[assignment]
+    segment.station = station
+    return segment
 
 
 class TestPureHelperFunctions:
@@ -71,7 +90,7 @@ class TestPureHelperFunctions:
 
         pairs = extract_line_station_pairs(disruption)
 
-        # Should have 4 pairs (may have duplicates)
+        # Should have 4 pairs total (function does not deduplicate)
         assert len(pairs) == 4
         assert ("piccadilly", "940GZZLURSQ") in pairs
         assert ("piccadilly", "940GZZLUHBN") in pairs
@@ -181,37 +200,11 @@ class TestPureHelperFunctions:
             last_updated=datetime.now(UTC),
         )
 
-        # Create mock segments
+        # Create mock segments using helper
         route_id = uuid4()
-        segment1 = UserRouteSegment(
-            id=uuid4(),
-            route_id=route_id,
-            sequence=0,
-            station_id=station1.id,
-            line_id=line.id,
-        )
-        segment1.line = line
-        segment1.station = station1
-
-        segment2 = UserRouteSegment(
-            id=uuid4(),
-            route_id=route_id,
-            sequence=1,
-            station_id=station2.id,
-            line_id=line.id,
-        )
-        segment2.line = line
-        segment2.station = station2
-
-        segment3 = UserRouteSegment(
-            id=uuid4(),
-            route_id=route_id,
-            sequence=2,
-            station_id=station3.id,
-            line_id=line.id,
-        )
-        segment3.line = line
-        segment3.station = station3
+        segment1 = create_test_segment(route_id, 0, station1, line)
+        segment2 = create_test_segment(route_id, 1, station2, line)
+        segment3 = create_test_segment(route_id, 2, station3, line)
 
         # Only segment2 is affected
         matched_pairs = {("piccadilly", "940GZZLURSQ")}
@@ -249,25 +242,8 @@ class TestPureHelperFunctions:
         )
 
         route_id = uuid4()
-        segment1 = UserRouteSegment(
-            id=uuid4(),
-            route_id=route_id,
-            sequence=0,
-            station_id=station1.id,
-            line_id=line.id,
-        )
-        segment1.line = line
-        segment1.station = station1
-
-        segment2 = UserRouteSegment(
-            id=uuid4(),
-            route_id=route_id,
-            sequence=1,
-            station_id=station2.id,
-            line_id=line.id,
-        )
-        segment2.line = line
-        segment2.station = station2
+        segment1 = create_test_segment(route_id, 0, station1, line)
+        segment2 = create_test_segment(route_id, 1, station2, line)
 
         # Both segments affected
         matched_pairs = {("piccadilly", "940GZZLUKSX"), ("piccadilly", "940GZZLURSQ")}

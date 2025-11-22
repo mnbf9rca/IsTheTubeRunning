@@ -324,6 +324,10 @@ class RouteDisruptionResponse(BaseModel):
 
     route_id: UUID = Field(..., description="ID of the affected route")
     route_name: str = Field(..., description="Name of the affected route")
+    severity_level: int = Field(..., description="Disruption severity level (0-20, from TfL API)")
+    severity_description: str = Field(
+        ..., description="Disruption severity description (e.g., 'Good Service', 'Severe Delays')"
+    )
     disruption: DisruptionResponse = Field(..., description="Details of the TfL disruption")
     affected_segments: list[int] = Field(
         ...,

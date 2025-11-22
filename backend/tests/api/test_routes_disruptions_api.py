@@ -37,7 +37,7 @@ class TestRouteDisruptionsAPI:
     @pytest.fixture
     async def piccadilly_line(self, db_session: AsyncSession) -> Line:
         """Create Piccadilly line."""
-        line = Line(tfl_id="piccadilly", name="Piccadilly", last_updated=datetime.now(UTC))
+        line = Line(tfl_id="piccadilly", name="Piccadilly", mode="tube", last_updated=datetime.now(UTC))
         db_session.add(line)
         await db_session.commit()
         await db_session.refresh(line)
@@ -46,7 +46,7 @@ class TestRouteDisruptionsAPI:
     @pytest.fixture
     async def district_line(self, db_session: AsyncSession) -> Line:
         """Create District line."""
-        line = Line(tfl_id="district", name="District", last_updated=datetime.now(UTC))
+        line = Line(tfl_id="district", name="District", mode="tube", last_updated=datetime.now(UTC))
         db_session.add(line)
         await db_session.commit()
         await db_session.refresh(line)
@@ -303,8 +303,6 @@ class TestRouteDisruptionsAPI:
             headers=auth_headers_for_user_func(test_user),
         )
 
-        if response.status_code != 200:
-            print(f"Error response: {response.json()}")
         assert response.status_code == 200
         data = response.json()
         assert data == []
@@ -753,3 +751,111 @@ class TestRouteDisruptionsAPI:
             # Verify affected_stations is a list of strings
             assert isinstance(item["affected_stations"], list)
             assert all(isinstance(stn, str) for stn in item["affected_stations"])
+
+    @pytest.mark.asyncio
+    async def test_multiple_disruptions_on_same_route(
+        self,
+        async_client_with_db: AsyncClient,
+        test_user: User,
+        test_route_with_index: UserRoute,
+        auth_headers_for_user_func: Callable[[User], dict[str, str]],
+    ) -> None:
+        """Test multiple disruptions on the same route create separate response entries."""
+        # Create two disruptions on the same line/route
+        disruptions = [
+            DisruptionResponse(
+                line_id="piccadilly",
+                line_name="Piccadilly",
+                mode="tube",
+                status_severity=9,
+                status_severity_description="Minor Delays",
+                reason="Signal failure at Russell Square",
+                affected_routes=[
+                    AffectedRouteInfo(
+                        name="Cockfosters → Heathrow Terminal 5",
+                        direction="outbound",
+                        affected_stations=["940GZZLURSQ"],
+                    )
+                ],
+            ),
+            DisruptionResponse(
+                line_id="piccadilly",
+                line_name="Piccadilly",
+                mode="tube",
+                status_severity=8,
+                status_severity_description="Severe Delays",
+                reason="Track maintenance at Holborn",
+                affected_routes=[
+                    AffectedRouteInfo(
+                        name="Cockfosters → Heathrow Terminal 5",
+                        direction="outbound",
+                        affected_stations=["940GZZLUHBN"],
+                    )
+                ],
+            ),
+        ]
+
+        with patch("app.api.routes.TfLService") as mock_tfl:
+            mock_instance = AsyncMock()
+            mock_instance.fetch_line_disruptions = AsyncMock(return_value=disruptions)
+            mock_tfl.return_value = mock_instance
+
+            response = await async_client_with_db.get(
+                "/api/v1/routes/disruptions",
+                headers=auth_headers_for_user_func(test_user),
+            )
+
+            assert response.status_code == 200
+            data = response.json()
+            # Should have 2 entries - one for each disruption on the route
+            assert len(data) == 2
+            # All entries should be for the same route
+            route_ids = {item["route_id"] for item in data}
+            assert len(route_ids) == 1
+            assert str(test_route_with_index.id) in route_ids
+            # Verify each disruption is represented
+            severities = {item["disruption"]["status_severity"] for item in data}
+            assert 9 in severities
+            assert 8 in severities
+
+    @pytest.mark.asyncio
+    async def test_get_disruptions_empty_affected_stations(
+        self,
+        async_client_with_db: AsyncClient,
+        test_user: User,
+        test_route_with_index: UserRoute,
+        auth_headers_for_user_func: Callable[[User], dict[str, str]],
+    ) -> None:
+        """Test disruption with empty affected_stations list doesn't match route."""
+        disruptions = [
+            DisruptionResponse(
+                line_id="piccadilly",
+                line_name="Piccadilly",
+                mode="tube",
+                status_severity=9,
+                status_severity_description="Minor Delays",
+                reason="General disruption",
+                affected_routes=[
+                    AffectedRouteInfo(
+                        name="Cockfosters → Heathrow Terminal 5",
+                        direction="outbound",
+                        affected_stations=[],  # Empty affected stations
+                    )
+                ],
+            )
+        ]
+
+        with patch("app.api.routes.TfLService") as mock_tfl:
+            mock_instance = AsyncMock()
+            mock_instance.fetch_line_disruptions = AsyncMock(return_value=disruptions)
+            mock_tfl.return_value = mock_instance
+
+            response = await async_client_with_db.get(
+                "/api/v1/routes/disruptions",
+                headers=auth_headers_for_user_func(test_user),
+            )
+
+            assert response.status_code == 200
+            data = response.json()
+            # Should have no entries because disruption has no affected stations
+            assert len(data) == 0

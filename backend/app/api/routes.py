@@ -7,6 +7,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.auth import get_current_user
 from app.core.database import get_db
+from app.helpers.disruption_helpers import (
+    calculate_affected_segments,
+    calculate_affected_stations,
+    extract_line_station_pairs,
+)
 from app.models.user import User
 from app.models.user_route import UserRoute, UserRouteSchedule, UserRouteSegment
 from app.schemas.routes import (
@@ -22,12 +27,7 @@ from app.schemas.routes import (
     UserRouteScheduleResponse,
     UserRouteSegmentResponse,
 )
-from app.services.disruption_matching_service import (
-    DisruptionMatchingService,
-    calculate_affected_segments,
-    calculate_affected_stations,
-    extract_line_station_pairs,
-)
+from app.services.disruption_matching_service import DisruptionMatchingService
 from app.services.tfl_service import TfLService
 from app.services.user_route_service import UserRouteService
 
@@ -135,32 +135,34 @@ async def get_route_disruptions(
     matching_service = DisruptionMatchingService(db)
     tfl_service = TfLService(db)
 
-    # 1. Fetch user's routes (filter by active_only)
+    # 1. Fetch user's routes
     routes = await route_service.list_routes(current_user.id)
-    if active_only:
-        routes = [route for route in routes if route.active]
 
-    # 2. If no routes, return empty list
+    # 2. If no routes, return empty list (check before filtering)
     if not routes:
         return []
 
-    # 3. Try to fetch all TfL disruptions
+    # 3. Filter by active_only if needed
+    if active_only:
+        routes = [route for route in routes if route.active]
+
+    # 4. Try to fetch all TfL disruptions
     try:
         all_disruptions = await tfl_service.fetch_line_disruptions(use_cache=True)
     except Exception as e:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="TfL API unavailable",
+            detail=f"TfL API unavailable: {e!s}",
         ) from e
 
-    # 4. Filter disruptions to only alertable ones
+    # 5. Filter disruptions to only alertable ones
     alertable_disruptions = await matching_service.filter_alertable_disruptions(all_disruptions)
 
-    # 5. If no disruptions, return empty list
+    # 6. If no disruptions, return empty list
     if not alertable_disruptions:
         return []
 
-    # 6. Match disruptions to routes
+    # 7. Match disruptions to routes
     route_disruptions: list[RouteDisruptionResponse] = []
 
     for route in routes:
@@ -177,11 +179,8 @@ async def get_route_disruptions(
             disruption_pairs_set = set(disruption_pairs)
 
             # Calculate affected segments
-            # Need to load route segments from database
-            route_with_segments = await route_service.get_route_by_id(
-                route.id, current_user.id, load_relationships=True
-            )
-            affected_segments = calculate_affected_segments(route_with_segments.segments, disruption_pairs_set)
+            # route.segments already loaded by list_routes() via selectinload
+            affected_segments = calculate_affected_segments(route.segments, disruption_pairs_set)
 
             # Calculate affected stations
             affected_stations = calculate_affected_stations(route_index_pairs, disruption_pairs_set)
@@ -191,6 +190,8 @@ async def get_route_disruptions(
                 RouteDisruptionResponse(
                     route_id=route.id,
                     route_name=route.name,
+                    severity_level=disruption.status_severity,
+                    severity_description=disruption.status_severity_description,
                     disruption=disruption,
                     affected_segments=affected_segments,
                     affected_stations=affected_stations,
