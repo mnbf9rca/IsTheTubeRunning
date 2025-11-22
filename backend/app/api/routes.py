@@ -193,8 +193,6 @@ async def get_route_disruptions(
                 RouteDisruptionResponse(
                     route_id=route.id,
                     route_name=route.name,
-                    severity_level=disruption.status_severity,
-                    severity_description=disruption.status_severity_description,
                     disruption=disruption,
                     affected_segments=affected_segments,
                     affected_stations=affected_stations,
