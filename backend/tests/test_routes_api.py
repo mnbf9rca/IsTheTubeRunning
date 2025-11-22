@@ -8,15 +8,28 @@ from unittest.mock import AsyncMock, patch
 import pytest
 from app.core.database import get_db
 from app.main import app
+from app.models.notification import (
+    NotificationLog,
+    NotificationMethod,
+    NotificationPreference,
+    NotificationStatus,
+)
 from app.models.tfl import Line, Station
-from app.models.user import User
+from app.models.user import EmailAddress, User
 from app.models.user_route import UserRoute, UserRouteSchedule, UserRouteSegment
+from app.models.user_route_index import UserRouteStationIndex
 from fastapi import HTTPException, status
 from httpx import AsyncClient
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from tests.helpers.railway_network import create_test_station
+from tests.helpers.soft_delete_assertions import (
+    assert_api_returns_404,
+    assert_cascade_soft_deleted,
+    assert_not_in_api_list,
+    assert_soft_deleted,
+)
 from tests.helpers.types import RailwayNetworkFixture
 
 
@@ -347,14 +360,87 @@ class TestRoutesAPI:
         async_client: AsyncClient,
         auth_headers_for_user: dict[str, str],
         test_user: User,
+        test_station1: Station,
+        test_station2: Station,
+        test_line: Line,
         db_session: AsyncSession,
     ) -> None:
-        """Test deleting a route."""
+        """Test deleting a route and verifying cascade soft delete behavior (Issue #233)."""
+        # Create route with full related entities
         route = UserRoute(user_id=test_user.id, name="Test Route", active=True)
         db_session.add(route)
-        await db_session.commit()
-        route_id = route.id
+        await db_session.flush()
 
+        # Add segments
+        segment1 = UserRouteSegment(
+            route_id=route.id,
+            sequence=0,
+            station_id=test_station1.id,
+            line_id=test_line.id,
+        )
+        segment2 = UserRouteSegment(
+            route_id=route.id,
+            sequence=1,
+            station_id=test_station2.id,
+            line_id=test_line.id,
+        )
+        db_session.add_all([segment1, segment2])
+        await db_session.flush()
+
+        # Add schedule
+        schedule = UserRouteSchedule(
+            route_id=route.id,
+            days_of_week=["MON", "TUE"],
+            start_time=time(8, 0),
+            end_time=time(18, 0),
+        )
+        db_session.add(schedule)
+        await db_session.flush()
+
+        # Add station index
+        station_index = UserRouteStationIndex(
+            route_id=route.id,
+            line_tfl_id=test_line.tfl_id,
+            station_naptan=test_station1.tfl_id,
+            line_data_version=test_line.last_updated,
+        )
+        db_session.add(station_index)
+        await db_session.flush()
+
+        # Add email address for notification preference
+        email = EmailAddress(
+            user_id=test_user.id,
+            email="test@example.com",
+            verified=True,
+            is_primary=True,
+        )
+        db_session.add(email)
+        await db_session.flush()
+
+        # Add notification preference
+        notification_pref = NotificationPreference(
+            route_id=route.id,
+            method=NotificationMethod.EMAIL,
+            target_email_id=email.id,
+        )
+        db_session.add(notification_pref)
+        await db_session.flush()
+
+        # Add notification log (should NOT be deleted)
+        notification_log = NotificationLog(
+            user_id=test_user.id,
+            route_id=route.id,
+            method=NotificationMethod.EMAIL,
+            status=NotificationStatus.SENT,
+            sent_at=datetime.now(UTC),
+        )
+        db_session.add(notification_log)
+        await db_session.commit()
+
+        route_id = route.id
+        notification_log_id = notification_log.id
+
+        # Delete the route
         response = await async_client.delete(
             f"/api/v1/routes/{route_id}",
             headers=auth_headers_for_user,
@@ -362,9 +448,114 @@ class TestRoutesAPI:
 
         assert response.status_code == status.HTTP_204_NO_CONTENT
 
-        # Verify route was deleted
-        result = await db_session.execute(select(UserRoute).where(UserRoute.id == route_id))
-        assert result.scalar_one_or_none() is None
+        # Verify route was soft deleted
+        await assert_soft_deleted(db_session, UserRoute, route_id)
+
+        # Verify ALL related entities are cascaded soft deleted
+        await assert_cascade_soft_deleted(
+            db_session,
+            route_id,
+            {
+                UserRouteSegment: UserRouteSegment.route_id,
+                UserRouteSchedule: UserRouteSchedule.route_id,
+                UserRouteStationIndex: UserRouteStationIndex.route_id,
+                NotificationPreference: NotificationPreference.route_id,
+            },
+        )
+
+        # Verify NotificationLog is NOT deleted (intentional exception per Issue #233)
+        result = await db_session.execute(select(NotificationLog).where(NotificationLog.id == notification_log_id))
+        log = result.scalar_one_or_none()
+        assert log is not None, "NotificationLog should exist"
+        assert log.deleted_at is None, "NotificationLog should NOT be soft deleted"
+
+    @pytest.mark.asyncio
+    async def test_deleted_route_not_in_list(
+        self,
+        async_client: AsyncClient,
+        auth_headers_for_user: dict[str, str],
+        test_user: User,
+        db_session: AsyncSession,
+    ) -> None:
+        """Test that deleted routes do not appear in GET /routes list (Issue #233)."""
+        # Create and delete a route
+        route = UserRoute(user_id=test_user.id, name="To Be Deleted", active=True)
+        db_session.add(route)
+        await db_session.commit()
+        route_id = route.id
+
+        # Delete the route
+        response = await async_client.delete(
+            f"/api/v1/routes/{route_id}",
+            headers=auth_headers_for_user,
+        )
+        assert response.status_code == status.HTTP_204_NO_CONTENT
+
+        # Verify deleted route doesn't appear in list
+        await assert_not_in_api_list(
+            async_client,
+            "/api/v1/routes",
+            route_id,
+            auth_headers_for_user,
+        )
+
+    @pytest.mark.asyncio
+    async def test_deleted_route_returns_404(
+        self,
+        async_client: AsyncClient,
+        auth_headers_for_user: dict[str, str],
+        test_user: User,
+        db_session: AsyncSession,
+    ) -> None:
+        """Test that GET /routes/{id} returns 404 for deleted route (Issue #233)."""
+        # Create and delete a route
+        route = UserRoute(user_id=test_user.id, name="To Be Deleted", active=True)
+        db_session.add(route)
+        await db_session.commit()
+        route_id = route.id
+
+        # Delete the route
+        response = await async_client.delete(
+            f"/api/v1/routes/{route_id}",
+            headers=auth_headers_for_user,
+        )
+        assert response.status_code == status.HTTP_204_NO_CONTENT
+
+        # Verify GET by ID returns 404
+        await assert_api_returns_404(
+            async_client,
+            f"/api/v1/routes/{route_id}",
+            auth_headers_for_user,
+        )
+
+    @pytest.mark.asyncio
+    async def test_delete_already_deleted_route_returns_404(
+        self,
+        async_client: AsyncClient,
+        auth_headers_for_user: dict[str, str],
+        test_user: User,
+        db_session: AsyncSession,
+    ) -> None:
+        """Test that deleting an already-deleted route returns 404 (Issue #233)."""
+        # Create and delete a route
+        route = UserRoute(user_id=test_user.id, name="To Be Deleted", active=True)
+        db_session.add(route)
+        await db_session.commit()
+        route_id = route.id
+
+        # Delete the route (first time)
+        response = await async_client.delete(
+            f"/api/v1/routes/{route_id}",
+            headers=auth_headers_for_user,
+        )
+        assert response.status_code == status.HTTP_204_NO_CONTENT
+
+        # Try to delete again (should return 404)
+        response = await async_client.delete(
+            f"/api/v1/routes/{route_id}",
+            headers=auth_headers_for_user,
+        )
+        assert response.status_code == status.HTTP_404_NOT_FOUND
 
     # ==================== Timezone Tests ====================
 
@@ -811,9 +1002,14 @@ class TestRoutesAPI:
 
         assert response.status_code == status.HTTP_204_NO_CONTENT
 
-        # Verify segment was deleted and others resequenced
+        # Verify segment was soft deleted and others resequenced (Issue #233)
         result = await db_session.execute(
-            select(UserRouteSegment).where(UserRouteSegment.route_id == route.id).order_by(UserRouteSegment.sequence)
+            select(UserRouteSegment)
+            .where(
+                UserRouteSegment.route_id == route.id,
+                UserRouteSegment.deleted_at.is_(None),
+            )
+            .order_by(UserRouteSegment.sequence)
         )
         remaining = list(result.scalars().all())
         assert len(remaining) == 2
@@ -1092,9 +1288,11 @@ class TestRoutesAPI:
 
         assert response.status_code == status.HTTP_204_NO_CONTENT
 
-        # Verify deletion
+        # Verify soft deletion (Issue #233)
         result = await db_session.execute(select(UserRouteSchedule).where(UserRouteSchedule.id == schedule_id))
-        assert result.scalar_one_or_none() is None
+        deleted_schedule = result.scalar_one_or_none()
+        assert deleted_schedule is not None
+        assert deleted_schedule.deleted_at is not None
 
     @pytest.mark.asyncio
     async def test_schedule_ownership_validation(

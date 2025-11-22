@@ -3,13 +3,15 @@
 import uuid
 
 from fastapi import HTTPException, status
-from sqlalchemy import delete as sql_delete
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
+from app.helpers.soft_delete_filters import soft_delete
+from app.models.notification import NotificationPreference
 from app.models.tfl import Line, Station
 from app.models.user_route import UserRoute, UserRouteSchedule, UserRouteSegment
+from app.models.user_route_index import UserRouteStationIndex
 from app.schemas.routes import (
     CreateUserRouteRequest,
     CreateUserRouteScheduleRequest,
@@ -63,6 +65,7 @@ class UserRouteService:
         query = select(UserRoute).where(
             UserRoute.id == route_id,
             UserRoute.user_id == user_id,
+            UserRoute.deleted_at.is_(None),
         )
 
         if load_relationships:
@@ -94,7 +97,10 @@ class UserRouteService:
         """
         result = await self.db.execute(
             select(UserRoute)
-            .where(UserRoute.user_id == user_id)
+            .where(
+                UserRoute.user_id == user_id,
+                UserRoute.deleted_at.is_(None),
+            )
             .options(
                 selectinload(UserRoute.segments).selectinload(UserRouteSegment.station),
                 selectinload(UserRoute.segments).selectinload(UserRouteSegment.line),
@@ -181,10 +187,35 @@ class UserRouteService:
         Raises:
             HTTPException: 404 if route not found
         """
-        route = await self.get_route_by_id(route_id, user_id)
+        # Verify ownership (will raise 404 if not found, not owned, or already deleted)
+        await self.get_route_by_id(route_id, user_id)
 
-        await self.db.delete(route)
+        # Cascade soft delete to all related entities
+        # Note: We do this explicitly in application code since FK constraints
+        # are now RESTRICT (not CASCADE) for safety. See Issue #233.
+
+        # Soft delete segments
+        await soft_delete(self.db, UserRouteSegment, UserRouteSegment.route_id == route_id)
+
+        # Soft delete schedules
+        await soft_delete(self.db, UserRouteSchedule, UserRouteSchedule.route_id == route_id)
+
+        # Soft delete station indexes
+        await soft_delete(self.db, UserRouteStationIndex, UserRouteStationIndex.route_id == route_id)
+
+        # Soft delete notification preferences
+        await soft_delete(self.db, NotificationPreference, NotificationPreference.route_id == route_id)
+
+        # Soft delete the route itself
+        await soft_delete(
+            self.db,
+            UserRoute,
+            UserRoute.id == route_id,
+            UserRoute.user_id == user_id,
+        )
+
         await self.db.commit()
+        # Note: NotificationLogs are preserved (not soft-deleted) for analytics
 
     async def upsert_segments(
         self,
@@ -215,10 +246,11 @@ class UserRouteService:
         # Validate the route using TfL service
         await self._validate_segments(segments)
 
-        # Wrap delete + create in a transaction to ensure atomicity
+        # Wrap soft delete + create in a transaction to ensure atomicity
         try:
-            # Delete existing segments
-            await self.db.execute(sql_delete(UserRouteSegment).where(UserRouteSegment.route_id == route_id))
+            # Soft delete existing segments (Issue #233)
+            # With partial unique index, soft-deleted and new active segments can coexist
+            await soft_delete(self.db, UserRouteSegment, UserRouteSegment.route_id == route_id)
 
             # Create new segments - translate TfL IDs (or hub codes) to UUIDs
             new_segments = []
@@ -250,7 +282,10 @@ class UserRouteService:
             # Reload with relationships to support station_tfl_id and line_tfl_id properties
             result = await self.db.execute(
                 select(UserRouteSegment)
-                .where(UserRouteSegment.route_id == route_id)
+                .where(
+                    UserRouteSegment.route_id == route_id,
+                    UserRouteSegment.deleted_at.is_(None),
+                )
                 .options(selectinload(UserRouteSegment.station), selectinload(UserRouteSegment.line))
                 .order_by(UserRouteSegment.sequence)
             )
@@ -352,7 +387,7 @@ class UserRouteService:
                 detail="Cannot delete segment. UserRoute must have at least 2 segments.",
             )
 
-        # Find and delete the segment
+        # Find and soft delete the segment
         segment = next((s for s in route.segments if s.sequence == sequence), None)
         if not segment:
             raise HTTPException(
@@ -360,8 +395,9 @@ class UserRouteService:
                 detail=f"Segment with sequence {sequence} not found.",
             )
 
-        await self.db.delete(segment)
-        await self.db.flush()  # Ensure deletion is persisted before resequencing
+        # Soft delete the segment (Issue #233)
+        await soft_delete(self.db, UserRouteSegment, UserRouteSegment.id == segment.id)
+        await self.db.flush()  # Ensure soft delete is persisted before resequencing
 
         # Resequence ALL remaining segments to ensure no gaps
         # Get all segments excluding the deleted one
@@ -450,6 +486,7 @@ class UserRouteService:
             select(UserRouteSchedule).where(
                 UserRouteSchedule.id == schedule_id,
                 UserRouteSchedule.route_id == route_id,
+                UserRouteSchedule.deleted_at.is_(None),
             )
         )
         schedule = result.scalar_one_or_none()
@@ -509,6 +546,7 @@ class UserRouteService:
             select(UserRouteSchedule).where(
                 UserRouteSchedule.id == schedule_id,
                 UserRouteSchedule.route_id == route_id,
+                UserRouteSchedule.deleted_at.is_(None),
             )
         )
         schedule = result.scalar_one_or_none()
@@ -519,7 +557,8 @@ class UserRouteService:
                 detail="Schedule not found.",
             )
 
-        await self.db.delete(schedule)
+        # Soft delete the schedule (Issue #233)
+        await soft_delete(self.db, UserRouteSchedule, UserRouteSchedule.id == schedule_id)
         await self.db.commit()
 
     # ==================== Private Helper Methods ====================

@@ -30,13 +30,17 @@ class UserRouteStationIndex(BaseModel):
     Updated when:
         - User creates/updates route (Phase 2)
         - Line.route_variants data changes (detected via line_data_version staleness check)
+
+    Soft Delete: This model uses soft delete (deleted_at column from BaseModel).
+    Soft deleted via user_route_index_service._delete_existing_index() when rebuilding
+    index or cascade from parent route. See Issue #233.
     """
 
     __tablename__ = "user_route_station_index"
 
     route_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True),
-        ForeignKey("user_routes.id", ondelete="CASCADE"),
+        ForeignKey("user_routes.id", ondelete="RESTRICT"),
         nullable=False,
         comment="User's route ID",
     )

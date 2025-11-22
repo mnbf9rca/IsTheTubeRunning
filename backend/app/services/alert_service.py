@@ -14,6 +14,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.core.config import settings
+from app.helpers.soft_delete_filters import add_active_filter
 from app.models.notification import (
     NotificationLog,
     NotificationMethod,
@@ -563,7 +564,9 @@ class AlertService:
             for line_tfl_id, station_naptan in line_station_pairs
         ]
 
-        result = await self.db.execute(select(UserRouteStationIndex.route_id).where(or_(*conditions)))
+        query = select(UserRouteStationIndex.route_id).where(or_(*conditions))
+        query = add_active_filter(query, UserRouteStationIndex)
+        result = await self.db.execute(query)
         route_ids = {row[0] for row in result.all()}
 
         logger.info(
@@ -584,12 +587,12 @@ class AlertService:
         Returns:
             Set of (line_tfl_id, station_naptan) tuples for this route
         """
-        result = await self.db.execute(
-            select(
-                UserRouteStationIndex.line_tfl_id,
-                UserRouteStationIndex.station_naptan,
-            ).where(UserRouteStationIndex.route_id == route_id)
-        )
+        query = select(
+            UserRouteStationIndex.line_tfl_id,
+            UserRouteStationIndex.station_naptan,
+        ).where(UserRouteStationIndex.route_id == route_id)
+        query = add_active_filter(query, UserRouteStationIndex)
+        result = await self.db.execute(query)
         return {(row[0], row[1]) for row in result.all()}
 
     async def _get_affected_routes_for_disruption(
