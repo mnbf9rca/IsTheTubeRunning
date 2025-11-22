@@ -14,6 +14,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.core.config import settings
+from app.helpers.disruption_helpers import disruption_affects_route, extract_line_station_pairs
 from app.helpers.soft_delete_filters import add_active_filter
 from app.models.notification import (
     NotificationLog,
@@ -62,74 +63,6 @@ def create_line_state_hash(line_id: str, status: str, reason: str | None) -> str
 
     # Return SHA256 hex digest
     return hashlib.sha256(hash_input.encode("utf-8")).hexdigest()
-
-
-def extract_line_station_pairs(disruption: DisruptionResponse) -> list[tuple[str, str]]:
-    """
-    Extract (line_id, station_naptan) tuples from disruption data.
-
-    Pure function for easy testing without database dependencies.
-
-    Args:
-        disruption: Disruption response with optional affected_routes data
-
-    Returns:
-        List of (line_tfl_id, station_naptan) tuples to query index with.
-        Empty list if no affected_routes data available.
-
-    Example:
-        >>> disruption = DisruptionResponse(
-        ...     line_id="piccadilly",
-        ...     line_name="Piccadilly",
-        ...     status_severity=10,
-        ...     status_severity_description="Minor Delays",
-        ...     affected_routes=[
-        ...         AffectedRouteInfo(
-        ...             name="Cockfosters → Heathrow T5",
-        ...             direction="outbound",
-        ...             affected_stations=["940GZZLURSQ", "940GZZLUHBN"]
-        ...         )
-        ...     ]
-        ... )
-        >>> extract_line_station_pairs(disruption)
-        [('piccadilly', '940GZZLURSQ'), ('piccadilly', '940GZZLUHBN')]
-    """
-    if not disruption.affected_routes:
-        return []
-
-    pairs: list[tuple[str, str]] = []
-    for affected_route in disruption.affected_routes:
-        pairs.extend((disruption.line_id, station_naptan) for station_naptan in affected_route.affected_stations)
-
-    return pairs
-
-
-def disruption_affects_route(
-    disruption_pairs: list[tuple[str, str]],
-    route_pairs: set[tuple[str, str]],
-) -> bool:
-    """
-    Check if disruption affects route by comparing (line, station) pairs.
-
-    Pure function for easy testing without database dependencies.
-
-    Args:
-        disruption_pairs: List of (line_tfl_id, station_naptan) tuples from disruption
-        route_pairs: Set of (line_tfl_id, station_naptan) tuples from route index
-
-    Returns:
-        True if any disruption pair matches a route pair (intersection exists)
-
-    Example:
-        >>> disruption_pairs = [('piccadilly', '940GZZLURSQ'), ('piccadilly', '940GZZLUHBN')]
-        >>> route_pairs = {('piccadilly', '940GZZLURSQ'), ('piccadilly', '940GZZLULST')}
-        >>> disruption_affects_route(disruption_pairs, route_pairs)
-        True
-        >>> route_pairs_no_match = {('district', '940GZZLUEMB')}
-        >>> disruption_affects_route(disruption_pairs, route_pairs_no_match)
-        False
-    """
-    return bool(route_pairs.intersection(disruption_pairs))
 
 
 class RedisClientProtocol(Protocol):

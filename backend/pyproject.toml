@@ -94,6 +94,9 @@ exclude_lines = [
     "raise NotImplementedError",
     "if __name__ == .__main__.:",
     "@abstractmethod",
+    # Exclude Protocol stub methods (not executable code)
+    "class .*\\(Protocol\\):",
+    "\\.\\.\\.\\s*$",  # Lines with only ellipsis (stub marker)
 ]
 
 [tool.ruff]

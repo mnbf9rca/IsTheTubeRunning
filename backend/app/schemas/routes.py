@@ -4,6 +4,7 @@ from datetime import time
 from uuid import UUID
 from zoneinfo import ZoneInfo, available_timezones
 
+from app.schemas.tfl import DisruptionResponse
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 # ==================== Helper Functions ====================
@@ -310,3 +311,25 @@ class UserRouteListItemResponse(BaseModel):
     timezone: str
     segment_count: int = Field(..., description="Number of segments in the route")
     schedule_count: int = Field(..., description="Number of schedules for the route")
+
+
+class RouteDisruptionResponse(BaseModel):
+    """Response schema for route-specific disruptions.
+
+    Represents a disruption affecting a specific user route, with context
+    about which segments and stations are affected.
+    """
+
+    model_config = ConfigDict(from_attributes=False)
+
+    route_id: UUID = Field(..., description="ID of the affected route")
+    route_name: str = Field(..., description="Name of the affected route")
+    disruption: DisruptionResponse = Field(..., description="Details of the TfL disruption")
+    affected_segments: list[int] = Field(
+        ...,
+        description="Segment sequence numbers affected by this disruption (e.g., [0, 1, 2])",
+    )
+    affected_stations: list[str] = Field(
+        ...,
+        description="Station NaPTAN codes from this route that are affected",
+    )
