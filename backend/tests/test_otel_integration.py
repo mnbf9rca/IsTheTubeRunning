@@ -179,11 +179,18 @@ async def test_logger_provider_shutdown_graceful_when_disabled() -> None:
     telemetry.shutdown_logger_provider()  # Should not raise
 
 
-async def test_set_logger_provider_graceful_when_disabled() -> None:
+async def test_set_logger_provider_graceful_when_disabled(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """Test that set_logger_provider works gracefully when OTEL is disabled."""
     from app.core import telemetry  # noqa: PLC0415
 
-    # set_logger_provider should not crash even when provider is None
+    # Explicitly disable OTEL to test the disabled path
+    monkeypatch.setenv("OTEL_SDK_DISABLED", "1")
+    # Reset module-level provider to None to force re-evaluation
+    telemetry._logger_provider = None
+
+    # set_logger_provider should not crash even when OTEL is disabled
     telemetry.set_logger_provider()  # Should not raise
 
 
@@ -192,12 +199,25 @@ class TestLoggerProviderCreation:
 
     @pytest.fixture(autouse=True)
     def enable_otel(self, monkeypatch: pytest.MonkeyPatch) -> Generator[None]:
-        """Enable OTEL SDK for tests in this class."""
+        """Enable OTEL SDK and reset state for tests in this class."""
+        from app.core import telemetry  # noqa: PLC0415
+        from opentelemetry import _logs  # noqa: PLC0415
+
         # Remove OTEL_SDK_DISABLED if present (enables OTEL)
         monkeypatch.delenv("OTEL_SDK_DISABLED", raising=False)
         # Set logs endpoint to enable log export
         monkeypatch.setenv("OTEL_EXPORTER_OTLP_LOGS_ENDPOINT", "http://localhost:4318/v1/logs")
-        return
+
+        # Reset module-level logger provider to prevent state leakage between tests
+        telemetry._logger_provider = None
+        # Also reset the global OTEL logger provider
+        _logs.set_logger_provider(None)  # type: ignore[arg-type]
+
+        yield
+
+        # Cleanup after test
+        telemetry._logger_provider = None
+        _logs.set_logger_provider(None)  # type: ignore[arg-type]
 
     async def test_logger_provider_created_when_enabled(self) -> None:
         """Test that get_logger_provider returns a LoggerProvider when OTEL is enabled."""

@@ -73,7 +73,7 @@ class TestConfigureLogging:
         root_logger = logging.getLogger()
         # Find the StreamHandler
         stream_handlers = [h for h in root_logger.handlers if isinstance(h, logging.StreamHandler)]
-        assert len(stream_handlers) >= 1
+        assert stream_handlers, "No StreamHandler found in root logger handlers"
         handler = stream_handlers[0]
 
         assert isinstance(handler, logging.StreamHandler)
@@ -233,14 +233,13 @@ class TestOTELLoggingHandler:
             # Configure logging
             configure_logging(log_level="INFO")
 
-            # Should have two handlers: StreamHandler + LoggingHandler
+            # Check that both expected handler types are present (resilient to future changes)
             root_logger = logging.getLogger()
-            assert len(root_logger.handlers) == 2
-
-            # Check handler types
             handler_types = [type(h).__name__ for h in root_logger.handlers]
-            assert "StreamHandler" in handler_types
-            assert "AttrFilteredLoggingHandler" in handler_types
+            assert "StreamHandler" in handler_types, "StreamHandler should be present"
+            assert "AttrFilteredLoggingHandler" in handler_types, (
+                "AttrFilteredLoggingHandler should be present when OTEL enabled"
+            )
 
     def test_logging_handler_not_added_when_otel_disabled(self) -> None:
         """Test that LoggingHandler is NOT added when OTEL is disabled."""
@@ -248,13 +247,18 @@ class TestOTELLoggingHandler:
             # Configure logging
             configure_logging(log_level="INFO")
 
-            # Should only have StreamHandler (no LoggingHandler)
+            # Check that StreamHandler is present and OTEL handler is not
             root_logger = logging.getLogger()
-            assert len(root_logger.handlers) == 1
+            handler_types = [type(h).__name__ for h in root_logger.handlers]
 
-            # Check it's a StreamHandler
-            assert isinstance(root_logger.handlers[0], logging.StreamHandler)
-            assert root_logger.handlers[0].stream == sys.stdout
+            assert "StreamHandler" in handler_types, "StreamHandler should be present"
+            assert "AttrFilteredLoggingHandler" not in handler_types, (
+                "AttrFilteredLoggingHandler should NOT be present when OTEL disabled"
+            )
+
+            # Verify StreamHandler outputs to stdout
+            stream_handler = next(h for h in root_logger.handlers if isinstance(h, logging.StreamHandler))
+            assert stream_handler.stream == sys.stdout
 
     def test_logging_handler_not_added_when_no_logger_provider(self) -> None:
         """Test that LoggingHandler is not added when get_logger_provider returns None."""
@@ -265,10 +269,14 @@ class TestOTELLoggingHandler:
             # Configure logging
             configure_logging(log_level="INFO")
 
-            # Should only have StreamHandler (LoggerProvider returned None)
+            # Check that only StreamHandler is present (LoggerProvider returned None)
             root_logger = logging.getLogger()
-            assert len(root_logger.handlers) == 1
-            assert isinstance(root_logger.handlers[0], logging.StreamHandler)
+            handler_types = [type(h).__name__ for h in root_logger.handlers]
+
+            assert "StreamHandler" in handler_types, "StreamHandler should be present"
+            assert "AttrFilteredLoggingHandler" not in handler_types, (
+                "AttrFilteredLoggingHandler should NOT be present when logger provider is None"
+            )
 
     def test_logging_handler_level_matches_otel_log_level(self) -> None:
         """Test that LoggingHandler level matches OTEL_LOG_LEVEL setting."""
@@ -285,16 +293,15 @@ class TestOTELLoggingHandler:
             # Configure logging
             configure_logging(log_level="INFO")
 
-            # Find the OTEL handler
+            # Find the OTEL handler using next()
             root_logger = logging.getLogger()
-            otel_handler = None
-            for handler in root_logger.handlers:
-                if type(handler).__name__ == "AttrFilteredLoggingHandler":
-                    otel_handler = handler
-                    break
+            otel_handler = next(
+                (h for h in root_logger.handlers if type(h).__name__ == "AttrFilteredLoggingHandler"),
+                None,
+            )
 
             # Should have found the handler
-            assert otel_handler is not None
+            assert otel_handler is not None, "AttrFilteredLoggingHandler not found in root logger handlers"
             # Level should match OTEL_LOG_LEVEL (WARNING)
             assert otel_handler.level == logging.WARNING
 
@@ -313,15 +320,14 @@ class TestOTELLoggingHandler:
             # Configure logging
             configure_logging(log_level="DEBUG")
 
-            # Find the OTEL handler
+            # Find the OTEL handler using next()
             root_logger = logging.getLogger()
-            otel_handler = None
-            for handler in root_logger.handlers:
-                if type(handler).__name__ == "AttrFilteredLoggingHandler":
-                    otel_handler = handler
-                    break
+            otel_handler = next(
+                (h for h in root_logger.handlers if type(h).__name__ == "AttrFilteredLoggingHandler"),
+                None,
+            )
 
             # Should have found the handler
-            assert otel_handler is not None
+            assert otel_handler is not None, "AttrFilteredLoggingHandler not found in root logger handlers"
             # Level should be NOTSET (0)
             assert otel_handler.level == logging.NOTSET

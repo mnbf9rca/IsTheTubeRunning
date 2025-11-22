@@ -203,13 +203,14 @@ def _create_logger_provider() -> LoggerProvider:
     Validates configuration and creates LoggerProvider with OTLP exporter.
     Only called by get_logger_provider() with thread safety guarantees.
 
+    Note:
+        Unlike traces, logs can be useful even without OTLP export (stdout).
+        Therefore, OTLP endpoint is optional even in production mode.
+
     Returns:
         Configured LoggerProvider
-
-    Raises:
-        ValueError: If required OTLP endpoint is missing in production
     """
-    # Production mode requires OTLP endpoint for logs (optional - logs can work without OTLP)
+    # Production mode doesn't require OTLP endpoint for logs (optional - logs can work without OTLP)
     # Note: Unlike traces, logs can be useful even without export (stdout)
     # So we don't require the endpoint in production
 
