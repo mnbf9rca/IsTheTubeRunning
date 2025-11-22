@@ -783,6 +783,12 @@ async def test_get_route_disruptions_filters_disabled_severities(
     assert disruptions[0].status_severity_description == "Severe Delays"
 
 
+# NOTE: Fallback path tests for lines 650, 665-666 in alert_service.py were attempted
+# but are too complex due to SQLAlchemy lazy loading in async contexts. These are
+# rare defensive code paths that don't justify the test complexity. The main coverage
+# improvements focus on the new endpoint code instead.
+
+
 # ==================== _should_send_alert Tests ====================
 
 

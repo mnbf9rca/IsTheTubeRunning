@@ -484,6 +484,59 @@ class TestRouteDisruptionsAPI:
             assert str(inactive_route_with_index.id) in route_ids
 
     @pytest.mark.asyncio
+    async def test_get_disruptions_only_inactive_routes_with_active_only(
+        self,
+        async_client_with_db: AsyncClient,
+        db_session: AsyncSession,
+        test_user: User,
+        piccadilly_line: Line,
+        station_ksx: Station,
+        auth_headers_for_user_func: Callable[[User], dict[str, str]],
+    ) -> None:
+        """Test active_only=true when user has only inactive routes (early return optimization)."""
+        # Create two inactive routes
+        route1 = UserRoute(
+            user_id=test_user.id,
+            name="Inactive Route 1",
+            active=False,
+            timezone="Europe/London",
+        )
+        route2 = UserRoute(
+            user_id=test_user.id,
+            name="Inactive Route 2",
+            active=False,
+            timezone="Europe/London",
+        )
+        db_session.add_all([route1, route2])
+        await db_session.flush()
+
+        # Add segments to make them valid routes
+        segment1 = UserRouteSegment(
+            route_id=route1.id,
+            sequence=0,
+            station_id=station_ksx.id,
+            line_id=None,
+        )
+        segment2 = UserRouteSegment(
+            route_id=route2.id,
+            sequence=0,
+            station_id=station_ksx.id,
+            line_id=None,
+        )
+        db_session.add_all([segment1, segment2])
+        await db_session.commit()
+
+        # Should return empty list without calling TfL API (early return optimization)
+        # We intentionally don't mock TfLService to verify it's not called
+        response = await async_client_with_db.get(
+            "/api/v1/routes/disruptions?active_only=true",
+            headers=auth_headers_for_user_func(test_user),
+        )
+
+        assert response.status_code == 200
+        assert response.json() == []
+
+    @pytest.mark.asyncio
     async def test_get_disruptions_tfl_api_failure(
         self,
         async_client_with_db: AsyncClient,
