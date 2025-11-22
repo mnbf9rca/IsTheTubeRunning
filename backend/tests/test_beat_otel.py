@@ -74,7 +74,7 @@ class TestBeatOtelInitialization:
             mock_set_provider.assert_not_called()
 
     def test_beat_init_logs_initialization(self) -> None:
-        """Test that beat_init logs when TracerProvider is initialized."""
+        """Test that beat_init logs when TracerProvider and LoggerProvider are initialized."""
         # Create a test TracerProvider
         test_provider = TracerProvider(resource=Resource(attributes={"service.name": "test-beat"}))
 
@@ -84,14 +84,17 @@ class TestBeatOtelInitialization:
                 "app.core.telemetry.get_tracer_provider",
                 return_value=test_provider,
             ),
+            patch("app.core.telemetry.set_logger_provider"),
             patch("opentelemetry.trace.set_tracer_provider"),
             patch.object(celery_app_module.logger, "info") as mock_logger_info,
         ):
             # Call the signal handler
             celery_app_module.init_beat_otel()
 
-            # Verify logging was called
-            mock_logger_info.assert_called_once_with("beat_otel_tracer_provider_initialized")
+            # Verify logging was called for both providers
+            assert mock_logger_info.call_count == 2
+            mock_logger_info.assert_any_call("beat_otel_tracer_provider_initialized")
+            mock_logger_info.assert_any_call("beat_otel_logger_provider_initialized")
 
     def test_beat_init_handles_get_tracer_provider_exception(self) -> None:
         """Test that beat_init handles exception from get_tracer_provider gracefully."""

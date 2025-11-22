@@ -90,13 +90,20 @@ def init_worker_resources(
     _worker_loop = asyncio.new_event_loop()
     asyncio.set_event_loop(_worker_loop)
 
-    # Initialize OpenTelemetry for this worker (fork-safe: each worker gets its own TracerProvider)
+    # Initialize OpenTelemetry for this worker (fork-safe: each worker gets its own providers)
     if settings.OTEL_ENABLED:
-        from app.core.telemetry import get_tracer_provider  # noqa: PLC0415  # Lazy import for fork-safety
+        from app.core.telemetry import (  # noqa: PLC0415  # Lazy import for fork-safety
+            get_tracer_provider,
+            set_logger_provider,
+        )
 
         if provider := get_tracer_provider():
             trace.set_tracer_provider(provider)
             logger.info("worker_otel_tracer_provider_initialized")
+
+        # Initialize LoggerProvider for log export
+        set_logger_provider()
+        logger.info("worker_otel_logger_provider_initialized")
 
     logger.info("worker_process_init_completed")
 

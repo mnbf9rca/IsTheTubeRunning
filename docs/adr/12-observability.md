@@ -277,6 +277,87 @@ def init_beat_otel(**kwargs):
 
 ---
 
+## OTLP Log Export
+
+### Status
+Active (Issue #224)
+
+### Context
+While traces provide visibility into request flow and performance, logs contain detailed diagnostic information about application behavior, errors, and business logic. Without centralized log aggregation, debugging production issues requires SSH access to servers and manual log file inspection.
+
+Current state:
+- Structlog configured with JSON output and log-trace correlation (trace_id/span_id injection)
+- Logs output to stdout only (container logs)
+- No centralized log aggregation or search
+- Trace context already added to logs via `_add_otel_context` processor
+
+Need centralized logging to:
+- Search logs across all services (API, Worker, Beat) from one interface
+- Correlate logs with distributed traces using trace_id
+- Analyze error patterns and trends
+- Debug production issues without SSH access
+
+### Decision
+Export logs to Grafana Cloud Loki via OpenTelemetry OTLP protocol, using the same auth/endpoint as traces.
+
+**Implementation:**
+- LoggerProvider with lazy initialization (fork-safety pattern from ADR 08)
+- OTLPLogExporter sends logs to Grafana Cloud Loki
+- LoggingHandler bridges Python stdlib logging → OTEL logs
+- Configurable log level for export via `OTEL_LOG_LEVEL` env var
+- Custom filter removes non-serializable attributes (e.g., `_logger`)
+- Separate OTLP endpoints for traces and logs
+
+**Architecture:**
+```
+Structlog → stdlib logging → LoggingHandler → LoggerProvider → OTLPLogExporter → Grafana Cloud Loki
+                         ↓
+                    StreamHandler → stdout (preserved)
+```
+
+**Configuration:**
+- `OTEL_EXPORTER_OTLP_LOGS_ENDPOINT`: Grafana Cloud logs endpoint (e.g., `/otlp/v1/logs`)
+- `OTEL_LOG_LEVEL`: Minimum log level to export (NOTSET, DEBUG, INFO, WARNING, ERROR, CRITICAL)
+- Same auth headers as traces (`OTEL_EXPORTER_OTLP_HEADERS`)
+
+**Initialization Pattern:**
+- FastAPI: LoggerProvider initialized in lifespan (after fork)
+- Celery Worker: LoggerProvider initialized in `worker_process_init`
+- Celery Beat: LoggerProvider initialized in `beat_init`
+- Same lazy initialization pattern as TracerProvider for fork-safety
+
+**Log-Trace Correlation:**
+Already implemented via `_add_otel_context` processor:
+- Every log event includes `trace_id` and `span_id` when inside a span
+- Enables jumping from trace → logs in Grafana
+
+### Consequences
+
+**Easier:**
+- **Centralized Log Search**: Query logs from all services in Grafana
+- **Log-Trace Correlation**: Click trace_id in Grafana to see all related logs
+- **Production Debugging**: Search errors without SSH access
+- **Pattern Analysis**: Aggregate logs to find common issues
+- **Service Context**: Logs tagged with service.name (API/Worker/Beat)
+- **No New Dependencies**: OTLPLogExporter included in existing package
+
+**More Difficult:**
+- **Additional Handler**: Root logger has 2 handlers (stdout + OTLP)
+- **Configuration**: Two separate endpoints (traces, logs) to manage
+- **Volume Concerns**: Log export counts against Grafana Cloud quota (50GB/month free tier)
+- **Filter Required**: Custom filter needed to remove non-serializable attributes
+- **SDK Type Gaps**: LoggerProvider.shutdown() lacks type annotations (requires type: ignore)
+
+### Testing
+- Tests verify LoggingHandler added when OTEL enabled
+- Tests verify handler NOT added when OTEL disabled
+- Tests verify log level filtering works correctly
+- Tests verify LoggerProvider fork-safety (lazy initialization)
+- Tests verify graceful degradation when logs endpoint missing
+- Coverage: 95.36% overall
+
+---
+
 ### Related ADRs
 - **ADR 08**: Worker Pool Fork Safety (Celery worker lazy initialization)
 - **ADR 10**: Testing Strategy (test coverage and mocking approach)

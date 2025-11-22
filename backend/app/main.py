@@ -20,7 +20,12 @@ from app.api import admin, auth, contacts, notification_preferences, routes, tfl
 from app.core.config import settings
 from app.core.database import get_engine, get_session_factory
 from app.core.logging import configure_logging
-from app.core.telemetry import get_tracer_provider, shutdown_tracer_provider
+from app.core.telemetry import (
+    get_tracer_provider,
+    set_logger_provider,
+    shutdown_logger_provider,
+    shutdown_tracer_provider,
+)
 from app.middleware import AccessLoggingMiddleware
 from app.services.tfl_service import warm_up_metadata_cache
 
@@ -79,12 +84,17 @@ def _check_alembic_migrations(sync_conn: Connection) -> str | None:
 
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
-    """Application lifespan - initialize OTEL TracerProvider and validate database on startup."""
-    # Initialize TracerProvider in lifespan (after fork) so each worker gets its own
-    # BatchSpanProcessor with proper threading. Instrumentors were already called at module level.
-    if settings.OTEL_ENABLED and (provider := get_tracer_provider()):
-        trace.set_tracer_provider(provider)
-        logger.info("otel_tracer_provider_initialized")
+    """Application lifespan - initialize OTEL providers and validate database on startup."""
+    # Initialize TracerProvider and LoggerProvider in lifespan (after fork) so each worker
+    # gets its own providers with proper threading. Instrumentors were already called at module level.
+    if settings.OTEL_ENABLED:
+        if provider := get_tracer_provider():
+            trace.set_tracer_provider(provider)
+            logger.info("otel_tracer_provider_initialized")
+
+        # Initialize LoggerProvider for log export
+        set_logger_provider()
+        logger.info("otel_logger_provider_initialized")
 
     # Skip database validation in DEBUG mode (tests use mock databases/contexts)
     if settings.DEBUG:
@@ -92,6 +102,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
         yield
         # Shutdown OTEL if enabled
         if settings.OTEL_ENABLED:
+            shutdown_logger_provider()
             shutdown_tracer_provider()
         logger.info("shutdown_complete")
         return
@@ -137,6 +148,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
     # Shutdown
     logger.info("shutdown_starting")
     if settings.OTEL_ENABLED:
+        shutdown_logger_provider()
         shutdown_tracer_provider()
     await get_engine().dispose()
     logger.info("shutdown_complete")

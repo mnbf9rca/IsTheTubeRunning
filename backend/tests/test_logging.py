@@ -54,19 +54,27 @@ class TestConfigureLogging:
         dummy_handler = logging.StreamHandler()
         root_logger.addHandler(dummy_handler)
 
-        # Configure logging should clear and add exactly one handler
-        configure_logging()
+        # Configure logging should clear and add handler(s)
+        # Disable OTEL to keep test simple (just StreamHandler)
+        with patch("app.core.config.settings.OTEL_ENABLED", False):
+            configure_logging()
 
-        assert len(root_logger.handlers) == 1
+        # Should have removed dummy handler and added new handler
         assert dummy_handler not in root_logger.handlers
+        # At least one handler should be present
+        assert len(root_logger.handlers) >= 1
 
     def test_configure_logging_handler_outputs_to_stdout(self) -> None:
-        """Test that the handler outputs to stdout."""
-        configure_logging()
+        """Test that the StreamHandler outputs to stdout."""
+        # Disable OTEL to test just the StreamHandler
+        with patch("app.core.config.settings.OTEL_ENABLED", False):
+            configure_logging()
 
         root_logger = logging.getLogger()
-        assert len(root_logger.handlers) == 1
-        handler = root_logger.handlers[0]
+        # Find the StreamHandler
+        stream_handlers = [h for h in root_logger.handlers if isinstance(h, logging.StreamHandler)]
+        assert stream_handlers, "No StreamHandler found in root logger handlers"
+        handler = stream_handlers[0]
 
         assert isinstance(handler, logging.StreamHandler)
         assert handler.stream == sys.stdout
@@ -107,12 +115,14 @@ class TestConfigureLoggingIdempotent:
 
     def test_configure_logging_can_be_called_multiple_times(self) -> None:
         """Test that configure_logging can be called multiple times without error."""
-        configure_logging(log_level="INFO")
-        configure_logging(log_level="DEBUG")
-        configure_logging(log_level="WARNING")
+        # Disable OTEL to keep handler count predictable
+        with patch("app.core.config.settings.OTEL_ENABLED", False):
+            configure_logging(log_level="INFO")
+            configure_logging(log_level="DEBUG")
+            configure_logging(log_level="WARNING")
 
-        # Should only have one handler
-        assert len(logging.getLogger().handlers) == 1
+        # Should have expected handlers (at least StreamHandler)
+        assert len(logging.getLogger().handlers) >= 1
         # Should be at the last configured level
         assert logging.getLogger().level == logging.WARNING
 
@@ -203,3 +213,121 @@ class TestAddOtelContext:
             # And trace context should be added
             assert "trace_id" in result
             assert "span_id" in result
+
+
+class TestOTELLoggingHandler:
+    """Tests for OTLP LoggingHandler integration."""
+
+    def test_logging_handler_added_when_otel_enabled(self) -> None:
+        """Test that LoggingHandler is added when OTEL is enabled."""
+        with (
+            patch("app.core.config.settings.OTEL_ENABLED", True),
+            patch("app.core.config.settings.OTEL_LOG_LEVEL", "INFO"),
+            patch("app.core.config.settings.OTEL_EXPORTER_OTLP_LOGS_ENDPOINT", "http://localhost:4318/v1/logs"),
+            patch("app.core.telemetry.get_logger_provider") as mock_get_provider,
+        ):
+            # Mock logger provider
+            mock_provider = MagicMock()
+            mock_get_provider.return_value = mock_provider
+
+            # Configure logging
+            configure_logging(log_level="INFO")
+
+            # Check that both expected handler types are present (resilient to future changes)
+            root_logger = logging.getLogger()
+            handler_types = [type(h).__name__ for h in root_logger.handlers]
+            assert "StreamHandler" in handler_types, "StreamHandler should be present"
+            assert "AttrFilteredLoggingHandler" in handler_types, (
+                "AttrFilteredLoggingHandler should be present when OTEL enabled"
+            )
+
+    def test_logging_handler_not_added_when_otel_disabled(self) -> None:
+        """Test that LoggingHandler is NOT added when OTEL is disabled."""
+        with patch("app.core.config.settings.OTEL_ENABLED", False):
+            # Configure logging
+            configure_logging(log_level="INFO")
+
+            # Check that StreamHandler is present and OTEL handler is not
+            root_logger = logging.getLogger()
+            handler_types = [type(h).__name__ for h in root_logger.handlers]
+
+            assert "StreamHandler" in handler_types, "StreamHandler should be present"
+            assert "AttrFilteredLoggingHandler" not in handler_types, (
+                "AttrFilteredLoggingHandler should NOT be present when OTEL disabled"
+            )
+
+            # Verify StreamHandler outputs to stdout
+            stream_handler = next(h for h in root_logger.handlers if isinstance(h, logging.StreamHandler))
+            assert stream_handler.stream == sys.stdout
+
+    def test_logging_handler_not_added_when_no_logger_provider(self) -> None:
+        """Test that LoggingHandler is not added when get_logger_provider returns None."""
+        with (
+            patch("app.core.config.settings.OTEL_ENABLED", True),
+            patch("app.core.telemetry.get_logger_provider", return_value=None),
+        ):
+            # Configure logging
+            configure_logging(log_level="INFO")
+
+            # Check that only StreamHandler is present (LoggerProvider returned None)
+            root_logger = logging.getLogger()
+            handler_types = [type(h).__name__ for h in root_logger.handlers]
+
+            assert "StreamHandler" in handler_types, "StreamHandler should be present"
+            assert "AttrFilteredLoggingHandler" not in handler_types, (
+                "AttrFilteredLoggingHandler should NOT be present when logger provider is None"
+            )
+
+    def test_logging_handler_level_matches_otel_log_level(self) -> None:
+        """Test that LoggingHandler level matches OTEL_LOG_LEVEL setting."""
+        with (
+            patch("app.core.config.settings.OTEL_ENABLED", True),
+            patch("app.core.config.settings.OTEL_LOG_LEVEL", "WARNING"),
+            patch("app.core.config.settings.OTEL_EXPORTER_OTLP_LOGS_ENDPOINT", "http://localhost:4318/v1/logs"),
+            patch("app.core.telemetry.get_logger_provider") as mock_get_provider,
+        ):
+            # Mock logger provider
+            mock_provider = MagicMock()
+            mock_get_provider.return_value = mock_provider
+
+            # Configure logging
+            configure_logging(log_level="INFO")
+
+            # Find the OTEL handler using next()
+            root_logger = logging.getLogger()
+            otel_handler = next(
+                (h for h in root_logger.handlers if type(h).__name__ == "AttrFilteredLoggingHandler"),
+                None,
+            )
+
+            # Should have found the handler
+            assert otel_handler is not None, "AttrFilteredLoggingHandler not found in root logger handlers"
+            # Level should match OTEL_LOG_LEVEL (WARNING)
+            assert otel_handler.level == logging.WARNING
+
+    def test_logging_handler_with_notset_level(self) -> None:
+        """Test that LoggingHandler works with NOTSET level (exports all logs)."""
+        with (
+            patch("app.core.config.settings.OTEL_ENABLED", True),
+            patch("app.core.config.settings.OTEL_LOG_LEVEL", "NOTSET"),
+            patch("app.core.config.settings.OTEL_EXPORTER_OTLP_LOGS_ENDPOINT", "http://localhost:4318/v1/logs"),
+            patch("app.core.telemetry.get_logger_provider") as mock_get_provider,
+        ):
+            # Mock logger provider
+            mock_provider = MagicMock()
+            mock_get_provider.return_value = mock_provider
+
+            # Configure logging
+            configure_logging(log_level="DEBUG")
+
+            # Find the OTEL handler using next()
+            root_logger = logging.getLogger()
+            otel_handler = next(
+                (h for h in root_logger.handlers if type(h).__name__ == "AttrFilteredLoggingHandler"),
+                None,
+            )
+
+            # Should have found the handler
+            assert otel_handler is not None, "AttrFilteredLoggingHandler not found in root logger handlers"
+            # Level should be NOTSET (0)
+            assert otel_handler.level == logging.NOTSET

@@ -25,7 +25,7 @@ class TestRedisInstrumentation:
             patch.object(telemetry_module.settings, "DEBUG", True),  # Skip endpoint requirement
             patch.object(telemetry_module.settings, "OTEL_SERVICE_NAME", "test-service"),
             patch.object(telemetry_module.settings, "OTEL_ENVIRONMENT", "test"),
-            patch.object(telemetry_module.settings, "OTEL_EXPORTER_OTLP_ENDPOINT", ""),
+            patch.object(telemetry_module.settings, "OTEL_EXPORTER_OTLP_TRACES_ENDPOINT", ""),
             patch.object(telemetry_module, "RedisInstrumentor") as mock_redis_instrumentor_class,
         ):
             # Setup mock instrumentor
@@ -81,7 +81,7 @@ class TestRedisInstrumentation:
             patch.object(telemetry_module.settings, "DEBUG", True),
             patch.object(telemetry_module.settings, "OTEL_SERVICE_NAME", "test-service"),
             patch.object(telemetry_module.settings, "OTEL_ENVIRONMENT", "test"),
-            patch.object(telemetry_module.settings, "OTEL_EXPORTER_OTLP_ENDPOINT", ""),
+            patch.object(telemetry_module.settings, "OTEL_EXPORTER_OTLP_TRACES_ENDPOINT", ""),
             patch.object(telemetry_module, "RedisInstrumentor") as mock_redis_instrumentor_class,
         ):
             # Call get_tracer_provider
@@ -105,7 +105,7 @@ class TestRedisInstrumentation:
             patch.object(telemetry_module.settings, "DEBUG", True),
             patch.object(telemetry_module.settings, "OTEL_SERVICE_NAME", "test-service"),
             patch.object(telemetry_module.settings, "OTEL_ENVIRONMENT", "test"),
-            patch.object(telemetry_module.settings, "OTEL_EXPORTER_OTLP_ENDPOINT", ""),
+            patch.object(telemetry_module.settings, "OTEL_EXPORTER_OTLP_TRACES_ENDPOINT", ""),
             patch.object(telemetry_module, "RedisInstrumentor") as mock_redis_instrumentor_class,
         ):
             # Setup mock instrumentor
@@ -136,7 +136,7 @@ class TestRedisInstrumentation:
             patch.object(telemetry_module.settings, "DEBUG", True),
             patch.object(telemetry_module.settings, "OTEL_SERVICE_NAME", "test-service"),
             patch.object(telemetry_module.settings, "OTEL_ENVIRONMENT", "test"),
-            patch.object(telemetry_module.settings, "OTEL_EXPORTER_OTLP_ENDPOINT", ""),
+            patch.object(telemetry_module.settings, "OTEL_EXPORTER_OTLP_TRACES_ENDPOINT", ""),
             patch.object(telemetry_module, "RedisInstrumentor") as mock_redis_instrumentor_class,
         ):
             # Setup mock instrumentor to raise exception
@@ -174,7 +174,7 @@ class TestRedisInstrumentationCoverage:
             patch.object(telemetry_module.settings, "OTEL_ENVIRONMENT", "test"),
             patch.object(
                 telemetry_module.settings,
-                "OTEL_EXPORTER_OTLP_ENDPOINT",
+                "OTEL_EXPORTER_OTLP_TRACES_ENDPOINT",
                 "http://localhost:4318",
             ),
             patch.object(telemetry_module.settings, "OTEL_EXPORTER_OTLP_HEADERS", ""),
@@ -212,7 +212,7 @@ class TestRedisInstrumentationCoverage:
             patch.object(telemetry_module.settings, "DEBUG", True),
             patch.object(telemetry_module.settings, "OTEL_SERVICE_NAME", "test-service"),
             patch.object(telemetry_module.settings, "OTEL_ENVIRONMENT", "test"),
-            patch.object(telemetry_module.settings, "OTEL_EXPORTER_OTLP_ENDPOINT", ""),
+            patch.object(telemetry_module.settings, "OTEL_EXPORTER_OTLP_TRACES_ENDPOINT", ""),
             patch.object(telemetry_module, "RedisInstrumentor") as mock_redis_instrumentor_class,
         ):
             # Setup mock instrumentor

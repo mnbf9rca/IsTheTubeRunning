@@ -22,7 +22,7 @@ def test_get_tracer_provider_lazy_initialization(monkeypatch: pytest.MonkeyPatch
     """Test that TracerProvider is created lazily on first access."""
     monkeypatch.setattr(settings, "OTEL_ENABLED", True)
     monkeypatch.setattr(settings, "DEBUG", True)  # Skip endpoint validation
-    monkeypatch.setattr(settings, "OTEL_EXPORTER_OTLP_ENDPOINT", None)
+    monkeypatch.setattr(settings, "OTEL_EXPORTER_OTLP_TRACES_ENDPOINT", None)
 
     # Initially None
     telemetry._tracer_provider = None
@@ -39,7 +39,7 @@ def test_get_tracer_provider_singleton_pattern(monkeypatch: pytest.MonkeyPatch) 
     """Test that multiple calls return the same TracerProvider instance."""
     monkeypatch.setattr(settings, "OTEL_ENABLED", True)
     monkeypatch.setattr(settings, "DEBUG", True)
-    monkeypatch.setattr(settings, "OTEL_EXPORTER_OTLP_ENDPOINT", None)
+    monkeypatch.setattr(settings, "OTEL_EXPORTER_OTLP_TRACES_ENDPOINT", None)
     telemetry._tracer_provider = None
 
     provider1 = telemetry.get_tracer_provider()
@@ -52,7 +52,7 @@ def test_get_tracer_provider_thread_safe(monkeypatch: pytest.MonkeyPatch) -> Non
     """Test that TracerProvider initialization is thread-safe."""
     monkeypatch.setattr(settings, "OTEL_ENABLED", True)
     monkeypatch.setattr(settings, "DEBUG", True)
-    monkeypatch.setattr(settings, "OTEL_EXPORTER_OTLP_ENDPOINT", None)
+    monkeypatch.setattr(settings, "OTEL_EXPORTER_OTLP_TRACES_ENDPOINT", None)
     telemetry._tracer_provider = None
 
     providers: list[TracerProvider | None] = []
@@ -75,10 +75,10 @@ def test_create_tracer_provider_requires_endpoint_in_production(monkeypatch: pyt
     """Test that TracerProvider requires OTLP endpoint in production mode."""
     monkeypatch.setattr(settings, "OTEL_ENABLED", True)
     monkeypatch.setattr(settings, "DEBUG", False)  # Production mode
-    monkeypatch.setattr(settings, "OTEL_EXPORTER_OTLP_ENDPOINT", None)
+    monkeypatch.setattr(settings, "OTEL_EXPORTER_OTLP_TRACES_ENDPOINT", None)
     telemetry._tracer_provider = None
 
-    with pytest.raises(ValueError, match=r"Required configuration missing.*OTEL_EXPORTER_OTLP_ENDPOINT"):
+    with pytest.raises(ValueError, match=r"Required configuration missing.*OTEL_EXPORTER_OTLP_TRACES_ENDPOINT"):
         telemetry.get_tracer_provider()
 
 
@@ -86,7 +86,7 @@ def test_create_tracer_provider_with_otlp_exporter(monkeypatch: pytest.MonkeyPat
     """Test TracerProvider creation with OTLP exporter configured."""
     monkeypatch.setattr(settings, "OTEL_ENABLED", True)
     monkeypatch.setattr(settings, "DEBUG", False)
-    monkeypatch.setattr(settings, "OTEL_EXPORTER_OTLP_ENDPOINT", "http://localhost:4318/v1/traces")
+    monkeypatch.setattr(settings, "OTEL_EXPORTER_OTLP_TRACES_ENDPOINT", "http://localhost:4318/v1/traces")
     monkeypatch.setattr(settings, "OTEL_EXPORTER_OTLP_HEADERS", "Authorization=Bearer token123")
     monkeypatch.setattr(settings, "OTEL_ENVIRONMENT", "production")
     telemetry._tracer_provider = None
@@ -170,7 +170,7 @@ def test_shutdown_tracer_provider(monkeypatch: pytest.MonkeyPatch) -> None:
     """Test graceful shutdown of TracerProvider."""
     monkeypatch.setattr(settings, "OTEL_ENABLED", True)
     monkeypatch.setattr(settings, "DEBUG", True)
-    monkeypatch.setattr(settings, "OTEL_EXPORTER_OTLP_ENDPOINT", None)
+    monkeypatch.setattr(settings, "OTEL_EXPORTER_OTLP_TRACES_ENDPOINT", None)
     telemetry._tracer_provider = None
 
     # Create provider
@@ -193,7 +193,7 @@ def test_shutdown_tracer_provider_multiple_calls(monkeypatch: pytest.MonkeyPatch
     """Test that shutdown can be called multiple times safely."""
     monkeypatch.setattr(settings, "OTEL_ENABLED", True)
     monkeypatch.setattr(settings, "DEBUG", True)
-    monkeypatch.setattr(settings, "OTEL_EXPORTER_OTLP_ENDPOINT", None)
+    monkeypatch.setattr(settings, "OTEL_EXPORTER_OTLP_TRACES_ENDPOINT", None)
     telemetry._tracer_provider = None
 
     provider = telemetry.get_tracer_provider()
@@ -218,7 +218,7 @@ def test_create_tracer_provider_without_endpoint_in_debug(
     """Test that TracerProvider can be created without endpoint in DEBUG mode."""
     monkeypatch.setattr(settings, "OTEL_ENABLED", True)
     monkeypatch.setattr(settings, "DEBUG", True)
-    monkeypatch.setattr(settings, "OTEL_EXPORTER_OTLP_ENDPOINT", None)
+    monkeypatch.setattr(settings, "OTEL_EXPORTER_OTLP_TRACES_ENDPOINT", None)
     telemetry._tracer_provider = None
 
     provider = telemetry.get_tracer_provider()
@@ -226,4 +226,4 @@ def test_create_tracer_provider_without_endpoint_in_debug(
     assert provider is not None
     assert isinstance(provider, TracerProvider)
     # Should log warning about no endpoint
-    assert any("otel_no_endpoint_configured" in str(record.message) for record in caplog.records)
+    assert any("otel_no_traces_endpoint_configured" in str(record.message) for record in caplog.records)

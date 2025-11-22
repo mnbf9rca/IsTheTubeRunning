@@ -10,10 +10,13 @@ Configures structlog to integrate with Python's logging module so that:
 import logging
 import sys
 from collections.abc import MutableMapping
-from typing import Any
+from typing import TYPE_CHECKING, Any, ClassVar
 
 import structlog
 from opentelemetry import trace
+
+if TYPE_CHECKING:
+    from opentelemetry.util.types import Attributes
 
 
 def _add_otel_context(
@@ -26,6 +29,56 @@ def _add_otel_context(
         event_dict["trace_id"] = format(ctx.trace_id, "032x")
         event_dict["span_id"] = format(ctx.span_id, "016x")
     return event_dict
+
+
+class AttrFilteredLoggingHandler:
+    """LoggingHandler that removes non-serializable attributes from log records.
+
+    Custom LoggingHandler that filters non-serializable attributes before export.
+    See: https://github.com/open-telemetry/opentelemetry-python/issues/3649
+
+    OTEL's LoggingHandler doesn't call formatters/processors, so structlog's
+    _logger attribute never gets removed. This class overrides _get_attributes()
+    to filter out problematic attributes before they reach the OTLP exporter.
+
+    Note:
+        This class is defined at module level to enable importability and testability,
+        but is only instantiated when OTEL is enabled in configure_logging().
+    """
+
+    # Attributes to drop (structlog adds _logger, websockets adds websocket, etc.)
+    DROP_ATTRIBUTES: ClassVar[list[str]] = ["_logger", "websocket"]
+
+    def __new__(cls, *args: Any, **kwargs: Any) -> Any:  # noqa: ANN401  # Runtime class creation requires Any
+        """Create instance by inheriting from LoggingHandler at runtime."""
+        # Import LoggingHandler only when instantiating (lazy import for OTEL dependency)
+        from opentelemetry.sdk._logs import LoggingHandler  # noqa: PLC0415
+
+        # Create a new class that inherits from LoggingHandler
+        runtime_class = type(
+            "AttrFilteredLoggingHandler",
+            (LoggingHandler,),
+            {
+                "DROP_ATTRIBUTES": cls.DROP_ATTRIBUTES,
+                "_get_attributes": staticmethod(cls._get_attributes),
+            },
+        )
+        # Return instance of the runtime class (LoggingHandler subclass)
+        return runtime_class(*args, **kwargs)
+
+    @staticmethod
+    def _get_attributes(record: logging.LogRecord) -> "Attributes":
+        """Extract attributes from log record, filtering non-serializable ones."""
+        from opentelemetry.sdk._logs import LoggingHandler  # noqa: PLC0415
+
+        attributes = LoggingHandler._get_attributes(record)
+        if attributes is None:
+            return None
+        # Convert immutable Mapping to mutable dict to allow deletion
+        attributes_dict = dict(attributes)
+        for attr in AttrFilteredLoggingHandler.DROP_ATTRIBUTES:
+            attributes_dict.pop(attr, None)
+        return attributes_dict  # type: ignore[return-value]
 
 
 def configure_logging(*, log_level: str = "INFO") -> None:
@@ -88,6 +141,31 @@ def configure_logging(*, log_level: str = "INFO") -> None:
     root_logger.handlers.clear()
     root_logger.addHandler(handler)
     root_logger.setLevel(getattr(logging, normalized_level))
+
+    # Add OTLP log exporter if enabled
+    # Lazy import to avoid circular dependency (telemetry imports logging for logger)
+    from app.core.config import settings  # noqa: PLC0415
+
+    if settings.OTEL_ENABLED:
+        # Import OTEL logging components only when needed
+        from app.core.telemetry import get_logger_provider  # noqa: PLC0415
+
+        if logger_provider := get_logger_provider():
+            # Determine log level for OTLP export
+            otel_log_level = getattr(logging, settings.OTEL_LOG_LEVEL)
+
+            # Create handler that exports logs to OTLP (using module-level class)
+            # Note: AttrFilteredLoggingHandler returns LoggingHandler subclass instance
+            otel_handler = AttrFilteredLoggingHandler(level=otel_log_level, logger_provider=logger_provider)
+            root_logger.addHandler(otel_handler)  # type: ignore[arg-type]  # Runtime subclass of LoggingHandler
+
+            # Use structlog to log this (since we're in configuration phase)
+            logger = structlog.get_logger(__name__)
+            logger.info(
+                "otel_logging_handler_attached",
+                level=settings.OTEL_LOG_LEVEL,
+                endpoint=settings.OTEL_EXPORTER_OTLP_LOGS_ENDPOINT,
+            )
 
     # Silence noisy third-party loggers (reduce to WARNING level)
     # These produce verbose INFO/DEBUG logs that clutter output

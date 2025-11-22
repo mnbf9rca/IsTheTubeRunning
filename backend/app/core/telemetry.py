@@ -5,8 +5,12 @@ from typing import TYPE_CHECKING
 
 import structlog
 from opentelemetry import trace
+from opentelemetry._logs import set_logger_provider as otel_set_logger_provider
+from opentelemetry.exporter.otlp.proto.http._log_exporter import OTLPLogExporter
 from opentelemetry.exporter.otlp.proto.http.trace_exporter import OTLPSpanExporter
 from opentelemetry.instrumentation.redis import RedisInstrumentor
+from opentelemetry.sdk._logs import LoggerProvider
+from opentelemetry.sdk._logs.export import BatchLogRecordProcessor
 from opentelemetry.sdk.resources import Resource
 from opentelemetry.sdk.trace import TracerProvider
 from opentelemetry.sdk.trace.export import BatchSpanProcessor
@@ -22,6 +26,8 @@ logger = structlog.get_logger(__name__)
 # Module-level globals for lazy initialization (fork-safety pattern from ADR 08)
 _tracer_provider: TracerProvider | None = None
 _tracer_provider_lock = threading.Lock()
+_logger_provider: LoggerProvider | None = None
+_logger_provider_lock = threading.Lock()
 _redis_instrumented: bool = False
 
 
@@ -65,9 +71,9 @@ def _create_tracer_provider() -> TracerProvider:
     Raises:
         ValueError: If required OTLP endpoint is missing in production
     """
-    # Production mode requires OTLP endpoint
+    # Production mode requires OTLP endpoint for traces
     if not settings.DEBUG:
-        require_config("OTEL_EXPORTER_OTLP_ENDPOINT")
+        require_config("OTEL_EXPORTER_OTLP_TRACES_ENDPOINT")
 
     # Create resource with service metadata
     resource = Resource(
@@ -96,13 +102,13 @@ def _create_tracer_provider() -> TracerProvider:
             # Continue without Redis instrumentation - graceful degradation
 
     # Add OTLP exporter if endpoint is configured
-    if settings.OTEL_EXPORTER_OTLP_ENDPOINT:
+    if settings.OTEL_EXPORTER_OTLP_TRACES_ENDPOINT:
         # Parse OTLP headers (format: "key1=value1,key2=value2")
         headers = _parse_otlp_headers(settings.OTEL_EXPORTER_OTLP_HEADERS or "")
 
         # Create OTLP HTTP exporter
         otlp_exporter = OTLPSpanExporter(
-            endpoint=settings.OTEL_EXPORTER_OTLP_ENDPOINT,
+            endpoint=settings.OTEL_EXPORTER_OTLP_TRACES_ENDPOINT,
             headers=headers,
         )
 
@@ -112,12 +118,12 @@ def _create_tracer_provider() -> TracerProvider:
 
         logger.info(
             "otel_tracer_provider_created",
-            endpoint=settings.OTEL_EXPORTER_OTLP_ENDPOINT,
+            endpoint=settings.OTEL_EXPORTER_OTLP_TRACES_ENDPOINT,
             service_name=settings.OTEL_SERVICE_NAME,
             environment=settings.OTEL_ENVIRONMENT,
         )
     else:
-        logger.warning("otel_no_endpoint_configured", message="traces will not be exported")
+        logger.warning("otel_no_traces_endpoint_configured", message="traces will not be exported")
 
     return provider
 
@@ -161,6 +167,114 @@ def shutdown_tracer_provider() -> None:
     if _tracer_provider is not None:
         _tracer_provider.shutdown()
         logger.info("otel_tracer_provider_shutdown")
+
+
+def get_logger_provider() -> LoggerProvider | None:
+    """
+    Get or create LoggerProvider (lazy initialization for fork-safety).
+
+    This function uses lazy initialization with double-checked locking to ensure
+    each forked worker process creates its own LoggerProvider. This prevents
+    event loop binding issues when uvicorn uses multiple workers.
+
+    Returns:
+        LoggerProvider if OTEL is enabled, None otherwise
+
+    Note:
+        - Returns None if OTEL_ENABLED=false (graceful degradation)
+        - Each worker creates its own provider after fork
+        - Thread-safe singleton pattern within each worker
+    """
+    if not settings.OTEL_ENABLED:
+        return None
+
+    global _logger_provider  # noqa: PLW0603  # Required for lazy singleton pattern (ADR 08)
+    if _logger_provider is None:
+        with _logger_provider_lock:
+            if _logger_provider is None:  # Double-checked locking
+                _logger_provider = _create_logger_provider()
+    return _logger_provider
+
+
+def _create_logger_provider() -> LoggerProvider:
+    """
+    Create and configure LoggerProvider (internal helper).
+
+    Validates configuration and creates LoggerProvider with OTLP exporter.
+    Only called by get_logger_provider() with thread safety guarantees.
+
+    Note:
+        Unlike traces, logs can be useful even without OTLP export (stdout).
+        Therefore, OTLP endpoint is optional even in production mode.
+
+    Returns:
+        Configured LoggerProvider
+    """
+    # Production mode doesn't require OTLP endpoint for logs (optional - logs can work without OTLP)
+    # Note: Unlike traces, logs can be useful even without export (stdout)
+    # So we don't require the endpoint in production
+
+    # Create resource with service metadata (same as TracerProvider for correlation)
+    resource = Resource(
+        attributes={
+            "service.name": settings.OTEL_SERVICE_NAME,
+            "service.version": __version__,
+            "deployment.environment": settings.OTEL_ENVIRONMENT,
+        }
+    )
+
+    # Create provider
+    provider = LoggerProvider(resource=resource)
+
+    # Add OTLP exporter if endpoint is configured
+    if settings.OTEL_EXPORTER_OTLP_LOGS_ENDPOINT:
+        # Parse OTLP headers (same format as traces)
+        headers = _parse_otlp_headers(settings.OTEL_EXPORTER_OTLP_HEADERS or "")
+
+        # Create OTLP HTTP log exporter
+        otlp_exporter = OTLPLogExporter(
+            endpoint=settings.OTEL_EXPORTER_OTLP_LOGS_ENDPOINT,
+            headers=headers,
+        )
+
+        # Add batch processor for efficient log export
+        log_processor = BatchLogRecordProcessor(otlp_exporter)
+        provider.add_log_record_processor(log_processor)
+
+        logger.info(
+            "otel_logger_provider_created",
+            endpoint=settings.OTEL_EXPORTER_OTLP_LOGS_ENDPOINT,
+            service_name=settings.OTEL_SERVICE_NAME,
+            environment=settings.OTEL_ENVIRONMENT,
+            log_level=settings.OTEL_LOG_LEVEL,
+        )
+    else:
+        logger.warning("otel_no_logs_endpoint_configured", message="logs will not be exported to OTLP")
+
+    return provider
+
+
+def shutdown_logger_provider() -> None:
+    """
+    Shutdown LoggerProvider gracefully.
+
+    Flushes any pending log records and releases resources.
+    Safe to call multiple times or when provider is None.
+    """
+    if _logger_provider is not None:
+        _logger_provider.shutdown()  # type: ignore[no-untyped-call]  # SDK method lacks type annotations
+        logger.info("otel_logger_provider_shutdown")
+
+
+def set_logger_provider() -> None:
+    """
+    Set the global LoggerProvider for OTEL log instrumentation.
+
+    This should be called after fork (in lifespan or worker init) to ensure
+    the LoggerProvider is properly initialized in each process.
+    """
+    if provider := get_logger_provider():
+        otel_set_logger_provider(provider)
 
 
 def get_current_span() -> "Span | None":

@@ -37,6 +37,46 @@
       "mcp__playwright__browser_navigate",
       "mcp__playwright__browser_take_screenshot",
       "mcp__playwright__browser_close",
+      "mcp__playwright__browser_press_key",
+      "mcp__playwright__browser_type",
+      "mcp__playwright__browser_evaluate",
+      "mcp__playwright__browser_snapshot",
+      "mcp__playwright__browser_click",
+      "mcp__playwright__browser_navigate_back",
+      "mcp__playwright__browser_network_requests",
+      "mcp__playwright__browser_wait_for",
+      "Bash(npx lucide-react:*)",
+      "Bash(pg_isready:*)",
+      "Bash(npx prettier:*)",
+      "Bash(git branch:*)",
+      "Bash(gh pr list:*)",
+      "mcp__playwright__browser_console_messages",
+      "Bash(curl:*)",
+      "Bash(npm test:*)",
+      "Bash(echo:*)",
+      "Bash(lsof:*)",
+      "Bash(git log:*)",
+      "Bash(npx shadcn@latest add:*)",
+      "Bash(npx eslint:*)",
+      "Bash(npx shadcn@latest:*)",
+      "Bash(done)",
+      "Bash(git show:*)",
+      "Bash(git -C /Users/rob/Downloads/git/IsTheTubeRunning diff:*)",
+      "Bash(git fetch:*)",
+      "Bash(git -C /Users/rob/Downloads/git/IsTheTubeRunning status)",
+      "Bash(psql:*)",
+      "Bash(uv --version:*)",
+      "Bash(python -m py_compile:*)",
+      "Bash(pre-commit run:*)",
+      "Bash(gh issue list:*)",
+      "Bash(alembic heads:*)",
+      "Bash(alembic current:*)",
+      "Bash(gh pr diff:*)",
+      "Bash(gh pr comment:*)",
+      "Bash(git stash:*)",
+      "Bash(git rev-parse:*)",
+      "Bash(ast-grep:*)",
+      "Bash(grep:*)",
       "Bash(cat:*)",
       "Bash(find:*)",
       "Bash(gh issue create:*)",
@@ -45,15 +85,16 @@
       "Bash(gh issue view:*)",
       "Bash(gh pr view:*)",
       "Bash(git commit:*)",
-      "Bash(./scripts/gh_pr_comment_action.sh:*)"
+      "Bash(./scripts/gh_pr_comment_action.sh:*)",
+      "WebFetch",
+      "WebSearch"
+    ],
+    "ask": [
+      "Bash(git push:*)",
+      "Bash(gh pr create:*)"
     ],
     "deny": [
       "Bash(npx dotenv-vault@latest keys:*)"
-    ],
-    "ask": [
-
-      "Bash(git push:*)",
-      "Bash(gh pr create:*)"
     ]
   }
 }
