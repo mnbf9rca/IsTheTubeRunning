@@ -76,3 +76,49 @@ Use Cloudflare free tier for WAF, SSL, and CDN. Configure UFW firewall on VM to 
 - Must maintain Cloudflare IP whitelist
 - Debugging can be harder (traffic passes through Cloudflare)
 - Limited to Cloudflare's free tier features
+
+---
+
+## SSH-Based CI/CD Deployment
+
+### Status
+Active
+
+### Context
+Need automated deployment pipeline from GitHub to Azure VM. Options considered:
+1. Azure DevOps Pipelines (managed CI/CD service)
+2. GitHub Actions with Azure deployment actions (managed deployment)
+3. GitHub Actions with direct SSH deployment (self-managed)
+
+For a hobby project with cost constraints and desire for infrastructure control, need to balance automation with complexity and cost.
+
+### Decision
+Use GitHub Actions with direct SSH deployment to Azure VM. Deployment process:
+1. GitHub Actions runs tests and builds Docker images
+2. SSH into Azure VM using deployment key (stored in GitHub Secrets)
+3. Pull latest code, run docker-compose commands
+4. Run health checks to verify deployment
+
+Configuration managed through:
+- `scripts/azure-config.sh`: Centralized Azure configuration
+- `docker-compose.prod.yml`: Production service definitions
+- `.env.vault`: Encrypted secrets (decrypted via DOTENV_KEY)
+- `docker/scripts/`: Operational scripts (backup, health check, UFW)
+
+### Consequences
+**Easier:**
+- Full control over deployment process (no abstraction layers)
+- No additional Azure service costs (just VM)
+- Simple debugging (SSH into VM, check logs directly)
+- Easy to test deployment locally (same Docker Compose config)
+- Transparent process (can see exactly what happens during deployment)
+- Infrastructure as code (all scripts in repository)
+- Secrets managed with dotenv-vault (single DOTENV_KEY in GitHub Secrets)
+
+**More Difficult:**
+- Manual responsibility for deployment script maintenance
+- No built-in rollback mechanisms (must implement manually)
+- SSH key management required (though simpler than managed service auth)
+- Need to handle deployment failures explicitly
+- No deployment dashboard/UI (command-line only)
+- Scaling deployment to multiple VMs requires custom orchestration

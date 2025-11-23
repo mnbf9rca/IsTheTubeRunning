@@ -5,27 +5,27 @@ FROM python:3.14-slim
 WORKDIR /app
 
 # Install system dependencies
-RUN apt-get update && apt-get install -y \
+RUN apt-get update && \
+    DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
     gcc \
     postgresql-client \
     && rm -rf /var/lib/apt/lists/*
 
-# Install uv for package management
-RUN pip install --no-cache-dir uv
+# Copy uv binary from official image (recommended installation method)
+COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /bin/
 
-# Copy pyproject.toml and lock file
-COPY pyproject.toml ./
-COPY uv.lock ./
+# Copy dependency files
+COPY pyproject.toml uv.lock ./
 
-# Install Python dependencies using uv
-RUN uv sync --frozen
+# Install Python dependencies (production only, no dev dependencies)
+RUN uv sync --frozen --no-dev
 
 # Copy application code
 COPY . .
 
-# Set Python path
+# Set environment variables
 ENV PYTHONPATH=/app
 ENV PYTHONUNBUFFERED=1
 
-# Default command (can be overridden in docker-compose)
-CMD ["uv", "run", "fastapi", "dev", "app/main.py", "--host", "0.0.0.0", "--port", "8000"]
+# Production command with gunicorn + uvicorn workers
+CMD ["uv", "run", "gunicorn", "-k", "uvicorn.workers.UvicornWorker", "-w", "4", "-b", "0.0.0.0:8000", "app.main:app"]
