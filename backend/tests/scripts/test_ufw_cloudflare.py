@@ -120,6 +120,11 @@ class TestUFWManager:
                 text=True,
             )
 
+    def test_run_command_validates_list_type(self, manager: UFWManager) -> None:
+        """Test that run_command rejects non-list commands."""
+        with pytest.raises(TypeError, match="cmd must be a list"):
+            manager.run_command("ufw status")  # type: ignore # Testing runtime validation
+
     def test_fetch_cloudflare_ips_success(self, manager: UFWManager, mock_http_client: Mock) -> None:
         """Test fetching Cloudflare IPs successfully."""
         mock_http_client.fetch.side_effect = [

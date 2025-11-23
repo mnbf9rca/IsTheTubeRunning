@@ -97,8 +97,18 @@ class UFWManager:
 
         Returns:
             CompletedProcess with stdout/stderr
+
+        Security:
+            Uses list-based arguments (not shell=True) to prevent command injection.
+            All UFW commands are constructed with known-safe literal strings and
+            validated IP addresses (via ipaddress module).
         """
-        return subprocess.run(
+        # Validate cmd is a list to prevent accidental shell injection
+        if not isinstance(cmd, list):
+            raise TypeError(f"cmd must be a list, got {type(cmd)}")
+
+        # Safe: cmd is a list, shell=False (default), all arguments are properly escaped by Python
+        return subprocess.run(  # noqa: S603 # Using list prevents shell injection
             cmd,
             check=check,
             capture_output=True,
