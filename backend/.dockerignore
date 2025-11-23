@@ -45,3 +45,7 @@ build/
 # OS
 .DS_Store
 Thumbs.db
+
+.env*
+.flaskenv*
+!.env.project
