@@ -223,4 +223,4 @@ async def readiness_check() -> dict[str, str]:
         return {"status": "ready"}
     except Exception as e:
         logger.error("readiness_check_failed", error=str(e), error_type=type(e).__name__)
-        raise HTTPException(status_code=503, detail=f"Service unavailable: {e!s}") from e
+        raise HTTPException(status_code=503, detail="Service unavailable") from e

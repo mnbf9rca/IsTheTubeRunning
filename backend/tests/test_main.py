@@ -69,8 +69,8 @@ async def test_readiness_check_database_failure(async_client: AsyncClient) -> No
 
         assert response.status_code == 503
         data = response.json()
-        assert "Service unavailable" in data["detail"]
-        assert "Database connection failed" in data["detail"]
+        # Security: error details are logged but not exposed to clients
+        assert data["detail"] == "Service unavailable"
 
 
 @pytest.mark.asyncio
@@ -97,8 +97,8 @@ async def test_readiness_check_redis_failure(async_client: AsyncClient) -> None:
 
         assert response.status_code == 503
         data = response.json()
-        assert "Service unavailable" in data["detail"]
-        assert "Redis connection failed" in data["detail"]
+        # Security: error details are logged but not exposed to clients
+        assert data["detail"] == "Service unavailable"
 
 
 @pytest.mark.asyncio
