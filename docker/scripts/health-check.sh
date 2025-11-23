@@ -98,8 +98,8 @@ echo ""
 echo "[4/5] Checking container logs for recent errors..."
 ERROR_COUNT=0
 for container in isthetube-backend-prod isthetube-celery-worker-prod isthetube-celery-beat-prod; do
-    # Check last 20 lines of logs for ERROR level messages
-    if docker logs --tail 20 "$container" 2>&1 | grep -qi "error"; then
+    # Check last 20 lines of logs for ERROR/CRITICAL/FATAL level messages
+    if docker logs --tail 20 "$container" 2>&1 | grep -Ei "ERROR|CRITICAL|FATAL"; then
         ERROR_COUNT=$((ERROR_COUNT + 1))
         echo "  ⚠ $container has recent errors in logs"
     else

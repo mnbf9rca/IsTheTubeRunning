@@ -36,8 +36,13 @@ def test_readiness_check(client: TestClient) -> None:
         mock_conn = AsyncMock()
         mock_conn.execute = AsyncMock()
 
+        # Properly mock async context manager for begin()
+        mock_begin_ctx = AsyncMock()
+        mock_begin_ctx.__aenter__.return_value = mock_conn
+        mock_begin_ctx.__aexit__.return_value = None
+
         mock_engine = Mock()
-        mock_engine.begin.return_value = mock_conn
+        mock_engine.begin.return_value = mock_begin_ctx
         mock_get_engine.return_value = mock_engine
 
         # Mock Redis connection (async)

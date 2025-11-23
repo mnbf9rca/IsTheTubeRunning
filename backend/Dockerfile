@@ -68,8 +68,11 @@ USER appuser
 # Expose non-privileged port
 EXPOSE 8000
 
+# Environment variable for configurable worker count
+ENV GUNICORN_WORKERS=4
+
 # Production command with gunicorn + uvicorn workers
-CMD ["/app/.venv/bin/python", "-m", "gunicorn", "-k", "uvicorn.workers.UvicornWorker", "-w", "4", "-b", "0.0.0.0:8000", "app.main:app"]
+CMD ["/bin/sh", "-c", "/app/.venv/bin/python -m gunicorn -k uvicorn.workers.UvicornWorker -w ${GUNICORN_WORKERS} -b 0.0.0.0:8000 app.main:app"]
 
 # Security labels
 LABEL security.no_new_privileges="true" \

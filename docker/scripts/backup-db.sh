@@ -48,7 +48,7 @@ fi
 cd "$SCRIPT_DIR/../../backend" || exit 1
 
 # Extract credentials using Python utility
-eval "$(uv run python -m app.utils.extract_db_credentials export)"
+source <(uv run python -m app.utils.extract_db_credentials export)
 
 # Validate credentials were extracted
 if [[ -z "$PGPASSWORD" ]] || [[ -z "$PGHOST" ]] || [[ -z "$PGDATABASE" ]]; then
