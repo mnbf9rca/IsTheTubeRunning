@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # Provision Azure VM for IsTheTubeRunning
 # This is a STUB script - full implementation will be in Issue #241
 

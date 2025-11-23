@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # Test Docker builds locally for both backend and frontend
 # Tests both build and runtime to ensure containers work correctly
 

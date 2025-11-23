@@ -47,8 +47,16 @@ fi
 # Navigate to backend directory to access Python utility
 cd "$SCRIPT_DIR/../../backend" || exit 1
 
-# Extract credentials using Python utility
-source <(uv run python -m app.utils.extract_db_credentials export)
+# Extract credentials using Python utility (with proper error handling)
+TMP_CRED_FILE="$(mktemp)"
+if ! uv run python -m app.utils.extract_db_credentials export > "$TMP_CRED_FILE"; then
+    echo "ERROR: Failed to extract database credentials"
+    rm -f "$TMP_CRED_FILE"
+    exit 1
+fi
+# shellcheck disable=SC1090
+source "$TMP_CRED_FILE"
+rm -f "$TMP_CRED_FILE"
 
 # Validate credentials were extracted
 if [[ -z "$PGPASSWORD" ]] || [[ -z "$PGHOST" ]] || [[ -z "$PGDATABASE" ]]; then

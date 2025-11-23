@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # Azure Configuration for IsTheTubeRunning Deployment
 # This file contains centralized Azure configuration settings.
 # Source this file in other scripts: source "$(dirname "$0")/azure-config.sh"

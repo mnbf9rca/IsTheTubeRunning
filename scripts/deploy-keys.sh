@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # Generate SSH deployment keys for CI/CD
 # This is a STUB script - full implementation will be in Issue #241
 
