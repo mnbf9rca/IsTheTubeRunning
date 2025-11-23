@@ -5,7 +5,7 @@
 
 # Azure Subscription and Resource Group
 # Override with environment variables if needed
-export AZURE_SUBSCRIPTION_ID="${AZURE_SUBSCRIPTION_ID:-}"
+export AZURE_SUBSCRIPTION_ID="${AZURE_SUBSCRIPTION_ID:-1d9d2a8a-f001-41ae-a983-2d0cc36f3ea7}"
 export AZURE_RESOURCE_GROUP="${AZURE_RESOURCE_GROUP:-isthetube-prod}"
 export AZURE_LOCATION="${AZURE_LOCATION:-uksouth}"
 

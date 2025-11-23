@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Setup Azure VM with Docker, security hardening, and deployment tooling
-# This is a STUB script - full implementation will be in Issue #241
+# Orchestrates modular setup subscripts
 
 set -euo pipefail
 
@@ -8,42 +8,112 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=./azure-config.sh
 source "$SCRIPT_DIR/azure-config.sh"
+# shellcheck source=./setup/common.sh
+source "$SCRIPT_DIR/setup/common.sh"
 
-echo "=== Azure VM Setup (STUB - Issue #241) ==="
+require_root
+
+echo "========================================="
+echo "  IsTheTubeRunning - VM Setup"
+echo "========================================="
 echo ""
-echo "This script will configure the VM for production deployment:"
-echo "  - Target VM: $AZURE_VM_NAME"
-echo "  - Admin User: $AZURE_ADMIN_USERNAME"
-echo "  - Deploy User: $DEPLOYMENT_USER"
-echo "  - App Directory: $APP_DIR"
+echo "This script will configure your Azure VM with:"
+echo "  1. System updates and timezone (UTC)"
+echo "  2. Docker Engine and Docker Compose"
+echo "  3. Azure CLI for managed identity"
+echo "  4. fail2ban for SSH protection"
+echo "  5. SSH hardening (key-only authentication)"
+echo "  6. UFW firewall (installed, not yet configured)"
+echo "  7. Deployment user ($DEPLOYMENT_USER)"
+echo "  8. Systemd service for auto-start"
+echo "  9. Docker log rotation"
 echo ""
-echo "Full implementation tasks (Issue #241):"
-echo "  1. Update system packages (apt update && apt upgrade)"
-echo "  2. Install Docker Engine (latest stable)"
-echo "  3. Install Docker Compose v2"
-echo "  4. Install Azure CLI"
-echo "  5. Configure fail2ban"
-echo "     - SSH jail (5 attempts, 10min ban)"
-echo "     - HTTP jail for rate limiting"
-echo "  6. Harden SSH configuration"
-echo "     - Disable password authentication"
-echo "     - Disable root login"
-echo "     - Use key-only authentication"
-echo "  7. Install and configure UFW firewall"
-echo "     - Default deny incoming"
-echo "     - Allow SSH (port 22)"
-echo "     - Cloudflare IPs only for 80/443 (via ufw-cloudflare.sh)"
-echo "  8. Create deployment user"
-echo "     - Add to docker group"
-echo "     - Configure SSH keys"
-echo "     - Set up application directory"
-echo "  9. Configure log rotation"
-echo " 10. Set timezone to UTC"
+print_warning "This will modify system configuration!"
 echo ""
-echo "Security features:"
-echo "  - fail2ban: Automated IP banning"
-echo "  - UFW: Firewall with Cloudflare IP whitelisting"
-echo "  - SSH: Key-only, no passwords, no root"
-echo "  - Docker: Rootless mode for deployment user"
+read -p "Continue? (yes/no): " -r
+if [[ ! $REPLY =~ ^[Yy]es$ ]]; then
+    echo "Setup cancelled."
+    exit 0
+fi
+
 echo ""
-echo "NOTE: This is a stub. Actual setup will be implemented in Issue #241."
+echo "========================================="
+echo "  Starting Setup"
+echo "========================================="
+echo ""
+
+# Array of subscripts to run
+SUBSCRIPTS=(
+    "01-system-update.sh"
+    "02-install-docker.sh"
+    "03-install-azure-cli.sh"
+    "04-configure-fail2ban.sh"
+    "05-harden-ssh.sh"
+    "06-install-ufw.sh"
+    "07-create-deploy-user.sh"
+    "08-create-systemd-service.sh"
+    "09-configure-log-rotation.sh"
+)
+
+# Track progress
+TOTAL=${#SUBSCRIPTS[@]}
+CURRENT=0
+FAILED=()
+
+# Run each subscript
+for SUBSCRIPT in "${SUBSCRIPTS[@]}"; do
+    CURRENT=$((CURRENT + 1))
+    echo ""
+    echo "========================================="
+    echo "  Step $CURRENT/$TOTAL: $SUBSCRIPT"
+    echo "========================================="
+    echo ""
+
+    if bash "$SCRIPT_DIR/setup/$SUBSCRIPT"; then
+        print_status "Step $CURRENT/$TOTAL completed successfully"
+    else
+        print_error "Step $CURRENT/$TOTAL failed: $SUBSCRIPT"
+        FAILED+=("$SUBSCRIPT")
+    fi
+done
+
+echo ""
+echo "========================================="
+echo "  Setup Summary"
+echo "========================================="
+echo ""
+
+if [ ${#FAILED[@]} -eq 0 ]; then
+    print_status "All setup steps completed successfully!"
+else
+    print_error "Some steps failed:"
+    for SCRIPT in "${FAILED[@]}"; do
+        echo "  ✗ $SCRIPT"
+    done
+    echo ""
+    print_info "You can re-run individual failed scripts from scripts/setup/"
+    exit 1
+fi
+
+# Restart SSH to apply hardening
+echo ""
+print_info "Restarting SSH service to apply hardening..."
+systemctl restart sshd
+print_status "SSH service restarted"
+
+echo ""
+echo "========================================="
+echo "  Next Steps"
+echo "========================================="
+echo ""
+echo "1. Run deploy-keys.sh locally to generate SSH keys"
+echo "2. Add public key to /home/$DEPLOYMENT_USER/.ssh/authorized_keys"
+echo "3. Test SSH: ssh $DEPLOYMENT_USER@<VM_IP>"
+echo "4. Copy application files to $APP_DIR/deploy"
+echo "5. Set DOTENV_KEY in /etc/environment"
+echo "6. Run UFW configuration:"
+echo "   sudo python3 $APP_DIR/docker/scripts/ufw_cloudflare.py"
+echo "7. Start application:"
+echo "   sudo systemctl start docker-compose@isthetube"
+echo ""
+print_status "VM setup complete!"

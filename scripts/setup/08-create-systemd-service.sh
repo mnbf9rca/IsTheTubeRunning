@@ -1,0 +1,73 @@
+#!/usr/bin/env bash
+# Create systemd service for docker-compose auto-start
+
+set -euo pipefail
+
+# Source common functions and Azure config
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=./common.sh
+source "$SCRIPT_DIR/common.sh"
+# shellcheck source=../azure-config.sh
+source "$SCRIPT_DIR/../azure-config.sh"
+
+require_root
+
+echo "=== Systemd Service Creation ==="
+echo ""
+
+SERVICE_FILE="/etc/systemd/system/docker-compose@isthetube.service"
+
+print_info "Creating systemd service: $SERVICE_FILE..."
+cat > "$SERVICE_FILE" <<EOF
+[Unit]
+Description=Docker Compose Application Service for IsTheTubeRunning
+Requires=docker.service
+After=docker.service network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+WorkingDirectory=$APP_DIR/deploy
+User=$DEPLOYMENT_USER
+Group=$DEPLOYMENT_USER
+EnvironmentFile=/etc/environment
+
+# Pull latest images and start services
+ExecStartPre=/usr/bin/docker compose -f $APP_DIR/deploy/docker-compose.prod.yml pull
+ExecStart=/usr/bin/docker compose -f $APP_DIR/deploy/docker-compose.prod.yml up -d
+
+# Stop services
+ExecStop=/usr/bin/docker compose -f $APP_DIR/deploy/docker-compose.prod.yml down
+
+# Restart policy
+Restart=on-failure
+RestartSec=10s
+
+# Timeouts
+TimeoutStartSec=600
+TimeoutStopSec=60
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+print_status "Service file created"
+
+# Reload systemd
+print_info "Reloading systemd daemon..."
+systemctl daemon-reload
+
+# Enable service
+print_info "Enabling service..."
+systemctl enable docker-compose@isthetube
+
+print_status "Service enabled (will start on boot)"
+
+echo ""
+print_warning "Service will NOT start until application is deployed to $APP_DIR/deploy"
+print_info "To start manually after deployment:"
+print_info "  sudo systemctl start docker-compose@isthetube"
+
+echo ""
+print_status "Systemd service creation complete"
