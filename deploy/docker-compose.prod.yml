@@ -106,7 +106,7 @@ services:
       dockerfile: Dockerfile
     container_name: isthetube-celery-worker-prod
     restart: unless-stopped
-    command: uv run celery -A app.celery.app worker --loglevel=info --concurrency=2
+    command: /app/.venv/bin/celery -A app.celery.app worker --loglevel=info --concurrency=2
     environment:
       DOTENV_KEY: ${DOTENV_KEY}
       OTEL_SERVICE_NAME: isthetuberunning-worker
@@ -133,7 +133,7 @@ services:
       dockerfile: Dockerfile
     container_name: isthetube-celery-beat-prod
     restart: unless-stopped
-    command: uv run celery -A app.celery.app beat --loglevel=info
+    command: /app/.venv/bin/celery -A app.celery.app beat --loglevel=info
     environment:
       DOTENV_KEY: ${DOTENV_KEY}
       OTEL_SERVICE_NAME: isthetuberunning-beat
@@ -150,22 +150,20 @@ services:
     networks:
       - app-network
 
-  # Nginx Reverse Proxy + Frontend
-  nginx:
+  # Frontend Static Server
+  frontend:
     build:
       context: ./frontend
       dockerfile: Dockerfile
-    container_name: isthetube-nginx-prod
+    container_name: isthetube-frontend-prod
     restart: unless-stopped
     ports:
-      - "80:80"
-      - "443:443"
-    volumes:
-      - ./docker/nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - "80:8080"
+      - "443:8080"
     depends_on:
       - backend
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost/health"]
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://localhost:8080/"]
       interval: 30s
       timeout: 10s
       retries: 3

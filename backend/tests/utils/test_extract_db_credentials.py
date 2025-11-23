@@ -16,13 +16,15 @@ class TestGetModeFromArgs:
         assert get_mode_from_args(["script.py", "user"]) == "user"
         assert get_mode_from_args(["script.py", "password"]) == "password"
 
-    def test_returns_default_mode_when_no_argument(self) -> None:
-        """Test that default mode (password) is returned when no argument provided."""
-        assert get_mode_from_args(["script.py"]) == "password"
+    def test_raises_error_when_no_argument(self) -> None:
+        """Test that ValueError is raised when no argument provided."""
+        with pytest.raises(ValueError, match="Mode argument required"):
+            get_mode_from_args(["script.py"])
 
-    def test_returns_default_mode_for_empty_args(self) -> None:
-        """Test that default mode is returned for empty argument list."""
-        assert get_mode_from_args([]) == "password"
+    def test_raises_error_for_empty_args(self) -> None:
+        """Test that ValueError is raised for empty argument list."""
+        with pytest.raises(ValueError, match="Mode argument required"):
+            get_mode_from_args([])
 
 
 class TestLoadDatabaseUrl:
@@ -74,11 +76,12 @@ class TestExtractDbCredentials:
         """Test export mode outputs all credentials in bash export format."""
         result = extract_credentials(sample_database_url, "export")
 
-        assert "export PGUSER='testuser'" in result
-        assert "export PGPASSWORD='testpass123'" in result
-        assert "export PGHOST='db.example.com'" in result
-        assert "export PGPORT='5432'" in result
-        assert "export PGDATABASE='testdb'" in result
+        # shlex.quote() only adds quotes when necessary
+        assert "export PGUSER=testuser" in result
+        assert "export PGPASSWORD=testpass123" in result
+        assert "export PGHOST=db.example.com" in result
+        assert "export PGPORT=5432" in result
+        assert "export PGDATABASE=testdb" in result
 
     def test_single_field_extraction_password(self, sample_database_url: str) -> None:
         """Test extracting password field only."""
@@ -124,15 +127,15 @@ class TestExtractDbCredentials:
         """Test extraction when DATABASE_URL has no password."""
         result = extract_credentials(database_url_no_password, "export")
 
-        assert "export PGUSER='testuser'" in result
-        assert "export PGPASSWORD=''" in result  # Empty password
-        assert "export PGHOST='db.example.com'" in result
+        assert "export PGUSER=testuser" in result
+        assert "export PGPASSWORD=''" in result  # Empty password (quotes needed for empty string)
+        assert "export PGHOST=db.example.com" in result
 
     def test_url_with_default_port(self, database_url_default_port: str) -> None:
         """Test extraction when DATABASE_URL doesn't specify port (should default to 5432)."""
         result = extract_credentials(database_url_default_port, "export")
 
-        assert "export PGPORT='5432'" in result  # Default PostgreSQL port
+        assert "export PGPORT=5432" in result  # Default PostgreSQL port
 
     def test_special_characters_in_password(self) -> None:
         """Test extraction with special characters in password."""
@@ -148,6 +151,6 @@ class TestExtractDbCredentials:
         localhost_url = "postgresql+asyncpg://postgres:postgres@localhost:5432/isthetube"
         result = extract_credentials(localhost_url, "export")
 
-        assert "export PGHOST='localhost'" in result
-        assert "export PGUSER='postgres'" in result
-        assert "export PGDATABASE='isthetube'" in result
+        assert "export PGHOST=localhost" in result
+        assert "export PGUSER=postgres" in result
+        assert "export PGDATABASE=isthetube" in result

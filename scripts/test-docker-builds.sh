@@ -4,6 +4,22 @@
 
 set -e
 
+# Check for required .env.key file
+if [[ ! -f "backend/.env.key" ]]; then
+  echo "❌ ERROR: backend/.env.key file not found"
+  echo ""
+  echo "To create this file:"
+  echo "  1. Retrieve your dev or CI DOTENV_KEY:"
+  echo "     npx dotenv-vault@latest keys development"
+  echo "     npx dotenv-vault@latest keys ci"
+  echo ""
+  echo "  2. Create backend/.env.key with the key:"
+  echo "     echo 'DOTENV_KEY=dotenv://:key_...' > backend/.env.key"
+  echo ""
+  echo "  Note: This file is gitignored and should never be committed"
+  exit 1
+fi
+
 echo "🧪 Testing Docker builds..."
 echo ""
 

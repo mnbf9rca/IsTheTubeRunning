@@ -31,7 +31,8 @@ fi
 # Create backup directory
 mkdir -p "$BACKUP_DIR"
 
-echo "=== IsTheTubeRunning Database Backup ===" echo "Timestamp: $TIMESTAMP"
+echo "=== IsTheTubeRunning Database Backup ==="
+echo "Timestamp: $TIMESTAMP"
 echo "Local only: $LOCAL_ONLY"
 echo ""
 

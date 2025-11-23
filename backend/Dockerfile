@@ -43,6 +43,7 @@ WORKDIR /app
 RUN apt-get update && \
     DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
     ca-certificates \
+    curl \
     postgresql-client \
     && rm -rf /var/lib/apt/lists/*
 

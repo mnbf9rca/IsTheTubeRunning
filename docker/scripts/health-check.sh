@@ -19,7 +19,7 @@ echo ""
 
 # Check 1: Docker containers running
 echo "[1/5] Checking Docker containers..."
-EXPECTED_CONTAINERS=("postgres" "redis" "backend" "celery-worker" "celery-beat" "nginx")
+EXPECTED_CONTAINERS=("isthetube-postgres-prod" "isthetube-redis-prod" "isthetube-backend-prod" "isthetube-celery-worker-prod" "isthetube-celery-beat-prod" "isthetube-frontend-prod")
 RUNNING_COUNT=0
 
 for container in "${EXPECTED_CONTAINERS[@]}"; do
@@ -37,7 +37,7 @@ echo ""
 
 # Check 2: Container health status
 echo "[2/5] Checking container health status..."
-for container in postgres redis backend; do
+for container in isthetube-postgres-prod isthetube-redis-prod isthetube-backend-prod; do
     HEALTH=$(docker inspect --format='{{if .State.Health}}{{.State.Health.Status}}{{else}}no healthcheck{{end}}' "$container" 2>/dev/null || echo "not found")
 
     if [[ "$HEALTH" == "healthy" ]]; then
@@ -97,7 +97,7 @@ echo ""
 # Check 4: Container logs for errors
 echo "[4/5] Checking container logs for recent errors..."
 ERROR_COUNT=0
-for container in backend celery-worker celery-beat; do
+for container in isthetube-backend-prod isthetube-celery-worker-prod isthetube-celery-beat-prod; do
     # Check last 20 lines of logs for ERROR level messages
     if docker logs --tail 20 "$container" 2>&1 | grep -qi "error"; then
         ERROR_COUNT=$((ERROR_COUNT + 1))

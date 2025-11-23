@@ -24,6 +24,7 @@ Example bash usage:
 """
 
 import os
+import shlex
 import sys
 from urllib.parse import urlparse
 
@@ -54,16 +55,16 @@ def extract_credentials(database_url: str, mode: str = "password") -> str:
 
     # Output based on mode
     if mode == "export":
-        # Export format for eval in bash
+        # Export format for eval in bash, safely shell-escaped
         lines = [
-            f"export PGUSER='{parsed.username or ''}'",
-            f"export PGPASSWORD='{parsed.password or ''}'",
-            f"export PGHOST='{parsed.hostname or ''}'",
-            f"export PGPORT='{parsed.port or 5432}'",
-            f"export PGDATABASE='{parsed.path.lstrip('/') or ''}'",
+            f"export PGUSER={shlex.quote(parsed.username or '')}",
+            f"export PGPASSWORD={shlex.quote(parsed.password or '')}",
+            f"export PGHOST={shlex.quote(parsed.hostname or '')}",
+            f"export PGPORT={shlex.quote(str(parsed.port or 5432))}",
+            f"export PGDATABASE={shlex.quote(parsed.path.lstrip('/') or '')}",
         ]
         return "\n".join(lines)
-    if mode in ["user", "password", "host", "port", "database"]:
+    if mode in {"user", "password", "host", "port", "database"}:
         # Single value extraction
         values = {
             "user": parsed.username or "",
@@ -87,10 +88,20 @@ def get_mode_from_args(args: list[str]) -> str:
 
     Returns:
         Extraction mode string ("export", "user", "password", etc.)
+
+    Raises:
+        ValueError: If no mode argument provided
     """
-    if len(args) > 1:
-        return args[1]
-    return "password"  # Default to password for backwards compatibility
+    # args[0] is script name, args[1] is the mode argument
+    mode_arg_index = 1
+    if len(args) <= mode_arg_index:
+        msg = (
+            "Mode argument required. Usage:\n"
+            "  python -m app.utils.extract_db_credentials <mode>\n"
+            "  Modes: export, user, password, host, port, database"
+        )
+        raise ValueError(msg)
+    return args[mode_arg_index]
 
 
 def load_database_url() -> str:
@@ -110,13 +121,10 @@ def load_database_url() -> str:
     if "DATABASE_URL" not in os.environ:
         load_dotenv()
 
-    database_url = os.getenv("DATABASE_URL", "")
-
-    if not database_url:
-        msg = "DATABASE_URL not found in environment"
-        raise ValueError(msg)
-
-    return database_url
+    if database_url := os.getenv("DATABASE_URL", ""):
+        return database_url
+    msg = "DATABASE_URL not found in environment"
+    raise ValueError(msg)
 
 
 def main() -> None:

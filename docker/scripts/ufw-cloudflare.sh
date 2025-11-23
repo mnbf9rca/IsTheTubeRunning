@@ -61,17 +61,59 @@ echo ""
 # Create temp directory
 mkdir -p "$TMP_DIR"
 
+validate_cidr_file() {
+    local file="$1"
+    local family="$2"
+    local pattern
+
+    case "$family" in
+        IPv4)
+            # Basic IPv4 CIDR validation (e.g., 203.0.113.0/24)
+            pattern='^([0-9]{1,3}\.){3}[0-9]{1,3}(/[0-9]{1,2})?$'
+            ;;
+        IPv6)
+            # Basic IPv6 CIDR validation (e.g., 2400:cb00::/32)
+            # This is intentionally lenient but rejects obvious non-IP content (like HTML)
+            pattern='^[0-9a-fA-F:]+(/[0-9]{1,3})?$'
+            ;;
+        *)
+            echo "ERROR: Unknown IP family '$family' for validation"
+            exit 1
+            ;;
+    esac
+
+    if [ ! -s "$file" ]; then
+        echo "ERROR: $family ranges file '$file' is empty"
+        exit 1
+    fi
+
+    # Fail if any non-empty line does NOT match the expected pattern
+    if grep -Evq "$pattern" "$file"; then
+        echo "ERROR: $family ranges file '$file' contains invalid entries"
+        exit 1
+    fi
+}
+
 # Fetch Cloudflare IP ranges
 echo "Fetching Cloudflare IP ranges..."
-if ! curl -s "$CF_IPS_V4_URL" > "$TMP_DIR/cf-ips-v4.txt"; then
+if ! curl --silent --show-error --fail --connect-timeout 5 --max-time 30 \
+    "$CF_IPS_V4_URL" -o "$TMP_DIR/cf-ips-v4.txt"; then
     echo "ERROR: Failed to fetch Cloudflare IPv4 ranges"
     exit 1
 fi
 
-if ! curl -s "$CF_IPS_V6_URL" > "$TMP_DIR/cf-ips-v6.txt"; then
+if ! curl --silent --show-error --fail --connect-timeout 5 --max-time 30 \
+    "$CF_IPS_V6_URL" -o "$TMP_DIR/cf-ips-v6.txt"; then
     echo "ERROR: Failed to fetch Cloudflare IPv6 ranges"
     exit 1
 fi
+
+# Remove blank lines (if any) before validation
+sed -i.bak '/^[[:space:]]*$/d' "$TMP_DIR/cf-ips-v4.txt" "$TMP_DIR/cf-ips-v6.txt"
+
+# Validate that each line is a plausible IP/CIDR, to avoid e.g. HTML error pages
+validate_cidr_file "$TMP_DIR/cf-ips-v4.txt" "IPv4"
+validate_cidr_file "$TMP_DIR/cf-ips-v6.txt" "IPv6"
 
 IPV4_COUNT=$(wc -l < "$TMP_DIR/cf-ips-v4.txt")
 IPV6_COUNT=$(wc -l < "$TMP_DIR/cf-ips-v6.txt")
