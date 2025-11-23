@@ -17,6 +17,30 @@ echo "========================================="
 echo "  IsTheTubeRunning - VM Setup"
 echo "========================================="
 echo ""
+echo "Checking prerequisites..."
+echo ""
+
+# Check internet connectivity
+if ! ping -c 1 8.8.8.8 &> /dev/null; then
+    print_error "No internet connectivity"
+    exit 1
+fi
+print_status "Internet connectivity OK"
+
+# Check if running on Ubuntu
+if [ ! -f /etc/os-release ]; then
+    print_error "Cannot determine OS"
+    exit 1
+fi
+
+. /etc/os-release
+if [ "$ID" != "ubuntu" ]; then
+    print_error "This script is designed for Ubuntu only (detected: $ID)"
+    exit 1
+fi
+print_status "Running on Ubuntu $VERSION_ID"
+
+echo ""
 echo "This script will configure your Azure VM with:"
 echo "  1. System updates and timezone (UTC)"
 echo "  2. Docker Engine and Docker Compose"

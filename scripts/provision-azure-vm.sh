@@ -17,15 +17,27 @@ NC='\033[0m' # No Color
 
 # Parse command line arguments
 DRY_RUN=false
+SSH_KEY_PATH=""
+
 while [[ $# -gt 0 ]]; do
     case $1 in
         --dry-run)
             DRY_RUN=true
             shift
             ;;
+        --ssh-key)
+            SSH_KEY_PATH="$2"
+            shift 2
+            ;;
         -h|--help)
-            echo "Usage: $0 [--dry-run]"
-            echo "  --dry-run    Show what would be created without actually provisioning"
+            echo "Usage: $0 --ssh-key PATH [--dry-run]"
+            echo ""
+            echo "Required:"
+            echo "  --ssh-key PATH    Path to existing SSH public key for VM admin access"
+            echo ""
+            echo "Optional:"
+            echo "  --dry-run         Show what would be created without provisioning"
+            echo "  -h, --help        Show this help message"
             exit 0
             ;;
         *)
@@ -34,6 +46,21 @@ while [[ $# -gt 0 ]]; do
             ;;
     esac
 done
+
+# Validate SSH key is provided and exists
+if [ -z "$SSH_KEY_PATH" ]; then
+    print_error "SSH key is required. Use --ssh-key PATH"
+    echo ""
+    echo "Example: $0 --ssh-key ~/.ssh/id_rsa.pub"
+    exit 1
+fi
+
+if [ ! -f "$SSH_KEY_PATH" ]; then
+    print_error "SSH key file not found: $SSH_KEY_PATH"
+    exit 1
+fi
+
+print_status "Using SSH key: $SSH_KEY_PATH"
 
 # Function to print colored output
 print_status() {
@@ -60,19 +87,24 @@ az_exec() {
 
 echo "=== Azure VM Provisioning for IsTheTubeRunning ==="
 echo ""
+echo "Checking prerequisites..."
+echo ""
 
 # Check if Azure CLI is installed
 if ! command -v az &> /dev/null; then
-    print_error "Azure CLI is not installed. Please install it with: brew install azure-cli"
+    print_error "Azure CLI is not installed"
+    echo ""
+    echo "Install with: brew install azure-cli"
     exit 1
 fi
-
 print_status "Azure CLI found"
 
 # Check if logged in to Azure
 if [ "$DRY_RUN" = false ]; then
     if ! az account show &> /dev/null; then
-        print_error "Not logged in to Azure. Please run: az login"
+        print_error "Not logged in to Azure"
+        echo ""
+        echo "Login with: az login"
         exit 1
     fi
     print_status "Logged in to Azure"
@@ -222,7 +254,7 @@ if az_exec vm create \
     --image "$AZURE_VM_IMAGE" \
     --os-disk-size-gb "$AZURE_VM_OS_DISK_SIZE" \
     --admin-username "$AZURE_ADMIN_USERNAME" \
-    --generate-ssh-keys \
+    --ssh-key-values "$SSH_KEY_PATH" \
     --assign-identity; then
     print_status "Virtual machine '$AZURE_VM_NAME' created"
 else

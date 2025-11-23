@@ -47,14 +47,14 @@ while [[ $# -gt 0 ]]; do
             shift
             ;;
         -h|--help)
-            echo "Usage: $0 [--key-file PATH] [--generate]"
+            echo "Usage: $0 --key-file PATH | --generate"
             echo ""
-            echo "Options:"
+            echo "Required (choose one):"
             echo "  --key-file PATH    Use existing SSH key at PATH"
             echo "  --generate         Generate a new SSH key"
-            echo "  -h, --help         Show this help message"
             echo ""
-            echo "If no options provided, will use default key or prompt to generate"
+            echo "Optional:"
+            echo "  -h, --help         Show this help message"
             exit 0
             ;;
         *)
@@ -64,68 +64,55 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 
+# Require explicit choice
+if [ -z "$KEY_FILE" ] && [ "$GENERATE_NEW" = false ]; then
+    print_error "Must specify either --key-file PATH or --generate"
+    echo ""
+    echo "Usage: $0 --key-file PATH | --generate"
+    echo ""
+    echo "Examples:"
+    echo "  $0 --key-file ~/.ssh/id_ed25519  # Use existing key"
+    echo "  $0 --generate                     # Generate new key"
+    exit 1
+fi
+
 echo "========================================="
 echo "  SSH Deployment Keys Setup"
 echo "========================================="
 echo ""
 
-# Default key file if not specified
-if [ -z "$KEY_FILE" ]; then
-    KEY_FILE="$HOME/.ssh/$AZURE_SSH_KEY_NAME"
-fi
-
-# Check if key exists
-if [ -f "$KEY_FILE" ]; then
-    print_status "Found existing SSH key: $KEY_FILE"
-
-    if [ "$GENERATE_NEW" = true ]; then
-        print_warning "--generate flag set but key already exists"
-        read -p "Overwrite existing key? (yes/no): " -r
-        if [[ ! $REPLY =~ ^[Yy]es$ ]]; then
-            print_info "Using existing key"
-        else
-            print_info "Removing existing key..."
-            rm -f "$KEY_FILE" "${KEY_FILE}.pub"
-            GENERATE_NEW=true
-        fi
+# Handle --generate flag
+if [ "$GENERATE_NEW" = true ]; then
+    # Default key file for generation
+    if [ -z "$KEY_FILE" ]; then
+        KEY_FILE="$HOME/.ssh/$AZURE_SSH_KEY_NAME"
     fi
-else
-    print_info "No existing key found at: $KEY_FILE"
 
-    if [ "$GENERATE_NEW" = false ]; then
-        read -p "Generate new SSH key? (yes/no): " -r
-        if [[ $REPLY =~ ^[Yy]es$ ]]; then
-            GENERATE_NEW=true
-        else
-            print_error "No key file specified and generation declined"
-            echo ""
-            print_info "Usage: $0 --key-file /path/to/existing/key"
-            print_info "   or: $0 --generate"
-            exit 1
-        fi
+    # Check if key already exists
+    if [ -f "$KEY_FILE" ]; then
+        print_error "Key already exists: $KEY_FILE"
+        print_info "Delete it first or use --key-file to specify existing key"
+        exit 1
     fi
-fi
 
-# Generate SSH key pair if needed
-if [ "$GENERATE_NEW" = true ] && [ ! -f "$KEY_FILE" ]; then
-    print_info "Generating ED25519 SSH key pair..."
-
-    # Create directory if it doesn't exist
+    # Generate new key
+    print_info "Generating ED25519 SSH key at: $KEY_FILE"
     mkdir -p "$(dirname "$KEY_FILE")"
-
     ssh-keygen -t ed25519 -f "$KEY_FILE" -C "github-actions-deploy" -N ""
     print_status "SSH key pair generated"
-elif [ -f "$KEY_FILE" ]; then
-    print_status "Using existing SSH key pair"
 else
-    print_error "Key file not found: $KEY_FILE"
-    exit 1
-fi
+    # Using existing key
+    if [ ! -f "$KEY_FILE" ]; then
+        print_error "Key file not found: $KEY_FILE"
+        exit 1
+    fi
 
-# Verify public key exists
-if [ ! -f "${KEY_FILE}.pub" ]; then
-    print_error "Public key not found: ${KEY_FILE}.pub"
-    exit 1
+    if [ ! -f "${KEY_FILE}.pub" ]; then
+        print_error "Public key not found: ${KEY_FILE}.pub"
+        exit 1
+    fi
+
+    print_status "Using existing SSH key: $KEY_FILE"
 fi
 
 echo ""
