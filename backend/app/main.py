@@ -4,11 +4,12 @@ from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 from pathlib import Path
 
+import redis.asyncio as redis
 import structlog
 from alembic import script
 from alembic.config import Config
 from alembic.runtime import migration
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from opentelemetry import trace
 from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
@@ -207,5 +208,19 @@ async def health_check() -> dict[str, str]:
 @app.get("/ready")
 async def readiness_check() -> dict[str, str]:
     """Readiness check endpoint - verify dependencies."""
-    # TODO: Add actual dependency checks (database, redis, etc.)
-    return {"status": "ready"}
+    try:
+        # Check database connectivity
+        async with get_engine().begin() as conn:
+            await conn.execute(text("SELECT 1"))
+
+        # Check Redis connectivity
+        redis_client = redis.from_url(settings.REDIS_URL, encoding="utf-8", decode_responses=True)
+        try:
+            await redis_client.ping()
+        finally:
+            await redis_client.close()
+
+        return {"status": "ready"}
+    except Exception as e:
+        logger.error("readiness_check_failed", error=str(e), error_type=type(e).__name__)
+        raise HTTPException(status_code=503, detail="Service unavailable") from e

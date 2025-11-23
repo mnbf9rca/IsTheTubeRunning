@@ -1,0 +1,221 @@
+# Production Docker Compose for IsTheTubeRunning
+# Domain: isthetube.cynexia.com
+#
+# Prerequisites:
+#   - DOTENV_KEY environment variable set on host
+#   - .env.vault file present in backend/ directory
+#   - nginx.conf mounted from docker/nginx/
+#
+# Usage:
+#   DOTENV_KEY="dotenv://..." docker-compose -f docker-compose.prod.yml up -d
+#
+# Health checks:
+#   docker-compose -f docker-compose.prod.yml ps
+#   ./docker/scripts/health-check.sh
+
+services:
+  # PostgreSQL Database
+  postgres:
+    image: postgres:18
+    container_name: isthetube-postgres-prod
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: isthetube
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 2G
+        reservations:
+          cpus: '0.5'
+          memory: 1G
+    networks:
+      - app-network
+
+  # Redis Cache & Queue
+  redis:
+    image: redis:8.2.1-alpine
+    container_name: isthetube-redis-prod
+    restart: unless-stopped
+    volumes:
+      - redis_data:/data
+    command: redis-server --appendonly yes --maxmemory 512mb --maxmemory-policy allkeys-lru
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 5s
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 512M
+        reservations:
+          cpus: '0.25'
+          memory: 256M
+    networks:
+      - app-network
+
+  # FastAPI Backend
+  backend:
+    build:
+      context: ../backend
+      dockerfile: Dockerfile
+    container_name: isthetube-backend-prod
+    restart: unless-stopped
+    environment:
+      DOTENV_KEY: ${DOTENV_KEY}
+      OTEL_SERVICE_NAME: isthetuberunning-api
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 1G
+        reservations:
+          cpus: '0.5'
+          memory: 512M
+    networks:
+      - app-network
+
+  # Celery Worker
+  celery-worker:
+    build:
+      context: ../backend
+      dockerfile: Dockerfile
+    container_name: isthetube-celery-worker-prod
+    restart: unless-stopped
+    command: /app/.venv/bin/celery -A app.celery.app worker --loglevel=info --concurrency=2
+    environment:
+      DOTENV_KEY: ${DOTENV_KEY}
+      OTEL_SERVICE_NAME: isthetuberunning-worker
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 1G
+        reservations:
+          cpus: '0.5'
+          memory: 512M
+    networks:
+      - app-network
+
+  # Celery Beat Scheduler
+  celery-beat:
+    build:
+      context: ../backend
+      dockerfile: Dockerfile
+    container_name: isthetube-celery-beat-prod
+    restart: unless-stopped
+    command: /app/.venv/bin/celery -A app.celery.app beat --loglevel=info
+    environment:
+      DOTENV_KEY: ${DOTENV_KEY}
+      OTEL_SERVICE_NAME: isthetuberunning-beat
+    depends_on:
+      - redis
+    deploy:
+      resources:
+        limits:
+          cpus: '0.25'
+          memory: 256M
+        reservations:
+          cpus: '0.1'
+          memory: 128M
+    networks:
+      - app-network
+
+  # Frontend Static Server (builds frontend assets)
+  frontend:
+    build:
+      context: ../frontend
+      dockerfile: Dockerfile
+    container_name: isthetube-frontend-prod
+    restart: unless-stopped
+    # Port not exposed - nginx handles all external traffic
+    volumes:
+      - frontend_static:/www
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://localhost:8080/"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 512M
+        reservations:
+          cpus: '0.25'
+          memory: 256M
+    networks:
+      - app-network
+
+  # Nginx Reverse Proxy (serves frontend + proxies backend API)
+  nginx:
+    image: nginx:alpine
+    container_name: isthetube-nginx-prod
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      # Port 443 not exposed - Cloudflare handles TLS termination per ADR 01
+    volumes:
+      - ../docker/nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - frontend_static:/usr/share/nginx/html:ro
+    depends_on:
+      - backend
+      - frontend
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://localhost/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 15s
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 256M
+        reservations:
+          cpus: '0.25'
+          memory: 128M
+    networks:
+      - app-network
+
+volumes:
+  postgres_data:
+    driver: local
+  redis_data:
+    driver: local
+  frontend_static:
+    driver: local
+
+networks:
+  app-network:
+    driver: bridge

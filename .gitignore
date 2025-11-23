@@ -411,3 +411,7 @@ coverage.*
 
 # OpenTelemetry Collector binary
 otelcol
+
+.env*
+.flaskenv*
+!.env.project
