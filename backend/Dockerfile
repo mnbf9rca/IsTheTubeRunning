@@ -1,50 +1,56 @@
 # Backend Dockerfile for IsTheTubeRunning
-# Multi-stage build for security and minimal image size
-# Uses uv to manage Python - no python base image needed!
+# Multi-stage build following uv best practices
+# See: https://docs.astral.sh/uv/guides/integration/docker/
 
 # Stage 1: Build dependencies
-FROM debian:bookworm-slim AS builder
+FROM python:3.14-slim AS builder
 
-WORKDIR /app
-
-# Install build dependencies
+# Install build dependencies for compiling Python packages
 RUN apt-get update && \
     DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
-    ca-certificates \
     gcc \
     libc6-dev \
     && rm -rf /var/lib/apt/lists/*
 
-# Copy uv binary from official image
+# Install uv
 COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /bin/
 
-# Copy dependency files
-COPY pyproject.toml uv.lock ./
+# Enable bytecode compilation for faster startup
+ENV UV_COMPILE_BYTECODE=1
 
-# Install Python (via uv) and dependencies (production only)
-RUN uv sync --frozen --no-dev
+# Change the working directory to the `app` directory
+WORKDIR /app
+
+# Install dependencies (without installing the project itself yet)
+RUN --mount=type=cache,target=/root/.cache/uv \
+    --mount=type=bind,source=uv.lock,target=uv.lock \
+    --mount=type=bind,source=pyproject.toml,target=pyproject.toml \
+    uv sync --frozen --no-dev --no-install-project --no-editable
+
+# Copy the project source code
+COPY . /app
+
+# Install the project in non-editable mode
+RUN --mount=type=cache,target=/root/.cache/uv \
+    uv sync --frozen --no-dev --no-editable
 
 # Stage 2: Production runtime
-FROM debian:bookworm-slim
+FROM python:3.14-slim
 
 WORKDIR /app
 
-# Install only runtime dependencies
+# Install runtime dependencies
 RUN apt-get update && \
     DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
     ca-certificates \
     postgresql-client \
     && rm -rf /var/lib/apt/lists/*
 
-# Create non-root user
+# Create non-root user with home directory
 RUN groupadd -r -g 1000 appuser && \
-    useradd -r -u 1000 -g appuser -s /sbin/nologin -c "Application user" appuser
+    useradd -r -u 1000 -g appuser -m -d /home/appuser -s /sbin/nologin -c "Application user" appuser
 
-# Copy uv binary
-COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /bin/
-
-# Copy Python and installed dependencies from builder
-COPY --from=builder --chown=appuser:appuser /root/.local/share/uv/python /root/.local/share/uv/python
+# Copy the virtual environment from the builder
 COPY --from=builder --chown=appuser:appuser /app/.venv /app/.venv
 
 # Copy application code
@@ -62,7 +68,7 @@ USER appuser
 EXPOSE 8000
 
 # Production command with gunicorn + uvicorn workers
-CMD ["uv", "run", "--no-sync", "gunicorn", "-k", "uvicorn.workers.UvicornWorker", "-w", "4", "-b", "0.0.0.0:8000", "app.main:app"]
+CMD ["/app/.venv/bin/python", "-m", "gunicorn", "-k", "uvicorn.workers.UvicornWorker", "-w", "4", "-b", "0.0.0.0:8000", "app.main:app"]
 
 # Security labels
 LABEL security.no_new_privileges="true" \
