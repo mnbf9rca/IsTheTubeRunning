@@ -23,6 +23,14 @@ DEBIAN_FRONTEND=noninteractive apt-get upgrade -y
 
 print_status "System packages updated"
 
+# Install common dependencies
+print_info "Installing common dependencies..."
+apt-get install -y \
+    python3-httpx \
+    python3-pip
+
+print_status "Common dependencies installed"
+
 # Set timezone
 print_info "Setting timezone to UTC..."
 if timedatectl set-timezone UTC; then
