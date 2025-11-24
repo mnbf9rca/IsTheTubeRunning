@@ -239,32 +239,12 @@ az_exec network nsg rule create \
     --access Allow \
     --protocol Tcp
 
-# Note: NSG allows HTTP/HTTPS from any source (*) for Cloudflare connectivity.
-# UFW firewall (configured by setup-vm.sh) restricts ports 80/443 to Cloudflare IP ranges only.
-# This layered security approach allows Cloudflare to reach the VM while blocking direct access.
-echo "    Adding HTTP rule (port 80)..."
-az_exec network nsg rule create \
-    --resource-group "$AZURE_RESOURCE_GROUP" \
-    --nsg-name "$AZURE_NSG_NAME" \
-    --name AllowHTTP \
-    --priority 1001 \
-    --source-address-prefixes '*' \
-    --destination-port-ranges 80 \
-    --access Allow \
-    --protocol Tcp
-
-echo "    Adding HTTPS rule (port 443)..."
-az_exec network nsg rule create \
-    --resource-group "$AZURE_RESOURCE_GROUP" \
-    --nsg-name "$AZURE_NSG_NAME" \
-    --name AllowHTTPS \
-    --priority 1002 \
-    --source-address-prefixes '*' \
-    --destination-port-ranges 443 \
-    --access Allow \
-    --protocol Tcp
-
-print_status "NSG rules configured"
+# Note: HTTP/HTTPS NSG rules NOT needed - Cloudflare Tunnel provides ingress
+# Traffic flow: Internet → Cloudflare Edge → Encrypted Tunnel (outbound-only) → Application
+# No inbound ports 80/443 required, eliminating Docker/UFW firewall bypass issue.
+# SSH (port 22) remains on traditional networking, protected by UFW + fail2ban + NSG.
+# See: docs/adr/01-infrastructure.md for architectural decision rationale.
+print_status "NSG rules configured (SSH only - HTTP/HTTPS via Cloudflare Tunnel)"
 
 # 4. Create Public IP
 echo "[4/11] Creating public IP address..."
@@ -456,12 +436,24 @@ if [ "$DRY_RUN" = false ]; then
     echo "1. Configure the VM with setup scripts:"
     echo "   scp -i ${SSH_PRIVATE_KEY} -r deploy/ ${AZURE_ADMIN_USERNAME}@${VM_PUBLIC_IP}:~ && \\"
     # shellcheck disable=SC2016
-    printf '   ssh -i %s -t %s@%s "cd deploy && DOTENV_KEY=\\"$DOTENV_KEY_PRODUCTION\\" sudo -E ./setup-vm.sh --yes"\n' "${SSH_PRIVATE_KEY}" "${AZURE_ADMIN_USERNAME}" "${VM_PUBLIC_IP}"
+    printf '   ssh -i %s -t %s@%s "cd deploy && DOTENV_KEY=\\"$DOTENV_KEY_PRODUCTION\\" CLOUDFLARE_TUNNEL_TOKEN=\\"$CLOUDFLARE_TUNNEL_TOKEN\\" sudo -E ./setup-vm.sh --yes"\n' "${SSH_PRIVATE_KEY}" "${AZURE_ADMIN_USERNAME}" "${VM_PUBLIC_IP}"
     echo ""
-    echo "   Note: Ensure DOTENV_KEY_PRODUCTION is set in your environment before running"
+    echo "   Note: Ensure DOTENV_KEY_PRODUCTION and CLOUDFLARE_TUNNEL_TOKEN are set in your environment before running"
+    echo "   Get tunnel token from: https://one.dash.cloudflare.com → Networks → Tunnels"
     echo ""
     echo "2. Generate deployment SSH keys (after VM setup completes):"
     echo "   ssh -i ${SSH_PRIVATE_KEY} -t ${AZURE_ADMIN_USERNAME}@${VM_PUBLIC_IP} 'cd deploy && sudo ./deploy-keys.sh --generate'"
+    echo ""
+    echo "3. Deploy application code to VM:"
+    echo "   rsync -avz --exclude='.git' --exclude='node_modules' --exclude='backend/.venv' --exclude='backend/__pycache__' \\"
+    echo "     -e \"ssh -i ${SSH_PRIVATE_KEY}\" \\"
+    echo "     . ${AZURE_ADMIN_USERNAME}@${VM_PUBLIC_IP}:${APP_DIR}/"
+    echo ""
+    echo "4. Start application service:"
+    echo "   ssh -i ${SSH_PRIVATE_KEY} -t ${AZURE_ADMIN_USERNAME}@${VM_PUBLIC_IP} 'sudo systemctl start docker-compose@isthetube'"
+    echo ""
+    echo "5. Monitor application logs:"
+    echo "   ssh -i ${SSH_PRIVATE_KEY} -t ${AZURE_ADMIN_USERNAME}@${VM_PUBLIC_IP} 'sudo journalctl -u docker-compose@isthetube -f'"
     echo ""
 else
     echo "DRY-RUN completed successfully. No resources were created."

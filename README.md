@@ -33,7 +33,8 @@ See [implementation_plan.md](./implementation_plan.md) for the full roadmap.
 ### Infrastructure
 - **Docker Compose** for local development
 - **PostgreSQL** + **Redis** containerized services
-- **Nginx** for reverse proxy (production)
+- **Nginx** for reverse proxy
+- **Cloudflare Tunnel** for secure ingress (production)
 - **GitHub Actions** for CI/CD
 - **Azure VM** for deployment (Phase 12)
 
@@ -391,7 +392,10 @@ This displays the `DOTENV_KEY_CI` and `DOTENV_KEY_PRODUCTION` values needed for 
 
 **Production Deployment:**
 1. Set `DOTENV_KEY_PRODUCTION` as an environment variable on your production server
-2. The application automatically decrypts `.env.vault` at startup
+2. Set `CLOUDFLARE_TUNNEL_TOKEN` as an environment variable (get from Cloudflare Zero Trust dashboard)
+3. The application automatically decrypts `.env.vault` at startup and connects to Cloudflare Tunnel for ingress
+
+**Note:** HTTP/HTTPS traffic uses Cloudflare Tunnel (no published ports). SSH remains on port 22 (UFW + fail2ban protected). See `docs/adr/01-infrastructure.md` for architecture details.
 
 ### How It Works
 

@@ -52,30 +52,61 @@ Deploy to a single Azure VM (Standard D2s_v3: 2 vCPU, 8GB RAM) using Docker Comp
 
 ---
 
-## Cloudflare + UFW Firewall
+## Cloudflare Tunnel (Zero Trust Ingress)
 
 ### Status
 Active
 
 ### Context
-Need WAF, SSL termination, CDN, and DDoS protection without additional cost. Also need to restrict direct access to VM for security.
+Docker publishes container ports using iptables NAT table manipulation, which processes packets **before** they reach UFW's INPUT chain. This means Docker completely bypasses UFW firewall rules for published ports (e.g., `-p 80:80`).
+
+The original architecture intended to use UFW to restrict ports 80/443 to Cloudflare IP ranges only, but this is ineffective for Docker-published ports. Direct access to the VM's public IP on port 80 would bypass both Cloudflare and UFW, exposing the application to:
+- Cloudflare WAF bypass (direct access skips WAF rules)
+- DDoS attacks (no Cloudflare protection layer)
+- SSL/TLS bypass (plain HTTP to VM instead of HTTPS via Cloudflare)
+
+See: https://docs.docker.com/engine/network/packet-filtering-firewalls/
+
+Alternatives considered:
+1. **DOCKER-USER iptables chain**: Add custom iptables rules for Cloudflare IP filtering (complex, requires iptables expertise)
+2. **Localhost binding + host nginx**: Bind containers to 127.0.0.1, run nginx on host (extra layer, two nginx configs)
+3. **Cloudflare Tunnel**: Outbound-only encrypted tunnel, no published ports (eliminates problem entirely)
 
 ### Decision
-Use Cloudflare free tier for WAF, SSL, and CDN. Configure UFW firewall on VM to only accept traffic from Cloudflare IP ranges on ports 80/443. Allow SSH from specific IP or all (configurable).
+Use **Cloudflare Tunnel** (Zero Trust) for all HTTP/HTTPS ingress. Remove port publishing entirely from docker-compose configuration.
+
+**Architecture:**
+```
+Internet → Cloudflare Edge → Encrypted Tunnel (outbound-only) → nginx container (no published ports)
+SSH     → Azure NSG → UFW → host SSH daemon (traditional networking, port 22)
+```
+
+**Implementation:**
+- Add `cloudflared` container to docker-compose.prod.yml with CLOUDFLARE_TUNNEL_TOKEN
+- Remove `ports: - "80:80"` from nginx service (no published ports)
+- Remove HTTP/HTTPS NSG rules from provision-azure-vm.sh (not needed)
+- Simplify UFW configuration to SSH protection only (ports 80/443 not published)
 
 ### Consequences
 **Easier:**
-- Free WAF, SSL certificates, and CDN
-- DDoS protection included
-- Easy SSL/TLS management (no Let's Encrypt maintenance)
-- Origin server protected from direct attacks
-- Weekly updates to Cloudflare IP ranges via script
+- **Eliminates Docker/UFW firewall bypass issue** entirely (no ports to bypass)
+- **Zero-maintenance security**: Cloudflare manages ingress, no IP whitelist updates needed
+- Free tier (no cost): Cloudflare Tunnel included in free plan
+- Better security: No open inbound ports 80/443 on VM, outbound-only tunnel
+- Automatic failover: Cloudflare handles routing to healthy tunnels
+- Built-in DDoS protection: Traffic must pass through Cloudflare edge
+- Geographic distribution: Cloudflare's global network routes users to nearest edge
 
 **More Difficult:**
-- Dependency on Cloudflare service
-- Must maintain Cloudflare IP whitelist
-- Debugging can be harder (traffic passes through Cloudflare)
-- Limited to Cloudflare's free tier features
+- Cloudflare dependency: Application requires Cloudflare service (already the case for DNS/proxy)
+- Slight latency increase: ~10-30ms added for tunnel routing (acceptable for hobby project)
+- Token management: CLOUDFLARE_TUNNEL_TOKEN must be securely stored and rotated if compromised
+- Debugging: Cannot directly access application on VM (must go through tunnel)
+
+**SSH Access:**
+- SSH remains on traditional networking (port 22, Azure NSG + UFW + fail2ban protected)
+- Cloudflare Tunnel **only affects HTTP/HTTPS traffic**
+- No changes to SSH security model
 
 ---
 

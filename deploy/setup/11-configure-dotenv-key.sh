@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Configure DOTENV_KEY for application startup
+# Configure DOTENV_KEY and CLOUDFLARE_TUNNEL_TOKEN for application startup
 
 set -euo pipefail
 
@@ -15,13 +15,13 @@ validate_required_config "DEPLOYMENT_USER" "APP_DIR" || exit 1
 
 require_root
 
-echo "=== DOTENV_KEY Configuration ==="
+echo "=== Application Secrets Configuration ==="
 echo ""
 
 SECRETS_FILE="$APP_DIR/.env.secrets"
 
 # DOTENV_KEY is validated by setup-vm.sh, so it's guaranteed to be set here
-print_info "Configuring DOTENV_KEY..."
+print_info "Configuring application secrets..."
 
 # Create APP_DIR if it doesn't exist
 if [ ! -d "$APP_DIR" ]; then
@@ -38,8 +38,20 @@ if [ -f "$SECRETS_FILE" ]; then
     print_status "Backup created: $BACKUP_FILE"
 fi
 
-# Write DOTENV_KEY to secrets file
-echo "DOTENV_KEY=${DOTENV_KEY}" > "$SECRETS_FILE"
+# CLOUDFLARE_TUNNEL_TOKEN is validated by setup-vm.sh, so it's guaranteed to be set here
+print_info "Writing secrets to $SECRETS_FILE..."
+
+# Write secrets to file
+cat > "$SECRETS_FILE" <<EOF
+# Application secrets for IsTheTubeRunning production deployment
+# This file is sourced by systemd service and docker-compose
+
+# DOTENV_KEY: Decrypts .env.vault containing application configuration
+DOTENV_KEY=${DOTENV_KEY}
+
+# CLOUDFLARE_TUNNEL_TOKEN: Authenticates to Cloudflare Tunnel for ingress
+CLOUDFLARE_TUNNEL_TOKEN=${CLOUDFLARE_TUNNEL_TOKEN}
+EOF
 
 # Set secure permissions (read/write by owner only)
 chmod 600 "$SECRETS_FILE"
@@ -47,7 +59,9 @@ chmod 600 "$SECRETS_FILE"
 # Set ownership to deployment user
 chown "$DEPLOYMENT_USER:$DEPLOYMENT_USER" "$SECRETS_FILE"
 
-print_status "DOTENV_KEY written to $SECRETS_FILE"
+print_status "Secrets written to $SECRETS_FILE"
+print_status "  - DOTENV_KEY: configured ✓"
+print_status "  - CLOUDFLARE_TUNNEL_TOKEN: configured ✓"
 print_status "Permissions: 600 (owner read/write only)"
 print_status "Owner: $DEPLOYMENT_USER:$DEPLOYMENT_USER"
 
@@ -56,4 +70,4 @@ systemctl daemon-reload
 print_status "Systemd environment reloaded"
 
 echo ""
-print_status "DOTENV_KEY configuration complete"
+print_status "Application secrets configuration complete"

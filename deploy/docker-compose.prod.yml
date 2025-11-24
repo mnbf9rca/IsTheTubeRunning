@@ -1,13 +1,19 @@
 # Production Docker Compose for IsTheTubeRunning
 # Domain: isthetube.cynexia.com
 #
+# Architecture:
+#   - HTTP/HTTPS ingress via Cloudflare Tunnel (no published ports)
+#   - SSH access via traditional networking (port 22, UFW + fail2ban protected)
+#
 # Prerequisites:
 #   - DOTENV_KEY environment variable set on host
+#   - CLOUDFLARE_TUNNEL_TOKEN environment variable set on host
 #   - .env.vault file present in backend/ directory
 #   - nginx.conf mounted from docker/nginx/
+#   - Cloudflare Tunnel configured in Cloudflare Zero Trust dashboard
 #
 # Usage:
-#   DOTENV_KEY="dotenv://..." docker-compose -f docker-compose.prod.yml up -d
+#   DOTENV_KEY="dotenv://..." CLOUDFLARE_TUNNEL_TOKEN="eyJ..." docker-compose -f docker-compose.prod.yml up -d
 #
 # Health checks:
 #   docker-compose -f docker-compose.prod.yml ps
@@ -178,13 +184,16 @@ services:
       - app-network
 
   # Nginx Reverse Proxy (serves frontend + proxies backend API)
+  # NOTE: No ports published - Cloudflare Tunnel provides ingress (see cloudflared service below)
+  # This eliminates Docker's iptables bypass of UFW firewall rules (see ADR 01)
   nginx:
     image: nginx:alpine
     container_name: isthetube-nginx-prod
     restart: unless-stopped
-    ports:
-      - "80:80"
-      # Port 443 not exposed - Cloudflare handles TLS termination per ADR 01
+    # ports: REMOVED - Traffic ingresses via Cloudflare Tunnel instead of direct port publishing
+    #   This resolves Docker/UFW firewall incompatibility where Docker bypasses UFW rules.
+    #   See: https://docs.docker.com/engine/network/packet-filtering-firewalls/
+    #   Port 443 not needed - Cloudflare handles TLS termination per ADR 01
     volumes:
       - ../docker/nginx/nginx.conf:/etc/nginx/nginx.conf:ro
       - frontend_static:/usr/share/nginx/html:ro
@@ -207,6 +216,31 @@ services:
           memory: 128M
     networks:
       - app-network
+
+  # Cloudflare Tunnel (Zero Trust ingress)
+  # Provides secure ingress without publishing ports, eliminating Docker/UFW firewall bypass issue
+  # Traffic flow: Internet → Cloudflare Edge → Encrypted Tunnel → nginx container
+  # SSH traffic continues to use traditional networking (port 22, protected by UFW + fail2ban)
+  cloudflared:
+    image: cloudflare/cloudflared:latest
+    container_name: isthetube-cloudflared-prod
+    restart: unless-stopped
+    command: tunnel run
+    environment:
+      TUNNEL_TOKEN: ${CLOUDFLARE_TUNNEL_TOKEN}
+    depends_on:
+      nginx:
+        condition: service_healthy
+    networks:
+      - app-network
+    deploy:
+      resources:
+        limits:
+          cpus: '0.25'
+          memory: 128M
+        reservations:
+          cpus: '0.1'
+          memory: 64M
 
 volumes:
   postgres_data:

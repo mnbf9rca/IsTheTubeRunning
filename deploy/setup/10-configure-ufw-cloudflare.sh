@@ -1,5 +1,7 @@
 #!/usr/bin/env bash
-# Configure UFW firewall with Cloudflare IP whitelisting
+# Configure UFW firewall for SSH protection
+# NOTE: HTTP/HTTPS traffic now uses Cloudflare Tunnel (no published ports)
+# This script configures UFW for SSH protection only
 
 set -euo pipefail
 
@@ -12,27 +14,14 @@ source "$SCRIPT_DIR/../azure-config.sh"
 
 require_root
 
-echo "=== UFW Cloudflare Configuration ==="
+echo "=== UFW Firewall Configuration ==="
 echo ""
 
-# Check prerequisites
-print_info "Checking prerequisites..."
-
-# Check if Python 3 is available
-if ! command_exists python3; then
-    print_error "Python 3 is not installed"
-    exit 1
-fi
-print_status "Python 3 found"
-
-# Check if httpx is available
-if ! python3 -c "import httpx" 2>/dev/null; then
-    print_error "python3-httpx not found"
-    print_error "This should have been installed by 01-system-update.sh"
-    print_error "Re-run setup-vm.sh or install manually: apt-get install -y python3-httpx"
-    exit 1
-fi
-print_status "python3-httpx is installed"
+print_info "Architecture:"
+print_info "  - HTTP/HTTPS ingress via Cloudflare Tunnel (no published ports)"
+print_info "  - SSH access via traditional networking (UFW protected)"
+print_info "  - See docs/adr/01-infrastructure.md for details"
+echo ""
 
 # Check if UFW is installed
 if ! command_exists ufw; then
@@ -42,22 +31,22 @@ if ! command_exists ufw; then
 fi
 print_status "UFW found"
 
-# Check if ufw_cloudflare.py exists (in deploy directory)
-DEPLOY_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
-UFW_SCRIPT="$DEPLOY_DIR/scripts/ufw_cloudflare.py"
-if [ ! -f "$UFW_SCRIPT" ]; then
-    print_error "UFW Cloudflare script not found: $UFW_SCRIPT"
-    exit 1
-fi
-print_status "UFW script found"
-
 echo ""
 
-# Run UFW configuration script
-print_info "Running UFW Cloudflare configuration..."
-python3 "$UFW_SCRIPT"
+# Configure UFW policies and SSH
+print_info "Configuring UFW for SSH protection..."
 
-print_status "UFW configured with Cloudflare IPs"
+# Set default policies
+ufw default deny incoming
+ufw default allow outgoing
+
+# Allow SSH (port 22)
+ufw allow 22/tcp
+
+# Enable UFW
+ufw --force enable
+
+print_status "UFW configured for SSH protection"
 
 # Show UFW status
 echo ""
@@ -65,4 +54,8 @@ print_info "Current UFW status:"
 ufw status verbose
 
 echo ""
-print_status "UFW Cloudflare configuration complete"
+print_info "Note: Cloudflare IP whitelisting for HTTP/HTTPS is NOT needed"
+print_info "Traffic flows: Internet → Cloudflare Edge → Encrypted Tunnel → Application"
+print_info "No inbound ports 80/443 on VM (eliminates Docker/UFW firewall bypass)"
+echo ""
+print_status "UFW configuration complete"

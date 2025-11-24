@@ -62,6 +62,28 @@ if [[ ! "$DOTENV_KEY" =~ ^dotenv:// ]]; then
 fi
 
 print_status "DOTENV_KEY validated"
+
+# Validate CLOUDFLARE_TUNNEL_TOKEN is provided
+if [ -z "${CLOUDFLARE_TUNNEL_TOKEN:-}" ]; then
+    print_error "CLOUDFLARE_TUNNEL_TOKEN environment variable is required"
+    echo ""
+    echo "The application requires Cloudflare Tunnel for ingress."
+    echo "Create a tunnel at: https://one.dash.cloudflare.com → Networks → Tunnels"
+    echo "Then run setup with:"
+    echo "  DOTENV_KEY=\"\$DOTENV_KEY_PRODUCTION\" CLOUDFLARE_TUNNEL_TOKEN=\"eyJ...\" sudo -E ./setup-vm.sh"
+    exit 1
+fi
+
+# Validate CLOUDFLARE_TUNNEL_TOKEN format (should be a base64 JWT starting with eyJ)
+if [[ ! "$CLOUDFLARE_TUNNEL_TOKEN" =~ ^eyJ ]]; then
+    print_error "CLOUDFLARE_TUNNEL_TOKEN appears to be invalid"
+    echo ""
+    echo "Expected format: eyJh... (base64-encoded JWT token)"
+    echo "Received: ${CLOUDFLARE_TUNNEL_TOKEN:0:20}..."
+    exit 1
+fi
+
+print_status "CLOUDFLARE_TUNNEL_TOKEN validated"
 echo ""
 
 # Check internet connectivity (skip if ping not available on minimal image)
@@ -100,8 +122,8 @@ echo "  6. UFW firewall installation"
 echo "  7. Deployment user"
 echo "  8. Systemd service for auto-start"
 echo "  9. Docker log rotation"
-echo "  10. UFW/Cloudflare IP configuration"
-echo "  11. DOTENV_KEY configuration (if provided)"
+echo "  10. UFW/SSH firewall configuration"
+echo "  11. DOTENV_KEY and CLOUDFLARE_TUNNEL_TOKEN configuration"
 echo ""
 print_warning "This will modify system configuration!"
 echo ""
@@ -194,13 +216,11 @@ print_status "SSH service restarted"
 
 echo ""
 echo "========================================="
-echo "  Next Steps"
+echo "  VM Setup Complete"
 echo "========================================="
 echo ""
-echo "1. Run deploy-keys.sh to generate SSH keys:"
-echo "   sudo ./deploy-keys.sh --generate"
-echo "2. Copy application files to $APP_DIR/deploy"
-echo "3. Start application:"
-echo "   sudo systemctl start docker-compose@isthetube"
+print_status "Base VM configuration finished!"
 echo ""
-print_status "VM setup complete!"
+echo "Next steps are shown in the output of provision-azure-vm.sh"
+echo "(Generate deployment keys, deploy application code, start service)"
+echo ""
