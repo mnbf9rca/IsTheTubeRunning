@@ -4,10 +4,27 @@
 
 set -euo pipefail
 
-# Source Azure configuration (validates automatically)
+# Source Azure configuration
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=./azure-config.sh
 source "$SCRIPT_DIR/azure-config.sh"
+
+# Declare required configuration for this script
+validate_required_config \
+    "AZURE_SUBSCRIPTION_ID" \
+    "AZURE_RESOURCE_GROUP" \
+    "AZURE_LOCATION" \
+    "AZURE_VM_NAME" \
+    "AZURE_VM_SIZE" \
+    "AZURE_VM_IMAGE" \
+    "AZURE_VM_OS_DISK_SIZE" \
+    "AZURE_ADMIN_USERNAME" \
+    "AZURE_VNET_NAME" \
+    "AZURE_SUBNET_NAME" \
+    "AZURE_NSG_NAME" \
+    "AZURE_PUBLIC_IP_NAME" \
+    "AZURE_STORAGE_ACCOUNT" \
+    "AZURE_STORAGE_CONTAINER" || exit 1
 
 # Colors for output
 RED='\033[0;31m'
@@ -420,19 +437,26 @@ if [ "$DRY_RUN" = false ]; then
         --query ipAddress \
         --output tsv)
 
+    # Derive private key path from public key path (remove .pub extension)
+    SSH_PRIVATE_KEY="${SSH_KEY_PATH%.pub}"
+
     print_status "VM is ready!"
     echo ""
     echo "VM Details:"
     echo "  Public IP:     $VM_PUBLIC_IP"
-    echo "  SSH Command:   ssh ${AZURE_ADMIN_USERNAME}@${VM_PUBLIC_IP}"
+    echo "  Admin User:    $AZURE_ADMIN_USERNAME"
     echo "  Resource Group: $AZURE_RESOURCE_GROUP"
     echo "  Location:      $AZURE_LOCATION"
     echo ""
-    echo "Next steps:"
-    echo "  1. Run setup-vm.sh to configure the VM"
-    echo "  2. Run deploy-keys.sh to generate deployment SSH keys"
+    echo "Next steps (run from your local machine):"
     echo ""
-    echo "Save this IP address for later: $VM_PUBLIC_IP"
+    echo "1. Configure the VM with setup scripts:"
+    echo "   scp -i ${SSH_PRIVATE_KEY} -r deploy/ ${AZURE_ADMIN_USERNAME}@${VM_PUBLIC_IP}:~ && \\"
+    echo "   ssh -i ${SSH_PRIVATE_KEY} -t ${AZURE_ADMIN_USERNAME}@${VM_PUBLIC_IP} 'cd deploy && sudo ./setup-vm.sh'"
+    echo ""
+    echo "2. Generate deployment SSH keys (after VM setup completes):"
+    echo "   ssh -i ${SSH_PRIVATE_KEY} -t ${AZURE_ADMIN_USERNAME}@${VM_PUBLIC_IP} 'cd deploy && sudo ./deploy-keys.sh --generate'"
+    echo ""
 else
     echo "DRY-RUN completed successfully. No resources were created."
 fi

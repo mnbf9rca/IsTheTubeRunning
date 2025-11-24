@@ -8,6 +8,10 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=./azure-config.sh
 source "$SCRIPT_DIR/azure-config.sh"
+
+# Declare required configuration for this script
+validate_required_config "DEPLOYMENT_USER" "APP_DIR" || exit 1
+
 # shellcheck source=./setup/common.sh
 source "$SCRIPT_DIR/setup/common.sh"
 
