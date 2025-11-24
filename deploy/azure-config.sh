@@ -1,38 +1,115 @@
 #!/usr/bin/env bash
-# Azure Configuration for IsTheTubeRunning Deployment
-# This file contains centralized Azure configuration settings.
-# Source this file in other scripts: source "$(dirname "$0")/azure-config.sh"
+# Azure Configuration Loader
+# Parses azure-config.json and exports environment variables
+# Usage: source "$(dirname "$0")/azure-config.sh"
 
-# Azure Subscription and Resource Group
-# Override with environment variables if needed
-# REQUIRED: Set AZURE_SUBSCRIPTION_ID environment variable before running provisioning scripts
-export AZURE_SUBSCRIPTION_ID="${AZURE_SUBSCRIPTION_ID:-}"
-export AZURE_RESOURCE_GROUP="${AZURE_RESOURCE_GROUP:-isthetube-prod}"
-export AZURE_LOCATION="${AZURE_LOCATION:-uksouth}"
+# shellcheck disable=SC2317  # return/exit pattern is intentional for sourced scripts
+set -euo pipefail
 
-# Virtual Machine Configuration
-export AZURE_VM_NAME="${AZURE_VM_NAME:-isthetube-vm}"
-export AZURE_VM_SIZE="${AZURE_VM_SIZE:-Standard_D2s_v3}"  # 2 vCPU, 8GB RAM
-export AZURE_VM_IMAGE="${AZURE_VM_IMAGE:-Canonical:ubuntu-24_04-lts:server:latest}"
-export AZURE_VM_OS_DISK_SIZE="${AZURE_VM_OS_DISK_SIZE:-128}"  # GB
+# Get script directory
+AZURE_CONFIG_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+AZURE_CONFIG_FILE="$AZURE_CONFIG_DIR/azure-config.json"
 
-# Network Configuration
-export AZURE_VNET_NAME="${AZURE_VNET_NAME:-isthetube-vnet}"
-export AZURE_SUBNET_NAME="${AZURE_SUBNET_NAME:-isthetube-subnet}"
-export AZURE_NSG_NAME="${AZURE_NSG_NAME:-isthetube-nsg}"
-export AZURE_PUBLIC_IP_NAME="${AZURE_PUBLIC_IP_NAME:-isthetube-ip}"
+# Check if config file exists
+if [[ ! -f "$AZURE_CONFIG_FILE" ]]; then
+    echo "ERROR: Configuration file not found: $AZURE_CONFIG_FILE" >&2
+    return 1 2>/dev/null || exit 1
+fi
 
-# Storage Configuration (for backups)
-export AZURE_STORAGE_ACCOUNT="${AZURE_STORAGE_ACCOUNT:-isthetubestorage}"
-export AZURE_STORAGE_CONTAINER="${AZURE_STORAGE_CONTAINER:-backups}"
+# Check if jq is available
+if ! command -v jq &> /dev/null; then
+    echo "ERROR: jq is required to parse azure-config.json" >&2
+    echo "Install with: apt-get install -y jq" >&2
+    return 1 2>/dev/null || exit 1
+fi
 
-# SSH Configuration
-export AZURE_SSH_KEY_NAME="${AZURE_SSH_KEY_NAME:-isthetube-deploy-key}"
-export AZURE_ADMIN_USERNAME="${AZURE_ADMIN_USERNAME:-azureuser}"
+# Define required configuration keys
+REQUIRED_CONFIG_KEYS=(
+    "AZURE_SUBSCRIPTION_ID"
+    "AZURE_RESOURCE_GROUP"
+    "AZURE_LOCATION"
+    "AZURE_VM_NAME"
+    "AZURE_VM_SIZE"
+    "AZURE_VM_IMAGE"
+    "AZURE_VM_OS_DISK_SIZE"
+    "AZURE_ADMIN_USERNAME"
+    "AZURE_VNET_NAME"
+    "AZURE_SUBNET_NAME"
+    "AZURE_NSG_NAME"
+    "AZURE_PUBLIC_IP_NAME"
+    "AZURE_STORAGE_ACCOUNT"
+    "AZURE_STORAGE_CONTAINER"
+    "AZURE_SSH_KEY_NAME"
+    "DEPLOYMENT_USER"
+    "APP_DIR"
+    "DOMAIN_NAME"
+)
 
-# Deployment Configuration
-export DEPLOYMENT_USER="${DEPLOYMENT_USER:-deployuser}"
-export APP_DIR="${APP_DIR:-/opt/isthetube}"
+# Validate JSON syntax
+if ! jq empty "$AZURE_CONFIG_FILE" 2>/dev/null; then
+    echo "ERROR: Invalid JSON syntax in $AZURE_CONFIG_FILE" >&2
+    return 1 2>/dev/null || exit 1
+fi
 
-# Domain Configuration
-export DOMAIN_NAME="${DOMAIN_NAME:-isthetube.cynexia.com}"
+# Check all required keys exist and have values
+missing_keys=()
+empty_keys=()
+
+for key in "${REQUIRED_CONFIG_KEYS[@]}"; do
+    # Check if key exists in JSON
+    if ! jq -e "has(\"$key\")" "$AZURE_CONFIG_FILE" > /dev/null 2>&1; then
+        missing_keys+=("$key")
+        continue
+    fi
+
+    # Get value from JSON, allowing environment variable override
+    value=$(jq -r ".$key" "$AZURE_CONFIG_FILE")
+
+    # If environment variable is set, use it instead of JSON value
+    if [[ -n "${!key:-}" ]]; then
+        value="${!key}"
+    fi
+
+    # Check if value is empty (and it's a required field without override)
+    if [[ -z "$value" && -z "${!key:-}" ]]; then
+        empty_keys+=("$key")
+    fi
+
+    # Export the variable
+    export "$key=$value"
+done
+
+# Report errors
+if [[ ${#missing_keys[@]} -gt 0 || ${#empty_keys[@]} -gt 0 ]]; then
+    echo "ERROR: Configuration validation failed" >&2
+    echo "" >&2
+
+    if [[ ${#missing_keys[@]} -gt 0 ]]; then
+        echo "Missing keys in $AZURE_CONFIG_FILE:" >&2
+        for key in "${missing_keys[@]}"; do
+            echo "  - $key" >&2
+        done
+        echo "" >&2
+    fi
+
+    if [[ ${#empty_keys[@]} -gt 0 ]]; then
+        echo "Empty values in $AZURE_CONFIG_FILE:" >&2
+        for key in "${empty_keys[@]}"; do
+            echo "  - $key" >&2
+        done
+        echo "" >&2
+
+        # Special handling for AZURE_SUBSCRIPTION_ID
+        if [[ " ${empty_keys[*]} " =~ " AZURE_SUBSCRIPTION_ID " ]]; then
+            echo "AZURE_SUBSCRIPTION_ID is required. Set it by either:" >&2
+            echo "  1. Environment variable: export AZURE_SUBSCRIPTION_ID=your-subscription-id" >&2
+            echo "  2. Update azure-config.json with your subscription ID" >&2
+            echo "" >&2
+            echo "Find your subscription ID with:" >&2
+            echo "  az account list --query '[].{name:name, id:id}' --output table" >&2
+            echo "" >&2
+        fi
+    fi
+
+    return 1 2>/dev/null || exit 1
+fi

@@ -4,19 +4,10 @@
 
 set -euo pipefail
 
-# Source Azure configuration
+# Source Azure configuration (validates automatically)
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=./azure-config.sh
 source "$SCRIPT_DIR/azure-config.sh"
-
-# Validate required configuration
-if [ -z "$AZURE_SUBSCRIPTION_ID" ]; then
-    echo "ERROR: AZURE_SUBSCRIPTION_ID environment variable is required" >&2
-    echo "" >&2
-    echo "Set it with: export AZURE_SUBSCRIPTION_ID=your-subscription-id" >&2
-    echo "Or find it with: az account list --query '[].{name:name, id:id}' --output table" >&2
-    exit 1
-fi
 
 # Colors for output
 RED='\033[0;31m'
