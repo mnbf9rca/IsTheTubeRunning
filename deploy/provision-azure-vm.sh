@@ -216,6 +216,9 @@ az_exec network nsg rule create \
     --access Allow \
     --protocol Tcp
 
+# Note: NSG allows HTTP/HTTPS from any source (*) for Cloudflare connectivity.
+# UFW firewall (configured by setup-vm.sh) restricts ports 80/443 to Cloudflare IP ranges only.
+# This layered security approach allows Cloudflare to reach the VM while blocking direct access.
 echo "    Adding HTTP rule (port 80)..."
 az_exec network nsg rule create \
     --resource-group "$AZURE_RESOURCE_GROUP" \
@@ -322,6 +325,9 @@ else
 fi
 
 # 9. Create Blob Container
+# Note: Requires 'Storage Blob Data Contributor' Azure RBAC role on the storage account.
+# If this fails, assign the role: az role assignment create --assignee <user-email> \
+#   --role "Storage Blob Data Contributor" --scope /subscriptions/.../storageAccounts/...
 echo "[9/11] Creating blob container..."
 if az_exec storage container create \
     --name "$AZURE_STORAGE_CONTAINER" \
@@ -334,7 +340,7 @@ else
 fi
 
 # 10. Configure Storage Lifecycle Management Policy
-echo "[10/11] Configuring storage lifecycle policy (7 daily + 4 weekly retention)..."
+echo "[10/11] Configuring storage lifecycle policy (35-day retention)..."
 POLICY_JSON=$(cat <<EOF
 {
   "rules": [

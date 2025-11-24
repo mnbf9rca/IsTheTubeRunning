@@ -24,6 +24,14 @@ if command_exists az; then
     fi
 fi
 
+# Check for curl dependency
+if ! command_exists curl; then
+    print_error "curl is not installed"
+    print_error "This should have been installed by 01-system-update.sh"
+    print_error "Re-run setup-vm.sh or install manually: apt-get install -y curl"
+    exit 1
+fi
+
 # Install Azure CLI using official installation script
 print_info "Installing Azure CLI..."
 curl -sL https://aka.ms/InstallAzureCLIDeb | bash

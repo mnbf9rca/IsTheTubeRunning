@@ -154,3 +154,38 @@ Configuration managed through:
 - Need to handle deployment failures explicitly
 - No deployment dashboard/UI (command-line only)
 - Scaling deployment to multiple VMs requires custom orchestration
+
+---
+
+## Deployment Script Design Principles
+
+### Status
+Active
+
+### Context
+Setup scripts for VM provisioning must be reliable, idempotent, and maintainable. These scripts run sequentially with dependencies, and partial failures can leave the system in an inconsistent state. Manual VM provisioning (Issue 241) requires deterministic configuration where each step depends on previous steps completing successfully.
+
+### Decision
+All deployment scripts (`deploy/provision-azure-vm.sh`, `deploy/setup-vm.sh`, and `deploy/setup/*.sh`) follow these principles:
+
+1. **Idempotency**: Scripts can be run multiple times safely, detecting and preserving existing configuration
+2. **Sequential Dependencies**: Setup subscripts run in order (01 → 10), each depending on previous steps
+3. **Fail-Fast**: Any subscript failure stops execution immediately (configuration is deterministic)
+4. **Single Responsibility**: Each subscript handles one concern (system update, Docker, UFW, etc.)
+5. **Dependency Management**: Dependencies installed once in earliest script, checked (not re-installed) in later scripts
+6. **Timestamped Backups**: Configuration backups use timestamps (e.g., `.backup.20231224-153045`) to preserve history
+
+### Consequences
+**Easier:**
+- Predictable behavior on repeated runs
+- Clear error messages (no cascading failures from dependencies)
+- Easy to understand what each script does
+- Safe to re-run after failures (fix issue and re-run setup-vm.sh)
+- Dependencies managed in single location (01-system-update.sh)
+- Configuration history preserved via timestamped backups
+
+**More Difficult:**
+- Must carefully check for existing configuration in each script
+- Scripts must handle both fresh installs and updates
+- Error handling must be comprehensive
+- Cannot skip failed steps (must fix and re-run)

@@ -35,11 +35,14 @@ fi
 print_info "Configuring Docker log rotation (max 10MB, 3 files)..."
 if [ -f "$DOCKER_DAEMON_JSON" ]; then
     print_info "Existing daemon.json found - merging log rotation settings..."
-    # Backup existing file
-    cp "$DOCKER_DAEMON_JSON" "${DOCKER_DAEMON_JSON}.backup"
-    print_status "Backup created: ${DOCKER_DAEMON_JSON}.backup"
 
-    # Merge log rotation settings into existing config
+    # Backup existing file with timestamp
+    BACKUP_TIMESTAMP=$(date +%Y%m%d-%H%M%S)
+    BACKUP_FILE="${DOCKER_DAEMON_JSON}.backup.${BACKUP_TIMESTAMP}"
+    cp "$DOCKER_DAEMON_JSON" "$BACKUP_FILE"
+    print_status "Backup created: $BACKUP_FILE"
+
+    # Merge log rotation settings into existing config (always apply our settings)
     MERGED_CONFIG=$(jq -s '.[0] * .[1]' "$DOCKER_DAEMON_JSON" <(echo "$LOG_ROTATION_CONFIG"))
     echo "$MERGED_CONFIG" | jq '.' > "$DOCKER_DAEMON_JSON"
     print_status "Log rotation settings merged with existing config"

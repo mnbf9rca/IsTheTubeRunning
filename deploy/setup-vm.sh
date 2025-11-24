@@ -84,7 +84,6 @@ SUBSCRIPTS=(
 # Track progress
 TOTAL=${#SUBSCRIPTS[@]}
 CURRENT=0
-FAILED=()
 
 # Run each subscript
 for SUBSCRIPT in "${SUBSCRIPTS[@]}"; do
@@ -99,7 +98,9 @@ for SUBSCRIPT in "${SUBSCRIPTS[@]}"; do
         print_status "Step $CURRENT/$TOTAL completed successfully"
     else
         print_error "Step $CURRENT/$TOTAL failed: $SUBSCRIPT"
-        FAILED+=("$SUBSCRIPT")
+        print_error "Cannot continue with remaining setup steps"
+        print_info "Fix the issue and re-run setup-vm.sh to continue"
+        exit 1
     fi
 done
 
@@ -108,18 +109,7 @@ echo "========================================="
 echo "  Setup Summary"
 echo "========================================="
 echo ""
-
-if [ ${#FAILED[@]} -eq 0 ]; then
-    print_status "All setup steps completed successfully!"
-else
-    print_error "Some steps failed:"
-    for SCRIPT in "${FAILED[@]}"; do
-        echo "  ✗ $SCRIPT"
-    done
-    echo ""
-    print_info "You can re-run individual failed scripts from deploy/setup/"
-    exit 1
-fi
+print_status "All setup steps completed successfully!"
 
 # Restart SSH to apply hardening
 echo ""

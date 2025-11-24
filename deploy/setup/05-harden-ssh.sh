@@ -14,6 +14,8 @@ echo "=== SSH Hardening ==="
 echo ""
 
 SSH_CONFIG="/etc/ssh/sshd_config"
+BACKUP_TIMESTAMP=$(date +%Y%m%d-%H%M%S)
+BACKUP_FILE="${SSH_CONFIG}.backup.${BACKUP_TIMESTAMP}"
 
 # Backup original config
 if [ ! -f "${SSH_CONFIG}.original" ]; then
@@ -21,8 +23,8 @@ if [ ! -f "${SSH_CONFIG}.original" ]; then
     cp "$SSH_CONFIG" "${SSH_CONFIG}.original"
 fi
 
-cp "$SSH_CONFIG" "${SSH_CONFIG}.backup"
-print_info "Current config backed up to ${SSH_CONFIG}.backup"
+cp "$SSH_CONFIG" "$BACKUP_FILE"
+print_info "Current config backed up to $BACKUP_FILE"
 
 # Apply SSH hardening settings
 print_info "Applying SSH hardening settings..."
@@ -37,7 +39,7 @@ sed -i 's/#\?ChallengeResponseAuthentication.*/ChallengeResponseAuthentication n
 sed -i 's/#\?KbdInteractiveAuthentication.*/KbdInteractiveAuthentication no/' "$SSH_CONFIG"
 
 # Add KbdInteractiveAuthentication if not present (for newer OpenSSH)
-if ! grep -q "^KbdInteractiveAuthentication" "$SSH_CONFIG"; then
+if ! grep -q "^#\?KbdInteractiveAuthentication" "$SSH_CONFIG"; then
     echo "KbdInteractiveAuthentication no" >> "$SSH_CONFIG"
 fi
 
@@ -47,7 +49,7 @@ if sshd -t; then
     print_status "SSH configuration is valid"
 else
     print_error "SSH configuration test failed - restoring backup"
-    cp "${SSH_CONFIG}.backup" "$SSH_CONFIG"
+    cp "$BACKUP_FILE" "$SSH_CONFIG"
     exit 1
 fi
 

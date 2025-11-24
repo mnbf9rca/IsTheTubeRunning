@@ -27,13 +27,12 @@ print_status "Python 3 found"
 
 # Check if httpx is available
 if ! python3 -c "import httpx" 2>/dev/null; then
-    print_warning "python3-httpx not found, installing..."
-    apt-get update
-    apt-get install -y python3-httpx
-    print_status "python3-httpx installed"
-else
-    print_status "python3-httpx already installed"
+    print_error "python3-httpx not found"
+    print_error "This should have been installed by 01-system-update.sh"
+    print_error "Re-run setup-vm.sh or install manually: apt-get install -y python3-httpx"
+    exit 1
 fi
+print_status "python3-httpx is installed"
 
 # Check if UFW is installed
 if ! command_exists ufw; then

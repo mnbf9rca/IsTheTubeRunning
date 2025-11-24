@@ -17,6 +17,13 @@ echo ""
 
 SERVICE_FILE="/etc/systemd/system/docker-compose@isthetube.service"
 
+# Backup existing service file if present
+if [ -f "$SERVICE_FILE" ]; then
+    BACKUP_TIMESTAMP=$(date +%Y%m%d-%H%M%S)
+    cp "$SERVICE_FILE" "${SERVICE_FILE}.backup.${BACKUP_TIMESTAMP}"
+    print_info "Existing service file backed up to ${SERVICE_FILE}.backup.${BACKUP_TIMESTAMP}"
+fi
+
 print_info "Creating systemd service: $SERVICE_FILE..."
 cat > "$SERVICE_FILE" <<EOF
 [Unit]
@@ -62,6 +69,25 @@ print_info "Enabling service..."
 systemctl enable docker-compose@isthetube
 
 print_status "Service enabled (will start on boot)"
+
+# Validate DOTENV_KEY is configured
+echo ""
+print_info "Validating DOTENV_KEY configuration..."
+if [[ ! -f /etc/environment ]]; then
+    print_error "/etc/environment not found"
+    print_error "The systemd service requires DOTENV_KEY to be set in /etc/environment"
+    print_error "Add it with: echo 'DOTENV_KEY=your_key' | sudo tee -a /etc/environment"
+    exit 1
+fi
+
+if ! grep -q "^DOTENV_KEY=" /etc/environment; then
+    print_error "DOTENV_KEY not found in /etc/environment"
+    print_error "The systemd service requires this variable to decrypt application secrets"
+    print_error "Add it with: echo 'DOTENV_KEY=your_key' | sudo tee -a /etc/environment"
+    exit 1
+fi
+
+print_status "DOTENV_KEY is configured"
 
 echo ""
 print_warning "Service will NOT start until application is deployed to $APP_DIR/deploy"

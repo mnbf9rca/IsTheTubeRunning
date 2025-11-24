@@ -19,6 +19,15 @@ apt-get install -y fail2ban
 
 # Configure SSH jail
 print_info "Configuring SSH jail (5 attempts, 10min ban)..."
+
+# Backup existing jail config if present
+JAIL_FILE="/etc/fail2ban/jail.d/sshd.conf"
+if [ -f "$JAIL_FILE" ]; then
+    BACKUP_TIMESTAMP=$(date +%Y%m%d-%H%M%S)
+    cp "$JAIL_FILE" "${JAIL_FILE}.backup.${BACKUP_TIMESTAMP}"
+    print_info "Existing jail config backed up to ${JAIL_FILE}.backup.${BACKUP_TIMESTAMP}"
+fi
+
 cat > /etc/fail2ban/jail.d/sshd.conf <<'EOF'
 [sshd]
 enabled = true
