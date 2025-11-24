@@ -37,12 +37,18 @@ REQUIRED_CONFIG_KEYS=(
     "AZURE_SUBNET_NAME"
     "AZURE_NSG_NAME"
     "AZURE_PUBLIC_IP_NAME"
+    "AZURE_SSH_SOURCE_PREFIXES"
     "AZURE_STORAGE_ACCOUNT"
     "AZURE_STORAGE_CONTAINER"
     "AZURE_SSH_KEY_NAME"
     "DEPLOYMENT_USER"
     "APP_DIR"
     "DOMAIN_NAME"
+)
+
+# Keys that are allowed to be empty (have auto-detection or other logic)
+OPTIONAL_KEYS=(
+    "AZURE_SSH_SOURCE_PREFIXES"  # Auto-detected in provision-azure-vm.sh
 )
 
 # Validate JSON syntax
@@ -70,9 +76,19 @@ for key in "${REQUIRED_CONFIG_KEYS[@]}"; do
         value="${!key}"
     fi
 
-    # Check if value is empty (and it's a required field without override)
+    # Check if value is empty (skip check for optional keys)
     if [[ -z "$value" && -z "${!key:-}" ]]; then
-        empty_keys+=("$key")
+        # Check if this key is in the optional list
+        is_optional=false
+        for opt_key in "${OPTIONAL_KEYS[@]}"; do
+            if [[ "$key" == "$opt_key" ]]; then
+                is_optional=true
+                break
+            fi
+        done
+        if [[ "$is_optional" == false ]]; then
+            empty_keys+=("$key")
+        fi
     fi
 
     # Export the variable

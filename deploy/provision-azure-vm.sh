@@ -28,8 +28,13 @@ print_warning() {
     echo -e "${YELLOW}⚠${NC} $1"
 }
 
+print_info() {
+    echo "ℹ $1"
+}
+
 # Parse command line arguments
 DRY_RUN=false
+SKIP_CONFIRM=false
 SSH_KEY_PATH=""
 
 while [[ $# -gt 0 ]]; do
@@ -38,18 +43,23 @@ while [[ $# -gt 0 ]]; do
             DRY_RUN=true
             shift
             ;;
+        -y|--yes)
+            SKIP_CONFIRM=true
+            shift
+            ;;
         --ssh-key)
             SSH_KEY_PATH="$2"
             shift 2
             ;;
         -h|--help)
-            echo "Usage: $0 --ssh-key PATH [--dry-run]"
+            echo "Usage: $0 --ssh-key PATH [OPTIONS]"
             echo ""
             echo "Required:"
             echo "  --ssh-key PATH    Path to existing SSH public key for VM admin access"
             echo ""
             echo "Optional:"
             echo "  --dry-run         Show what would be created without provisioning"
+            echo "  -y, --yes         Skip confirmation prompt"
             echo "  -h, --help        Show this help message"
             exit 0
             ;;
@@ -134,10 +144,12 @@ if [ "$DRY_RUN" = true ]; then
     echo ""
 fi
 
-read -p "Proceed with provisioning? (yes/no): " -r
-if [[ ! $REPLY =~ ^[Yy]es$ ]]; then
-    echo "Provisioning cancelled."
-    exit 0
+if [ "$SKIP_CONFIRM" = false ]; then
+    read -p "Proceed with provisioning? (y/n): " -r
+    if [[ ! $REPLY =~ ^[Yy](es)?$ ]]; then
+        echo "Provisioning cancelled."
+        exit 0
+    fi
 fi
 
 echo ""
@@ -236,12 +248,16 @@ print_status "NSG rules configured"
 
 # 4. Create Public IP
 echo "[4/11] Creating public IP address..."
-if az_exec network public-ip create \
+if az network public-ip show --resource-group "$AZURE_RESOURCE_GROUP" --name "$AZURE_PUBLIC_IP_NAME" &>/dev/null; then
+    EXISTING_IP=$(az network public-ip show --resource-group "$AZURE_RESOURCE_GROUP" --name "$AZURE_PUBLIC_IP_NAME" --query ipAddress -o tsv)
+    print_warning "Public IP '$AZURE_PUBLIC_IP_NAME' already exists: $EXISTING_IP"
+elif az_exec network public-ip create \
     --resource-group "$AZURE_RESOURCE_GROUP" \
     --name "$AZURE_PUBLIC_IP_NAME" \
     --sku Standard \
-    --allocation-method Static; then
-    print_status "Public IP '$AZURE_PUBLIC_IP_NAME' created"
+    --allocation-method Static \
+    --zone 1 2 3; then
+    print_status "Public IP '$AZURE_PUBLIC_IP_NAME' created (zone-redundant)"
 else
     print_error "Failed to create public IP"
     exit 1
@@ -264,6 +280,8 @@ fi
 
 # 6. Create Virtual Machine
 echo "[6/11] Creating virtual machine (this may take a few minutes)..."
+print_info "VM will be created with system-assigned managed identity"
+print_info "Role assignment for storage access will be configured in step 11"
 if az_exec vm create \
     --resource-group "$AZURE_RESOURCE_GROUP" \
     --name "$AZURE_VM_NAME" \
