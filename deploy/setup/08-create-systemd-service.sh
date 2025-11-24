@@ -26,19 +26,18 @@ After=docker.service network-online.target
 Wants=network-online.target
 
 [Service]
-Type=oneshot
-RemainAfterExit=yes
+Type=simple
 WorkingDirectory=$APP_DIR/deploy
 User=$DEPLOYMENT_USER
 Group=$DEPLOYMENT_USER
 EnvironmentFile=/etc/environment
 
 # Pull latest images and start services
-ExecStartPre=/usr/bin/docker compose -f $APP_DIR/deploy/docker-compose.prod.yml pull
-ExecStart=/usr/bin/docker compose -f $APP_DIR/deploy/docker-compose.prod.yml up -d
+ExecStartPre=/usr/bin/docker compose -f docker-compose.prod.yml pull
+ExecStart=/usr/bin/docker compose -f docker-compose.prod.yml up --no-log-prefix
 
 # Stop services
-ExecStop=/usr/bin/docker compose -f $APP_DIR/deploy/docker-compose.prod.yml down
+ExecStop=/usr/bin/docker compose -f docker-compose.prod.yml down
 
 # Restart policy
 Restart=on-failure

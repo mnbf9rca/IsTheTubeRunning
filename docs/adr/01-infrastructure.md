@@ -79,6 +79,38 @@ Use Cloudflare free tier for WAF, SSL, and CDN. Configure UFW firewall on VM to 
 
 ---
 
+## SSH Access IP Restriction
+
+### Status
+Active
+
+### Context
+Azure Network Security Group (NSG) rules control inbound traffic to the VM. Opening SSH (port 22) to the entire internet (`*`) exposes the VM to attacks, even with key-only authentication. However, requiring users to manually configure their IP address creates friction in the provisioning process.
+
+### Decision
+Auto-detect the user's current public IP address during VM provisioning and configure the NSG SSH rule to only allow access from that IP (/32). Provide override via `AZURE_SSH_SOURCE_PREFIXES` environment variable for custom IP ranges. Document that additional IPs can be added later via Azure Portal.
+
+Implementation in `deploy/provision-azure-vm.sh`:
+- Use `curl -s ifconfig.me` to detect current IP
+- Add detected IP/32 to NSG SSH rule
+- Allow override via `AZURE_SSH_SOURCE_PREFIXES` env var
+- Error if detection fails and env var not set
+
+### Consequences
+**Easier:**
+- Secure by default (SSH not open to world)
+- No manual IP lookup required
+- Works immediately for provisioning user
+- Additional IPs easily added via Azure Portal
+- Override available for advanced users or CI/CD
+
+**More Difficult:**
+- Users on dynamic IPs may need to update NSG when IP changes
+- Multi-user teams need to add each user's IP via Portal
+- Requires internet connectivity during provisioning
+
+---
+
 ## SSH-Based CI/CD Deployment
 
 ### Status

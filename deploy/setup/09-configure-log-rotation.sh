@@ -15,29 +15,39 @@ echo ""
 
 DOCKER_DAEMON_JSON="/etc/docker/daemon.json"
 
-# Check if daemon.json exists
-if [ -f "$DOCKER_DAEMON_JSON" ]; then
-    print_warning "Docker daemon.json already exists"
-    cat "$DOCKER_DAEMON_JSON"
-    echo ""
-    read -p "Overwrite with log rotation config? (yes/no): " -r
-    if [[ ! $REPLY =~ ^[Yy]es$ ]]; then
-        print_info "Skipping log rotation configuration"
-        exit 0
-    fi
-fi
-
-# Create daemon.json with log rotation
-print_info "Configuring Docker log rotation (max 10MB, 3 files)..."
-cat > "$DOCKER_DAEMON_JSON" <<'EOF'
-{
+# Define log rotation config to merge
+LOG_ROTATION_CONFIG='{
   "log-driver": "json-file",
   "log-opts": {
     "max-size": "10m",
     "max-file": "3"
   }
-}
-EOF
+}'
+
+# Check if jq is installed
+if ! command -v jq &> /dev/null; then
+    print_error "jq is required but not installed"
+    print_error "This should have been installed in 01-system-update.sh"
+    exit 1
+fi
+
+# Merge or create daemon.json with log rotation
+print_info "Configuring Docker log rotation (max 10MB, 3 files)..."
+if [ -f "$DOCKER_DAEMON_JSON" ]; then
+    print_info "Existing daemon.json found - merging log rotation settings..."
+    # Backup existing file
+    cp "$DOCKER_DAEMON_JSON" "${DOCKER_DAEMON_JSON}.backup"
+    print_status "Backup created: ${DOCKER_DAEMON_JSON}.backup"
+
+    # Merge log rotation settings into existing config
+    MERGED_CONFIG=$(jq -s '.[0] * .[1]' "$DOCKER_DAEMON_JSON" <(echo "$LOG_ROTATION_CONFIG"))
+    echo "$MERGED_CONFIG" | jq '.' > "$DOCKER_DAEMON_JSON"
+    print_status "Log rotation settings merged with existing config"
+else
+    print_info "Creating new daemon.json with log rotation..."
+    echo "$LOG_ROTATION_CONFIG" | jq '.' > "$DOCKER_DAEMON_JSON"
+    print_status "New daemon.json created"
+fi
 
 print_status "Log rotation configured"
 

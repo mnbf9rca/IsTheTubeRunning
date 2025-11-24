@@ -64,6 +64,16 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 
+# Validate flags: require exactly one method, reject both
+if [ -n "$KEY_FILE" ] && [ "$GENERATE_NEW" = true ]; then
+    print_error "Cannot use both --key-file and --generate together"
+    echo ""
+    echo "Choose one method:"
+    echo "  $0 --key-file PATH    # Use existing key"
+    echo "  $0 --generate         # Generate new key"
+    exit 1
+fi
+
 # Require explicit choice
 if [ -z "$KEY_FILE" ] && [ "$GENERATE_NEW" = false ]; then
     print_error "Must specify either --key-file PATH or --generate"
@@ -135,7 +145,8 @@ echo "========================================="
 echo ""
 print_warning "KEEP THIS PRIVATE! Add to GitHub Secrets as: DEPLOY_SSH_KEY"
 echo ""
-cat "$KEY_FILE"
+print_info "Private key location: $KEY_FILE"
+print_warning "To view private key (be careful!): cat $KEY_FILE"
 echo ""
 
 echo "========================================="

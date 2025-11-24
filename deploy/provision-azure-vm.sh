@@ -9,11 +9,33 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=./azure-config.sh
 source "$SCRIPT_DIR/azure-config.sh"
 
+# Validate required configuration
+if [ -z "$AZURE_SUBSCRIPTION_ID" ]; then
+    echo "ERROR: AZURE_SUBSCRIPTION_ID environment variable is required" >&2
+    echo "" >&2
+    echo "Set it with: export AZURE_SUBSCRIPTION_ID=your-subscription-id" >&2
+    echo "Or find it with: az account list --query '[].{name:name, id:id}' --output table" >&2
+    exit 1
+fi
+
 # Colors for output
 RED='\033[0;31m'
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 NC='\033[0m' # No Color
+
+# Function to print colored output
+print_status() {
+    echo -e "${GREEN}✓${NC} $1"
+}
+
+print_error() {
+    echo -e "${RED}✗${NC} $1" >&2
+}
+
+print_warning() {
+    echo -e "${YELLOW}⚠${NC} $1"
+}
 
 # Parse command line arguments
 DRY_RUN=false
@@ -61,19 +83,6 @@ if [ ! -f "$SSH_KEY_PATH" ]; then
 fi
 
 print_status "Using SSH key: $SSH_KEY_PATH"
-
-# Function to print colored output
-print_status() {
-    echo -e "${GREEN}✓${NC} $1"
-}
-
-print_error() {
-    echo -e "${RED}✗${NC} $1" >&2
-}
-
-print_warning() {
-    echo -e "${YELLOW}⚠${NC} $1"
-}
 
 # Function to execute Azure CLI command with dry-run support
 az_exec() {
@@ -181,13 +190,28 @@ else
 fi
 
 # Add NSG rules
-echo "    Adding SSH rule (port 22)..."
+# Auto-detect current IP for SSH access if not explicitly set
+if [ -z "$AZURE_SSH_SOURCE_PREFIXES" ]; then
+    print_status "Detecting current IP address for SSH access..."
+    CURRENT_IP=$(curl -s -m 5 ifconfig.me || echo "")
+    if [ -n "$CURRENT_IP" ]; then
+        AZURE_SSH_SOURCE_PREFIXES="${CURRENT_IP}/32"
+        print_status "Using current IP for SSH access: ${CURRENT_IP}/32"
+        print_warning "To add more IPs later, modify the NSG rule via Azure Portal or set AZURE_SSH_SOURCE_PREFIXES env var"
+    else
+        print_error "Could not auto-detect current IP address"
+        print_error "Set AZURE_SSH_SOURCE_PREFIXES environment variable (e.g., 'export AZURE_SSH_SOURCE_PREFIXES=\"203.0.113.0/24\"')"
+        exit 1
+    fi
+fi
+
+echo "    Adding SSH rule (port 22) for source: ${AZURE_SSH_SOURCE_PREFIXES}..."
 az_exec network nsg rule create \
     --resource-group "$AZURE_RESOURCE_GROUP" \
     --nsg-name "$AZURE_NSG_NAME" \
     --name AllowSSH \
     --priority 1000 \
-    --source-address-prefixes '*' \
+    --source-address-prefixes "$AZURE_SSH_SOURCE_PREFIXES" \
     --destination-port-ranges 22 \
     --access Allow \
     --protocol Tcp

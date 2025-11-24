@@ -47,10 +47,11 @@ echo "  2. Docker Engine and Docker Compose"
 echo "  3. Azure CLI for managed identity"
 echo "  4. fail2ban for SSH protection"
 echo "  5. SSH hardening (key-only authentication)"
-echo "  6. UFW firewall (installed, not yet configured)"
+echo "  6. UFW firewall installation"
 echo "  7. Deployment user ($DEPLOYMENT_USER)"
 echo "  8. Systemd service for auto-start"
 echo "  9. Docker log rotation"
+echo "  10. UFW/Cloudflare IP configuration"
 echo ""
 print_warning "This will modify system configuration!"
 echo ""
@@ -77,6 +78,7 @@ SUBSCRIPTS=(
     "07-create-deploy-user.sh"
     "08-create-systemd-service.sh"
     "09-configure-log-rotation.sh"
+    "10-configure-ufw-cloudflare.sh"
 )
 
 # Track progress
@@ -115,7 +117,7 @@ else
         echo "  ✗ $SCRIPT"
     done
     echo ""
-    print_info "You can re-run individual failed scripts from scripts/setup/"
+    print_info "You can re-run individual failed scripts from deploy/setup/"
     exit 1
 fi
 

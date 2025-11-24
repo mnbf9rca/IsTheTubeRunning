@@ -38,7 +38,7 @@ fi
 # Check if UFW is installed
 if ! command_exists ufw; then
     print_error "UFW is not installed"
-    print_info "Run scripts/setup/06-install-ufw.sh first"
+    print_info "Run deploy/setup/06-install-ufw.sh first"
     exit 1
 fi
 print_status "UFW found"

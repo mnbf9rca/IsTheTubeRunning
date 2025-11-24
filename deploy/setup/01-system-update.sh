@@ -27,7 +27,8 @@ print_status "System packages updated"
 print_info "Installing common dependencies..."
 apt-get install -y \
     python3-httpx \
-    python3-pip
+    python3-pip \
+    jq
 
 print_status "Common dependencies installed"
 
