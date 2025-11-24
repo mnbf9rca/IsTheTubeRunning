@@ -16,12 +16,9 @@ echo ""
 # Check if Azure CLI is already installed
 if command_exists az; then
     AZ_VERSION=$(az version --output tsv --query '["azure-cli"]')
-    print_warning "Azure CLI is already installed: $AZ_VERSION"
-    read -p "Reinstall Azure CLI? (yes/no): " -r
-    if [[ ! $REPLY =~ ^[Yy]es$ ]]; then
-        print_info "Skipping Azure CLI installation"
-        exit 0
-    fi
+    print_status "Azure CLI is already installed: $AZ_VERSION"
+    print_info "Skipping Azure CLI installation"
+    exit 0
 fi
 
 # Check for curl dependency

@@ -37,7 +37,7 @@ Type=simple
 WorkingDirectory=$APP_DIR/deploy
 User=$DEPLOYMENT_USER
 Group=$DEPLOYMENT_USER
-EnvironmentFile=/etc/environment
+EnvironmentFile=$APP_DIR/.env.secrets
 
 # Pull latest images and start services
 ExecStartPre=/usr/bin/docker compose -f docker-compose.prod.yml pull
@@ -70,24 +70,17 @@ systemctl enable docker-compose@isthetube
 
 print_status "Service enabled (will start on boot)"
 
-# Validate DOTENV_KEY is configured
+# Check DOTENV_KEY configuration (warning only)
 echo ""
-print_info "Validating DOTENV_KEY configuration..."
-if [[ ! -f /etc/environment ]]; then
-    print_error "/etc/environment not found"
-    print_error "The systemd service requires DOTENV_KEY to be set in /etc/environment"
-    print_error "Add it with: echo 'DOTENV_KEY=your_key' | sudo tee -a /etc/environment"
-    exit 1
+print_info "Checking DOTENV_KEY configuration..."
+SECRETS_FILE="$APP_DIR/.env.secrets"
+if [[ ! -f "$SECRETS_FILE" ]] || ! grep -q "^DOTENV_KEY=" "$SECRETS_FILE" 2>/dev/null; then
+    print_warning "DOTENV_KEY not found in $SECRETS_FILE"
+    print_warning "The systemd service will not start until this is configured"
+    print_info "This will be configured automatically by script 11-configure-dotenv-key.sh"
+else
+    print_status "DOTENV_KEY is configured"
 fi
-
-if ! grep -q "^DOTENV_KEY=" /etc/environment; then
-    print_error "DOTENV_KEY not found in /etc/environment"
-    print_error "The systemd service requires this variable to decrypt application secrets"
-    print_error "Add it with: echo 'DOTENV_KEY=your_key' | sudo tee -a /etc/environment"
-    exit 1
-fi
-
-print_status "DOTENV_KEY is configured"
 
 echo ""
 print_warning "Service will NOT start until application is deployed to $APP_DIR/deploy"

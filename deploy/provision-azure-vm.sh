@@ -72,12 +72,15 @@ while [[ $# -gt 0 ]]; do
             echo "Usage: $0 --ssh-key PATH [OPTIONS]"
             echo ""
             echo "Required:"
-            echo "  --ssh-key PATH    Path to existing SSH public key for VM admin access"
+            echo "  --ssh-key PATH      Path to existing SSH public key for VM admin access"
             echo ""
             echo "Optional:"
-            echo "  --dry-run         Show what would be created without provisioning"
-            echo "  -y, --yes         Skip confirmation prompt"
-            echo "  -h, --help        Show this help message"
+            echo "  --dry-run           Show what would be created without provisioning"
+            echo "  -y, --yes           Skip confirmation prompt"
+            echo "  -h, --help          Show this help message"
+            echo ""
+            echo "Example:"
+            echo "  $0 --ssh-key ~/.ssh/id_rsa.pub"
             exit 0
             ;;
         *)
@@ -452,7 +455,10 @@ if [ "$DRY_RUN" = false ]; then
     echo ""
     echo "1. Configure the VM with setup scripts:"
     echo "   scp -i ${SSH_PRIVATE_KEY} -r deploy/ ${AZURE_ADMIN_USERNAME}@${VM_PUBLIC_IP}:~ && \\"
-    echo "   ssh -i ${SSH_PRIVATE_KEY} -t ${AZURE_ADMIN_USERNAME}@${VM_PUBLIC_IP} 'cd deploy && sudo ./setup-vm.sh'"
+    # shellcheck disable=SC2016
+    printf '   ssh -i %s -t %s@%s "cd deploy && DOTENV_KEY=\\"$DOTENV_KEY_PRODUCTION\\" sudo -E ./setup-vm.sh --yes"\n' "${SSH_PRIVATE_KEY}" "${AZURE_ADMIN_USERNAME}" "${VM_PUBLIC_IP}"
+    echo ""
+    echo "   Note: Ensure DOTENV_KEY_PRODUCTION is set in your environment before running"
     echo ""
     echo "2. Generate deployment SSH keys (after VM setup completes):"
     echo "   ssh -i ${SSH_PRIVATE_KEY} -t ${AZURE_ADMIN_USERNAME}@${VM_PUBLIC_IP} 'cd deploy && sudo ./deploy-keys.sh --generate'"

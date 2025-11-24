@@ -42,11 +42,11 @@ if ! command_exists ufw; then
 fi
 print_status "UFW found"
 
-# Check if ufw_cloudflare.py exists
-UFW_SCRIPT="$APP_DIR/docker/scripts/ufw_cloudflare.py"
+# Check if ufw_cloudflare.py exists (in deploy directory)
+DEPLOY_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
+UFW_SCRIPT="$DEPLOY_DIR/scripts/ufw_cloudflare.py"
 if [ ! -f "$UFW_SCRIPT" ]; then
     print_error "UFW Cloudflare script not found: $UFW_SCRIPT"
-    print_info "Make sure application files are deployed to $APP_DIR"
     exit 1
 fi
 print_status "UFW script found"

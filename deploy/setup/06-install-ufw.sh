@@ -22,14 +22,10 @@ if command_exists ufw; then
 else
     # Install UFW
     print_info "Installing UFW..."
-    apt-get install -y ufw
+    DEBIAN_FRONTEND=noninteractive apt-get install -y ufw
     print_status "UFW installed"
 fi
 
-print_warning "UFW is NOT yet enabled - will be configured with Cloudflare IPs using ufw_cloudflare.py"
-
-echo ""
-print_info "After deployment, run:"
-print_info "  sudo python3 $APP_DIR/docker/scripts/ufw_cloudflare.py"
+print_warning "UFW is NOT yet enabled - will be configured in step 10"
 echo ""
 print_status "UFW installation complete"

@@ -15,7 +15,7 @@ echo ""
 
 # Install fail2ban
 print_info "Installing fail2ban..."
-apt-get install -y fail2ban
+DEBIAN_FRONTEND=noninteractive apt-get install -y fail2ban
 
 # Configure SSH jail
 print_info "Configuring SSH jail (5 attempts, 10min ban)..."

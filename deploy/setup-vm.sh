@@ -4,13 +4,31 @@
 
 set -euo pipefail
 
-# Source Azure configuration
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-# shellcheck source=./azure-config.sh
-source "$SCRIPT_DIR/azure-config.sh"
+# Parse command line arguments
+SKIP_CONFIRM=false
 
-# Declare required configuration for this script
-validate_required_config "DEPLOYMENT_USER" "APP_DIR" || exit 1
+while [[ $# -gt 0 ]]; do
+    case $1 in
+        -y|--yes)
+            SKIP_CONFIRM=true
+            shift
+            ;;
+        -h|--help)
+            echo "Usage: $0 [OPTIONS]"
+            echo ""
+            echo "Options:"
+            echo "  -y, --yes    Skip confirmation prompt"
+            echo "  -h, --help   Show this help message"
+            exit 0
+            ;;
+        *)
+            echo "Unknown option: $1"
+            exit 1
+            ;;
+    esac
+done
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 # shellcheck source=./setup/common.sh
 source "$SCRIPT_DIR/setup/common.sh"
@@ -24,12 +42,39 @@ echo ""
 echo "Checking prerequisites..."
 echo ""
 
-# Check internet connectivity
-if ! ping -c 1 8.8.8.8 &> /dev/null; then
-    print_error "No internet connectivity"
+# Validate DOTENV_KEY is provided
+if [ -z "${DOTENV_KEY:-}" ]; then
+    print_error "DOTENV_KEY environment variable is required"
+    echo ""
+    echo "The application cannot run without DOTENV_KEY."
+    echo "Run setup with:"
+    echo "  DOTENV_KEY=\"\$DOTENV_KEY_PRODUCTION\" sudo -E ./setup-vm.sh"
     exit 1
 fi
-print_status "Internet connectivity OK"
+
+# Validate DOTENV_KEY format
+if [[ ! "$DOTENV_KEY" =~ ^dotenv:// ]]; then
+    print_error "DOTENV_KEY must start with 'dotenv://'"
+    echo ""
+    echo "Expected format: dotenv://:key_...@dotenvx.com/vault/.env.vault?environment=production"
+    echo "Received: ${DOTENV_KEY:0:20}..."
+    exit 1
+fi
+
+print_status "DOTENV_KEY validated"
+echo ""
+
+# Check internet connectivity (skip if ping not available on minimal image)
+if command -v ping &> /dev/null; then
+    if ping -c 1 8.8.8.8 &> /dev/null; then
+        print_status "Internet connectivity OK"
+    else
+        print_error "No internet connectivity"
+        exit 1
+    fi
+else
+    print_info "Skipping connectivity check (ping not available on minimal image)"
+fi
 
 # Check if running on Ubuntu
 if [ ! -f /etc/os-release ]; then
@@ -52,17 +97,21 @@ echo "  3. Azure CLI for managed identity"
 echo "  4. fail2ban for SSH protection"
 echo "  5. SSH hardening (key-only authentication)"
 echo "  6. UFW firewall installation"
-echo "  7. Deployment user ($DEPLOYMENT_USER)"
+echo "  7. Deployment user"
 echo "  8. Systemd service for auto-start"
 echo "  9. Docker log rotation"
 echo "  10. UFW/Cloudflare IP configuration"
+echo "  11. DOTENV_KEY configuration (if provided)"
 echo ""
 print_warning "This will modify system configuration!"
 echo ""
-read -p "Continue? (yes/no): " -r
-if [[ ! $REPLY =~ ^[Yy]es$ ]]; then
-    echo "Setup cancelled."
-    exit 0
+
+if [ "$SKIP_CONFIRM" = false ]; then
+    read -p "Continue? (y/n): " -r
+    if [[ ! $REPLY =~ ^[Yy](es)?$ ]]; then
+        echo "Setup cancelled."
+        exit 0
+    fi
 fi
 
 echo ""
@@ -71,9 +120,30 @@ echo "  Starting Setup"
 echo "========================================="
 echo ""
 
-# Array of subscripts to run
+# Step 1/11: Run system update first (installs jq needed for azure-config.sh)
+echo ""
+echo "========================================="
+echo "  Step 1/11: 01-system-update.sh"
+echo "========================================="
+echo ""
+
+if bash "$SCRIPT_DIR/setup/01-system-update.sh"; then
+    print_status "Step 1/11 completed successfully"
+else
+    print_error "Step 1/11 failed: 01-system-update.sh"
+    print_error "Cannot continue with remaining setup steps"
+    exit 1
+fi
+
+# Load Azure configuration (requires jq from step 1)
+# shellcheck source=./azure-config.sh
+source "$SCRIPT_DIR/azure-config.sh"
+
+# Declare required configuration for this script
+validate_required_config "DEPLOYMENT_USER" "APP_DIR" || exit 1
+
+# Array of remaining subscripts to run
 SUBSCRIPTS=(
-    "01-system-update.sh"
     "02-install-docker.sh"
     "03-install-azure-cli.sh"
     "04-configure-fail2ban.sh"
@@ -83,11 +153,12 @@ SUBSCRIPTS=(
     "08-create-systemd-service.sh"
     "09-configure-log-rotation.sh"
     "10-configure-ufw-cloudflare.sh"
+    "11-configure-dotenv-key.sh"
 )
 
-# Track progress
-TOTAL=${#SUBSCRIPTS[@]}
-CURRENT=0
+# Track progress (starting from step 2)
+TOTAL=11
+CURRENT=1
 
 # Run each subscript
 for SUBSCRIPT in "${SUBSCRIPTS[@]}"; do
@@ -118,7 +189,7 @@ print_status "All setup steps completed successfully!"
 # Restart SSH to apply hardening
 echo ""
 print_info "Restarting SSH service to apply hardening..."
-systemctl restart sshd
+systemctl restart ssh
 print_status "SSH service restarted"
 
 echo ""
@@ -126,14 +197,10 @@ echo "========================================="
 echo "  Next Steps"
 echo "========================================="
 echo ""
-echo "1. Run deploy-keys.sh locally to generate SSH keys"
-echo "2. Add public key to /home/$DEPLOYMENT_USER/.ssh/authorized_keys"
-echo "3. Test SSH: ssh $DEPLOYMENT_USER@<VM_IP>"
-echo "4. Copy application files to $APP_DIR/deploy"
-echo "5. Set DOTENV_KEY in /etc/environment"
-echo "6. Run UFW configuration:"
-echo "   sudo python3 $APP_DIR/docker/scripts/ufw_cloudflare.py"
-echo "7. Start application:"
+echo "1. Run deploy-keys.sh to generate SSH keys:"
+echo "   sudo ./deploy-keys.sh --generate"
+echo "2. Copy application files to $APP_DIR/deploy"
+echo "3. Start application:"
 echo "   sudo systemctl start docker-compose@isthetube"
 echo ""
 print_status "VM setup complete!"

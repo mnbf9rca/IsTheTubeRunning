@@ -15,7 +15,7 @@ echo ""
 
 # Update package lists
 print_info "Updating package lists..."
-apt-get update
+DEBIAN_FRONTEND=noninteractive apt-get update
 
 # Upgrade packages
 print_info "Upgrading packages (this may take a few minutes)..."
@@ -25,7 +25,7 @@ print_status "System packages updated"
 
 # Install common dependencies
 print_info "Installing common dependencies..."
-apt-get install -y \
+DEBIAN_FRONTEND=noninteractive apt-get install -y \
     python3-httpx \
     python3-pip \
     jq

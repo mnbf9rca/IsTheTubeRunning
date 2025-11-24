@@ -16,17 +16,14 @@ echo ""
 # Check if Docker is already installed
 if command_exists docker; then
     DOCKER_VERSION=$(docker --version)
-    print_warning "Docker is already installed: $DOCKER_VERSION"
-    read -p "Reinstall Docker? (yes/no): " -r
-    if [[ ! $REPLY =~ ^[Yy]es$ ]]; then
-        print_info "Skipping Docker installation"
-        exit 0
-    fi
+    print_status "Docker is already installed: $DOCKER_VERSION"
+    print_info "Skipping Docker installation"
+    exit 0
 fi
 
 # Install prerequisites
 print_info "Installing prerequisites..."
-apt-get install -y \
+DEBIAN_FRONTEND=noninteractive apt-get install -y \
     ca-certificates \
     curl \
     gnupg \
@@ -46,11 +43,11 @@ echo \
   tee /etc/apt/sources.list.d/docker.list > /dev/null
 
 # Update package lists
-apt-get update
+DEBIAN_FRONTEND=noninteractive apt-get update
 
 # Install Docker packages
 print_info "Installing Docker Engine and Docker Compose..."
-apt-get install -y \
+DEBIAN_FRONTEND=noninteractive apt-get install -y \
     docker-ce \
     docker-ce-cli \
     containerd.io \
