@@ -76,27 +76,6 @@ services:
     networks:
       - app-network
 
-  # Backend Inspection (temporary - for debugging .env.vault presence)
-  backend-inspect:
-    build:
-      context: ../backend
-      dockerfile: Dockerfile
-    container_name: isthetube-backend-inspect
-    env_file:
-      - /home/deployuser/.env.secrets
-    depends_on:
-      postgres:
-        condition: service_healthy
-    command: sleep 300  # Keep running for 5 minutes for inspection
-    restart: "no"
-    networks:
-      - app-network
-    deploy:
-      resources:
-        limits:
-          cpus: '0.25'
-          memory: 256M
-
   # Database Migrations (runs once before app starts)
   migrations:
     build:
@@ -109,8 +88,6 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
-      backend-inspect:
-        condition: service_completed_successfully
     command: alembic upgrade head
     restart: "no"  # Only run once, don't restart on failure
     networks:
