@@ -3,9 +3,9 @@
     "baseUrl": "https://isthetube.cynexia.com/api/v1"
   },
   "auth0": {
-    "domain": "tfl-alerts.auth0.com",
-    "clientId": "prod-client-id-placeholder",
-    "audience": "https://isthetube.cynexia.com/api/v1",
+    "domain": "tfl-alerts.uk.auth0.com",
+    "clientId": "i14e7UaeWhkXoqHiqK40j8bPyEsl5mm3",
+    "audience": "https://isthetube.cynexia.com",
     "callbackUrl": "https://isthetube.cynexia.com/callback"
   }
 }
