@@ -124,6 +124,7 @@ echo "  8. Systemd service for auto-start"
 echo "  9. Docker log rotation"
 echo "  10. UFW/SSH firewall configuration"
 echo "  11. DOTENV_KEY and CLOUDFLARE_TUNNEL_TOKEN configuration"
+echo "  12. Automatic security updates (unattended-upgrades)"
 echo ""
 print_warning "This will modify system configuration!"
 echo ""
@@ -142,17 +143,17 @@ echo "  Starting Setup"
 echo "========================================="
 echo ""
 
-# Step 1/11: Run system update first (installs jq needed for azure-config.sh)
+# Step 1/12: Run system update first (installs jq needed for azure-config.sh)
 echo ""
 echo "========================================="
-echo "  Step 1/11: 01-system-update.sh"
+echo "  Step 1/12: 01-system-update.sh"
 echo "========================================="
 echo ""
 
 if bash "$SCRIPT_DIR/setup/01-system-update.sh"; then
-    print_status "Step 1/11 completed successfully"
+    print_status "Step 1/12 completed successfully"
 else
-    print_error "Step 1/11 failed: 01-system-update.sh"
+    print_error "Step 1/12 failed: 01-system-update.sh"
     print_error "Cannot continue with remaining setup steps"
     exit 1
 fi
@@ -176,10 +177,11 @@ SUBSCRIPTS=(
     "09-configure-log-rotation.sh"
     "10-configure-ufw-cloudflare.sh"
     "11-configure-dotenv-key.sh"
+    "12-configure-unattended-upgrades.sh"
 )
 
 # Track progress (starting from step 2)
-TOTAL=11
+TOTAL=12
 CURRENT=1
 
 # Run each subscript

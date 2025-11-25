@@ -220,3 +220,55 @@ All deployment scripts (`deploy/provision-azure-vm.sh`, `deploy/setup-vm.sh`, an
 - Scripts must handle both fresh installs and updates
 - Error handling must be comprehensive
 - Cannot skip failed steps (must fix and re-run)
+
+---
+
+## Automatic Security Updates
+
+### Status
+Active
+
+### Context
+Production servers require timely security patches to protect against vulnerabilities. Manual updates are error-prone and require constant monitoring. Ubuntu provides `unattended-upgrades` for automatic security patch installation.
+
+Key consideration: Kernel security updates require system reboots to take effect. Without automatic reboots, systems can run with unpatched kernels indefinitely, remaining vulnerable even after patches are downloaded.
+
+### Decision
+Configure `unattended-upgrades` on all production VMs with:
+- **Security updates only** (not general feature updates)
+- **Automatic reboot enabled** at 3 AM UTC when kernel/critical updates require it
+- **Docker packages blacklisted** for manual control
+- **Daily update schedule** (default Ubuntu behavior)
+
+Implementation in `deploy/setup/12-configure-unattended-upgrades.sh`:
+- Install `unattended-upgrades` package
+- Configure `/etc/apt/apt.conf.d/20auto-upgrades` to enable daily updates
+- Configure `/etc/apt/apt.conf.d/50unattended-upgrades` with security-only policy
+- Set `Automatic-Reboot "true"` with reboot time at `"03:00"` (3 AM UTC)
+- Blacklist `docker-ce`, `docker-ce-cli`, `containerd.io` packages
+- Enable systemd timers for automatic execution
+
+### Consequences
+**Easier:**
+- Security patches applied automatically without manual intervention
+- Kernel vulnerabilities patched effectively (reboots ensure new kernels activate)
+- Reduced risk of running vulnerable systems
+- Compliance with security best practices
+- Automated cleanup of old kernel packages and unused dependencies
+- Detailed logs in `/var/log/unattended-upgrades/` for audit trail
+
+**More Difficult:**
+- **Unexpected downtime** from automatic reboots (mitigated by 3 AM UTC scheduling)
+- Docker containers restart after reboot (handled by systemd auto-start service)
+- Must monitor `/var/run/reboot-required` if auto-reboot disabled
+- Docker updates must be managed manually (security vs stability tradeoff)
+- No email notifications by default (Azure blocks SMTP port 25, would need relay)
+
+**Reboot Rationale:**
+Automatic reboots are critical for security. Without them:
+- Downloaded kernel patches remain inactive until manual reboot
+- Systems appear "patched" but still run vulnerable kernels
+- Security compliance tools may miss this gap
+- Manual reboot scheduling often gets forgotten or delayed
+
+The 3 AM UTC timing minimizes user impact during typical low-traffic hours. For applications requiring high availability, the systemd auto-start service ensures containers restart automatically after reboot.
