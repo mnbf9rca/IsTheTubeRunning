@@ -150,6 +150,8 @@ DOTENV_KEY=${DOTENV_KEY}
 
 # CLOUDFLARE_TUNNEL_TOKEN: Authenticates to Cloudflare Tunnel for ingress
 CLOUDFLARE_TUNNEL_TOKEN=${CLOUDFLARE_TUNNEL_TOKEN}
+# TUNNEL_TOKEN: Alias for cloudflared container (expects this exact variable name)
+TUNNEL_TOKEN=${CLOUDFLARE_TUNNEL_TOKEN}
 
 # POSTGRES_PASSWORD: PostgreSQL database password (extracted from .env.vault)
 POSTGRES_PASSWORD=${POSTGRES_PASSWORD}

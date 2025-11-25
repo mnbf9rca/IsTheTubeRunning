@@ -28,9 +28,10 @@ services:
     env_file:
       - /home/deployuser/.env.secrets
     environment:
+      # TODO: read these from env_file above too
       POSTGRES_DB: isthetube
       POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      # POSTGRES_PASSWORD loaded from env_file above
     volumes:
       - postgres_data:/var/lib/postgresql  # Match PostgreSQL 18+ pattern (same as dev)
     healthcheck:
@@ -83,8 +84,7 @@ services:
     container_name: isthetube-migrations-prod
     env_file:
       - /home/deployuser/.env.secrets
-    environment:
-      DOTENV_KEY: ${DOTENV_KEY}
+    # DOTENV_KEY loaded from env_file above - no need to override here
     depends_on:
       postgres:
         condition: service_healthy
@@ -108,7 +108,7 @@ services:
     env_file:
       - /home/deployuser/.env.secrets
     environment:
-      DOTENV_KEY: ${DOTENV_KEY}
+      # DOTENV_KEY loaded from env_file above
       OTEL_SERVICE_NAME: isthetuberunning-api
     depends_on:
       postgres:
@@ -145,7 +145,7 @@ services:
     env_file:
       - /home/deployuser/.env.secrets
     environment:
-      DOTENV_KEY: ${DOTENV_KEY}
+      # DOTENV_KEY loaded from env_file above
       OTEL_SERVICE_NAME: isthetuberunning-worker
     depends_on:
       postgres:
@@ -176,7 +176,7 @@ services:
     env_file:
       - /home/deployuser/.env.secrets
     environment:
-      DOTENV_KEY: ${DOTENV_KEY}
+      # DOTENV_KEY loaded from env_file above
       OTEL_SERVICE_NAME: isthetuberunning-beat
     depends_on:
       redis:
@@ -268,8 +268,7 @@ services:
     command: tunnel run
     env_file:
       - /home/deployuser/.env.secrets
-    environment:
-      TUNNEL_TOKEN: ${CLOUDFLARE_TUNNEL_TOKEN}
+    # TUNNEL_TOKEN loaded from env_file (written as both CLOUDFLARE_TUNNEL_TOKEN and TUNNEL_TOKEN)
     # No depends_on - tunnel should establish connection independently of application health
     # This allows Cloudflare to return 502 Bad Gateway when backend fails (better for troubleshooting)
     networks:
