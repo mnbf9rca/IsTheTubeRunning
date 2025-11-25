@@ -7,8 +7,8 @@ from unittest.mock import Mock, patch
 import httpx
 import pytest
 
-# Import the script module (need to add docker/scripts to path)
-sys.path.insert(0, str(Path(__file__).parent.parent.parent.parent / "docker" / "scripts"))
+# Import the script module (need to add deploy/scripts to path)
+sys.path.insert(0, str(Path(__file__).parent.parent.parent.parent / "deploy" / "scripts"))
 
 from ufw_cloudflare import HttpxHTTPClient, UFWManager
 

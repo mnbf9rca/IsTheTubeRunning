@@ -79,3 +79,12 @@ repos:
         language: system
         files: ^frontend/
         pass_filenames: false
+
+  # Shell scripts: Shellcheck
+  - repo: https://github.com/shellcheck-py/shellcheck-py
+    rev: v0.11.0.1
+    hooks:
+      - id: shellcheck
+        name: shellcheck
+        files: \.sh$
+        args: ['--exclude=SC1091']  # Ignore "not following sourced files" info messages

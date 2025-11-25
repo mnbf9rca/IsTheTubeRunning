@@ -1,0 +1,21 @@
+{
+  "AZURE_SUBSCRIPTION_ID": "1d9d2a8a-f001-41ae-a983-2d0cc36f3ea7",
+  "AZURE_RESOURCE_GROUP": "isthetube-prod",
+  "AZURE_LOCATION": "uksouth",
+  "AZURE_VM_NAME": "isthetube-vm",
+  "AZURE_VM_SIZE": "Standard_D2s_v3",
+  "AZURE_VM_IMAGE": "Canonical:ubuntu-24_04-lts:minimal:latest",
+  "AZURE_VM_OS_DISK_SIZE": "128",
+  "AZURE_ADMIN_USERNAME": "azureuser",
+  "AZURE_VNET_NAME": "isthetube-vnet",
+  "AZURE_SUBNET_NAME": "isthetube-subnet",
+  "AZURE_NSG_NAME": "isthetube-nsg",
+  "AZURE_PUBLIC_IP_NAME": "isthetube-ip",
+  "AZURE_SSH_SOURCE_PREFIXES": "",
+  "AZURE_STORAGE_ACCOUNT": "isthetubestorage",
+  "AZURE_STORAGE_CONTAINER": "backups",
+  "AZURE_SSH_KEY_NAME": "isthetube-deploy-key",
+  "DEPLOYMENT_USER": "deployuser",
+  "APP_DIR": "/opt/isthetube",
+  "DOMAIN_NAME": "isthetube.cynexia.com"
+}
