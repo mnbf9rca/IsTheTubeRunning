@@ -272,3 +272,123 @@ Automatic reboots are critical for security. Without them:
 - Manual reboot scheduling often gets forgotten or delayed
 
 The 3 AM UTC timing minimizes user impact during typical low-traffic hours. For applications requiring high availability, the systemd auto-start service ensures containers restart automatically after reboot.
+
+---
+
+## Docker Compose Service Dependencies
+
+### Status
+Active
+
+### Context
+Docker Compose `depends_on` with health conditions creates hard dependencies between services. Over-constrained dependencies can cause complete service failures during troubleshooting:
+- `cloudflared` waiting for `nginx` health → Backend failure prevents tunnel connection → Complete external blackout (no 502 errors, just timeouts)
+- `nginx` waiting for `backend` health → Backend issues block nginx startup → Cannot troubleshoot via external requests
+
+Relaxing dependencies allows infrastructure (nginx, cloudflared) to start independently, enabling operational visibility even when application services fail.
+
+### Decision
+Use minimal service dependencies to allow independent startup and better troubleshooting:
+
+1. **cloudflared**: No dependencies on nginx
+   - Rationale: Cloudflare Tunnel is infrastructure, not application
+   - Allows tunnel to connect even if nginx/backend broken
+   - Cloudflare returns 502 Bad Gateway (helpful) instead of connection timeout (unhelpful)
+
+2. **nginx**: Explicit `condition: service_started` for backend/frontend
+   - Rationale: nginx can proxy requests and return meaningful errors even if upstream unhealthy
+   - Faster startup (no health check waiting)
+   - Better troubleshooting (502 errors show what's broken)
+
+3. **backend/celery-worker**: Keep `condition: service_healthy` for postgres/redis
+   - Rationale: These services require database connectivity to function
+   - Health checks ensure connection pools can be established
+
+### Consequences
+**Easier:**
+- External access maintained during backend failures (troubleshooting via 502 errors)
+- Cloudflare Tunnel connects independently of application health
+- Faster service startup (nginx doesn't wait for backend health)
+- Better operational visibility (can diagnose issues via external requests)
+- Service recovery without manual tunnel restart
+
+**More Difficult:**
+- Services may start in "degraded" state (nginx running but backend unhealthy)
+- Health check endpoints may show errors during startup (expected behavior)
+- Must monitor logs/health endpoints rather than relying on container startup status alone
+
+---
+
+## PostgreSQL 18 Volume Mount
+
+### Status
+Active
+
+### Context
+PostgreSQL 18 changed the default data directory structure to align with `pg_ctlcluster` conventions (Debian/Ubuntu standard). The new pattern uses `/var/lib/postgresql` as the mount point, with PostgreSQL automatically creating `/var/lib/postgresql/data` subdirectory.
+
+Mounting directly to `/var/lib/postgresql/data` (old pattern) bypasses this structure and causes warnings:
+```
+Error: in 18+, these Docker images are configured to store database data in a
+       format which is compatible with "pg_ctlcluster" (specifically, using
+       major-version-specific directory names).
+```
+
+See: https://github.com/docker-library/postgres/pull/1259
+
+### Decision
+Mount PostgreSQL volume to `/var/lib/postgresql` (parent directory) in production, matching development configuration:
+- **Production**: `postgres_data:/var/lib/postgresql`
+- **Development**: Already correct (`docker-compose.yml` line 14)
+
+PostgreSQL 18 creates `/var/lib/postgresql/data` automatically, following `pg_ctlcluster` conventions.
+
+### Consequences
+**Easier:**
+- No PostgreSQL 18 compatibility warnings
+- Proper major-version-specific directory structure
+- Supports `pg_upgrade --link` for future upgrades (avoids mount point boundary issues)
+- Production and development configs aligned (consistency)
+
+**More Difficult:**
+- **BREAKING CHANGE**: Existing data at `/data` mount won't be accessible after change
+- Requires data migration or fresh start (Issue #266 confirmed fresh deployment acceptable)
+- Different from pre-18 PostgreSQL patterns (legacy documentation may be incorrect)
+
+---
+
+## Systemd Service Management
+
+### Status
+Active
+
+### Context
+Systemd service for Docker Compose manages the application lifecycle on production VMs. The ExecStop command determines how containers are stopped:
+- `docker compose down`: Stops and **removes** containers (full cleanup, slower restart)
+- `docker compose stop`: Stops containers with SIGTERM, **containers remain in stopped state** (faster restart)
+
+For production deployments with frequent restarts (deployments, debugging), container preservation provides faster recovery without requiring full recreation.
+
+### Decision
+Use `docker compose stop` in ExecStop for graceful shutdown with container preservation:
+
+```bash
+ExecStop=/usr/bin/docker compose -f docker-compose.prod.yml stop
+```
+
+Keep `Type=simple` with foreground `docker compose up --no-log-prefix` (no `--detach` flag):
+- Systemd tracks the docker compose process directly
+- Proper signal handling (SIGTERM cascades to containers)
+- Service logs visible via journalctl
+
+### Consequences
+**Easier:**
+- Faster service restarts (containers not recreated)
+- Container state preserved (volumes, networks remain intact)
+- Graceful shutdown (SIGTERM allows cleanup)
+- Explicit service lifecycle (systemd manages process directly)
+
+**More Difficult:**
+- Containers persist in "exited" state after stop (not removed)
+- Manual cleanup required for complete removal (`docker compose down`)
+- Must use `systemctl restart` or `docker compose up` to resume containers

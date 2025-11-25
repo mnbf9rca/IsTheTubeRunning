@@ -32,7 +32,7 @@ services:
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
     volumes:
-      - postgres_data:/var/lib/postgresql/data
+      - postgres_data:/var/lib/postgresql  # Match PostgreSQL 18+ pattern (same as dev)
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U postgres"]
       interval: 10s
@@ -206,8 +206,10 @@ services:
       - ../docker/nginx/nginx.conf:/etc/nginx/nginx.conf:ro
       - frontend_static:/usr/share/nginx/html:ro
     depends_on:
-      - backend
-      - frontend
+      backend:
+        condition: service_started  # Don't wait for health
+      frontend:
+        condition: service_started
     healthcheck:
       test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://localhost/health"]
       interval: 30s
@@ -238,9 +240,8 @@ services:
       - /home/deployuser/.env.secrets
     environment:
       TUNNEL_TOKEN: ${CLOUDFLARE_TUNNEL_TOKEN}
-    depends_on:
-      nginx:
-        condition: service_healthy
+    # No depends_on - tunnel should establish connection independently of application health
+    # This allows Cloudflare to return 502 Bad Gateway when backend fails (better for troubleshooting)
     networks:
       - app-network
     deploy:
