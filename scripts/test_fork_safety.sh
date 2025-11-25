@@ -23,6 +23,7 @@ echo -e "${BLUE}========================================${NC}"
 echo ""
 
 # Function to cleanup on exit
+# shellcheck disable=SC2329
 cleanup() {
     echo ""
     echo -e "${YELLOW}Cleaning up...${NC}"
@@ -30,8 +31,8 @@ cleanup() {
     # Kill uvicorn if running
     if [ -n "$UVICORN_PID" ]; then
         echo "Stopping uvicorn (PID: $UVICORN_PID)"
-        kill $UVICORN_PID 2>/dev/null || true
-        wait $UVICORN_PID 2>/dev/null || true
+        kill "$UVICORN_PID" 2>/dev/null || true
+        wait "$UVICORN_PID" 2>/dev/null || true
     fi
 
     # Restore .env if backed up
@@ -105,7 +106,7 @@ echo "   Uvicorn PID: $UVICORN_PID"
 echo -e "${BLUE}4. Waiting for uvicorn to start...${NC}"
 MAX_WAIT=30
 WAIT_COUNT=0
-while [ $WAIT_COUNT -lt $MAX_WAIT ]; do
+while [ "$WAIT_COUNT" -lt "$MAX_WAIT" ]; do
     if curl -s http://localhost:8000/health > /dev/null 2>&1; then
         echo -e "${GREEN}   ✓ Uvicorn started successfully${NC}"
         break
@@ -115,7 +116,7 @@ while [ $WAIT_COUNT -lt $MAX_WAIT ]; do
     echo -n "."
 done
 
-if [ $WAIT_COUNT -eq $MAX_WAIT ]; then
+if [ "$WAIT_COUNT" -eq "$MAX_WAIT" ]; then
     echo ""
     echo -e "${RED}   ✗ Uvicorn failed to start within ${MAX_WAIT} seconds${NC}"
     echo -e "${YELLOW}   Last 20 lines of log:${NC}"
@@ -181,8 +182,8 @@ if grep -i "cannot perform operation.*another operation is in progress" "$LOG_FI
 fi
 
 # Check for general errors or warnings
-ERROR_COUNT=$(grep -i "error" "$LOG_FILE" | grep -v "INFO" | wc -l | tr -d ' ')
-WARNING_COUNT=$(grep -i "warning" "$LOG_FILE" | wc -l | tr -d ' ')
+ERROR_COUNT=$(grep -i "error" "$LOG_FILE" | grep -c -v "INFO" || echo "0")
+WARNING_COUNT=$(grep -c -i "warning" "$LOG_FILE" || echo "0")
 
 echo ""
 echo -e "${BLUE}8. Summary${NC}"
@@ -213,7 +214,7 @@ else
     echo -e "${GREEN}========================================${NC}"
     echo ""
 
-    if [ $ERROR_COUNT -gt 0 ]; then
+    if [ "$ERROR_COUNT" -gt 0 ]; then
         echo -e "${YELLOW}Note: Some errors were found, but they don't appear to be${NC}"
         echo -e "${YELLOW}related to fork safety. Check the log for details.${NC}"
         echo ""
