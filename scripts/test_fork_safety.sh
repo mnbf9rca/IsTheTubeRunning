@@ -182,8 +182,8 @@ if grep -i "cannot perform operation.*another operation is in progress" "$LOG_FI
 fi
 
 # Check for general errors or warnings
-ERROR_COUNT=$(grep -i "error" "$LOG_FILE" | grep -c -v "INFO" || echo "0")
-WARNING_COUNT=$(grep -c -i "warning" "$LOG_FILE" || echo "0")
+ERROR_COUNT=$(grep -i "error" "$LOG_FILE" | grep -c -v "INFO")
+WARNING_COUNT=$(grep -c -i "warning" "$LOG_FILE")
 
 echo ""
 echo -e "${BLUE}8. Summary${NC}"

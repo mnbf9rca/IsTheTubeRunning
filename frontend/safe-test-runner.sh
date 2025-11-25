@@ -48,7 +48,7 @@ trap cleanup EXIT INT TERM
 echo "=== Baseline Node Processes ===" | tee -a "$LOG_FILE"
 BASELINE=$(get_node_processes)
 echo "$BASELINE" | tee -a "$LOG_FILE"
-BASELINE_COUNT=$(echo "$BASELINE" | grep -c -v "^$" || echo "0")
+BASELINE_COUNT=$(echo "$BASELINE" | grep -c -v "^$")
 echo "Baseline process count: $BASELINE_COUNT" | tee -a "$LOG_FILE"
 echo "" | tee -a "$LOG_FILE"
 
@@ -75,7 +75,7 @@ while kill -0 "$TEST_PID" 2>/dev/null; do
     MONITOR_COUNT=$((MONITOR_COUNT + 1))
 
     CURRENT=$(get_node_processes)
-    CURRENT_COUNT=$(echo "$CURRENT" | grep -c -v "^$" || echo "0")
+    CURRENT_COUNT=$(echo "$CURRENT" | grep -c -v "^$")
     DIFF=$((CURRENT_COUNT - BASELINE_COUNT))
 
     echo "[Monitor $MONITOR_COUNT] Process count: $CURRENT_COUNT (baseline: $BASELINE_COUNT, diff: +$DIFF)" | tee -a "$LOG_FILE"
@@ -113,7 +113,7 @@ echo "" | tee -a "$LOG_FILE"
 echo "=== Final Node Processes ===" | tee -a "$LOG_FILE"
 FINAL=$(get_node_processes)
 echo "$FINAL" | tee -a "$LOG_FILE"
-FINAL_COUNT=$(echo "$FINAL" | grep -c -v "^$" || echo "0")
+FINAL_COUNT=$(echo "$FINAL" | grep -c -v "^$")
 echo "Final process count: $FINAL_COUNT" | tee -a "$LOG_FILE"
 echo "Difference: +$((FINAL_COUNT - BASELINE_COUNT))" | tee -a "$LOG_FILE"
 echo "" | tee -a "$LOG_FILE"

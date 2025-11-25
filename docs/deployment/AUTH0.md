@@ -75,7 +75,7 @@ Check Auth0 configuration in dashboard:
 
 ## Important Notes
 
-- **No client secret needed**: Backend only validates JWT tokens, doesn't authenticate to Auth0
+- **No client secret needed**: Backend only validates JWT tokens and doesn't authenticate to Auth0
 - **No M2M authentication**: Application uses standard SPA + API pattern
 - **Audience must match exactly**: Backend `AUTH0_API_AUDIENCE` must match API audience in Auth0 dashboard
 - **Domain includes region**: Use `tfl-alerts.uk.auth0.com`, not `tfl-alerts.auth0.com`

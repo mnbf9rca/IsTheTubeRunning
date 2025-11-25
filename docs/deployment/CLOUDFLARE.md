@@ -14,7 +14,7 @@
 
 **Mode**: Full or Flexible (configured on public side)
 
-No origin certificates required on the VM - Cloudflare Tunnel handles all encryption between Cloudflare Edge and the origin.
+No origin certificates are required on the VM - Cloudflare Tunnel handles all encryption between Cloudflare Edge and the origin.
 
 ## WAF (Web Application Firewall)
 
