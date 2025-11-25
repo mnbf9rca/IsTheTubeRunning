@@ -229,29 +229,26 @@ echo ""
 # Deploy public key to VM (idempotent - checks if key already exists)
 print_info "Deploying public key to $DEPLOYMENT_USER@$VM_PUBLIC_IP..."
 
-# Extract just the key fingerprint (base64 part) for idempotency check
-KEY_FINGERPRINT=$(echo "$PUBLIC_KEY" | awk '{print $2}')
+# Extract key type and key data (first two fields) for idempotency check
+KEY_FINGERPRINT=$(echo "$PUBLIC_KEY" | awk '{print $1, $2}')
 AUTH_KEYS_FILE="/home/$DEPLOYMENT_USER/.ssh/authorized_keys"
 
 # Check if key already exists on remote (idempotent)
 if ssh -i "$ADMIN_KEY" -o BatchMode=yes -o StrictHostKeyChecking=accept-new \
     "${AZURE_ADMIN_USERNAME}@${VM_PUBLIC_IP}" \
-    "sudo grep -q '$KEY_FINGERPRINT' '$AUTH_KEYS_FILE' 2>/dev/null"; then
+    "sudo grep -qF \"$KEY_FINGERPRINT\" \"$AUTH_KEYS_FILE\" 2>/dev/null"; then
     print_status "Key already exists in authorized_keys (idempotent - no change needed)"
 else
-    # Ensure .ssh directory exists with correct permissions
-    ssh -i "$ADMIN_KEY" -o BatchMode=yes -o StrictHostKeyChecking=accept-new \
+    # Create .ssh directory and add public key in single SSH call
+    # Pipe PUBLIC_KEY through stdin to avoid shell escaping issues
+    if echo "$PUBLIC_KEY" | ssh -i "$ADMIN_KEY" -o BatchMode=yes -o StrictHostKeyChecking=accept-new \
         "${AZURE_ADMIN_USERNAME}@${VM_PUBLIC_IP}" \
-        "sudo mkdir -p '/home/$DEPLOYMENT_USER/.ssh' && \
-         sudo chmod 700 '/home/$DEPLOYMENT_USER/.ssh' && \
-         sudo chown '$DEPLOYMENT_USER:$DEPLOYMENT_USER' '/home/$DEPLOYMENT_USER/.ssh'"
-
-    # Add the public key
-    if ssh -i "$ADMIN_KEY" -o BatchMode=yes -o StrictHostKeyChecking=accept-new \
-        "${AZURE_ADMIN_USERNAME}@${VM_PUBLIC_IP}" \
-        "echo '$PUBLIC_KEY' | sudo tee -a '$AUTH_KEYS_FILE' > /dev/null && \
-         sudo chmod 600 '$AUTH_KEYS_FILE' && \
-         sudo chown '$DEPLOYMENT_USER:$DEPLOYMENT_USER' '$AUTH_KEYS_FILE'"; then
+        "sudo mkdir -p \"/home/$DEPLOYMENT_USER/.ssh\" && \
+         sudo chmod 700 \"/home/$DEPLOYMENT_USER/.ssh\" && \
+         sudo chown \"$DEPLOYMENT_USER:$DEPLOYMENT_USER\" \"/home/$DEPLOYMENT_USER/.ssh\" && \
+         sudo tee -a \"$AUTH_KEYS_FILE\" > /dev/null && \
+         sudo chmod 600 \"$AUTH_KEYS_FILE\" && \
+         sudo chown \"$DEPLOYMENT_USER:$DEPLOYMENT_USER\" \"$AUTH_KEYS_FILE\""; then
         print_status "Public key deployed to VM"
     else
         print_error "Failed to deploy public key to VM"
