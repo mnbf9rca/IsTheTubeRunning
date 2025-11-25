@@ -37,7 +37,10 @@ Type=simple
 WorkingDirectory=$APP_DIR/deploy
 User=$DEPLOYMENT_USER
 Group=$DEPLOYMENT_USER
-EnvironmentFile=$APP_DIR/.env.secrets
+EnvironmentFile=/home/$DEPLOYMENT_USER/.env.secrets
+# Note: EnvironmentFile is required for docker-compose variable substitution (e.g., \${DOTENV_KEY}, \${POSTGRES_PASSWORD}, etc.)
+# These variables must be present in the systemd environment for docker-compose to substitute them.
+# The env_file directive in docker-compose.prod.yml makes these variables available inside the containers.
 
 # Pull latest images and start services
 ExecStartPre=/usr/bin/docker compose -f docker-compose.prod.yml pull
@@ -73,7 +76,7 @@ print_status "Service enabled (will start on boot)"
 # Check DOTENV_KEY configuration (warning only)
 echo ""
 print_info "Checking DOTENV_KEY configuration..."
-SECRETS_FILE="$APP_DIR/.env.secrets"
+SECRETS_FILE="/home/$DEPLOYMENT_USER/.env.secrets"
 if [[ ! -f "$SECRETS_FILE" ]] || ! grep -q "^DOTENV_KEY=" "$SECRETS_FILE" 2>/dev/null; then
     print_warning "DOTENV_KEY not found in $SECRETS_FILE"
     print_warning "The systemd service will not start until this is configured"

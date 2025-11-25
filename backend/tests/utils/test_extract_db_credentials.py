@@ -1,10 +1,17 @@
 """Tests for database credential extraction utility."""
 
 import os
+from io import StringIO
 from unittest.mock import patch
 
 import pytest
-from app.utils.extract_db_credentials import extract_credentials, get_mode_from_args, load_database_url
+from app.utils.extract_db_credentials import (
+    extract_credentials,
+    extract_env_var,
+    get_mode_from_args,
+    load_database_url,
+    main,
+)
 
 
 class TestGetModeFromArgs:
@@ -154,3 +161,91 @@ class TestExtractDbCredentials:
         assert "export PGHOST=localhost" in result
         assert "export PGUSER=postgres" in result
         assert "export PGDATABASE=isthetube" in result
+
+
+class TestExtractEnvVar:
+    """Tests for extract_env_var function."""
+
+    def test_extracts_environment_variable_when_present(self) -> None:
+        """Test that environment variable is extracted when present."""
+        test_token = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.test.token"
+        with (
+            patch.dict(os.environ, {"CLOUDFLARE_TUNNEL_TOKEN": test_token}),
+            patch("app.utils.extract_db_credentials.load_dotenv"),
+        ):
+            result = extract_env_var("CLOUDFLARE_TUNNEL_TOKEN")
+            assert result == test_token
+
+    def test_raises_value_error_when_variable_missing(self) -> None:
+        """Test that ValueError is raised when environment variable is missing."""
+        with (
+            patch.dict(os.environ, {}, clear=True),
+            patch("app.utils.extract_db_credentials.load_dotenv"),
+            pytest.raises(ValueError, match="CLOUDFLARE_TUNNEL_TOKEN not found in environment"),
+        ):
+            extract_env_var("CLOUDFLARE_TUNNEL_TOKEN")
+
+    def test_raises_value_error_when_variable_empty(self) -> None:
+        """Test that ValueError is raised when environment variable is empty."""
+        with (
+            patch.dict(os.environ, {"CLOUDFLARE_TUNNEL_TOKEN": ""}),
+            patch("app.utils.extract_db_credentials.load_dotenv"),
+            pytest.raises(ValueError, match="CLOUDFLARE_TUNNEL_TOKEN not found in environment"),
+        ):
+            extract_env_var("CLOUDFLARE_TUNNEL_TOKEN")
+
+    def test_works_with_different_variable_names(self) -> None:
+        """Test that function works with any environment variable name."""
+        test_value = "test_value_123"
+        with (
+            patch.dict(os.environ, {"SOME_OTHER_VAR": test_value}),
+            patch("app.utils.extract_db_credentials.load_dotenv"),
+        ):
+            result = extract_env_var("SOME_OTHER_VAR")
+            assert result == test_value
+
+
+class TestMainFunction:
+    """Tests for main CLI function with tunnel_token mode."""
+
+    def test_main_extracts_tunnel_token_successfully(self) -> None:
+        """Test that main() extracts CLOUDFLARE_TUNNEL_TOKEN when tunnel_token mode is used."""
+        test_token = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.test.token"
+
+        with (
+            patch.dict(os.environ, {"CLOUDFLARE_TUNNEL_TOKEN": test_token}),
+            patch("sys.argv", ["script.py", "tunnel_token"]),
+            patch("app.utils.extract_db_credentials.load_dotenv"),
+            patch("sys.stdout", new=StringIO()) as mock_stdout,
+        ):
+            main()
+            output = mock_stdout.getvalue()
+            assert output.strip() == test_token
+
+    def test_main_extracts_password_for_database_mode(self) -> None:
+        """Test that main() extracts database password for password mode."""
+        test_db_url = "postgresql+asyncpg://user:testpass@localhost:5432/db"
+
+        with (
+            patch.dict(os.environ, {"DATABASE_URL": test_db_url}),
+            patch("sys.argv", ["script.py", "password"]),
+            patch("sys.stdout", new=StringIO()) as mock_stdout,
+        ):
+            main()
+            output = mock_stdout.getvalue()
+            assert output.strip() == "testpass"
+
+    def test_main_exits_with_error_for_missing_tunnel_token(self) -> None:
+        """Test that main() exits with error when CLOUDFLARE_TUNNEL_TOKEN is missing."""
+        with (
+            patch.dict(os.environ, {}, clear=True),
+            patch("sys.argv", ["script.py", "tunnel_token"]),
+            patch("app.utils.extract_db_credentials.load_dotenv"),
+            patch("sys.stderr", new=StringIO()) as mock_stderr,
+            pytest.raises(SystemExit) as exc_info,
+        ):
+            main()
+
+        assert exc_info.value.code == 1
+        error_output = mock_stderr.getvalue()
+        assert "CLOUDFLARE_TUNNEL_TOKEN not found in environment" in error_output
