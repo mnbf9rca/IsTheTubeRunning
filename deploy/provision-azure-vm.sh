@@ -9,6 +9,19 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=./azure-config.sh
 source "$SCRIPT_DIR/azure-config.sh"
 
+# Detect current git branch (for deployment instructions)
+# Use "main" as fallback if not on a branch (detached HEAD)
+if command -v git &>/dev/null && [ -d "$SCRIPT_DIR/../.git" ]; then
+    CURRENT_BRANCH=$(git -C "$SCRIPT_DIR/.." rev-parse --abbrev-ref HEAD 2>/dev/null || echo "main")
+    if [ "$CURRENT_BRANCH" = "HEAD" ]; then
+        # Detached HEAD - use main as default
+        CURRENT_BRANCH="main"
+    fi
+else
+    # Not in a git repo or git not available
+    CURRENT_BRANCH="main"
+fi
+
 # Declare required configuration for this script
 validate_required_config \
     "AZURE_SUBSCRIPTION_ID" \
@@ -436,10 +449,10 @@ if [ "$DRY_RUN" = false ]; then
     echo "1. Configure the VM with setup scripts:"
     echo "   scp -i ${SSH_PRIVATE_KEY} -r deploy/ ${AZURE_ADMIN_USERNAME}@${VM_PUBLIC_IP}:~ && \\"
     # shellcheck disable=SC2016
-    printf '   ssh -i %s -t %s@%s "cd deploy && DOTENV_KEY=\\"$DOTENV_KEY_PRODUCTION\\" CLOUDFLARE_TUNNEL_TOKEN=\\"$CLOUDFLARE_TUNNEL_TOKEN\\" sudo -E ./setup-vm.sh --yes"\n' "${SSH_PRIVATE_KEY}" "${AZURE_ADMIN_USERNAME}" "${VM_PUBLIC_IP}"
+    printf '   ssh -i %s -t %s@%s "cd deploy && DOTENV_KEY=\\"$DOTENV_KEY_PRODUCTION\\" sudo -E ./setup-vm.sh --branch %s --yes"\n' "${SSH_PRIVATE_KEY}" "${AZURE_ADMIN_USERNAME}" "${VM_PUBLIC_IP}" "${CURRENT_BRANCH}"
     echo ""
-    echo "   Note: Ensure DOTENV_KEY_PRODUCTION and CLOUDFLARE_TUNNEL_TOKEN are set in your environment before running"
-    echo "   Get tunnel token from: https://one.dash.cloudflare.com → Networks → Tunnels"
+    echo "   Note: Ensure DOTENV_KEY_PRODUCTION is set in your environment before running"
+    echo "   Detected git branch: ${CURRENT_BRANCH}"
     echo ""
     echo "2. Generate and deploy SSH keys for CI/CD (run locally, after VM setup completes):"
     echo "   ./deploy/deploy-keys.sh --admin-key ${SSH_PRIVATE_KEY} --generate"

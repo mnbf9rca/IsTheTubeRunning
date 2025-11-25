@@ -26,9 +26,16 @@ print_status "System packages updated"
 # Install common dependencies
 print_info "Installing common dependencies..."
 DEBIAN_FRONTEND=noninteractive apt-get install -y \
-    jq
+    jq \
+    build-essential \
+    libssl-dev \
+    libffi-dev
 
 print_status "Common dependencies installed"
+print_info "  - jq: JSON processor for azure-config.sh"
+print_info "  - build-essential: C compiler for Python packages (asyncpg, hiredis, cryptography)"
+print_info "  - libssl-dev: OpenSSL headers for cryptography package"
+print_info "  - libffi-dev: FFI headers for cryptography package"
 
 # Set timezone
 print_info "Setting timezone to UTC..."

@@ -6,9 +6,14 @@ set -euo pipefail
 
 # Parse command line arguments
 SKIP_CONFIRM=false
+GIT_BRANCH=""
 
 while [[ $# -gt 0 ]]; do
     case $1 in
+        -b|--branch)
+            GIT_BRANCH="$2"
+            shift 2
+            ;;
         -y|--yes)
             SKIP_CONFIRM=true
             shift
@@ -17,8 +22,12 @@ while [[ $# -gt 0 ]]; do
             echo "Usage: $0 [OPTIONS]"
             echo ""
             echo "Options:"
-            echo "  -y, --yes    Skip confirmation prompt"
-            echo "  -h, --help   Show this help message"
+            echo "  -b, --branch BRANCH  Git branch to deploy (required)"
+            echo "  -y, --yes            Skip confirmation prompt"
+            echo "  -h, --help           Show this help message"
+            echo ""
+            echo "Example:"
+            echo "  DOTENV_KEY=\"\$DOTENV_KEY_PRODUCTION\" sudo -E ./setup-vm.sh --branch main"
             exit 0
             ;;
         *)
@@ -35,9 +44,22 @@ source "$SCRIPT_DIR/setup/common.sh"
 
 require_root
 
+# Validate required branch argument
+if [ -z "$GIT_BRANCH" ]; then
+    print_error "Branch argument is required"
+    echo ""
+    echo "Usage: $0 --branch BRANCH [OPTIONS]"
+    echo ""
+    echo "Example:"
+    echo "  DOTENV_KEY=\"\$DOTENV_KEY_PRODUCTION\" sudo -E ./setup-vm.sh --branch main"
+    exit 1
+fi
+
 echo "========================================="
 echo "  IsTheTubeRunning - VM Setup"
 echo "========================================="
+echo ""
+echo "Deployment branch: $GIT_BRANCH"
 echo ""
 echo "Checking prerequisites..."
 echo ""
@@ -47,8 +69,10 @@ if [ -z "${DOTENV_KEY:-}" ]; then
     print_error "DOTENV_KEY environment variable is required"
     echo ""
     echo "The application cannot run without DOTENV_KEY."
+    echo "CLOUDFLARE_TUNNEL_TOKEN and POSTGRES_PASSWORD will be extracted from .env.vault."
+    echo ""
     echo "Run setup with:"
-    echo "  DOTENV_KEY=\"\$DOTENV_KEY_PRODUCTION\" sudo -E ./setup-vm.sh"
+    echo "  DOTENV_KEY=\"\$DOTENV_KEY_PRODUCTION\" sudo -E ./setup-vm.sh --branch main"
     exit 1
 fi
 
@@ -62,28 +86,7 @@ if [[ ! "$DOTENV_KEY" =~ ^dotenv:// ]]; then
 fi
 
 print_status "DOTENV_KEY validated"
-
-# Validate CLOUDFLARE_TUNNEL_TOKEN is provided
-if [ -z "${CLOUDFLARE_TUNNEL_TOKEN:-}" ]; then
-    print_error "CLOUDFLARE_TUNNEL_TOKEN environment variable is required"
-    echo ""
-    echo "The application requires Cloudflare Tunnel for ingress."
-    echo "Create a tunnel at: https://one.dash.cloudflare.com → Networks → Tunnels"
-    echo "Then run setup with:"
-    echo "  DOTENV_KEY=\"\$DOTENV_KEY_PRODUCTION\" CLOUDFLARE_TUNNEL_TOKEN=\"eyJ...\" sudo -E ./setup-vm.sh"
-    exit 1
-fi
-
-# Validate CLOUDFLARE_TUNNEL_TOKEN format (should be a base64 JWT starting with eyJ)
-if [[ ! "$CLOUDFLARE_TUNNEL_TOKEN" =~ ^eyJ ]]; then
-    print_error "CLOUDFLARE_TUNNEL_TOKEN appears to be invalid"
-    echo ""
-    echo "Expected format: eyJh... (base64-encoded JWT token)"
-    echo "Received: ${CLOUDFLARE_TUNNEL_TOKEN:0:20}..."
-    exit 1
-fi
-
-print_status "CLOUDFLARE_TUNNEL_TOKEN validated"
+print_info "CLOUDFLARE_TUNNEL_TOKEN and POSTGRES_PASSWORD will be extracted from .env.vault during setup"
 echo ""
 
 # Check internet connectivity (skip if ping not available on minimal image)
@@ -176,12 +179,13 @@ SUBSCRIPTS=(
     "08-create-systemd-service.sh"
     "09-configure-log-rotation.sh"
     "10-configure-ufw-cloudflare.sh"
+    "10.5-clone-repo-and-extract-secrets.sh"
     "11-configure-dotenv-key.sh"
     "12-configure-unattended-upgrades.sh"
 )
 
 # Track progress (starting from step 2)
-TOTAL=12
+TOTAL=13
 CURRENT=1
 
 # Run each subscript
@@ -193,8 +197,32 @@ for SUBSCRIPT in "${SUBSCRIPTS[@]}"; do
     echo "========================================="
     echo ""
 
-    if bash "$SCRIPT_DIR/setup/$SUBSCRIPT"; then
+    # Script 10.5 requires branch argument
+    if [ "$SUBSCRIPT" = "10.5-clone-repo-and-extract-secrets.sh" ]; then
+        SCRIPT_CMD="bash \"$SCRIPT_DIR/setup/$SUBSCRIPT\" \"$GIT_BRANCH\""
+        eval "$SCRIPT_CMD"
+        SCRIPT_EXIT_CODE=$?
+    else
+        bash "$SCRIPT_DIR/setup/$SUBSCRIPT"
+        SCRIPT_EXIT_CODE=$?
+    fi
+
+    if [ $SCRIPT_EXIT_CODE -eq 0 ]; then
         print_status "Step $CURRENT/$TOTAL completed successfully"
+
+        # After script 10.5, source the extracted credentials so they're available to script 11
+        if [ "$SUBSCRIPT" = "10.5-clone-repo-and-extract-secrets.sh" ]; then
+            if [ -f "/tmp/setup-secrets.env" ]; then
+                # shellcheck source=/tmp/setup-secrets.env
+                source /tmp/setup-secrets.env
+                print_info "Credentials loaded from /tmp/setup-secrets.env"
+                print_info "  - POSTGRES_PASSWORD: ${#POSTGRES_PASSWORD} characters"
+                print_info "  - CLOUDFLARE_TUNNEL_TOKEN: ${#CLOUDFLARE_TUNNEL_TOKEN} characters"
+            else
+                print_error "Expected /tmp/setup-secrets.env not found"
+                exit 1
+            fi
+        fi
     else
         print_error "Step $CURRENT/$TOTAL failed: $SUBSCRIPT"
         print_error "Cannot continue with remaining setup steps"
@@ -222,6 +250,13 @@ echo "  VM Setup Complete"
 echo "========================================="
 echo ""
 print_status "Base VM configuration finished!"
+
+# Clean up temporary credentials file
+if [ -f "/tmp/setup-secrets.env" ]; then
+    rm -f /tmp/setup-secrets.env
+    print_info "Temporary credentials file cleaned up"
+fi
+
 echo ""
 echo "Next steps are shown in the output of provision-azure-vm.sh"
 echo "(Generate deployment keys, deploy application code, start service)"

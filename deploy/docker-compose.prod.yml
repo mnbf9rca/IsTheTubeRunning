@@ -25,6 +25,8 @@ services:
     image: postgres:18
     container_name: isthetube-postgres-prod
     restart: unless-stopped
+    env_file:
+      - /home/deployuser/.env.secrets
     environment:
       POSTGRES_DB: isthetube
       POSTGRES_USER: postgres
@@ -80,6 +82,8 @@ services:
       dockerfile: Dockerfile
     container_name: isthetube-backend-prod
     restart: unless-stopped
+    env_file:
+      - /home/deployuser/.env.secrets
     environment:
       DOTENV_KEY: ${DOTENV_KEY}
       OTEL_SERVICE_NAME: isthetuberunning-api
@@ -113,6 +117,8 @@ services:
     container_name: isthetube-celery-worker-prod
     restart: unless-stopped
     command: /app/.venv/bin/celery -A app.celery.app worker --loglevel=info --concurrency=2
+    env_file:
+      - /home/deployuser/.env.secrets
     environment:
       DOTENV_KEY: ${DOTENV_KEY}
       OTEL_SERVICE_NAME: isthetuberunning-worker
@@ -140,6 +146,8 @@ services:
     container_name: isthetube-celery-beat-prod
     restart: unless-stopped
     command: /app/.venv/bin/celery -A app.celery.app beat --loglevel=info
+    env_file:
+      - /home/deployuser/.env.secrets
     environment:
       DOTENV_KEY: ${DOTENV_KEY}
       OTEL_SERVICE_NAME: isthetuberunning-beat
@@ -226,6 +234,8 @@ services:
     container_name: isthetube-cloudflared-prod
     restart: unless-stopped
     command: tunnel run
+    env_file:
+      - /home/deployuser/.env.secrets
     environment:
       TUNNEL_TOKEN: ${CLOUDFLARE_TUNNEL_TOKEN}
     depends_on:
