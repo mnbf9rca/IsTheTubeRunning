@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Setup SSH deployment keys for CI/CD
-# Use existing keys or generate new ones
+# Generates/uses SSH keys and deploys public key to target VM
 
 set -euo pipefail
 
@@ -8,6 +8,14 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=./azure-config.sh
 source "$SCRIPT_DIR/azure-config.sh"
+
+# Declare required configuration for this script
+validate_required_config \
+    "AZURE_ADMIN_USERNAME" \
+    "DEPLOYMENT_USER" \
+    "AZURE_VM_NAME" \
+    "AZURE_RESOURCE_GROUP" \
+    "AZURE_SSH_KEY_NAME" || exit 1
 
 # Colors for output
 RED='\033[0;31m'
@@ -34,6 +42,7 @@ print_info() {
 
 # Parse command line arguments
 KEY_FILE=""
+ADMIN_KEY=""
 GENERATE_NEW=false
 
 while [[ $# -gt 0 ]]; do
@@ -42,19 +51,30 @@ while [[ $# -gt 0 ]]; do
             KEY_FILE="$2"
             shift 2
             ;;
+        --admin-key)
+            ADMIN_KEY="$2"
+            shift 2
+            ;;
         --generate)
             GENERATE_NEW=true
             shift
             ;;
         -h|--help)
-            echo "Usage: $0 --key-file PATH | --generate"
+            echo "Usage: $0 --admin-key PATH (--key-file PATH | --generate)"
             echo ""
-            echo "Required (choose one):"
-            echo "  --key-file PATH    Use existing SSH key at PATH"
-            echo "  --generate         Generate a new SSH key"
+            echo "Required:"
+            echo "  --admin-key PATH   Path to admin SSH private key (for azureuser access)"
+            echo ""
+            echo "Choose one:"
+            echo "  --key-file PATH    Use existing deployment SSH key at PATH"
+            echo "  --generate         Generate a new deployment SSH key"
             echo ""
             echo "Optional:"
             echo "  -h, --help         Show this help message"
+            echo ""
+            echo "Examples:"
+            echo "  $0 --admin-key ~/.ssh/id_rsa --generate"
+            echo "  $0 --admin-key ~/.ssh/id_rsa --key-file ~/.ssh/deploy_key"
             exit 0
             ;;
         *)
@@ -64,13 +84,30 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 
+# Validate --admin-key is provided
+if [ -z "$ADMIN_KEY" ]; then
+    print_error "--admin-key PATH is required"
+    echo ""
+    echo "Usage: $0 --admin-key PATH (--key-file PATH | --generate)"
+    echo ""
+    echo "Example:"
+    echo "  $0 --admin-key ~/.ssh/id_rsa --generate"
+    exit 1
+fi
+
+# Validate admin key exists
+if [ ! -f "$ADMIN_KEY" ]; then
+    print_error "Admin key file not found: $ADMIN_KEY"
+    exit 1
+fi
+
 # Validate flags: require exactly one method, reject both
 if [ -n "$KEY_FILE" ] && [ "$GENERATE_NEW" = true ]; then
     print_error "Cannot use both --key-file and --generate together"
     echo ""
     echo "Choose one method:"
-    echo "  $0 --key-file PATH    # Use existing key"
-    echo "  $0 --generate         # Generate new key"
+    echo "  $0 --admin-key PATH --key-file PATH    # Use existing key"
+    echo "  $0 --admin-key PATH --generate         # Generate new key"
     exit 1
 fi
 
@@ -78,17 +115,70 @@ fi
 if [ -z "$KEY_FILE" ] && [ "$GENERATE_NEW" = false ]; then
     print_error "Must specify either --key-file PATH or --generate"
     echo ""
-    echo "Usage: $0 --key-file PATH | --generate"
+    echo "Usage: $0 --admin-key PATH (--key-file PATH | --generate)"
     echo ""
     echo "Examples:"
-    echo "  $0 --key-file ~/.ssh/id_ed25519  # Use existing key"
-    echo "  $0 --generate                     # Generate new key"
+    echo "  $0 --admin-key ~/.ssh/id_rsa --key-file ~/.ssh/deploy_key"
+    echo "  $0 --admin-key ~/.ssh/id_rsa --generate"
     exit 1
 fi
 
 echo "========================================="
 echo "  SSH Deployment Keys Setup"
 echo "========================================="
+echo ""
+
+# Check prerequisites
+print_info "Checking prerequisites..."
+
+# Check if Azure CLI is installed
+if ! command -v az &> /dev/null; then
+    print_error "Azure CLI is not installed"
+    echo ""
+    echo "Install with: brew install azure-cli"
+    exit 1
+fi
+print_status "Azure CLI found"
+
+# Check if logged in to Azure
+if ! az account show &> /dev/null; then
+    print_error "Not logged in to Azure"
+    echo ""
+    echo "Login with: az login"
+    exit 1
+fi
+print_status "Logged in to Azure"
+
+# Get VM public IP dynamically
+print_info "Retrieving VM public IP..."
+VM_PUBLIC_IP=$(az vm list-ip-addresses \
+    --name "$AZURE_VM_NAME" \
+    --resource-group "$AZURE_RESOURCE_GROUP" \
+    --query "[0].virtualMachine.network.publicIpAddresses[0].ipAddress" \
+    --output tsv)
+
+if [ -z "$VM_PUBLIC_IP" ]; then
+    print_error "Could not retrieve VM public IP"
+    echo ""
+    echo "Ensure VM '$AZURE_VM_NAME' exists in resource group '$AZURE_RESOURCE_GROUP'"
+    exit 1
+fi
+print_status "VM public IP: $VM_PUBLIC_IP"
+
+# Test SSH connectivity as admin user
+print_info "Testing SSH connectivity as $AZURE_ADMIN_USERNAME..."
+if ! ssh -i "$ADMIN_KEY" -o BatchMode=yes -o ConnectTimeout=10 -o StrictHostKeyChecking=accept-new \
+    "${AZURE_ADMIN_USERNAME}@${VM_PUBLIC_IP}" "echo 'SSH test successful'" &>/dev/null; then
+    print_error "Cannot connect to VM as $AZURE_ADMIN_USERNAME"
+    echo ""
+    echo "Check that:"
+    echo "  1. VM is running"
+    echo "  2. Admin key '$ADMIN_KEY' is authorized on the VM"
+    echo "  3. Network allows SSH (port 22)"
+    exit 1
+fi
+print_status "SSH connectivity verified"
+
 echo ""
 
 # Handle --generate flag
@@ -127,18 +217,65 @@ fi
 
 echo ""
 echo "========================================="
-echo "  Public Key (Add to VM)"
+echo "  Deploying Public Key to VM"
 echo "========================================="
 echo ""
-echo "Add this public key to the VM's deployuser authorized_keys file:"
-echo ""
-cat "${KEY_FILE}.pub"
-echo ""
-print_info "Command to add to VM (run as root/sudo):"
-echo ""
-echo "  echo \"$(cat "${KEY_FILE}.pub")\" >> /home/$DEPLOYMENT_USER/.ssh/authorized_keys"
+
+PUBLIC_KEY=$(cat "${KEY_FILE}.pub")
+print_info "Public key:"
+echo "  $PUBLIC_KEY"
 echo ""
 
+# Deploy public key to VM (idempotent - checks if key already exists)
+print_info "Deploying public key to $DEPLOYMENT_USER@$VM_PUBLIC_IP..."
+
+# Extract key type and key data (first two fields) for idempotency check
+KEY_FINGERPRINT=$(echo "$PUBLIC_KEY" | awk '{print $1, $2}')
+AUTH_KEYS_FILE="/home/$DEPLOYMENT_USER/.ssh/authorized_keys"
+
+# Check if key already exists on remote (idempotent)
+if ssh -i "$ADMIN_KEY" -o BatchMode=yes -o StrictHostKeyChecking=accept-new \
+    "${AZURE_ADMIN_USERNAME}@${VM_PUBLIC_IP}" \
+    "sudo grep -qF \"$KEY_FINGERPRINT\" \"$AUTH_KEYS_FILE\" 2>/dev/null"; then
+    print_status "Key already exists in authorized_keys (idempotent - no change needed)"
+else
+    # Create .ssh directory and add public key in single SSH call
+    # Pipe PUBLIC_KEY through stdin to avoid shell escaping issues
+    if echo "$PUBLIC_KEY" | ssh -i "$ADMIN_KEY" -o BatchMode=yes -o StrictHostKeyChecking=accept-new \
+        "${AZURE_ADMIN_USERNAME}@${VM_PUBLIC_IP}" \
+        "sudo mkdir -p \"/home/$DEPLOYMENT_USER/.ssh\" && \
+         sudo chmod 700 \"/home/$DEPLOYMENT_USER/.ssh\" && \
+         sudo chown \"$DEPLOYMENT_USER:$DEPLOYMENT_USER\" \"/home/$DEPLOYMENT_USER/.ssh\" && \
+         sudo tee -a \"$AUTH_KEYS_FILE\" > /dev/null && \
+         sudo chmod 600 \"$AUTH_KEYS_FILE\" && \
+         sudo chown \"$DEPLOYMENT_USER:$DEPLOYMENT_USER\" \"$AUTH_KEYS_FILE\""; then
+        print_status "Public key deployed to VM"
+    else
+        print_error "Failed to deploy public key to VM"
+        exit 1
+    fi
+fi
+
+echo ""
+echo "========================================="
+echo "  Testing Deployment SSH Connection"
+echo "========================================="
+echo ""
+
+print_info "Testing SSH connection as $DEPLOYMENT_USER..."
+if ssh -i "$KEY_FILE" -o BatchMode=yes -o ConnectTimeout=10 -o StrictHostKeyChecking=accept-new \
+    "${DEPLOYMENT_USER}@${VM_PUBLIC_IP}" "echo 'Deployment SSH connection successful'"; then
+    print_status "SSH connection as $DEPLOYMENT_USER verified"
+else
+    print_error "Failed to connect as $DEPLOYMENT_USER"
+    echo ""
+    echo "The public key was deployed but the connection test failed."
+    echo "Check the key permissions and try manually:"
+    echo "  ssh -i $KEY_FILE $DEPLOYMENT_USER@$VM_PUBLIC_IP"
+    exit 1
+fi
+
+echo ""
 echo "========================================="
 echo "  Private Key (Add to GitHub Secrets)"
 echo "========================================="
@@ -150,28 +287,13 @@ print_warning "To view private key (be careful!): cat $KEY_FILE"
 echo ""
 
 echo "========================================="
-echo "  SSH Config Snippet"
-echo "========================================="
-echo ""
-print_info "Add this to your ~/.ssh/config for easy connection:"
-echo ""
-cat <<EOF
-Host $AZURE_VM_NAME
-  HostName <VM_PUBLIC_IP>
-  User $DEPLOYMENT_USER
-  IdentityFile $KEY_FILE
-  StrictHostKeyChecking accept-new
-EOF
-echo ""
-
-echo "========================================="
 echo "  GitHub Secrets to Configure"
 echo "========================================="
 echo ""
 print_info "Add these secrets to your GitHub repository:"
 echo ""
-echo "  DEPLOY_SSH_KEY      Private key content (shown above)"
-echo "  DEPLOY_HOST         VM public IP address"
+echo "  DEPLOY_SSH_KEY      Private key content (cat $KEY_FILE)"
+echo "  DEPLOY_HOST         $VM_PUBLIC_IP"
 echo "  DEPLOY_USER         $DEPLOYMENT_USER"
 echo "  DOTENV_KEY          Production decryption key from .env.vault"
 echo ""
@@ -181,19 +303,17 @@ echo "  Look for: DOTENV_KEY_PRODUCTION"
 echo ""
 
 echo "========================================="
-echo "  Testing SSH Connection"
+echo "  Summary"
 echo "========================================="
 echo ""
-print_info "After adding the public key to the VM, test with:"
+print_status "SSH deployment keys configured successfully!"
 echo ""
-echo "  ssh -i $KEY_FILE $DEPLOYMENT_USER@<VM_PUBLIC_IP>"
+echo "  VM Target:        $DEPLOYMENT_USER@$VM_PUBLIC_IP"
+echo "  Private Key:      $KEY_FILE"
+echo "  Public Key:       ${KEY_FILE}.pub"
 echo ""
-print_warning "Make sure to replace <VM_PUBLIC_IP> with the actual IP address"
-echo ""
-
-print_status "SSH keys generated successfully!"
-echo ""
-print_info "Key files location:"
-echo "  Private: $KEY_FILE"
-echo "  Public:  ${KEY_FILE}.pub"
+print_info "Next steps:"
+echo "  1. Add private key to GitHub Secrets as DEPLOY_SSH_KEY"
+echo "  2. Add VM IP ($VM_PUBLIC_IP) to GitHub Secrets as DEPLOY_HOST"
+echo "  3. Configure remaining GitHub Secrets (see above)"
 echo ""
