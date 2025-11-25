@@ -75,6 +75,29 @@ services:
     networks:
       - app-network
 
+  # Database Migrations (runs once before app starts)
+  migrations:
+    build:
+      context: ../backend
+      dockerfile: Dockerfile
+    container_name: isthetube-migrations-prod
+    env_file:
+      - /home/deployuser/.env.secrets
+    environment:
+      DOTENV_KEY: ${DOTENV_KEY}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    command: alembic upgrade head
+    restart: "no"  # Only run once, don't restart on failure
+    networks:
+      - app-network
+    deploy:
+      resources:
+        limits:
+          cpus: '0.25'
+          memory: 256M
+
   # FastAPI Backend
   backend:
     build:
@@ -92,6 +115,8 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+      migrations:
+        condition: service_completed_successfully
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
       interval: 30s
@@ -127,6 +152,8 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+      migrations:
+        condition: service_completed_successfully
     deploy:
       resources:
         limits:
@@ -152,7 +179,10 @@ services:
       DOTENV_KEY: ${DOTENV_KEY}
       OTEL_SERVICE_NAME: isthetuberunning-beat
     depends_on:
-      - redis
+      redis:
+        condition: service_started
+      migrations:
+        condition: service_completed_successfully
     deploy:
       resources:
         limits:
