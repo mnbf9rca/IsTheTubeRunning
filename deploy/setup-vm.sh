@@ -179,7 +179,7 @@ SUBSCRIPTS=(
     "08-create-systemd-service.sh"
     "09-configure-log-rotation.sh"
     "10-configure-ufw-cloudflare.sh"
-    "10.5-clone-repo-and-extract-secrets.sh"
+    "10.5-clone-repo.sh"
     "11-configure-dotenv-key.sh"
     "12-configure-unattended-upgrades.sh"
 )
@@ -198,7 +198,7 @@ for SUBSCRIPT in "${SUBSCRIPTS[@]}"; do
     echo ""
 
     # Script 10.5 requires branch argument
-    if [ "$SUBSCRIPT" = "10.5-clone-repo-and-extract-secrets.sh" ]; then
+    if [ "$SUBSCRIPT" = "10.5-clone-repo.sh" ]; then
         SCRIPT_CMD="bash \"$SCRIPT_DIR/setup/$SUBSCRIPT\" \"$GIT_BRANCH\""
         eval "$SCRIPT_CMD"
         SCRIPT_EXIT_CODE=$?
@@ -209,20 +209,6 @@ for SUBSCRIPT in "${SUBSCRIPTS[@]}"; do
 
     if [ $SCRIPT_EXIT_CODE -eq 0 ]; then
         print_status "Step $CURRENT/$TOTAL completed successfully"
-
-        # After script 10.5, source the extracted credentials so they're available to script 11
-        if [ "$SUBSCRIPT" = "10.5-clone-repo-and-extract-secrets.sh" ]; then
-            if [ -f "/tmp/setup-secrets.env" ]; then
-                # shellcheck source=/tmp/setup-secrets.env
-                source /tmp/setup-secrets.env
-                print_info "Credentials loaded from /tmp/setup-secrets.env"
-                print_info "  - POSTGRES_PASSWORD: ${#POSTGRES_PASSWORD} characters"
-                print_info "  - CLOUDFLARE_TUNNEL_TOKEN: ${#CLOUDFLARE_TUNNEL_TOKEN} characters"
-            else
-                print_error "Expected /tmp/setup-secrets.env not found"
-                exit 1
-            fi
-        fi
     else
         print_error "Step $CURRENT/$TOTAL failed: $SUBSCRIPT"
         print_error "Cannot continue with remaining setup steps"
@@ -250,13 +236,6 @@ echo "  VM Setup Complete"
 echo "========================================="
 echo ""
 print_status "Base VM configuration finished!"
-
-# Clean up temporary credentials file
-if [ -f "/tmp/setup-secrets.env" ]; then
-    rm -f /tmp/setup-secrets.env
-    print_info "Temporary credentials file cleaned up"
-fi
-
 echo ""
 echo "Next steps are shown in the output of provision-azure-vm.sh"
 echo "(Generate deployment keys, deploy application code, start service)"

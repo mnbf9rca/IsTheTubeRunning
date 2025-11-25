@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Configure DOTENV_KEY and CLOUDFLARE_TUNNEL_TOKEN for application startup
+# Extract secrets from .env.vault and configure for application startup
 
 set -euo pipefail
 
@@ -15,26 +15,74 @@ validate_required_config "DEPLOYMENT_USER" "APP_DIR" || exit 1
 
 require_root
 
-echo "=== Application Secrets Configuration ==="
+echo "=== Extract Secrets and Configure Application ==="
 echo ""
+
+# Verify DOTENV_KEY is set (validated by setup-vm.sh)
+if [ -z "${DOTENV_KEY:-}" ]; then
+    print_error "DOTENV_KEY environment variable not set"
+    print_info "This should have been validated by setup-vm.sh"
+    exit 1
+fi
 
 SECRETS_FILE="/home/$DEPLOYMENT_USER/.env.secrets"
 
-# Verify POSTGRES_PASSWORD is set (exported by script 10.5)
-if [ -z "${POSTGRES_PASSWORD:-}" ]; then
-    print_error "POSTGRES_PASSWORD not set - ensure script 10.5 ran successfully"
+# Install uv if not present (needed for extraction)
+# Install as deployment user to avoid PATH issues with sudo/root
+if ! sudo -u "$DEPLOYMENT_USER" bash -c 'command -v uv' &>/dev/null && \
+   ! sudo -u "$DEPLOYMENT_USER" bash -c 'test -x ~/.local/bin/uv' &>/dev/null; then
+    print_status "Installing uv for credential extraction (as $DEPLOYMENT_USER)..."
+    sudo -u "$DEPLOYMENT_USER" bash -c 'curl -LsSf https://astral.sh/uv/install.sh | sh'
+
+    # Verify installation at expected location
+    if ! sudo -u "$DEPLOYMENT_USER" bash -c 'test -x ~/.local/bin/uv'; then
+        print_error "Failed to install uv"
+        print_info "Expected uv at /home/$DEPLOYMENT_USER/.local/bin/uv"
+        exit 1
+    fi
+
+    print_status "uv installed successfully"
+    echo ""
+fi
+
+# Extract POSTGRES_PASSWORD from .env.vault
+print_info "Extracting database credentials from .env.vault..."
+# This utility is at backend/app/utils/extract_db_credentials.py (100% test coverage)
+# Run as deployment user to use their uv installation
+POSTGRES_PASSWORD=$(sudo -u "$DEPLOYMENT_USER" bash -c "cd '$APP_DIR/backend' && export DOTENV_KEY='$DOTENV_KEY' && ~/.local/bin/uv run python -m app.utils.extract_db_credentials password")
+
+if [ -z "${POSTGRES_PASSWORD}" ]; then
+    print_error "Failed to extract POSTGRES_PASSWORD from .env.vault"
+    print_info "Possible causes:"
+    print_info "  - DOTENV_KEY is incorrect or invalid"
+    print_info "  - .env.vault does not contain DATABASE_URL"
+    print_info "  - DATABASE_URL does not contain a password"
     exit 1
 fi
 
-# Verify CLOUDFLARE_TUNNEL_TOKEN is set (exported by script 10.5)
-if [ -z "${CLOUDFLARE_TUNNEL_TOKEN:-}" ]; then
-    print_error "CLOUDFLARE_TUNNEL_TOKEN not set - ensure script 10.5 ran successfully"
+print_status "POSTGRES_PASSWORD extracted successfully"
+print_info "Password length: ${#POSTGRES_PASSWORD} characters"
+echo ""
+
+# Extract CLOUDFLARE_TUNNEL_TOKEN from .env.vault
+print_info "Extracting CLOUDFLARE_TUNNEL_TOKEN from .env.vault..."
+CLOUDFLARE_TUNNEL_TOKEN=$(sudo -u "$DEPLOYMENT_USER" bash -c "cd '$APP_DIR/backend' && export DOTENV_KEY='$DOTENV_KEY' && ~/.local/bin/uv run python -c \"from dotenv_vault import load_dotenv; import os; load_dotenv(); print(os.getenv('CLOUDFLARE_TUNNEL_TOKEN', ''))\"")
+
+if [ -z "${CLOUDFLARE_TUNNEL_TOKEN}" ]; then
+    print_error "Failed to extract CLOUDFLARE_TUNNEL_TOKEN from .env.vault"
+    print_info "Possible causes:"
+    print_info "  - DOTENV_KEY is incorrect or invalid"
+    print_info "  - .env.vault does not contain CLOUDFLARE_TUNNEL_TOKEN"
     exit 1
 fi
+
+print_status "CLOUDFLARE_TUNNEL_TOKEN extracted successfully"
+print_info "Token length: ${#CLOUDFLARE_TUNNEL_TOKEN} characters"
+echo ""
 
 # DOTENV_KEY is validated by setup-vm.sh, so it's guaranteed to be set here
 print_info "Configuring application secrets..."
-print_info "Using credentials extracted from .env.vault by script 10.5"
+print_info "All credentials extracted from .env.vault (single source of truth)"
 
 # Check if secrets file already exists
 if [ -f "$SECRETS_FILE" ]; then
