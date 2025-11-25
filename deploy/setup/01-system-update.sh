@@ -26,8 +26,6 @@ print_status "System packages updated"
 # Install common dependencies
 print_info "Installing common dependencies..."
 DEBIAN_FRONTEND=noninteractive apt-get install -y \
-    python3-httpx \
-    python3-pip \
     jq
 
 print_status "Common dependencies installed"
