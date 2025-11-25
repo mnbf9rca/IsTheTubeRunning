@@ -85,6 +85,7 @@ get_thread_id_from_comment() {
     local pr_number="$1"
     local comment_id="$2"
 
+    # shellcheck disable=SC2016
     local query='query($owner: String!, $repo: String!, $pr: Int!) {
   repository(owner: $owner, name: $repo) {
     pullRequest(number: $pr) {
@@ -216,6 +217,7 @@ action_resolve() {
     # Post the response comment using comment ID (suppress output, we'll output once at the end)
     _post_reply "$pr_number" "$comment_id" "$response_text" > /dev/null
 
+    # shellcheck disable=SC2016
     local mutation='mutation($threadId: ID!) {
   resolveReviewThread(input: {threadId: $threadId}) {
     thread {
