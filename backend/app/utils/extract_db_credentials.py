@@ -1,18 +1,22 @@
-"""Extract database credentials from DATABASE_URL for use in shell scripts.
+"""Extract database credentials from DATABASE_URL and environment variables for use in shell scripts.
 
-This utility decrypts .env.vault using DOTENV_KEY and parses DATABASE_URL
-to extract individual connection parameters (user, password, host, port, database).
+This utility decrypts .env.vault using DOTENV_KEY and can extract:
+1. Database connection parameters from DATABASE_URL (user, password, host, port, database)
+2. Environment variables directly (e.g., CLOUDFLARE_TUNNEL_TOKEN)
 
 Usage:
     # Get all credentials as export statements (for eval in bash)
     uv run python -m app.utils.extract_db_credentials export
 
-    # Get individual credential field
+    # Get individual credential field from DATABASE_URL
     uv run python -m app.utils.extract_db_credentials password
     uv run python -m app.utils.extract_db_credentials user
     uv run python -m app.utils.extract_db_credentials host
     uv run python -m app.utils.extract_db_credentials port
     uv run python -m app.utils.extract_db_credentials database
+
+    # Extract environment variable directly
+    uv run python -m app.utils.extract_db_credentials tunnel_token
 
 Example bash usage:
     # Extract all credentials
@@ -21,6 +25,7 @@ Example bash usage:
 
     # Extract single value
     DB_PASSWORD=$(uv run python -m app.utils.extract_db_credentials password)
+    TUNNEL_TOKEN=$(uv run python -m app.utils.extract_db_credentials tunnel_token)
 """
 
 import os
@@ -127,19 +132,49 @@ def load_database_url() -> str:
     raise ValueError(msg)
 
 
+def extract_env_var(var_name: str) -> str:
+    """Extract any environment variable from .env.vault.
+
+    Loads .env.vault using DOTENV_KEY and extracts the requested environment variable.
+
+    Args:
+        var_name: Name of environment variable to extract (e.g., "CLOUDFLARE_TUNNEL_TOKEN")
+
+    Returns:
+        Value of the environment variable
+
+    Raises:
+        ValueError: If variable not found in environment or is empty
+    """
+    # Load environment variables from .env.vault using DOTENV_KEY
+    load_dotenv()
+
+    if value := os.getenv(var_name, ""):
+        return value
+    msg = f"{var_name} not found in environment"
+    raise ValueError(msg)
+
+
 def main() -> None:
     """CLI entry point.
 
     Orchestrates the credential extraction process:
-    1. Loads DATABASE_URL from environment (or .env.vault)
-    2. Determines extraction mode from command line arguments
-    3. Extracts and prints credentials
+    1. Determines extraction mode from command line arguments
+    2. For database modes: Loads DATABASE_URL and extracts credentials
+    3. For environment variable modes: Extracts variable directly from .env.vault
     4. Handles errors and exits with appropriate status codes
     """
     try:
-        database_url = load_database_url()
         mode = get_mode_from_args(sys.argv)
-        result = extract_credentials(database_url, mode)
+
+        # Special handling for tunnel_token mode - extract from environment directly
+        if mode == "tunnel_token":
+            result = extract_env_var("CLOUDFLARE_TUNNEL_TOKEN")
+        else:
+            # Database credential extraction modes
+            database_url = load_database_url()
+            result = extract_credentials(database_url, mode)
+
         print(result)
     except ValueError as e:
         print(f"ERROR: {e}", file=sys.stderr)

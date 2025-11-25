@@ -38,8 +38,9 @@ WorkingDirectory=$APP_DIR/deploy
 User=$DEPLOYMENT_USER
 Group=$DEPLOYMENT_USER
 EnvironmentFile=/home/$DEPLOYMENT_USER/.env.secrets
-# Note: EnvironmentFile primarily for systemd awareness/audit
-# Docker Compose loads secrets via env_file directive in docker-compose.prod.yml
+# Note: EnvironmentFile is required for docker-compose variable substitution (e.g., \${DOTENV_KEY}, \${POSTGRES_PASSWORD}, etc.)
+# These variables must be present in the systemd environment for docker-compose to substitute them.
+# The env_file directive in docker-compose.prod.yml makes these variables available inside the containers.
 
 # Pull latest images and start services
 ExecStartPre=/usr/bin/docker compose -f docker-compose.prod.yml pull

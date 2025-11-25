@@ -199,8 +199,7 @@ for SUBSCRIPT in "${SUBSCRIPTS[@]}"; do
 
     # Script 10.5 requires branch argument
     if [ "$SUBSCRIPT" = "10.5-clone-repo.sh" ]; then
-        SCRIPT_CMD="bash \"$SCRIPT_DIR/setup/$SUBSCRIPT\" \"$GIT_BRANCH\""
-        eval "$SCRIPT_CMD"
+        bash "$SCRIPT_DIR/setup/$SUBSCRIPT" "$GIT_BRANCH"
         SCRIPT_EXIT_CODE=$?
     else
         bash "$SCRIPT_DIR/setup/$SUBSCRIPT"

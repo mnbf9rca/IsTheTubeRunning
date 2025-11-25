@@ -47,16 +47,26 @@ fi
 
 # Extract POSTGRES_PASSWORD from .env.vault
 print_info "Extracting database credentials from .env.vault..."
-# This utility is at backend/app/utils/extract_db_credentials.py (100% test coverage)
+# This utility is at backend/app/utils/extract_db_credentials.py (well-tested utility)
 # Run as deployment user to use their uv installation
-POSTGRES_PASSWORD=$(sudo -u "$DEPLOYMENT_USER" bash -c "cd '$APP_DIR/backend' && export DOTENV_KEY='$DOTENV_KEY' && ~/.local/bin/uv run python -m app.utils.extract_db_credentials password")
+POSTGRES_PASSWORD_OUTPUT=$(sudo -u "$DEPLOYMENT_USER" bash -c "cd '$APP_DIR/backend' && export DOTENV_KEY='$DOTENV_KEY' && ~/.local/bin/uv run python -m app.utils.extract_db_credentials password" 2>&1)
+POSTGRES_PASSWORD_STATUS=$?
 
-if [ -z "${POSTGRES_PASSWORD}" ]; then
+if [ $POSTGRES_PASSWORD_STATUS -ne 0 ]; then
     print_error "Failed to extract POSTGRES_PASSWORD from .env.vault"
+    print_info "Command failed with exit code $POSTGRES_PASSWORD_STATUS"
+    print_info "Output:"
+    echo "$POSTGRES_PASSWORD_OUTPUT"
     print_info "Possible causes:"
     print_info "  - DOTENV_KEY is incorrect or invalid"
     print_info "  - .env.vault does not contain DATABASE_URL"
     print_info "  - DATABASE_URL does not contain a password"
+    exit 1
+fi
+
+POSTGRES_PASSWORD="$POSTGRES_PASSWORD_OUTPUT"
+if [ -z "${POSTGRES_PASSWORD}" ]; then
+    print_error "Failed to extract POSTGRES_PASSWORD from .env.vault (empty value)"
     exit 1
 fi
 
@@ -66,13 +76,24 @@ echo ""
 
 # Extract CLOUDFLARE_TUNNEL_TOKEN from .env.vault
 print_info "Extracting CLOUDFLARE_TUNNEL_TOKEN from .env.vault..."
-CLOUDFLARE_TUNNEL_TOKEN=$(sudo -u "$DEPLOYMENT_USER" bash -c "cd '$APP_DIR/backend' && export DOTENV_KEY='$DOTENV_KEY' && ~/.local/bin/uv run python -c \"from dotenv_vault import load_dotenv; import os; load_dotenv(); print(os.getenv('CLOUDFLARE_TUNNEL_TOKEN', ''))\"")
+# Use same utility as POSTGRES_PASSWORD for consistency (backend/app/utils/extract_db_credentials.py)
+CLOUDFLARE_TUNNEL_TOKEN_OUTPUT=$(sudo -u "$DEPLOYMENT_USER" bash -c "cd '$APP_DIR/backend' && export DOTENV_KEY='$DOTENV_KEY' && ~/.local/bin/uv run python -m app.utils.extract_db_credentials tunnel_token" 2>&1)
+CLOUDFLARE_TUNNEL_TOKEN_STATUS=$?
 
-if [ -z "${CLOUDFLARE_TUNNEL_TOKEN}" ]; then
+if [ $CLOUDFLARE_TUNNEL_TOKEN_STATUS -ne 0 ]; then
     print_error "Failed to extract CLOUDFLARE_TUNNEL_TOKEN from .env.vault"
+    print_info "Command failed with exit code $CLOUDFLARE_TUNNEL_TOKEN_STATUS"
+    print_info "Output:"
+    echo "$CLOUDFLARE_TUNNEL_TOKEN_OUTPUT"
     print_info "Possible causes:"
     print_info "  - DOTENV_KEY is incorrect or invalid"
     print_info "  - .env.vault does not contain CLOUDFLARE_TUNNEL_TOKEN"
+    exit 1
+fi
+
+CLOUDFLARE_TUNNEL_TOKEN="$CLOUDFLARE_TUNNEL_TOKEN_OUTPUT"
+if [ -z "${CLOUDFLARE_TUNNEL_TOKEN}" ]; then
+    print_error "Failed to extract CLOUDFLARE_TUNNEL_TOKEN from .env.vault (empty value)"
     exit 1
 fi
 
@@ -98,7 +119,7 @@ print_info "Writing secrets to $SECRETS_FILE..."
 # Write secrets to file
 cat > "$SECRETS_FILE" <<EOF
 # Application secrets for IsTheTubeRunning production deployment
-# Location: /home/$DEPLOYMENT_USER/.env.secrets (outside git clone for security)
+# Location: $SECRETS_FILE (outside git clone for security)
 # Loaded by: docker-compose.prod.yml env_file directive
 
 # DOTENV_KEY: Decrypts .env.vault containing application configuration
