@@ -1,12 +1,14 @@
 /**
- * Centralized configuration module for the TfL Alerts frontend.
+ * Configuration types and validation for the TfL Alerts frontend.
  *
- * Configuration is loaded from JSON files in /config directory based on the current
- * environment (development, production, test). All values are validated at startup
- * to ensure no misconfigurations reach runtime.
+ * Configuration is loaded from /config.json at runtime by ConfigLoader component.
+ * This module provides TypeScript types and validation logic only.
  *
  * NO FALLBACK VALUES - Missing configuration will throw an error to make
  * misconfigurations immediately visible.
+ *
+ * @see configLoader.ts - Runtime config loading
+ * @see ConfigContext.tsx - React Context provider for config access
  */
 
 /**
@@ -41,7 +43,7 @@ function isValidUrl(url: string): boolean {
  *
  * @throws {Error} If any required configuration value is missing or invalid
  */
-function validateConfig(config: Partial<AppConfig>): asserts config is AppConfig {
+export function validateConfig(config: Partial<AppConfig>): asserts config is AppConfig {
   const errors: string[] = []
 
   // Validate API config
@@ -70,37 +72,4 @@ function validateConfig(config: Partial<AppConfig>): asserts config is AppConfig
   if (errors.length > 0) {
     throw new Error(`Configuration validation failed:\n${errors.map((e) => `  - ${e}`).join('\n')}`)
   }
-}
-
-/**
- * Load configuration at module initialization using top-level await
- * Vite replaces import.meta.env.MODE with a string literal (e.g., 'production'),
- * allowing tree-shaking to eliminate unused config files from the bundle
- */
-let configData: Partial<AppConfig>
-
-if (import.meta.env.MODE === 'production') {
-  const mod = await import('../../config/config.production.json')
-  configData = mod.default
-} else if (import.meta.env.MODE === 'test') {
-  const mod = await import('../../config/config.test.json')
-  configData = mod.default
-} else {
-  const mod = await import('../../config/config.development.json')
-  configData = mod.default
-}
-
-// Validate the loaded configuration
-validateConfig(configData)
-
-/**
- * Application configuration - loaded at module initialization
- */
-export const config: AppConfig = configData
-
-/**
- * Get the application configuration
- */
-export function getConfig(): AppConfig {
-  return config
 }

@@ -2,9 +2,23 @@
  * API client for backend communication
  */
 
-import { config } from './config'
+/**
+ * Module-level API base URL
+ * Set via setApiBaseUrl() after config loads
+ */
+let API_BASE_URL = ''
 
-const API_BASE_URL = config.api.baseUrl
+/**
+ * Set the API base URL from runtime configuration
+ *
+ * Called by ConfigLoader after config is fetched and validated.
+ * Must be called before making any API requests.
+ *
+ * @param baseUrl The API base URL from configuration
+ */
+export function setApiBaseUrl(baseUrl: string): void {
+  API_BASE_URL = baseUrl
+}
 
 export interface HealthResponse {
   status: string

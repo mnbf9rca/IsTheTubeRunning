@@ -199,13 +199,13 @@ services:
     build:
       context: ../frontend
       dockerfile: Dockerfile
-      args:
-        VITE_MODE: production
     container_name: isthetube-frontend-prod
     restart: unless-stopped
     # Port not exposed - nginx handles all external traffic
     volumes:
       - frontend_static:/www
+      # No config mount needed - config.json contains all environments
+      # and auto-detects based on hostname (isthetube.cynexia.com → production)
     healthcheck:
       test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://localhost:8080/"]
       interval: 30s
