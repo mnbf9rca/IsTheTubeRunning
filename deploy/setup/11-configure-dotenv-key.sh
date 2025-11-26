@@ -68,11 +68,17 @@ extract_credential() {
         EXTRACTION_STATUS=$?
 
         # Count output lines - should be exactly 1 (the credential)
-        LINE_COUNT=$(echo "$EXTRACTION_OUTPUT" | wc -l)
+        # Check if output is empty first
+        if [ -z "$EXTRACTION_OUTPUT" ]; then
+            LINE_COUNT=0
+        else
+            # Use printf to avoid echo adding newlines
+            LINE_COUNT=$(printf '%s' "$EXTRACTION_OUTPUT" | wc -l)
+        fi
 
-        # If more than 1 line, show output for troubleshooting
-        if [ "$LINE_COUNT" -gt 1 ]; then
-            print_warning "Extraction returned $LINE_COUNT lines (expected 1)" >&2
+        # If empty or more than 1 line, show output for troubleshooting
+        if [ "$LINE_COUNT" -eq 0 ] || [ "$LINE_COUNT" -gt 1 ]; then
+            print_warning "Extraction returned $LINE_COUNT lines (expected exactly 1)" >&2
             print_info "Full output shown for troubleshooting:" >&2
             echo "$EXTRACTION_OUTPUT" >&2
             echo "" >&2

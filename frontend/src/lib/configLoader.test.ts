@@ -315,7 +315,7 @@ describe('configLoader', () => {
       expect(config.auth0.domain).toBe('prod.auth0.com')
     })
 
-    it('should detect production for any other domain', async () => {
+    it('should detect development for any other domain (safer default)', async () => {
       vi.stubGlobal('location', { hostname: 'example.com' })
 
       const mockConfig: MultiEnvConfig = {
@@ -345,7 +345,8 @@ describe('configLoader', () => {
       })
 
       const config = await loadConfig()
-      expect(config.api.baseUrl).toBe('https://api.prod.com/api/v1')
+      expect(config.api.baseUrl).toBe('http://localhost:8000/api/v1')
+      expect(config.auth0.domain).toBe('dev.auth0.com')
     })
   })
 

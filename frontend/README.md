@@ -5,8 +5,8 @@ React + TypeScript + Vite frontend for the TfL Disruption Alert System.
 ## Configuration
 
 The application uses **runtime configuration loading** from `/public/config.json`. Configuration is auto-detected based on the hostname:
-- `localhost` or `127.0.0.1` or private IPs (RFC 1918) → Development
 - `isthetube.cynexia.com` → Production
+- **All other hostnames** (localhost, IPs, staging, etc.) → Development (safer default)
 
 This allows the **same Docker image** to work across all environments with zero configuration - the frontend automatically selects the correct config based on `window.location.hostname`.
 
@@ -19,7 +19,7 @@ npm install
 npm run dev
 ```
 
-This uses `config.development.json` and connects to `http://localhost:8000`.
+The app fetches `/public/config.json` at startup and uses the development configuration. Connects to `http://localhost:8000` by default.
 
 ## Building
 

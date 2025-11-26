@@ -24,7 +24,22 @@ import {
   getEngagementMetrics,
 } from './api'
 
-// Set API base URL for all tests
+describe('API initialization guards', () => {
+  it('should throw error when setApiBaseUrl called with empty string', () => {
+    expect(() => setApiBaseUrl('')).toThrow('API base URL cannot be empty')
+  })
+
+  it('should throw error when setApiBaseUrl called with whitespace-only string', () => {
+    expect(() => setApiBaseUrl('   ')).toThrow('API base URL cannot be empty')
+  })
+
+  it('should successfully set API base URL with valid URL', () => {
+    // This should not throw
+    expect(() => setApiBaseUrl('http://localhost:8000')).not.toThrow()
+  })
+})
+
+// Set API base URL for remaining tests
 beforeEach(() => {
   setApiBaseUrl('http://localhost:8000')
 })
