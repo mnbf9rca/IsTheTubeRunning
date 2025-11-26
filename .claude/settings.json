@@ -94,7 +94,8 @@
       "Bash(gh pr create:*)"
     ],
     "deny": [
-      "Bash(npx dotenv-vault@latest keys:*)"
+      "Bash(npx dotenv-vault@latest keys:*)",
+      "Bash(git commit --amend:*)"
     ]
   }
 }
