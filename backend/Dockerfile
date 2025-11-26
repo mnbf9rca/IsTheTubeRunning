@@ -49,7 +49,8 @@ RUN apt-get update && \
 
 # Create non-root user with home directory
 RUN groupadd -r -g 1000 appuser && \
-    useradd -r -u 1000 -g appuser -m -d /home/appuser -s /sbin/nologin -c "Application user" appuser
+    useradd -r -u 1000 -g appuser -m -d /home/appuser -s /sbin/nologin -c "Application user" appuser && \
+    chown -R appuser:appuser /app
 
 # Copy the virtual environment from the builder
 COPY --from=builder --chown=appuser:appuser /app/.venv /app/.venv
