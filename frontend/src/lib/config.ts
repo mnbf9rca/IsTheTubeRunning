@@ -10,14 +10,6 @@
  */
 
 /**
- * Import all config files eagerly
- * Vite will bundle these at build time
- */
-import configDevelopment from '../../config/config.development.json'
-import configProduction from '../../config/config.production.json'
-import configTest from '../../config/config.test.json'
-
-/**
  * Configuration structure for the application
  */
 export interface AppConfig {
@@ -30,18 +22,6 @@ export interface AppConfig {
     audience: string
     callbackUrl: string
   }
-}
-
-/**
- * Gets the current environment mode
- */
-function getEnvironment(): 'development' | 'production' | 'test' {
-  // In Vite, import.meta.env.MODE is set based on the --mode flag or NODE_ENV
-  const mode = import.meta.env.MODE
-
-  if (mode === 'test') return 'test'
-  if (mode === 'production') return 'production'
-  return 'development'
 }
 
 /**
@@ -93,41 +73,34 @@ function validateConfig(config: Partial<AppConfig>): asserts config is AppConfig
 }
 
 /**
- * Loads configuration from the appropriate JSON file based on environment
- *
- * @throws {Error} If configuration file cannot be loaded or validation fails
+ * Load configuration at module initialization using top-level await
+ * Vite replaces import.meta.env.MODE with a string literal (e.g., 'production'),
+ * allowing tree-shaking to eliminate unused config files from the bundle
  */
-function loadConfig(): AppConfig {
-  const env = getEnvironment()
+let configData: Partial<AppConfig>
 
-  // Select the appropriate config based on environment
-  let configData: Partial<AppConfig>
-
-  switch (env) {
-    case 'development':
-      configData = configDevelopment
-      break
-    case 'production':
-      configData = configProduction
-      break
-    case 'test':
-      configData = configTest
-      break
-    default:
-      throw new Error(`Unknown environment: ${env}`)
-  }
-
-  // Validate the loaded configuration
-  validateConfig(configData)
-
-  return configData
+if (import.meta.env.MODE === 'production') {
+  const mod = await import('../../config/config.production.json')
+  configData = mod.default
+} else if (import.meta.env.MODE === 'test') {
+  const mod = await import('../../config/config.test.json')
+  configData = mod.default
+} else {
+  const mod = await import('../../config/config.development.json')
+  configData = mod.default
 }
 
+// Validate the loaded configuration
+validateConfig(configData)
+
 /**
- * Application configuration singleton
- *
- * Loaded once at module initialization. Any configuration errors will be thrown
- * immediately when this module is first imported, ensuring the app cannot start
- * with invalid configuration.
+ * Application configuration - loaded at module initialization
  */
-export const config: AppConfig = loadConfig()
+export const config: AppConfig = configData
+
+/**
+ * Get the application configuration
+ */
+export function getConfig(): AppConfig {
+  return config
+}
