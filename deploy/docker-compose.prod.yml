@@ -194,24 +194,20 @@ services:
     networks:
       - app-network
 
-  # Frontend Static Server (builds frontend assets)
+  # Frontend Builder (init container - builds assets, populates volume, exits)
   frontend:
     build:
       context: ../frontend
       dockerfile: Dockerfile
     container_name: isthetube-frontend-prod
-    restart: unless-stopped
+    restart: "no"  # Init container - run once then exit
     # Port not exposed - nginx handles all external traffic
     volumes:
       - frontend_static:/www
       # No config mount needed - config.json contains all environments
       # and auto-detects based on hostname (isthetube.cynexia.com → production)
-    healthcheck:
-      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://localhost:8080/"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 10s
+    # Override CMD to just copy files and exit (no need to run httpd)
+    command: sh -c "echo 'Frontend assets built and ready in volume' && sleep 1"
     deploy:
       resources:
         limits:
@@ -238,10 +234,10 @@ services:
       - ../docker/nginx/nginx.conf:/etc/nginx/nginx.conf:ro
       - frontend_static:/usr/share/nginx/html:ro
     depends_on:
-      backend:
-        condition: service_started  # Don't wait for health
       frontend:
-        condition: service_started
+        condition: service_completed_successfully  # Wait for init container to populate volume
+      # No backend dependency - static files should serve immediately
+      # Backend health is checked via nginx proxy_pass, which handles failures gracefully
     healthcheck:
       test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://localhost/health"]
       interval: 30s
