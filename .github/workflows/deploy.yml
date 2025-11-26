@@ -26,6 +26,7 @@ jobs:
   build-backend:
     name: Build and Push Backend Image
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     permissions:
       contents: read
       packages: write
@@ -61,6 +62,7 @@ jobs:
   build-frontend:
     name: Build and Push Frontend Image
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     permissions:
       contents: read
       packages: write
@@ -96,6 +98,7 @@ jobs:
   deploy:
     name: Deploy to Azure VM
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     needs: [build-backend, build-frontend]
     environment:
       name: production
