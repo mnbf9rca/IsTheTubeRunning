@@ -119,8 +119,19 @@ if ! CLOUDFLARE_TUNNEL_TOKEN=$(extract_credential "tunnel_token" "^ey"); then
     exit 1
 fi
 
-# Extract POSTGRES_PASSWORD (alphanumeric)
-if ! POSTGRES_PASSWORD=$(extract_credential "password" "^[a-zA-Z0-9]"); then
+# Extract PostgreSQL configuration from DATABASE_URL in .env.vault
+# Regex: ^[^\n]+$ (non-empty, no newlines)
+if ! POSTGRES_PASSWORD=$(extract_credential "password" "^[^\n]+$"); then
+    exit 1
+fi
+
+# Extract database name from DATABASE_URL path component
+if ! POSTGRES_DB=$(extract_credential "database" "^[^\n]+$"); then
+    exit 1
+fi
+
+# Extract username from DATABASE_URL user component
+if ! POSTGRES_USER=$(extract_credential "user" "^[^\n]+$"); then
     exit 1
 fi
 
@@ -153,8 +164,10 @@ CLOUDFLARE_TUNNEL_TOKEN=${CLOUDFLARE_TUNNEL_TOKEN}
 # TUNNEL_TOKEN: Alias for cloudflared container (expects this exact variable name)
 TUNNEL_TOKEN=${CLOUDFLARE_TUNNEL_TOKEN}
 
-# POSTGRES_PASSWORD: PostgreSQL database password (extracted from .env.vault)
+# PostgreSQL configuration (all extracted from DATABASE_URL in .env.vault)
 POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+POSTGRES_DB=${POSTGRES_DB}
+POSTGRES_USER=${POSTGRES_USER}
 EOF
 
 # Set secure permissions (read/write by owner only)
@@ -166,7 +179,9 @@ chown "$DEPLOYMENT_USER:$DEPLOYMENT_USER" "$SECRETS_FILE"
 print_status "Secrets written to $SECRETS_FILE"
 print_status "  - DOTENV_KEY: configured ✓"
 print_status "  - CLOUDFLARE_TUNNEL_TOKEN: configured ✓ (extracted from .env.vault)"
-print_status "  - POSTGRES_PASSWORD: configured ✓ (extracted from .env.vault)"
+print_status "  - POSTGRES_PASSWORD: configured ✓ (extracted from DATABASE_URL)"
+print_status "  - POSTGRES_DB: configured ✓ (extracted from DATABASE_URL)"
+print_status "  - POSTGRES_USER: configured ✓ (extracted from DATABASE_URL)"
 print_status "Permissions: 600 (owner read/write only)"
 print_status "Owner: $DEPLOYMENT_USER:$DEPLOYMENT_USER"
 echo ""

@@ -27,15 +27,12 @@ services:
     restart: unless-stopped
     env_file:
       - /home/deployuser/.env.secrets
-    environment:
-      # TODO: read these from env_file above too
-      POSTGRES_DB: isthetube
-      POSTGRES_USER: postgres
-      # POSTGRES_PASSWORD loaded from env_file above
+    # POSTGRES_DB, POSTGRES_USER, and POSTGRES_PASSWORD all loaded from env_file
+    # All three are extracted from DATABASE_URL in .env.vault for consistency
     volumes:
       - postgres_data:/var/lib/postgresql  # Match PostgreSQL 18+ pattern (same as dev)
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER}"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -245,7 +242,7 @@ services:
       # No backend dependency - static files should serve immediately
       # Backend health is checked via nginx proxy_pass, which handles failures gracefully
     healthcheck:
-      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://localhost/health"]
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://localhost/"]
       interval: 30s
       timeout: 10s
       retries: 3

@@ -27,8 +27,9 @@ export function BackendAvailabilityProvider({ children }: { children: ReactNode 
   const checkAvailability = useCallback(async () => {
     setIsChecking(true)
     try {
-      // Remove /api/v1 suffix for health check endpoint
-      const apiBaseUrl = config.api.baseUrl.replace('/api/v1', '')
+      // Extract protocol and host using URL API for robust URL construction
+      const baseUrl = new URL(config.api.baseUrl)
+      const apiBaseUrl = `${baseUrl.protocol}//${baseUrl.host}`
       const response = await fetch(`${apiBaseUrl}/api/v1/auth/ready`, {
         method: 'GET',
         headers: {

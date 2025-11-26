@@ -11,12 +11,13 @@
  * with ZERO configuration - just works based on hostname.
  */
 
+import * as ipaddr from 'ipaddr.js'
 import type { AppConfig } from './config'
 import { validateConfig } from './config'
 
 type Environment = 'development' | 'production'
 
-interface MultiEnvConfig {
+export interface MultiEnvConfig {
   development: AppConfig
   production: AppConfig
 }
@@ -24,23 +25,46 @@ interface MultiEnvConfig {
 /**
  * Detect current environment based on hostname
  *
+ * Uses explicit production domain matching and ipaddr.js for robust
+ * IP address validation (including IPv4/IPv6 private ranges).
+ *
  * @returns Environment name ('development' or 'production')
  */
 function detectEnvironment(): Environment {
   const hostname = window.location.hostname
 
-  // Development: localhost, 127.0.0.1, or any local hostname
-  if (
-    hostname === 'localhost' ||
-    hostname === '127.0.0.1' ||
-    hostname.startsWith('192.168.') ||
-    hostname.startsWith('10.') ||
-    hostname.endsWith('.local')
-  ) {
+  // Production: explicit production domain
+  if (hostname === 'isthetube.cynexia.com') {
+    console.log('[ConfigLoader] Detected production environment (explicit domain match)')
+    return 'production'
+  }
+
+  // Development: localhost keyword
+  if (hostname === 'localhost' || hostname.endsWith('.local')) {
+    console.log('[ConfigLoader] Detected development environment (localhost)')
     return 'development'
   }
 
-  // Production: everything else (specifically isthetube.cynexia.com)
+  // Development: private IP addresses (RFC 1918 for IPv4, ULA/link-local for IPv6)
+  try {
+    const addr = ipaddr.process(hostname)
+    const range = addr.range()
+
+    if (
+      range === 'private' ||
+      range === 'loopback' ||
+      range === 'uniqueLocal' ||
+      range === 'linkLocal'
+    ) {
+      console.log(`[ConfigLoader] Detected development environment (${range} IP: ${hostname})`)
+      return 'development'
+    }
+  } catch {
+    // Not a valid IP address, treat as domain name
+  }
+
+  // Unknown hostname - default to production with warning
+  console.warn(`[ConfigLoader] Unknown hostname: ${hostname}, defaulting to production`)
   return 'production'
 }
 

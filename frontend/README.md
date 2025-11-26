@@ -4,12 +4,13 @@ React + TypeScript + Vite frontend for the TfL Disruption Alert System.
 
 ## Configuration
 
-The application uses environment-specific configuration files in `/config`:
-- `config.development.json` - Local development
-- `config.production.json` - Production deployment
-- `config.test.json` - Test environment
+The application uses **runtime configuration loading** from `/public/config.json`. Configuration is auto-detected based on the hostname:
+- `localhost` or `127.0.0.1` or private IPs (RFC 1918) → Development
+- `isthetube.cynexia.com` → Production
 
-Configuration is loaded based on Vite's `MODE` at build time. See `src/lib/config.ts` for details.
+This allows the **same Docker image** to work across all environments with zero configuration - the frontend automatically selects the correct config based on `window.location.hostname`.
+
+See `src/lib/configLoader.ts` for implementation details.
 
 ## Local Development
 
@@ -34,22 +35,13 @@ npm run build -- --mode development
 
 ## Docker Build
 
-The Dockerfile supports a `VITE_MODE` build argument to control which config is used:
+The Docker image is **environment-agnostic** - no build arguments needed:
 
-**Production (default):**
 ```bash
 docker build -t frontend .
 ```
 
-**Development:**
-```bash
-docker build --build-arg VITE_MODE=development -t frontend .
-```
-
-**Testing:**
-```bash
-docker build --build-arg VITE_MODE=test -t frontend .
-```
+The same image works in development and production. Environment detection happens at runtime based on hostname.
 
 ## Expanding the ESLint configuration
 

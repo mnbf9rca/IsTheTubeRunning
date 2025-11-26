@@ -1,4 +1,5 @@
 {
+  "_comment": "SECURITY NOTE: Auth0 client IDs and audience URLs in this file are intentionally public. They are used for client-side authentication and are not secrets. Auth0 security relies on: (1) Allowed callback URLs configured in Auth0 dashboard, (2) CORS configuration, and (3) server-side client secrets (NOT in this file). Exposing client IDs is safe and required for SPA authentication.",
   "development": {
     "api": {
       "baseUrl": "http://localhost:8000/api/v1"

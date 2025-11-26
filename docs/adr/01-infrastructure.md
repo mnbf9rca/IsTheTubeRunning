@@ -295,10 +295,12 @@ Use minimal service dependencies to allow independent startup and better trouble
    - Allows tunnel to connect even if nginx/backend broken
    - Cloudflare returns 502 Bad Gateway (helpful) instead of connection timeout (unhelpful)
 
-2. **nginx**: Explicit `condition: service_started` for backend/frontend
-   - Rationale: nginx can proxy requests and return meaningful errors even if upstream unhealthy
+2. **nginx**: Depends only on frontend init container with `condition: service_completed_successfully`
+   - No backend dependency - serves static files immediately
+   - Rationale: nginx can serve frontend and return 502 for API requests if backend unavailable
    - Faster startup (no health check waiting)
    - Better troubleshooting (502 errors show what's broken)
+   - Health check tests nginx itself (serving frontend) not backend proxy
 
 3. **backend/celery-worker**: Keep `condition: service_healthy` for postgres/redis
    - Rationale: These services require database connectivity to function

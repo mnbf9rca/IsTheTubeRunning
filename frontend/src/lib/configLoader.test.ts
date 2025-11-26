@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { loadConfig } from './configLoader'
-import type { MultiEnvConfig } from './config'
+import type { MultiEnvConfig } from './configLoader'
 
 // Mock fetch globally
 global.fetch = vi.fn()
@@ -151,6 +151,105 @@ describe('configLoader', () => {
 
     it('should detect development for .local domains', async () => {
       vi.stubGlobal('location', { hostname: 'mycomputer.local' })
+
+      const mockConfig: MultiEnvConfig = {
+        development: {
+          api: { baseUrl: 'http://localhost:8000/api/v1' },
+          auth0: {
+            domain: 'dev.auth0.com',
+            clientId: 'dev-client',
+            audience: 'https://api.dev.com',
+            callbackUrl: 'http://localhost:5173/callback',
+          },
+        },
+        production: {
+          api: { baseUrl: 'https://api.prod.com/api/v1' },
+          auth0: {
+            domain: 'prod.auth0.com',
+            clientId: 'prod-client',
+            audience: 'https://api.prod.com',
+            callbackUrl: 'https://prod.com/callback',
+          },
+        },
+      }
+
+      ;(global.fetch as ReturnType<typeof vi.fn>).mockResolvedValue({
+        ok: true,
+        json: async () => mockConfig,
+      })
+
+      const config = await loadConfig()
+      expect(config.api.baseUrl).toBe('http://localhost:8000/api/v1')
+    })
+
+    it('should detect development for 172.16.x.x addresses', async () => {
+      vi.stubGlobal('location', { hostname: '172.16.0.1' })
+
+      const mockConfig: MultiEnvConfig = {
+        development: {
+          api: { baseUrl: 'http://localhost:8000/api/v1' },
+          auth0: {
+            domain: 'dev.auth0.com',
+            clientId: 'dev-client',
+            audience: 'https://api.dev.com',
+            callbackUrl: 'http://localhost:5173/callback',
+          },
+        },
+        production: {
+          api: { baseUrl: 'https://api.prod.com/api/v1' },
+          auth0: {
+            domain: 'prod.auth0.com',
+            clientId: 'prod-client',
+            audience: 'https://api.prod.com',
+            callbackUrl: 'https://prod.com/callback',
+          },
+        },
+      }
+
+      ;(global.fetch as ReturnType<typeof vi.fn>).mockResolvedValue({
+        ok: true,
+        json: async () => mockConfig,
+      })
+
+      const config = await loadConfig()
+      expect(config.api.baseUrl).toBe('http://localhost:8000/api/v1')
+    })
+
+    it('should detect development for IPv6 loopback (::1)', async () => {
+      vi.stubGlobal('location', { hostname: '::1' })
+
+      const mockConfig: MultiEnvConfig = {
+        development: {
+          api: { baseUrl: 'http://localhost:8000/api/v1' },
+          auth0: {
+            domain: 'dev.auth0.com',
+            clientId: 'dev-client',
+            audience: 'https://api.dev.com',
+            callbackUrl: 'http://localhost:5173/callback',
+          },
+        },
+        production: {
+          api: { baseUrl: 'https://api.prod.com/api/v1' },
+          auth0: {
+            domain: 'prod.auth0.com',
+            clientId: 'prod-client',
+            audience: 'https://api.prod.com',
+            callbackUrl: 'https://prod.com/callback',
+          },
+        },
+      }
+
+      ;(global.fetch as ReturnType<typeof vi.fn>).mockResolvedValue({
+        ok: true,
+        json: async () => mockConfig,
+      })
+
+      const config = await loadConfig()
+      expect(config.api.baseUrl).toBe('http://localhost:8000/api/v1')
+    })
+
+    it('should detect development for IPv6 link-local (fe80::)', async () => {
+      vi.stubGlobal('location', { hostname: 'fe80::1' })
 
       const mockConfig: MultiEnvConfig = {
         development: {
