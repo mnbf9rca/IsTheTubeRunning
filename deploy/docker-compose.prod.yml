@@ -199,6 +199,8 @@ services:
     build:
       context: ../frontend
       dockerfile: Dockerfile
+      args:
+        VITE_MODE: production
     container_name: isthetube-frontend-prod
     restart: unless-stopped
     # Port not exposed - nginx handles all external traffic

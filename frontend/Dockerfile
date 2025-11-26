@@ -15,8 +15,8 @@ RUN npm ci --include dev --include optional
 # Copy source code
 COPY . .
 
-# Build the application with configurable mode (defaults to production)
-ARG VITE_MODE=production
+# Build the application with configurable mode (defaults to development)
+ARG VITE_MODE=development
 RUN npm run build -- --mode ${VITE_MODE}
 
 # Stage 2: Production - Minimal and hardened
