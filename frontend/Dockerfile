@@ -15,8 +15,9 @@ RUN npm ci --include dev --include optional
 # Copy source code
 COPY . .
 
-# Build the application
-RUN npm run build
+# Build the application with configurable mode (defaults to production)
+ARG VITE_MODE=production
+RUN npm run build -- --mode ${VITE_MODE}
 
 # Stage 2: Production - Minimal and hardened
 FROM busybox:1.36-musl

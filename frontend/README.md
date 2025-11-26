@@ -1,15 +1,55 @@
-# React + TypeScript + Vite
+# IsTheTubeRunning - Frontend
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+React + TypeScript + Vite frontend for the TfL Disruption Alert System.
 
-Currently, two official plugins are available:
+## Configuration
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Babel](https://babeljs.io/) (or [oxc](https://oxc.rs) when used in [rolldown-vite](https://vite.dev/guide/rolldown)) for Fast Refresh
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/) for Fast Refresh
+The application uses environment-specific configuration files in `/config`:
+- `config.development.json` - Local development
+- `config.production.json` - Production deployment
+- `config.test.json` - Test environment
 
-## React Compiler
+Configuration is loaded based on Vite's `MODE` at build time. See `src/lib/config.ts` for details.
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
+## Local Development
+
+```bash
+npm install
+npm run dev
+```
+
+This uses `config.development.json` and connects to `http://localhost:8000`.
+
+## Building
+
+**Production build (default):**
+```bash
+npm run build
+```
+
+**Development build:**
+```bash
+npm run build -- --mode development
+```
+
+## Docker Build
+
+The Dockerfile supports a `VITE_MODE` build argument to control which config is used:
+
+**Production (default):**
+```bash
+docker build -t frontend .
+```
+
+**Development:**
+```bash
+docker build --build-arg VITE_MODE=development -t frontend .
+```
+
+**Testing:**
+```bash
+docker build --build-arg VITE_MODE=test -t frontend .
+```
 
 ## Expanding the ESLint configuration
 
