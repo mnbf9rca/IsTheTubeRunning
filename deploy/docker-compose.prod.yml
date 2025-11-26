@@ -32,7 +32,7 @@ services:
     volumes:
       - postgres_data:/var/lib/postgresql  # Match PostgreSQL 18+ pattern (same as dev)
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER}"]
+      test: ["CMD-SHELL", "pg_isready"]
       interval: 10s
       timeout: 5s
       retries: 5
