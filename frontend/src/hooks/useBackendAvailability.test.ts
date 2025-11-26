@@ -2,9 +2,28 @@ import { renderHook, waitFor } from '@testing-library/react'
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { useBackendAvailability } from './useBackendAvailability'
 import { BackendAvailabilityProvider } from '@/contexts/BackendAvailabilityContext'
+import type { AppConfig } from '@/lib/config'
 
 // Mock fetch
 global.fetch = vi.fn()
+
+// Mock config for tests
+const mockConfig: AppConfig = {
+  api: {
+    baseUrl: 'http://localhost:8000',
+  },
+  auth0: {
+    domain: 'test.auth0.com',
+    clientId: 'test-client-id',
+    audience: 'https://api.test.com',
+    callbackUrl: 'http://localhost:5173/callback',
+  },
+}
+
+// Mock the useConfig hook
+vi.mock('@/contexts/ConfigContext', () => ({
+  useConfig: () => mockConfig,
+}))
 
 describe('useBackendAvailability', () => {
   beforeEach(() => {

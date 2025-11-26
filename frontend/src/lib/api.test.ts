@@ -3,6 +3,7 @@ import {
   ApiError,
   setAccessTokenGetter,
   resetAccessTokenGetter,
+  setApiBaseUrl,
   checkHealth,
   getRoot,
   getContacts,
@@ -23,20 +24,10 @@ import {
   getEngagementMetrics,
 } from './api'
 
-// Mock the config module
-vi.mock('./config', () => ({
-  config: {
-    api: {
-      baseUrl: 'http://localhost:8000',
-    },
-    auth0: {
-      domain: 'test.auth0.com',
-      clientId: 'test-client-id',
-      audience: 'https://api.test.com',
-      callbackUrl: 'http://localhost:5173/callback',
-    },
-  },
-}))
+// Set API base URL for all tests
+beforeEach(() => {
+  setApiBaseUrl('http://localhost:8000')
+})
 
 describe('ApiError', () => {
   it('should create an ApiError with status and message', () => {
@@ -53,6 +44,7 @@ describe('ApiError', () => {
 
 describe('Token management', () => {
   beforeEach(() => {
+    setApiBaseUrl('http://localhost:8000')
     resetAccessTokenGetter()
   })
 
@@ -66,11 +58,6 @@ describe('Token management', () => {
       json: async () => ({ data: 'test' }),
     })
     global.fetch = mockFetch
-
-    // Make a request without skipAuth by calling fetch directly
-    // Both checkHealth and getRoot have skipAuth: true, so we test the internal behavior
-    const { config } = await import('./config')
-    await fetch(`${config.api.baseUrl}/test`)
 
     // The token getter should be available for authenticated requests
     expect(mockGetToken).toBeDefined()
@@ -104,6 +91,10 @@ describe('Token management', () => {
 })
 
 describe('API requests', () => {
+  beforeEach(() => {
+    setApiBaseUrl('http://localhost:8000')
+  })
+
   afterEach(() => {
     vi.restoreAllMocks()
   })
@@ -128,8 +119,7 @@ describe('API requests', () => {
     })
 
     // Mock a DELETE endpoint that returns 204
-    const { config } = await import('./config')
-    const response = await fetch(`${config.api.baseUrl}/test`, { method: 'DELETE' })
+    const response = await fetch('http://localhost:8000/test', { method: 'DELETE' })
 
     expect(response.status).toBe(204)
   })
