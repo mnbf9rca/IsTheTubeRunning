@@ -242,7 +242,7 @@ services:
       # No backend dependency - static files should serve immediately
       # Backend health is checked via nginx proxy_pass, which handles failures gracefully
     healthcheck:
-      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://localhost/nginx-health"]
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1/nginx-health"]
       interval: 30s
       timeout: 10s
       retries: 3
