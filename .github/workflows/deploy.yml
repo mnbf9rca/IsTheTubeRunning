@@ -1,63 +1,184 @@
 name: Deploy to Production
 
-# This workflow is a stub for Phase 12 deployment
-# Will be fully implemented when deploying to Azure VM
-
 on:
   push:
-    branches: [main]
-  workflow_dispatch:  # Allow manual triggering
+    branches: [release]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write
+  id-token: write  # Required for Azure OIDC
+
+env:
+  REGISTRY: ghcr.io
+  BACKEND_IMAGE: ghcr.io/mnbf9rca/isthetuberunning/backend
+  FRONTEND_IMAGE: ghcr.io/mnbf9rca/isthetuberunning/frontend
+  AZURE_RESOURCE_GROUP: isthetube-prod
+  AZURE_VM_NAME: isthetube-vm
+  AZURE_NSG_NAME: isthetube-nsg
 
 jobs:
-  deploy:
-    name: Deploy to Azure VM
+  build-backend:
+    name: Build and Push Backend Image
     runs-on: ubuntu-latest
     permissions:
       contents: read
-    # Uncomment when ready to deploy (Phase 12)
-    # environment:
-    #   name: production
-    #   url: https://your-domain.com
+      packages: write
 
     steps:
-      - name: Placeholder - Phase 12
-        run: |
-          echo "Deployment workflow stub - To be implemented in Phase 12"
-          echo ""
-          echo "Planned deployment steps:"
-          echo "1. Build Docker images"
-          echo "2. Push images to GitHub Container Registry"
-          echo "3. SSH to Azure VM"
-          echo "4. Pull latest images"
-          echo "5. Run Alembic migrations"
-          echo "6. Restart services with docker-compose"
-          echo "7. Run health checks"
-          echo "8. Rollback on failure"
+      - name: Checkout code
+        uses: actions/checkout@v5
 
-      # TODO: Implement in Phase 12
-      # - name: Checkout code
-      #   uses: actions/checkout@v4
-      #
-      # - name: Build Docker images
-      #   run: |
-      #     docker build -t ghcr.io/${{ github.repository }}/backend:latest ./backend
-      #     docker build -t ghcr.io/${{ github.repository }}/frontend:latest ./frontend
-      #
-      # - name: Push to GitHub Container Registry
-      #   run: |
-      #     echo ${{ secrets.GITHUB_TOKEN }} | docker login ghcr.io -u ${{ github.actor }} --password-stdin
-      #     docker push ghcr.io/${{ github.repository }}/backend:latest
-      #     docker push ghcr.io/${{ github.repository }}/frontend:latest
-      #
-      # - name: Deploy to Azure VM
-      #   uses: appleboy/ssh-action@master
-      #   with:
-      #     host: ${{ secrets.AZURE_VM_HOST }}
-      #     username: ${{ secrets.AZURE_VM_USER }}
-      #     key: ${{ secrets.AZURE_VM_SSH_KEY }}
-      #     script: |
-      #       cd /app
-      #       docker-compose pull
-      #       docker-compose run --rm backend alembic upgrade head
-      #       docker-compose up -d --remove-orphans
-      #       docker-compose exec backend curl -f http://localhost:8000/health || exit 1
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract metadata for Docker
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.BACKEND_IMAGE }}
+          tags: |
+            type=raw,value=latest
+            type=sha,prefix=
+
+      - name: Build and push backend image
+        uses: docker/build-push-action@v6
+        with:
+          context: ./backend
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+
+  build-frontend:
+    name: Build and Push Frontend Image
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v5
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract metadata for Docker
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.FRONTEND_IMAGE }}
+          tags: |
+            type=raw,value=latest
+            type=sha,prefix=
+
+      - name: Build and push frontend image
+        uses: docker/build-push-action@v6
+        with:
+          context: ./frontend
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+
+  deploy:
+    name: Deploy to Azure VM
+    runs-on: ubuntu-latest
+    needs: [build-backend, build-frontend]
+    environment:
+      name: production
+      url: https://isthetube.cynexia.com
+    permissions:
+      id-token: write
+      contents: read
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v5
+
+      - name: Azure OIDC Login
+        uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Get VM public IP from Azure
+        id: vm-ip
+        run: |
+          VM_IP=$(az vm list-ip-addresses \
+            --resource-group ${{ env.AZURE_RESOURCE_GROUP }} \
+            --name ${{ env.AZURE_VM_NAME }} \
+            --query '[0].virtualMachine.network.publicIpAddresses[0].ipAddress' \
+            --output tsv)
+          echo "ip=$VM_IP" >> $GITHUB_OUTPUT
+          echo "VM IP: $VM_IP"
+
+      - name: Get GitHub Actions runner public IP
+        id: runner-ip
+        run: |
+          RUNNER_IP=$(curl -s ifconfig.me)
+          echo "ip=$RUNNER_IP" >> $GITHUB_OUTPUT
+          echo "Runner IP: $RUNNER_IP"
+
+      - name: Add temporary NSG rule for runner IP
+        run: |
+          az network nsg rule create \
+            --resource-group ${{ env.AZURE_RESOURCE_GROUP }} \
+            --nsg-name ${{ env.AZURE_NSG_NAME }} \
+            --name AllowGitHubRunner \
+            --priority 900 \
+            --source-address-prefixes "${{ steps.runner-ip.outputs.ip }}/32" \
+            --destination-port-ranges 22 \
+            --access Allow \
+            --protocol Tcp \
+            --description "Temporary rule for GitHub Actions deployment"
+          echo "✓ NSG rule created for runner IP ${{ steps.runner-ip.outputs.ip }}"
+
+      - name: Wait for NSG rule propagation
+        run: sleep 30
+
+      - name: Deploy via SSH
+        uses: appleboy/ssh-action@v1.2.2
+        with:
+          host: ${{ steps.vm-ip.outputs.ip }}
+          username: deployuser
+          key: ${{ secrets.DEPLOY_SSH_KEY }}
+          script: |
+            cd /opt/isthetube/deploy
+            ./scripts/deploy.sh
+
+      - name: Health check
+        run: |
+          echo "Performing health check on https://isthetube.cynexia.com..."
+          for i in {1..12}; do
+            if curl -sf https://isthetube.cynexia.com/health; then
+              echo "✓ Health check passed (attempt $i/12)"
+              exit 0
+            fi
+            echo "Health check attempt $i/12 failed, waiting 10 seconds..."
+            sleep 10
+          done
+          echo "✗ Health check failed after 2 minutes"
+          exit 1
+
+      - name: Remove temporary NSG rule
+        if: always()
+        run: |
+          az network nsg rule delete \
+            --resource-group ${{ env.AZURE_RESOURCE_GROUP }} \
+            --nsg-name ${{ env.AZURE_NSG_NAME }} \
+            --name AllowGitHubRunner || true
+          echo "✓ Temporary NSG rule removed"
+
+      - name: Azure logout
+        if: always()
+        run: az logout

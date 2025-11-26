@@ -394,3 +394,101 @@ Keep `Type=simple` with foreground `docker compose up --no-log-prefix` (no `--de
 - Containers persist in "exited" state after stop (not removed)
 - Manual cleanup required for complete removal (`docker compose down`)
 - Must use `systemctl restart` or `docker compose up` to resume containers
+
+---
+
+## GitHub Actions CI/CD with GHCR
+
+### Status
+Active
+
+### Context
+The existing CI workflow runs tests and linting, but deployment was manual (SSH to VM, pull code, build images directly on VM). This was slow (~5-10 minutes image builds) and error-prone (no atomic deploys). Need automated deployment triggered by pushes to release branch.
+
+Options considered:
+1. **Build on VM**: Current manual approach - slow, blocks VM resources during build
+2. **Build in Actions, push to Docker Hub**: External dependency, rate limits on free tier (200 pulls/6hrs)
+3. **Build in Actions, push to GHCR**: Integrated with GitHub, free unlimited pulls for public repos, automatic authentication
+
+### Decision
+Use GitHub Actions to build Docker images and push to GitHub Container Registry (GHCR). Deploy via SSH to Azure VM using OIDC for dynamic NSG IP whitelisting.
+
+**Workflow:**
+1. Push to `release` branch triggers deployment (PR-based: main → release)
+2. Build backend and frontend images in parallel (2-3 minutes total)
+3. Push images to GHCR with `:latest` and `:sha-<commit>` tags
+4. Azure OIDC login for NSG access (no long-lived credentials)
+5. Temporarily whitelist GitHub Actions runner IP in NSG (30s propagation)
+6. SSH to VM as `deployuser`, execute `deploy.sh` script:
+   - Pull latest code from release branch
+   - Pull new images from GHCR (`docker compose pull`)
+   - Restart services (`docker compose up -d --remove-orphans`)
+   - Health check (curl localhost/health)
+7. External health check (https://isthetube.cynexia.com/health via Cloudflare Tunnel)
+8. Remove temporary NSG rule (cleanup runs `if: always()`)
+
+**Release Strategy:**
+- Development on feature branches → PRs merge to `main` (runs CI tests)
+- PRs from `main` → `release` trigger deployment (explicit production releases)
+- Provides control over production releases vs continuous deployment
+
+**VM IP Discovery:**
+- Dynamically query VM public IP using `az vm list-ip-addresses`
+- No hardcoded IP secrets needed (config from `deploy/azure-config.json`)
+
+### Consequences
+**Easier:**
+- Fast deployments (images pre-built in CI, VM just pulls and restarts ~2 minutes vs 10+ minutes)
+- Reproducible builds (same GHCR image in multiple environments)
+- Audit trail (image tags match commit SHAs, GHCR tracks all pushes)
+- No Docker Hub rate limits (GHCR integrated with GitHub)
+- Secure SSH access (dynamic IP whitelisting via OIDC, short-lived NSG rules)
+- No hardcoded IP secrets (query from Azure dynamically)
+- Atomic deployments (all images built before deploy starts)
+- Parallel builds (backend + frontend in ~3 minutes vs sequential ~8 minutes)
+
+**More Difficult:**
+- Azure OIDC setup required (one-time manual configuration: App Registration, Federated Credentials, IAM)
+- Need to manage GHCR image retention/cleanup (manually set packages to public after first push)
+- Two-branch workflow (main + release) requires discipline (but provides safety)
+- NSG rule propagation delay (~30 seconds before SSH works)
+- Must have GitHub Secrets configured: `AZURE_CLIENT_ID`, `AZURE_TENANT_ID`, `AZURE_SUBSCRIPTION_ID`, `DEPLOY_SSH_KEY`
+
+---
+
+## Azure OIDC for GitHub Actions
+
+### Status
+Active
+
+### Context
+GitHub Actions needs to modify Azure NSG rules to allow SSH access from dynamic runner IPs (changes per workflow run). Options for Azure authentication:
+1. **Service Principal with secret**: Long-lived credential stored in GitHub Secrets, requires rotation, broad exposure risk
+2. **OIDC federated credentials**: No secrets stored, short-lived tokens, scoped to specific workflows/branches
+
+### Decision
+Use Azure OIDC (OpenID Connect) with federated credentials for GitHub Actions authentication. Configure with minimal permissions (Network Contributor scoped to `isthetube-prod` resource group).
+
+**Configuration:**
+- Azure AD App Registration: `github-actions-isthetube`
+- Federated credential: scoped to `mnbf9rca/IsTheTubeRunning` repository, `release` branch only
+- IAM role assignment: Network Contributor on `isthetube-prod` resource group
+- Workflow uses `azure/login@v2` with `id-token: write` permission
+- GitHub Secrets: `AZURE_CLIENT_ID`, `AZURE_TENANT_ID`, `AZURE_SUBSCRIPTION_ID` (no client secret)
+
+**Why Network Contributor:**
+- Only permission needed: create/delete NSG rules for temporary SSH access
+- Does not grant access to read VM data, modify VMs, or access other resources
+- Scoped to single resource group (cannot affect other Azure resources)
+
+### Consequences
+**Easier:**
+- No secret rotation (OIDC tokens are short-lived, issued per workflow run)
+- Scoped access (only release branch can authenticate, only NSG modifications allowed)
+- Azure best practice for GitHub Actions (Microsoft-recommended approach)
+- Better security audit trail (Azure logs show OIDC authentication with branch context)
+
+**More Difficult:**
+- Initial setup requires Azure Portal access (create App Registration, configure federated credentials)
+- Must document setup steps for future maintainers (see `docs/deployment/CI-CD.md`)
+- Cannot test OIDC authentication locally (only works from GitHub Actions runners)
