@@ -24,6 +24,11 @@ else
     print_status "User $DEPLOYMENT_USER created"
 fi
 
+# Ensure home directory ownership is correct (idempotency)
+print_info "Ensuring home directory ownership..."
+chown "$DEPLOYMENT_USER:$DEPLOYMENT_USER" "/home/$DEPLOYMENT_USER"
+print_status "Home directory ownership verified"
+
 # Add to docker group
 print_info "Adding $DEPLOYMENT_USER to docker group..."
 usermod -aG docker "$DEPLOYMENT_USER"

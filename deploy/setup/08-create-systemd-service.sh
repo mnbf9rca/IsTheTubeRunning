@@ -46,8 +46,8 @@ EnvironmentFile=/home/$DEPLOYMENT_USER/.env.secrets
 ExecStartPre=/usr/bin/docker compose -f docker-compose.prod.yml pull
 ExecStart=/usr/bin/docker compose -f docker-compose.prod.yml up --no-log-prefix
 
-# Stop services
-ExecStop=/usr/bin/docker compose -f docker-compose.prod.yml down
+# Stop services gracefully (SIGTERM), containers remain in stopped state for faster restart
+ExecStop=/usr/bin/docker compose -f docker-compose.prod.yml stop
 
 # Restart policy
 Restart=on-failure

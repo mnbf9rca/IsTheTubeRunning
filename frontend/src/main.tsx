@@ -3,10 +3,17 @@ import { createRoot } from 'react-dom/client'
 import { Auth0Provider } from '@auth0/auth0-react'
 import './index.css'
 import App from './App.tsx'
-import { config } from './lib/config'
+import { ConfigLoader } from './components/ConfigLoader'
+import { useConfig } from './contexts/ConfigContext'
 
-createRoot(document.getElementById('root')!).render(
-  <StrictMode>
+/**
+ * AppWithAuth - Wraps app in Auth0Provider using runtime config
+ * Must be inside ConfigLoader to access config via useConfig hook
+ */
+function AppWithAuth() {
+  const config = useConfig()
+
+  return (
     <Auth0Provider
       domain={config.auth0.domain}
       clientId={config.auth0.clientId}
@@ -19,5 +26,13 @@ createRoot(document.getElementById('root')!).render(
     >
       <App />
     </Auth0Provider>
+  )
+}
+
+createRoot(document.getElementById('root')!).render(
+  <StrictMode>
+    <ConfigLoader>
+      <AppWithAuth />
+    </ConfigLoader>
   </StrictMode>
 )

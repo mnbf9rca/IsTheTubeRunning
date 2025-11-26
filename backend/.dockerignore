@@ -26,7 +26,10 @@ tfl_responses/
 
 # Environment files
 .env
+.env*
 .env.*
+.flaskenv*
+!.env.project
 !.env.vault
 !.env.example
 
@@ -45,7 +48,3 @@ build/
 # OS
 .DS_Store
 Thumbs.db
-
-.env*
-.flaskenv*
-!.env.project

@@ -15,7 +15,7 @@ RUN npm ci --include dev --include optional
 # Copy source code
 COPY . .
 
-# Build the application
+# Build the application (no environment-specific config - loaded at runtime)
 RUN npm run build
 
 # Stage 2: Production - Minimal and hardened

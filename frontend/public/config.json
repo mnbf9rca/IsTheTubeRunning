@@ -1,0 +1,25 @@
+{
+  "_comment": "SECURITY NOTE: Auth0 client IDs and audience URLs in this file are intentionally public. They are used for client-side authentication and are not secrets. Auth0 security relies on: (1) Allowed callback URLs configured in Auth0 dashboard, (2) CORS configuration, and (3) server-side client secrets (NOT in this file). Exposing client IDs is safe and required for SPA authentication.",
+  "development": {
+    "api": {
+      "baseUrl": "http://localhost:8000/api/v1"
+    },
+    "auth0": {
+      "domain": "tfl-alerts.uk.auth0.com",
+      "clientId": "NVckMAltCOkp7RnKT7phKiIl0TqXQWa9",
+      "audience": "https://tfl-alert-api.cynexia.com",
+      "callbackUrl": "http://localhost:5173/callback"
+    }
+  },
+  "production": {
+    "api": {
+      "baseUrl": "https://isthetube.cynexia.com/api/v1"
+    },
+    "auth0": {
+      "domain": "tfl-alerts.uk.auth0.com",
+      "clientId": "i14e7UaeWhkXoqHiqK40j8bPyEsl5mm3",
+      "audience": "https://isthetube.cynexia.com",
+      "callbackUrl": "https://isthetube.cynexia.com/callback"
+    }
+  }
+}

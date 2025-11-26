@@ -27,14 +27,12 @@ services:
     restart: unless-stopped
     env_file:
       - /home/deployuser/.env.secrets
-    environment:
-      POSTGRES_DB: isthetube
-      POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    # POSTGRES_DB, POSTGRES_USER, and POSTGRES_PASSWORD all loaded from env_file
+    # All three are extracted from DATABASE_URL in .env.vault for consistency
     volumes:
-      - postgres_data:/var/lib/postgresql/data
+      - postgres_data:/var/lib/postgresql  # Match PostgreSQL 18+ pattern (same as dev)
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      test: ["CMD-SHELL", "pg_isready"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -75,6 +73,28 @@ services:
     networks:
       - app-network
 
+  # Database Migrations (runs once before app starts)
+  migrations:
+    build:
+      context: ../backend
+      dockerfile: Dockerfile
+    container_name: isthetube-migrations-prod
+    env_file:
+      - /home/deployuser/.env.secrets
+    # DOTENV_KEY loaded from env_file above - no need to override here
+    depends_on:
+      postgres:
+        condition: service_healthy
+    command: alembic upgrade head
+    restart: "no"  # Only run once, don't restart on failure
+    networks:
+      - app-network
+    deploy:
+      resources:
+        limits:
+          cpus: '0.25'
+          memory: 256M
+
   # FastAPI Backend
   backend:
     build:
@@ -85,13 +105,15 @@ services:
     env_file:
       - /home/deployuser/.env.secrets
     environment:
-      DOTENV_KEY: ${DOTENV_KEY}
+      # DOTENV_KEY loaded from env_file above
       OTEL_SERVICE_NAME: isthetuberunning-api
     depends_on:
       postgres:
         condition: service_healthy
       redis:
         condition: service_healthy
+      migrations:
+        condition: service_completed_successfully
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
       interval: 30s
@@ -120,13 +142,15 @@ services:
     env_file:
       - /home/deployuser/.env.secrets
     environment:
-      DOTENV_KEY: ${DOTENV_KEY}
+      # DOTENV_KEY loaded from env_file above
       OTEL_SERVICE_NAME: isthetuberunning-worker
     depends_on:
       postgres:
         condition: service_healthy
       redis:
         condition: service_healthy
+      migrations:
+        condition: service_completed_successfully
     deploy:
       resources:
         limits:
@@ -149,10 +173,13 @@ services:
     env_file:
       - /home/deployuser/.env.secrets
     environment:
-      DOTENV_KEY: ${DOTENV_KEY}
+      # DOTENV_KEY loaded from env_file above
       OTEL_SERVICE_NAME: isthetuberunning-beat
     depends_on:
-      - redis
+      redis:
+        condition: service_started
+      migrations:
+        condition: service_completed_successfully
     deploy:
       resources:
         limits:
@@ -164,22 +191,26 @@ services:
     networks:
       - app-network
 
-  # Frontend Static Server (builds frontend assets)
+  # Frontend Builder (init container - builds assets, populates volume, exits)
+  # Architecture: This container builds frontend assets during Docker build, then populates
+  # the frontend_static volume at runtime and exits. Nginx serves files from this volume.
+  # Benefits: (1) No duplicate serving (2) Nginx starts immediately (3) Clean deployments
+  #
+  # IMPORTANT: To deploy frontend updates, use --force-recreate:
+  #   docker compose -f deploy/docker-compose.prod.yml up -d --build --force-recreate frontend nginx
   frontend:
     build:
       context: ../frontend
       dockerfile: Dockerfile
     container_name: isthetube-frontend-prod
-    restart: unless-stopped
+    restart: "no"  # Init container - run once then exit (use --force-recreate to run again)
     # Port not exposed - nginx handles all external traffic
     volumes:
       - frontend_static:/www
-    healthcheck:
-      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://localhost:8080/"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 10s
+      # No config mount needed - config.json contains all environments
+      # and auto-detects based on hostname (isthetube.cynexia.com → production)
+    # Override CMD to just copy files and exit (no need to run httpd)
+    command: sh -c "echo 'Frontend assets built and ready in volume' && sleep 1"
     deploy:
       resources:
         limits:
@@ -206,10 +237,12 @@ services:
       - ../docker/nginx/nginx.conf:/etc/nginx/nginx.conf:ro
       - frontend_static:/usr/share/nginx/html:ro
     depends_on:
-      - backend
-      - frontend
+      frontend:
+        condition: service_completed_successfully  # Wait for init container to populate volume
+      # No backend dependency - static files should serve immediately
+      # Backend health is checked via nginx proxy_pass, which handles failures gracefully
     healthcheck:
-      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://localhost/health"]
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1/nginx-health"]
       interval: 30s
       timeout: 10s
       retries: 3
@@ -236,11 +269,9 @@ services:
     command: tunnel run
     env_file:
       - /home/deployuser/.env.secrets
-    environment:
-      TUNNEL_TOKEN: ${CLOUDFLARE_TUNNEL_TOKEN}
-    depends_on:
-      nginx:
-        condition: service_healthy
+    # TUNNEL_TOKEN loaded from env_file (written as both CLOUDFLARE_TUNNEL_TOKEN and TUNNEL_TOKEN)
+    # No depends_on - tunnel should establish connection independently of application health
+    # This allows Cloudflare to return 502 Bad Gateway when backend fails (better for troubleshooting)
     networks:
       - app-network
     deploy:

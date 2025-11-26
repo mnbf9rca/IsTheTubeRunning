@@ -1,15 +1,47 @@
-# React + TypeScript + Vite
+# IsTheTubeRunning - Frontend
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+React + TypeScript + Vite frontend for the TfL Disruption Alert System.
 
-Currently, two official plugins are available:
+## Configuration
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Babel](https://babeljs.io/) (or [oxc](https://oxc.rs) when used in [rolldown-vite](https://vite.dev/guide/rolldown)) for Fast Refresh
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/) for Fast Refresh
+The application uses **runtime configuration loading** from `/public/config.json`. Configuration is auto-detected based on the hostname:
+- `isthetube.cynexia.com` → Production
+- **All other hostnames** (localhost, IPs, staging, etc.) → Development (safer default)
 
-## React Compiler
+This allows the **same Docker image** to work across all environments with zero configuration - the frontend automatically selects the correct config based on `window.location.hostname`.
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
+See `src/lib/configLoader.ts` for implementation details.
+
+## Local Development
+
+```bash
+npm install
+npm run dev
+```
+
+The app fetches `/public/config.json` at startup and uses the development configuration. Connects to `http://localhost:8000` by default.
+
+## Building
+
+**Production build (default):**
+```bash
+npm run build
+```
+
+**Development build:**
+```bash
+npm run build -- --mode development
+```
+
+## Docker Build
+
+The Docker image is **environment-agnostic** - no build arguments needed:
+
+```bash
+docker build -t frontend .
+```
+
+The same image works in development and production. Environment detection happens at runtime based on hostname.
 
 ## Expanding the ESLint configuration
 

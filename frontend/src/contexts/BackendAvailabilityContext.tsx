@@ -1,5 +1,6 @@
 import { createContext, useState, useEffect, useCallback } from 'react'
 import type { ReactNode } from 'react'
+import { useConfig } from './ConfigContext'
 
 interface BackendAvailabilityContextType {
   isAvailable: boolean
@@ -18,6 +19,7 @@ export { BackendAvailabilityContext }
 const CHECK_INTERVAL_MS = 10000 // 10 seconds
 
 export function BackendAvailabilityProvider({ children }: { children: ReactNode }) {
+  const config = useConfig()
   const [isAvailable, setIsAvailable] = useState(false)
   const [isChecking, setIsChecking] = useState(true)
   const [lastChecked, setLastChecked] = useState<Date | null>(null)
@@ -25,8 +27,10 @@ export function BackendAvailabilityProvider({ children }: { children: ReactNode 
   const checkAvailability = useCallback(async () => {
     setIsChecking(true)
     try {
-      const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:8000'
-      const response = await fetch(`${apiUrl}/api/v1/auth/ready`, {
+      // Extract protocol and host using URL API for robust URL construction
+      const baseUrl = new URL(config.api.baseUrl)
+      const apiBaseUrl = `${baseUrl.protocol}//${baseUrl.host}`
+      const response = await fetch(`${apiBaseUrl}/api/v1/auth/ready`, {
         method: 'GET',
         headers: {
           'Content-Type': 'application/json',
@@ -47,7 +51,7 @@ export function BackendAvailabilityProvider({ children }: { children: ReactNode 
       setLastChecked(new Date())
       setIsChecking(false)
     }
-  }, [])
+  }, [config])
 
   // Check on mount
   useEffect(() => {
