@@ -452,7 +452,8 @@ Use GitHub Actions to build Docker images and push to GitHub Container Registry 
 - Need to manage GHCR image retention/cleanup (manually set packages to public after first push)
 - Two-branch workflow (main + release) requires discipline (but provides safety)
 - NSG rule propagation delay (~30 seconds before SSH works)
-- Must have GitHub Secrets configured: `AZURE_CLIENT_ID`, `AZURE_TENANT_ID`, `AZURE_SUBSCRIPTION_ID`, `DEPLOY_SSH_KEY`
+- Must have GitHub Variables configured: `AZURE_CLIENT_ID`, `AZURE_TENANT_ID`, `AZURE_SUBSCRIPTION_ID`
+- Must have GitHub Secret configured: `DEPLOY_SSH_KEY`
 
 ---
 
@@ -474,7 +475,8 @@ Use Azure OIDC (OpenID Connect) with federated credentials for GitHub Actions au
 - Federated credential: scoped to `mnbf9rca/IsTheTubeRunning` repository, `release` branch only
 - IAM role assignment: Network Contributor on `isthetube-prod` resource group
 - Workflow uses `azure/login@v2` with `id-token: write` permission
-- GitHub Secrets: `AZURE_CLIENT_ID`, `AZURE_TENANT_ID`, `AZURE_SUBSCRIPTION_ID` (no client secret)
+- GitHub Variables: `AZURE_CLIENT_ID`, `AZURE_TENANT_ID`, `AZURE_SUBSCRIPTION_ID` (no client secret)
+- GitHub Secret: `DEPLOY_SSH_KEY` (private SSH key for deployuser)
 
 **Why Network Contributor:**
 - Only permission needed: create/delete NSG rules for temporary SSH access

@@ -7,7 +7,7 @@ This document describes the automated CI/CD pipeline for IsTheTubeRunning using 
 - [Overview](#overview)
 - [Prerequisites](#prerequisites)
 - [Azure OIDC Setup](#azure-oidc-setup)
-- [GitHub Secrets Configuration](#github-secrets-configuration)
+- [GitHub Configuration](#github-configuration)
 - [How Deployments Work](#how-deployments-work)
 - [Manual Rollback](#manual-rollback)
 - [Troubleshooting](#troubleshooting)
@@ -52,7 +52,7 @@ GitHub Actions:
    - View NSG rules (for troubleshooting)
 
 2. **GitHub repository admin** access to:
-   - Add GitHub Secrets
+   - Add GitHub Variables and Secrets
    - Manage environments (production environment)
    - View Actions workflow runs
 
@@ -86,9 +86,9 @@ This is a **one-time manual setup** required before the first deployment.
    - **Supported account types**: "Accounts in this organizational directory only (Single tenant)"
    - **Redirect URI**: Leave blank
 4. Click **"Register"**
-5. **Save these values** (needed for GitHub Secrets):
-   - **Application (client) ID**
-   - **Directory (tenant) ID**
+5. **Save these values** (needed for GitHub Variables):
+   - **Application (client) ID** → `AZURE_CLIENT_ID`
+   - **Directory (tenant) ID** → `AZURE_TENANT_ID`
 
 ### Step 2: Configure Federated Credentials
 
@@ -163,15 +163,24 @@ az network nsg rule delete \
 
 ---
 
-## GitHub Secrets Configuration
+## GitHub Configuration
 
-Add these secrets in GitHub repository **Settings** → **Secrets and variables** → **Actions** → **New repository secret**:
+### Variables (Public Identifiers)
 
-| Secret Name | Value | Where to Find |
-|-------------|-------|---------------|
+Add these variables in GitHub repository **Settings** → **Secrets and variables** → **Actions** → **Variables** tab → **New repository variable**:
+
+| Variable Name | Value | Where to Find |
+|---------------|-------|---------------|
 | `AZURE_CLIENT_ID` | Application (client) ID | Azure Portal → App Registration → Overview |
 | `AZURE_TENANT_ID` | Directory (tenant) ID | Azure Portal → App Registration → Overview |
 | `AZURE_SUBSCRIPTION_ID` | Azure Subscription ID | Already known: `1d9d2a8a-f001-41ae-a983-2d0cc36f3ea7` |
+
+### Secrets (Sensitive Data)
+
+Add these secrets in GitHub repository **Settings** → **Secrets and variables** → **Actions** → **Secrets** tab → **New repository secret**:
+
+| Secret Name | Value | Where to Find |
+|-------------|-------|---------------|
 | `DEPLOY_SSH_KEY` | Private SSH key for deployuser | Output from `deploy/deploy-keys.sh --generate` |
 
 **Important:** Do NOT add `AZURE_CLIENT_SECRET` - OIDC federated credentials use short-lived tokens issued per workflow run, not long-lived secrets.
