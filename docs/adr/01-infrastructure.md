@@ -416,7 +416,7 @@ Use GitHub Actions to build Docker images and push to GitHub Container Registry 
 **Workflow:**
 1. Push to `release` branch triggers deployment (PR-based: main → release)
 2. Build backend and frontend images in parallel (2-3 minutes total)
-3. Push images to GHCR with `:latest` and `:sha-<commit>` tags
+3. Push images to GHCR with `:latest` and `sha-<commit>` tags
 4. Azure OIDC login for NSG access (no long-lived credentials)
 5. Temporarily whitelist GitHub Actions runner IP in NSG (30s propagation)
 6. SSH to VM as `deployuser`, execute `deploy.sh` script:
@@ -470,7 +470,7 @@ GitHub Actions needs to modify Azure NSG rules to allow SSH access from dynamic 
 Use Azure OIDC (OpenID Connect) with federated credentials for GitHub Actions authentication. Configure with minimal permissions (Network Contributor scoped to `isthetube-prod` resource group).
 
 **Configuration:**
-- Azure AD App Registration: `github-actions-isthetube`
+- Microsoft Entra ID App Registration: `github-actions-isthetube`
 - Federated credential: scoped to `mnbf9rca/IsTheTubeRunning` repository, `release` branch only
 - IAM role assignment: Network Contributor on `isthetube-prod` resource group
 - Workflow uses `azure/login@v2` with `id-token: write` permission

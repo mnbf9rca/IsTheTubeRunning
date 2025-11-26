@@ -189,6 +189,7 @@ services:
   # Benefits: (1) No duplicate serving (2) Nginx starts immediately (3) Clean deployments
   #
   # IMPORTANT: To deploy frontend updates, use --force-recreate:
+  #   docker compose -f deploy/docker-compose.prod.yml pull frontend nginx
   #   docker compose -f deploy/docker-compose.prod.yml up -d --force-recreate frontend nginx
   frontend:
     image: ghcr.io/mnbf9rca/isthetuberunning/frontend:latest

@@ -5,6 +5,10 @@ on:
     branches: [release]
   workflow_dispatch:
 
+concurrency:
+  group: production-deployment
+  cancel-in-progress: false
+
 permissions:
   contents: read
   packages: write
@@ -105,6 +109,7 @@ jobs:
         uses: actions/checkout@v5
 
       - name: Azure OIDC Login
+        id: azure-login
         uses: azure/login@v2
         with:
           client-id: ${{ secrets.AZURE_CLIENT_ID }}
@@ -119,40 +124,71 @@ jobs:
             --name ${{ env.AZURE_VM_NAME }} \
             --query '[0].virtualMachine.network.publicIpAddresses[0].ipAddress' \
             --output tsv)
+          if [ -z "$VM_IP" ] || [ "$VM_IP" = "null" ]; then
+            echo "Error: Failed to retrieve VM IP address"
+            exit 1
+          fi
+          # Validate IP format
+          if ! echo "$VM_IP" | grep -qE '^[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}$'; then
+            echo "Error: Invalid IP address format: $VM_IP"
+            exit 1
+          fi
           echo "ip=$VM_IP" >> $GITHUB_OUTPUT
           echo "VM IP: $VM_IP"
 
       - name: Get GitHub Actions runner public IP
         id: runner-ip
         run: |
-          RUNNER_IP=$(curl -s ifconfig.me)
+          RUNNER_IP=$(curl -sf --max-time 10 ifconfig.me)
+          if [ -z "$RUNNER_IP" ]; then
+            echo "Error: Failed to get runner IP address"
+            exit 1
+          fi
+          # Validate IP format
+          if ! echo "$RUNNER_IP" | grep -qE '^[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}$'; then
+            echo "Error: Invalid IP address format: $RUNNER_IP"
+            exit 1
+          fi
           echo "ip=$RUNNER_IP" >> $GITHUB_OUTPUT
           echo "Runner IP: $RUNNER_IP"
 
       - name: Add temporary NSG rule for runner IP
         run: |
+          NSG_RULE_NAME="AllowGitHubRunner-${{ github.run_id }}"
           az network nsg rule create \
             --resource-group ${{ env.AZURE_RESOURCE_GROUP }} \
             --nsg-name ${{ env.AZURE_NSG_NAME }} \
-            --name AllowGitHubRunner \
+            --name "$NSG_RULE_NAME" \
             --priority 900 \
             --source-address-prefixes "${{ steps.runner-ip.outputs.ip }}/32" \
             --destination-port-ranges 22 \
             --access Allow \
             --protocol Tcp \
-            --description "Temporary rule for GitHub Actions deployment"
-          echo "✓ NSG rule created for runner IP ${{ steps.runner-ip.outputs.ip }}"
+            --description "Temporary rule for GitHub Actions deployment (run ${{ github.run_id }})"
+          echo "✓ NSG rule '$NSG_RULE_NAME' created for runner IP ${{ steps.runner-ip.outputs.ip }}"
 
       - name: Wait for NSG rule propagation
         run: sleep 30
 
       - name: Deploy via SSH
         uses: appleboy/ssh-action@v1.2.2
+        timeout-minutes: 10
         with:
           host: ${{ steps.vm-ip.outputs.ip }}
           username: deployuser
           key: ${{ secrets.DEPLOY_SSH_KEY }}
+          script_stop: true
+          command_timeout: 10m
           script: |
+            set -e
+            if [ ! -d "/opt/isthetube/deploy" ]; then
+              echo "Error: /opt/isthetube/deploy directory not found"
+              exit 1
+            fi
+            if [ ! -x "/opt/isthetube/deploy/scripts/deploy.sh" ]; then
+              echo "Error: deploy.sh not found or not executable"
+              exit 1
+            fi
             cd /opt/isthetube/deploy
             ./scripts/deploy.sh
 
@@ -173,12 +209,13 @@ jobs:
       - name: Remove temporary NSG rule
         if: always()
         run: |
+          NSG_RULE_NAME="AllowGitHubRunner-${{ github.run_id }}"
           az network nsg rule delete \
             --resource-group ${{ env.AZURE_RESOURCE_GROUP }} \
             --nsg-name ${{ env.AZURE_NSG_NAME }} \
-            --name AllowGitHubRunner || true
-          echo "✓ Temporary NSG rule removed"
+            --name "$NSG_RULE_NAME" || true
+          echo "✓ Temporary NSG rule '$NSG_RULE_NAME' removed"
 
       - name: Azure logout
-        if: always()
+        if: always() && steps.azure-login.outcome == 'success'
         run: az logout

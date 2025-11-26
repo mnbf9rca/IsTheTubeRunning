@@ -23,7 +23,7 @@ Developer → main branch → CI Tests Pass → PR to release → Auto Deploy
 
 GitHub Actions:
 1. Build images (backend, frontend) in parallel
-2. Push to GHCR with :latest and :sha tags
+2. Push to GHCR with :latest and sha-<commit> tags
 3. Azure OIDC login
 4. Query VM IP from Azure
 5. Temporarily whitelist runner IP in NSG
@@ -79,7 +79,7 @@ This is a **one-time manual setup** required before the first deployment.
 
 ### Step 1: Create Azure AD App Registration
 
-1. Go to **Azure Portal** → **Azure Active Directory** → **App registrations**
+1. Go to **Azure Portal** → **Microsoft Entra ID** → **App registrations**
 2. Click **"New registration"**
 3. Configure:
    - **Name**: `github-actions-isthetube`
@@ -201,8 +201,8 @@ git push origin release
 ### Deployment Flow
 
 1. **Build Stage** (parallel, ~3 minutes):
-   - Backend image built and pushed to `ghcr.io/mnbf9rca/isthetuberunning/backend:latest` and `:sha-<commit>`
-   - Frontend image built and pushed to `ghcr.io/mnbf9rca/isthetuberunning/frontend:latest` and `:sha-<commit>`
+   - Backend image built and pushed to `ghcr.io/mnbf9rca/isthetuberunning/backend:latest` and `sha-<commit>`
+   - Frontend image built and pushed to `ghcr.io/mnbf9rca/isthetuberunning/frontend:latest` and `sha-<commit>`
 
 2. **Deploy Stage** (~2 minutes):
    - Azure OIDC login (no secrets, uses federated credentials)
