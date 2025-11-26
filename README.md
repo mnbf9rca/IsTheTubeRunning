@@ -397,6 +397,56 @@ This displays the `DOTENV_KEY_CI` and `DOTENV_KEY_PRODUCTION` values needed for 
 
 **Note:** HTTP/HTTPS traffic uses Cloudflare Tunnel (no published ports). SSH remains on port 22 (UFW + fail2ban protected). See `docs/adr/01-infrastructure.md` for architecture details.
 
+## Production Deployment
+
+### Full Stack Deployment
+
+Deploy all services (backend, frontend, nginx, workers):
+
+```bash
+cd /opt/isthetube
+
+# Pull latest code
+git pull
+
+# Rebuild and deploy all services
+docker compose -f deploy/docker-compose.prod.yml up -d --build
+
+# Check status
+docker compose -f deploy/docker-compose.prod.yml ps
+
+# View logs
+docker compose -f deploy/docker-compose.prod.yml logs -f
+```
+
+### Frontend-Only Updates
+
+When deploying frontend changes, you must force recreation of the frontend init container:
+
+```bash
+cd /opt/isthetube
+
+# Pull latest code
+git pull
+
+# Rebuild and force recreate frontend + nginx
+docker compose -f deploy/docker-compose.prod.yml up -d --build --force-recreate frontend nginx
+
+# Verify new bundle is deployed
+curl -s https://isthetube.cynexia.com/ | grep -o 'index-[^.]*\.js'
+```
+
+**Why `--force-recreate`?** The frontend is an init container (`restart: "no"`) that runs once, populates a volume with static files, then exits. To update frontend files, you must force it to run again.
+
+### Architecture Notes
+
+- **Frontend**: Init container that builds once and exits, populating shared volume
+- **Nginx**: Serves static files from shared volume + proxies backend API
+- **No volume mounts**: Frontend config uses hostname-based auto-detection (zero configuration)
+- **Startup order**: Frontend → Nginx (no backend dependency for static files)
+
+See `frontend/RUNTIME_CONFIG_PROGRESS.md` for frontend configuration architecture details.
+
 ### How It Works
 
 1. **Config Loading** (`backend/app/core/config.py`):

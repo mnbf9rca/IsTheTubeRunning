@@ -195,12 +195,18 @@ services:
       - app-network
 
   # Frontend Builder (init container - builds assets, populates volume, exits)
+  # Architecture: This container builds frontend assets during Docker build, then populates
+  # the frontend_static volume at runtime and exits. Nginx serves files from this volume.
+  # Benefits: (1) No duplicate serving (2) Nginx starts immediately (3) Clean deployments
+  #
+  # IMPORTANT: To deploy frontend updates, use --force-recreate:
+  #   docker compose -f deploy/docker-compose.prod.yml up -d --build --force-recreate frontend nginx
   frontend:
     build:
       context: ../frontend
       dockerfile: Dockerfile
     container_name: isthetube-frontend-prod
-    restart: "no"  # Init container - run once then exit
+    restart: "no"  # Init container - run once then exit (use --force-recreate to run again)
     # Port not exposed - nginx handles all external traffic
     volumes:
       - frontend_static:/www
