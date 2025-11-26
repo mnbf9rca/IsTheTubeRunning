@@ -445,7 +445,7 @@ curl -s https://isthetube.cynexia.com/ | grep -o 'index-[^.]*\.js'
 - **No volume mounts**: Frontend config uses hostname-based auto-detection (zero configuration)
 - **Startup order**: Frontend → Nginx (no backend dependency for static files)
 
-See `frontend/RUNTIME_CONFIG_PROGRESS.md` for frontend configuration architecture details.
+See `frontend/README.md` for frontend configuration architecture details.
 
 ### How It Works
 
