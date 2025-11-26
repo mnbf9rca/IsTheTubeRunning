@@ -1669,6 +1669,42 @@ def test_create_disruption_hash_empty_string_vs_none(
     assert hash1 == hash2
 
 
+def test_create_disruption_hash_different_severity_different_hash(
+    alert_service: AlertService,
+) -> None:
+    """Test that different numeric severities produce different hashes even with same description."""
+    # Same line, same description, but different numeric severity
+    disruptions1 = [
+        DisruptionResponse(
+            line_id="victoria",
+            line_name="Victoria",
+            mode="tube",
+            status_severity=5,
+            status_severity_description="Delays",
+            reason="Signal failure",
+            created_at=datetime.now(UTC),
+        ),
+    ]
+
+    disruptions2 = [
+        DisruptionResponse(
+            line_id="victoria",
+            line_name="Victoria",
+            mode="tube",
+            status_severity=6,
+            status_severity_description="Delays",
+            reason="Signal failure",
+            created_at=datetime.now(UTC),
+        ),
+    ]
+
+    hash1 = alert_service._create_disruption_hash(disruptions1)
+    hash2 = alert_service._create_disruption_hash(disruptions2)
+
+    # Different severities should produce different hashes
+    assert hash1 != hash2
+
+
 # ==================== Additional Coverage Tests ====================
 
 

@@ -1199,9 +1199,9 @@ class AlertService:
         """
         Create a stable hash of disruptions for comparison.
 
-        Sorts disruptions by (line_id, status_severity_description, reason)
+        Sorts disruptions by (line_id, status_severity, status_severity_description, reason)
         to ensure fully deterministic ordering even when a single line has
-        multiple disruptions, then hashes the relevant fields.
+        multiple disruptions, then hashes the relevant fields including numeric severity.
 
         Args:
             disruptions: List of disruptions
@@ -1209,16 +1209,22 @@ class AlertService:
         Returns:
             SHA256 hash (hex digest) of disruption state
         """
-        # Sort disruptions by (line_id, status, reason) for fully deterministic ordering
+        # Sort by (line_id, numeric severity, description, reason) for fully deterministic ordering
         sorted_disruptions = sorted(
             disruptions,
-            key=lambda d: (d.line_id, d.status_severity_description, d.reason or ""),
+            key=lambda d: (
+                d.line_id,
+                d.status_severity,
+                d.status_severity_description,
+                d.reason or "",
+            ),
         )
 
-        # Build hash input from relevant fields
+        # Build hash input from relevant fields including numeric severity
         hash_input = [
             {
                 "line_id": disruption.line_id,
+                "severity": disruption.status_severity,
                 "status": disruption.status_severity_description,
                 "reason": disruption.reason or "",
             }
