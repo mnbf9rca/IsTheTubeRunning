@@ -1458,6 +1458,217 @@ def test_create_disruption_hash_order_independent(alert_service: AlertService) -
     assert hash1 == hash2
 
 
+def test_create_disruption_hash_multiple_disruptions_same_line(
+    alert_service: AlertService,
+) -> None:
+    """Test that multiple disruptions on same line produce same hash regardless of order."""
+    # Create disruptions matching the real-world scenario from issue #267
+    # Circle is first, then Piccadilly disruptions in one order
+    disruptions1 = [
+        DisruptionResponse(
+            line_id="circle",
+            line_name="Circle",
+            mode="tube",
+            status_severity=5,
+            status_severity_description="Severe Delays",
+            reason="Circle Line: Severe delays while we fix a points failure at Gloucester Road.",
+            created_at=datetime.now(UTC),
+        ),
+        DisruptionResponse(
+            line_id="piccadilly",
+            line_name="Piccadilly",
+            mode="tube",
+            status_severity=6,
+            status_severity_description="Part Suspended",
+            reason="Piccadilly Line: No Service between Hyde Park Corner and King's Cross...",
+            created_at=datetime.now(UTC),
+        ),
+        DisruptionResponse(
+            line_id="piccadilly",
+            line_name="Piccadilly",
+            mode="tube",
+            status_severity=5,
+            status_severity_description="Severe Delays",
+            reason="Piccadilly Line: No Service between Hyde Park Corner and King's Cross...",
+            created_at=datetime.now(UTC),
+        ),
+    ]
+
+    # Same disruptions, Circle still first, but Piccadilly disruptions swapped
+    disruptions2 = [
+        DisruptionResponse(
+            line_id="circle",
+            line_name="Circle",
+            mode="tube",
+            status_severity=5,
+            status_severity_description="Severe Delays",
+            reason="Circle Line: Severe delays while we fix a points failure at Gloucester Road.",
+            created_at=datetime.now(UTC),
+        ),
+        DisruptionResponse(
+            line_id="piccadilly",
+            line_name="Piccadilly",
+            mode="tube",
+            status_severity=5,
+            status_severity_description="Severe Delays",
+            reason="Piccadilly Line: No Service between Hyde Park Corner and King's Cross...",
+            created_at=datetime.now(UTC),
+        ),
+        DisruptionResponse(
+            line_id="piccadilly",
+            line_name="Piccadilly",
+            mode="tube",
+            status_severity=6,
+            status_severity_description="Part Suspended",
+            reason="Piccadilly Line: No Service between Hyde Park Corner and King's Cross...",
+            created_at=datetime.now(UTC),
+        ),
+    ]
+
+    hash1 = alert_service._create_disruption_hash(disruptions1)
+    hash2 = alert_service._create_disruption_hash(disruptions2)
+
+    assert hash1 == hash2
+
+
+def test_create_disruption_hash_null_reason_handling(
+    alert_service: AlertService,
+) -> None:
+    """Test that disruptions with None reasons are handled correctly in sorting."""
+    disruptions1 = [
+        DisruptionResponse(
+            line_id="northern",
+            line_name="Northern",
+            mode="tube",
+            status_severity=5,
+            status_severity_description="Severe Delays",
+            reason=None,
+            created_at=datetime.now(UTC),
+        ),
+        DisruptionResponse(
+            line_id="northern",
+            line_name="Northern",
+            mode="tube",
+            status_severity=5,
+            status_severity_description="Severe Delays",
+            reason="Signal failure at Camden Town",
+            created_at=datetime.now(UTC),
+        ),
+    ]
+
+    disruptions2 = [
+        DisruptionResponse(
+            line_id="northern",
+            line_name="Northern",
+            mode="tube",
+            status_severity=5,
+            status_severity_description="Severe Delays",
+            reason="Signal failure at Camden Town",
+            created_at=datetime.now(UTC),
+        ),
+        DisruptionResponse(
+            line_id="northern",
+            line_name="Northern",
+            mode="tube",
+            status_severity=5,
+            status_severity_description="Severe Delays",
+            reason=None,
+            created_at=datetime.now(UTC),
+        ),
+    ]
+
+    hash1 = alert_service._create_disruption_hash(disruptions1)
+    hash2 = alert_service._create_disruption_hash(disruptions2)
+
+    assert hash1 == hash2
+
+
+def test_create_disruption_hash_same_status_different_reasons(
+    alert_service: AlertService,
+) -> None:
+    """Test that disruptions with same line_id and status but different reasons hash consistently."""
+    disruptions1 = [
+        DisruptionResponse(
+            line_id="central",
+            line_name="Central",
+            mode="tube",
+            status_severity=5,
+            status_severity_description="Severe Delays",
+            reason="Signal failure at Bank",
+            created_at=datetime.now(UTC),
+        ),
+        DisruptionResponse(
+            line_id="central",
+            line_name="Central",
+            mode="tube",
+            status_severity=5,
+            status_severity_description="Severe Delays",
+            reason="Train cancellations",
+            created_at=datetime.now(UTC),
+        ),
+    ]
+
+    disruptions2 = [
+        DisruptionResponse(
+            line_id="central",
+            line_name="Central",
+            mode="tube",
+            status_severity=5,
+            status_severity_description="Severe Delays",
+            reason="Train cancellations",
+            created_at=datetime.now(UTC),
+        ),
+        DisruptionResponse(
+            line_id="central",
+            line_name="Central",
+            mode="tube",
+            status_severity=5,
+            status_severity_description="Severe Delays",
+            reason="Signal failure at Bank",
+            created_at=datetime.now(UTC),
+        ),
+    ]
+
+    hash1 = alert_service._create_disruption_hash(disruptions1)
+    hash2 = alert_service._create_disruption_hash(disruptions2)
+
+    assert hash1 == hash2
+
+
+def test_create_disruption_hash_empty_string_vs_none(
+    alert_service: AlertService,
+) -> None:
+    """Test that empty string and None reasons produce the same hash."""
+    disruptions1 = [
+        DisruptionResponse(
+            line_id="victoria",
+            line_name="Victoria",
+            mode="tube",
+            status_severity=5,
+            status_severity_description="Severe Delays",
+            reason=None,
+            created_at=datetime.now(UTC),
+        ),
+    ]
+
+    disruptions2 = [
+        DisruptionResponse(
+            line_id="victoria",
+            line_name="Victoria",
+            mode="tube",
+            status_severity=5,
+            status_severity_description="Severe Delays",
+            reason="",
+            created_at=datetime.now(UTC),
+        ),
+    ]
+
+    hash1 = alert_service._create_disruption_hash(disruptions1)
+    hash2 = alert_service._create_disruption_hash(disruptions2)
+
+    assert hash1 == hash2
+
+
 # ==================== Additional Coverage Tests ====================
 
 
