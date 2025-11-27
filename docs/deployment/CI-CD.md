@@ -126,40 +126,7 @@ This is a **one-time manual setup** required before the first deployment.
 
 **Why Network Contributor?** This role allows creating/deleting NSG rules for temporary SSH access. It does NOT grant permissions to read VM data, modify VMs, or access other Azure resources. The role is scoped to the `isthetube-prod` resource group only.
 
-### Step 4: Verify Setup
-
-Test OIDC authentication from your local machine:
-
-```bash
-# Install Azure CLI if not already installed
-# macOS: brew install azure-cli
-# Ubuntu: curl -sL https://aka.ms/InstallAzureCLIDeb | sudo bash
-
-# Login with App Registration (simulates GitHub Actions OIDC)
-az login --service-principal \
-  --username <CLIENT_ID> \
-  --password <CLIENT_SECRET> \
-  --tenant <TENANT_ID>
-
-# Test NSG rule creation (will create then delete a test rule)
-az network nsg rule create \
-  --resource-group isthetube-prod \
-  --nsg-name isthetube-nsg \
-  --name TestGitHubOIDC \
-  --priority 901 \
-  --source-address-prefixes "1.2.3.4/32" \
-  --destination-port-ranges 22 \
-  --access Allow \
-  --protocol Tcp
-
-# Clean up test rule
-az network nsg rule delete \
-  --resource-group isthetube-prod \
-  --nsg-name isthetube-nsg \
-  --name TestGitHubOIDC
-```
-
-**Note:** If using OIDC federated credentials (no client secret), you cannot test this way - OIDC only works from GitHub Actions runners.
+**Note:** OIDC federated credentials cannot be tested locally - they only work from GitHub Actions runners. The first deployment workflow run will validate the setup.
 
 ---
 
@@ -297,10 +264,10 @@ curl http://localhost/health
 git rev-parse --short HEAD
 
 # Check running containers
-docker compose -f deploy/docker-compose.prod.yml ps
+docker compose -f docker-compose.prod.yml ps
 
 # Check recent logs
-docker compose -f deploy/docker-compose.prod.yml logs --tail=100
+docker compose -f docker-compose.prod.yml logs --tail=100
 
 # Test externally
 curl https://isthetube.cynexia.com/health
@@ -376,7 +343,7 @@ permissions:
 ```bash
 # Check NSG rules in Azure Portal
 Azure Portal → Network Security Groups → isthetube-nsg → Inbound security rules
-# Look for "AllowGitHubRunner" rule with priority 900
+# Look for a rule named "AllowGitHubRunner-<run_id>" (e.g., "AllowGitHubRunner-123456") with priority 900
 
 # If rule exists but SSH fails, wait and retry (NSG propagation can take up to 2 minutes)
 
@@ -420,13 +387,13 @@ docker compose -f docker-compose.prod.yml logs cloudflared
 
 ### Cleanup Failures
 
-#### Warning: "NSG rule 'AllowGitHubRunner' not found"
+#### Warning: "NSG rule 'AllowGitHubRunner-<run_id>' not found"
 
-**Cause:** Rule already deleted or never created.
+**Cause:** The workflow creates NSG rules with names like `AllowGitHubRunner-<run_id>` (e.g., `AllowGitHubRunner-123456`). This warning appears if the rule for the current run ID was already deleted or never created.
 
 **Impact:** None - cleanup is idempotent.
 
-**Fix:** No action needed (warning is expected if rule doesn't exist).
+**Fix:** No action needed (warning is expected if the rule with the specific run ID doesn't exist).
 
 ---
 

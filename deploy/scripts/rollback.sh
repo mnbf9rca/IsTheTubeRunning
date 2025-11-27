@@ -29,6 +29,17 @@ echo "Timestamp: $(date -Iseconds)"
 echo "Target commit: $TARGET_SHA"
 echo ""
 
+# Validate TARGET_SHA to prevent command injection
+# Allow: commit SHAs (7-40 hex chars), HEAD~N notation, branch names
+if ! echo "$TARGET_SHA" | grep -qE '^([a-f0-9]{7,40}|HEAD~[0-9]+|[a-zA-Z0-9/_-]+)$'; then
+    echo "✗ ERROR: Invalid target SHA format: $TARGET_SHA"
+    echo "Valid formats:"
+    echo "  - Commit SHA: abc1234 or abc1234567890abcdef1234567890abcdef1234"
+    echo "  - Relative: HEAD~1, HEAD~2, etc."
+    echo "  - Branch: main, release, feature/branch-name"
+    exit 1
+fi
+
 # Step 1: Checkout target commit
 echo "[1/3] Checking out target commit..."
 cd "$APP_DIR"
@@ -43,7 +54,7 @@ echo "[2/3] Restarting services..."
 cd "$APP_DIR/deploy"
 # Pull attempt (may fail if commit-specific tag doesn't exist - that's OK)
 docker compose -f "$COMPOSE_FILE" pull || echo "Note: Using existing images (no commit-specific tag found)"
-docker compose -f "$COMPOSE_FILE" up -d --remove-orphans
+docker compose -f "$COMPOSE_FILE" up -d --remove-orphans --force-recreate
 echo "✓ Services restarted"
 echo ""
 
