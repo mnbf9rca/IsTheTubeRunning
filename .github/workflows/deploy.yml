@@ -186,7 +186,7 @@ jobs:
           echo "Testing SSH connectivity with up to 3 attempts..."
           for i in {1..3}; do
             echo "Attempt $i/3: Testing SSH connection to ${{ steps.vm-ip.outputs.ip }}..."
-            if ssh -o StrictHostKeyChecking=no -o ConnectTimeout=10 -i <(echo "${{ secrets.DEPLOY_SSH_KEY }}") deployuser@${{ steps.vm-ip.outputs.ip }} "whoami" 2>/dev/null; then
+            if ssh -o StrictHostKeyChecking=no -o ConnectTimeout=10 -i <(echo "${{ secrets.DEPLOY_SSH_KEY }}") deployuser@${{ steps.vm-ip.outputs.ip }} "whoami"; then
               echo "✓ SSH connection established"
               exit 0
             fi
@@ -196,11 +196,6 @@ jobs:
             fi
           done
           echo "✗ SSH connection failed after 3 attempts (90s total)"
-          echo "This may indicate:"
-          echo "  - NSG rule propagation taking longer than expected"
-          echo "  - SSH service not running on VM"
-          echo "  - VM is down"
-          echo "  - Firewall blocking connection"
           exit 1
 
       - name: Deploy via SSH
