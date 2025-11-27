@@ -88,3 +88,9 @@ repos:
         name: shellcheck
         files: \.sh$
         args: ['--exclude=SC1091']  # Ignore "not following sourced files" info messages
+
+  # GitHub Actions: actionlint
+  - repo: https://github.com/rhysd/actionlint
+    rev: v1.7.9
+    hooks:
+      - id: actionlint
