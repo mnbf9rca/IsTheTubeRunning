@@ -171,7 +171,8 @@ jobs:
             --destination-port-ranges 22 \
             --access Allow \
             --protocol Tcp \
-            --description "Temporary rule for GitHub Actions deployment (run ${{ github.run_id }})"
+            --description "Temporary rule for GitHub Actions deployment (run ${{ github.run_id }})" \
+            --no-wait false
           echo "✓ NSG rule '$NSG_RULE_NAME' created for runner IP ${{ steps.runner-ip.outputs.ip }}"
 
       - name: Wait for NSG rule propagation
@@ -184,7 +185,6 @@ jobs:
           host: ${{ steps.vm-ip.outputs.ip }}
           username: deployuser
           key: ${{ secrets.DEPLOY_SSH_KEY }}
-          script_stop: true
           command_timeout: 10m
           script: |
             set -e
