@@ -49,8 +49,8 @@ echo ""
 echo "[4/4] Waiting for services to become healthy..."
 sleep 45
 
-# Check backend health endpoint
-if curl -sf http://localhost/health > /dev/null; then
+# Check backend health endpoint (via nginx container since no ports are published)
+if docker compose -f "$COMPOSE_FILE" exec -T nginx wget -q -O - http://backend:8000/health > /dev/null; then
     echo "✓ Backend health check passed"
     echo ""
     echo "=== Deployment Complete ==="

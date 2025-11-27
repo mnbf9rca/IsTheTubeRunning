@@ -192,18 +192,7 @@ jobs:
           username: deployuser
           key: ${{ secrets.DEPLOY_SSH_KEY }}
           command_timeout: 10m
-          script: |
-            set -e
-            if [ ! -d "/opt/isthetube/deploy" ]; then
-              echo "Error: /opt/isthetube/deploy directory not found"
-              exit 1
-            fi
-            if [ ! -x "/opt/isthetube/deploy/scripts/deploy.sh" ]; then
-              echo "Error: deploy.sh not found or not executable"
-              exit 1
-            fi
-            cd /opt/isthetube/deploy
-            ./scripts/deploy.sh
+          script_path: deploy/scripts/deploy.sh
 
       - name: Health check
         run: |
