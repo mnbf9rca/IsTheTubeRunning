@@ -47,7 +47,7 @@ echo ""
 
 # Step 4: Wait for backend to become healthy (with retry)
 echo "[4/4] Waiting for backend to become healthy..."
-MAX_ATTEMPTS=6
+MAX_ATTEMPTS=8  # 8 attempts × 15s = 120s, matches external health check timeout
 SLEEP_INTERVAL=15
 
 for attempt in $(seq 1 $MAX_ATTEMPTS); do

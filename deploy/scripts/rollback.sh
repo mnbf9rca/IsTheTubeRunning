@@ -54,29 +54,42 @@ echo "[2/3] Restarting services..."
 cd "$APP_DIR/deploy"
 # Pull attempt (may fail if commit-specific tag doesn't exist - that's OK)
 docker compose -f "$COMPOSE_FILE" pull || echo "Note: Using existing images (no commit-specific tag found)"
-docker compose -f "$COMPOSE_FILE" up -d --remove-orphans --force-recreate
+docker compose -f "$COMPOSE_FILE" up -d --remove-orphans
 echo "✓ Services restarted"
 echo ""
 
-# Step 3: Wait and verify
-echo "[3/3] Waiting for services to become healthy..."
-sleep 45
+# Step 3: Wait for backend to become healthy (with retry)
+echo "[3/3] Waiting for backend to become healthy..."
+MAX_ATTEMPTS=8  # 8 attempts × 15s = 120s, matches deploy.sh timeout
+SLEEP_INTERVAL=15
 
-# Check backend health endpoint
-if curl -sf http://localhost/health > /dev/null; then
-    echo "✓ Backend health check passed"
-    echo ""
-    echo "=== Rollback Complete ==="
-    echo "Running version: $ROLLED_BACK_COMMIT"
-    echo "Timestamp: $(date -Iseconds)"
-    exit 0
-else
-    echo "✗ ERROR: Rollback health check failed"
-    echo ""
-    echo "Service status:"
-    docker compose -f "$COMPOSE_FILE" ps
-    echo ""
-    echo "Recent logs:"
-    docker compose -f "$COMPOSE_FILE" logs --tail=50
-    exit 1
-fi
+for attempt in $(seq 1 $MAX_ATTEMPTS); do
+    echo "Attempt $attempt/$MAX_ATTEMPTS: Checking backend health..."
+
+    # Check if backend container is healthy using Docker's health check
+    BACKEND_HEALTH=$(docker inspect --format='{{.State.Health.Status}}' isthetube-backend-prod 2>/dev/null || echo "unknown")
+
+    if [ "$BACKEND_HEALTH" = "healthy" ]; then
+        echo "✓ Backend is healthy"
+        echo ""
+        echo "=== Rollback Complete ==="
+        echo "Running version: $ROLLED_BACK_COMMIT"
+        echo "Timestamp: $(date -Iseconds)"
+        exit 0
+    fi
+
+    if [ "$attempt" -lt "$MAX_ATTEMPTS" ]; then
+        echo "Backend not healthy yet (status: $BACKEND_HEALTH), waiting ${SLEEP_INTERVAL}s..."
+        sleep $SLEEP_INTERVAL
+    fi
+done
+
+# All attempts failed
+echo "✗ ERROR: Rollback health check failed after $((MAX_ATTEMPTS * SLEEP_INTERVAL)) seconds"
+echo ""
+echo "Service status:"
+docker compose -f "$COMPOSE_FILE" ps
+echo ""
+echo "Recent logs:"
+docker compose -f "$COMPOSE_FILE" logs --tail=50
+exit 1
