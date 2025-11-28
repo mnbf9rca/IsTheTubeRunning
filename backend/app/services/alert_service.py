@@ -64,6 +64,11 @@ def create_line_aggregate_hash(disruptions: list[DisruptionResponse]) -> str:
         >>> hash1 == hash2
         True
     """
+    # Defensive: ensure all disruptions have the same line_id
+    if disruptions and len({d.line_id for d in disruptions}) > 1:
+        msg = "All disruptions must have the same line_id"
+        raise ValueError(msg)
+
     # Sort disruptions by (severity, description, reason) for deterministic ordering
     sorted_statuses = sorted(
         disruptions,
@@ -307,6 +312,10 @@ class AlertService:
                         logged_count += 1
 
                     # Update Redis with new aggregate hash (no TTL - persists until state changes)
+                    # Note: Redis is updated before commit intentionally. If commit fails,
+                    # Redis will be ahead of DB, but the next poll will re-detect the state
+                    # change (since DB won't have the new hash). This prioritizes preventing
+                    # duplicate logs over strict consistency.
                     await self.redis_client.set(redis_key, current_hash)
 
                     logger.info(

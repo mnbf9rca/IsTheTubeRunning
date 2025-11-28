@@ -3194,6 +3194,32 @@ class TestLineDisruptionStateLogging:
         hash_with_reason = create_line_aggregate_hash(disruptions_with_reason)
         assert hash_none != hash_with_reason
 
+    def test_create_line_aggregate_hash_mixed_line_ids_raises_error(self):
+        """Test that passing disruptions with different line_ids raises ValueError."""
+        # Create disruptions for different lines
+        disruptions_mixed = [
+            DisruptionResponse(
+                line_id="northern",
+                line_name="Northern",
+                mode="tube",
+                status_severity=10,
+                status_severity_description="Minor Delays",
+                reason="Signal failure",
+            ),
+            DisruptionResponse(
+                line_id="victoria",  # Different line_id
+                line_name="Victoria",
+                mode="tube",
+                status_severity=20,
+                status_severity_description="Severe Delays",
+                reason="Track fault",
+            ),
+        ]
+
+        # Should raise ValueError
+        with pytest.raises(ValueError, match="All disruptions must have the same line_id"):
+            create_line_aggregate_hash(disruptions_mixed)
+
     async def test_log_line_disruption_state_changes_first_state(
         self,
         db_session: AsyncSession,
