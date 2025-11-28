@@ -80,23 +80,20 @@ fetch_review_threads() {
     local status_filter="$4"
 
     # Calculate cursor for pagination (GraphQL uses cursor-based pagination)
+    # To reach page N, we must fetch pages 1 through N-1 to get the cursor
+    # This is necessary because GraphQL limits 'first' to 100 items
     local after_cursor=""
     if [[ $page -gt 1 ]]; then
-        # For page N, we need to skip (N-1) * per_page items
-        # We'll fetch all pages up to the requested one and extract the cursor
-        local items_to_skip=$(( (page - 1) * per_page ))
-
-        # Fetch with a query that gets us the cursor for the starting position
-        # For simplicity in v1, we'll fetch the first page and use endCursor for subsequent pages
-        # This is a limitation - proper cursor-based pagination would require storing cursors
-        if [[ $items_to_skip -gt 0 ]]; then
-            local cursor_query
-            # shellcheck disable=SC2016
-            cursor_query='query($owner: String!, $repo: String!, $pr: Int!, $first: Int!) {
+        # Loop through pages 1 to N-1, extracting endCursor from each
+        local current_page=1
+        local cursor_query
+        # shellcheck disable=SC2016
+        cursor_query='query($owner: String!, $repo: String!, $pr: Int!, $first: Int!, $after: String) {
   repository(owner: $owner, name: $repo) {
     pullRequest(number: $pr) {
-      reviewThreads(first: $first) {
+      reviewThreads(first: $first, after: $after) {
         pageInfo {
+          hasNextPage
           endCursor
         }
       }
@@ -104,20 +101,48 @@ fetch_review_threads() {
   }
 }'
 
+        while [[ $current_page -lt $page ]]; do
             local cursor_response
-            cursor_response=$(gh api graphql \
-                -f query="$cursor_query" \
-                -f owner="$REPO_OWNER" \
-                -f repo="$REPO_NAME" \
-                -F pr="$pr_number" \
-                -F first="$items_to_skip")
+            if [[ -n "$after_cursor" ]]; then
+                cursor_response=$(gh api graphql \
+                    -f query="$cursor_query" \
+                    -f owner="$REPO_OWNER" \
+                    -f repo="$REPO_NAME" \
+                    -F pr="$pr_number" \
+                    -F first="$per_page" \
+                    -f after="$after_cursor")
+            else
+                cursor_response=$(gh api graphql \
+                    -f query="$cursor_query" \
+                    -f owner="$REPO_OWNER" \
+                    -f repo="$REPO_NAME" \
+                    -F pr="$pr_number" \
+                    -F first="$per_page" \
+                    -f after=null)
+            fi
 
+            # Extract the endCursor for the next iteration
             local cursor
             cursor=$(echo "$cursor_response" | jq -r '.data.repository.pullRequest.reviewThreads.pageInfo.endCursor // empty')
+
+            # Check if there's a next page
+            local has_next
+            has_next=$(echo "$cursor_response" | jq -r '.data.repository.pullRequest.reviewThreads.pageInfo.hasNextPage')
+
+            if [[ "$has_next" == "false" ]]; then
+                # We've reached the end, no more pages available
+                break
+            fi
+
             if [[ -n "$cursor" ]]; then
                 after_cursor="$cursor"
+            else
+                # No cursor means no more pages
+                break
             fi
-        fi
+
+            current_page=$((current_page + 1))
+        done
     fi
 
     # Main query for review threads
@@ -239,6 +264,44 @@ fetch_issue_comments() {
     echo "$response"
 }
 
+# Fetch PR title using GraphQL (minimal query for metadata only)
+fetch_pr_title() {
+    local pr_number="$1"
+
+    # shellcheck disable=SC2016
+    local query='query($owner: String!, $repo: String!, $pr: Int!) {
+  repository(owner: $owner, name: $repo) {
+    pullRequest(number: $pr) {
+      title
+    }
+  }
+}'
+
+    local response
+    response=$(gh api graphql \
+        -f query="$query" \
+        -f owner="$REPO_OWNER" \
+        -f repo="$REPO_NAME" \
+        -F pr="$pr_number")
+    local gh_status=$?
+
+    # Check for errors from gh api command
+    if [[ $gh_status -ne 0 ]]; then
+        log_error "gh api command failed with exit code $gh_status"
+        exit 1
+    fi
+
+    # Check for GraphQL errors
+    if echo "$response" | jq -e '.errors' > /dev/null 2>&1; then
+        local error_msg
+        error_msg=$(echo "$response" | jq -r '.errors[0].message // "Unknown GraphQL error"')
+        log_error "Failed to fetch PR title: $error_msg"
+        exit 1
+    fi
+
+    echo "$response" | jq -r '.data.repository.pullRequest.title'
+}
+
 # Format output as JSON
 format_json_output() {
     local pr_number="$1"
@@ -268,16 +331,16 @@ format_json_output() {
         line: .line,
         start_line: .startLine,
         diff_side: .diffSide,
-        comments: [.comments.nodes[] | {
-            comment_id: .id,
-            database_id: .databaseId,
-            author: .author.login,
-            body: .body,
-            created_at: .createdAt,
-            is_first_in_thread: (. == .comments.nodes[0])
+        comments: [.comments.nodes | to_entries[] | {
+            comment_id: .value.id,
+            database_id: .value.databaseId,
+            author: .value.author.login,
+            body: .value.body,
+            created_at: .value.createdAt,
+            is_first_in_thread: (.key == 0)
         }],
         actionable_id: .id,
-        actionable_id_numeric: .comments.nodes[0].databaseId
+        actionable_id_numeric: (.comments.nodes[0].databaseId // null)
     })')
 
     # Transform issue comments
@@ -298,11 +361,41 @@ format_json_output() {
     local issue_comments_count
     issue_comments_count=$(echo "$issue_comments" | jq 'length')
 
-    # Calculate pagination display info
+    # Calculate filtered count (threads are already filtered by status in fetch_review_threads)
+    local filtered_threads_count
+    filtered_threads_count=$(echo "$transformed_threads" | jq 'length')
+
+    # Calculate pagination display info based on filtered results
+    # Note: When status filter is applied, the counts reflect filtered results
     local start_item=$(( (page - 1) * per_page + 1 ))
-    local end_item=$(( start_item + $(echo "$transformed_threads" | jq 'length') - 1 ))
+    local end_item=$(( start_item + filtered_threads_count - 1 ))
+
+    # Recalculate has_next_page based on filtered results
+    # If we got a full page of filtered results, there might be more
     local has_next_page
-    has_next_page=$(echo "$page_info" | jq -r '.hasNextPage')
+    if [[ $filtered_threads_count -eq $per_page ]]; then
+        # We filled the page, so use the API's hasNextPage
+        has_next_page=$(echo "$page_info" | jq -r '.hasNextPage')
+    else
+        # We didn't fill the page, so there are no more filtered results
+        has_next_page="false"
+    fi
+
+    # For pagination summary, use filtered count when a status filter is applied
+    local display_total_count
+    if [[ "$status_filter" != "all" ]]; then
+        # We can't know the true filtered total without fetching all pages
+        # So we show what we know: we have at least end_item items
+        # If has_next_page is true, indicate there are more
+        if [[ "$has_next_page" == "true" ]]; then
+            display_total_count="$end_item+"
+        else
+            display_total_count="$end_item"
+        fi
+    else
+        # No filter, use API's total count
+        display_total_count="$total_threads"
+    fi
 
     # Build final JSON output
     jq -n \
@@ -315,10 +408,10 @@ format_json_output() {
         --argjson start_item "$start_item" \
         --argjson end_item "$end_item" \
         --arg has_next_page "$has_next_page" \
-        --argjson total_count "$total_threads" \
+        --arg display_total_count "$display_total_count" \
+        --argjson total_threads "$total_threads" \
         --argjson threads "$transformed_threads" \
         --argjson issue_comments "$transformed_issue_comments" \
-        --argjson total_threads "$total_threads" \
         --argjson unresolved_threads "$unresolved_count" \
         --argjson resolved_threads "$resolved_count" \
         --argjson total_issue_comments "$issue_comments_count" \
@@ -333,8 +426,8 @@ format_json_output() {
                 start_item: $start_item,
                 end_item: $end_item,
                 has_next_page: ($has_next_page == "true"),
-                total_count: $total_count,
-                summary: "Showing items \($start_item)-\($end_item) of \($total_count), use --page \($page + 1) for more"
+                total_count: $display_total_count,
+                summary: "Showing items \($start_item)-\($end_item) of \($display_total_count), use --page \($page + 1) for more"
             },
             threads: $threads,
             issue_comments: $issue_comments,
@@ -580,6 +673,13 @@ main() {
 
     if [[ "$type_filter" == "issues" ]] || [[ "$type_filter" == "all" ]]; then
         issue_comments=$(fetch_issue_comments "$pr_number" "$per_page" "$page")
+    fi
+
+    # If we only fetched issue comments, we need to get the PR title separately
+    if [[ "$type_filter" == "issues" ]]; then
+        local pr_title
+        pr_title=$(fetch_pr_title "$pr_number")
+        threads_data=$(echo "$threads_data" | jq --arg title "$pr_title" '.title = $title')
     fi
 
     # Format output

@@ -268,11 +268,11 @@ action_resolve() {
         # Numeric comment database ID - use REST API to post reply, then resolve
         thread_id=$(get_thread_id_from_comment "$pr_number" "$id")
         post_reply_rest "$pr_number" "$id" "$response_text"
-    elif [[ "$id" =~ ^PRRT_[a-zA-Z0-9]+$ ]]; then
+    elif [[ "$id" =~ ^PRRT_[a-zA-Z0-9_-]+$ ]]; then
         # Thread ID - use GraphQL for both reply and resolve
         thread_id="$id"
         post_reply_graphql "$thread_id" "$response_text"
-    elif [[ "$id" =~ ^PRRC_[a-zA-Z0-9]+$ ]]; then
+    elif [[ "$id" =~ ^PRRC_[a-zA-Z0-9_-]+$ ]]; then
         # Comment node ID - convert to databaseId, then use REST flow
         local db_id
         db_id=$(get_database_id_from_node "$id")
