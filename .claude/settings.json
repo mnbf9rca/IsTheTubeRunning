@@ -97,7 +97,7 @@
     "deny": [
       "Bash(npx dotenv-vault@latest keys:*)",
       "Bash(git commit --amend:*)",
-      "Read(settings.json)"
+      "Read(.claude/settings.json)"
     ]
   }
 }
