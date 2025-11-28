@@ -127,8 +127,8 @@ async def test_readiness_check_verifies_redis_connectivity(async_client: AsyncCl
         assert response.status_code == 200
         # Verify ping was called
         mock_redis_ping.assert_called_once()
-        # Verify close was called in cleanup
-        mock_redis_client.close.assert_called_once()
+        # Verify aclose was called in cleanup
+        mock_redis_client.aclose.assert_called_once()
 
 
 @pytest.mark.asyncio
@@ -149,15 +149,15 @@ async def test_readiness_check_closes_redis_on_error(async_client: AsyncClient) 
         # Mock Redis ping failure
         mock_redis_client = AsyncMock()
         mock_redis_client.ping.side_effect = Exception("Redis error")
-        mock_redis_close = AsyncMock()
-        mock_redis_client.close = mock_redis_close
+        mock_redis_aclose = AsyncMock()
+        mock_redis_client.aclose = mock_redis_aclose
         mock_redis_from_url.return_value = mock_redis_client
 
         response = await async_client.get("/ready")
 
         assert response.status_code == 503
-        # Verify close was still called despite error
-        mock_redis_close.assert_called_once()
+        # Verify aclose was still called despite error
+        mock_redis_aclose.assert_called_once()
 
 
 @pytest.mark.asyncio

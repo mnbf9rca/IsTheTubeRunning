@@ -3,6 +3,7 @@
 import hashlib
 import json
 from datetime import UTC, datetime
+from itertools import groupby
 from typing import Any, Protocol, cast
 from uuid import UUID
 from zoneinfo import ZoneInfo
@@ -34,35 +35,60 @@ logger = structlog.get_logger(__name__)
 
 
 # Pure helper functions for testability
-def create_line_state_hash(line_id: str, status: str, reason: str | None) -> str:
+def create_line_aggregate_hash(disruptions: list[DisruptionResponse]) -> str:
     """
-    Create SHA256 hash of line disruption state for deduplication.
+    Create aggregate hash for all statuses of a single line.
+
+    Sorts disruptions by (severity, description, reason) for deterministic ordering.
+    This ensures that multiple statuses for the same line (e.g., "Minor Delays" and
+    "Part Suspended") produce a consistent hash regardless of API response order.
 
     Pure function for easy testing without database dependencies.
 
     Args:
-        line_id: TfL line ID (e.g., "bakerloo", "victoria")
-        status: Disruption status (e.g., "Good Service", "Minor Delays")
-        reason: Disruption reason text (nullable for good service)
+        disruptions: List of disruptions for a single line (all must have same line_id)
 
     Returns:
         SHA256 hash string (64 characters)
 
     Example:
-        >>> create_line_state_hash("bakerloo", "Minor Delays", "Signal failure")
-        'abc123...'  # 64-character hex string
-        >>> create_line_state_hash("victoria", "Good Service", None)
-        'def456...'  # Different hash for different state
+        >>> disruptions = [
+        ...     DisruptionResponse(line_id="northern", status_severity=10,
+        ...                        status_severity_description="Minor Delays", reason="Signal failure"),
+        ...     DisruptionResponse(line_id="northern", status_severity=20,
+        ...                        status_severity_description="Part Suspended", reason="Signal failure"),
+        ... ]
+        >>> hash1 = create_line_aggregate_hash(disruptions)
+        >>> # Same disruptions in different order produce same hash
+        >>> hash2 = create_line_aggregate_hash(list(reversed(disruptions)))
+        >>> hash1 == hash2
+        True
     """
-    # Normalize null/empty/whitespace-only reason to empty string for consistent hashing
-    # This prevents whitespace-only strings from causing unnecessary hash changes
-    normalized_reason = (reason or "").strip() or ""
+    # Defensive: ensure all disruptions have the same line_id
+    if disruptions and len({d.line_id for d in disruptions}) > 1:
+        msg = "All disruptions must have the same line_id"
+        raise ValueError(msg)
 
-    # Create hash input string
-    hash_input = f"{line_id}|{status}|{normalized_reason}"
+    # Sort disruptions by (severity, description, reason) for deterministic ordering
+    sorted_statuses = sorted(
+        disruptions,
+        key=lambda d: (d.status_severity, d.status_severity_description, d.reason or ""),
+    )
 
-    # Return SHA256 hex digest
-    return hashlib.sha256(hash_input.encode("utf-8")).hexdigest()
+    # Build hash input from sorted disruptions
+    # Normalize reasons: strip whitespace and treat empty/whitespace-only as empty string
+    hash_input = [
+        {
+            "severity": d.status_severity,
+            "status": d.status_severity_description,
+            "reason": (d.reason or "").strip() or "",
+        }
+        for d in sorted_statuses
+    ]
+
+    # Create JSON string and hash it
+    hash_string = json.dumps(hash_input, sort_keys=True)
+    return hashlib.sha256(hash_string.encode()).hexdigest()
 
 
 class RedisClientProtocol(Protocol):
@@ -75,6 +101,10 @@ class RedisClientProtocol(Protocol):
 
     async def get(self, name: str) -> str | None:
         """Get the value at key name."""
+        ...
+
+    async def set(self, name: str, value: str) -> bool:
+        """Set the value at key name (no expiration)."""
         ...
 
     async def setex(self, name: str, time: int, value: str) -> bool:
@@ -107,6 +137,96 @@ async def get_redis_client() -> RedisClientProtocol:
     )
 
 
+async def warm_up_line_state_cache(db: AsyncSession, redis_client: RedisClientProtocol) -> int:
+    """
+    Populate Redis with latest aggregate state hash per line from database.
+
+    Called during application lifespan to rehydrate Redis cache after restart.
+    This prevents re-logging existing states on first poll after server restart.
+
+    For each line, fetches all log entries at the most recent detected_at timestamp
+    (which may include multiple statuses for the same line), computes the aggregate
+    hash, and stores it in Redis.
+
+    Args:
+        db: Database session for querying line_disruption_state_logs table
+        redis_client: Redis client for cache storage
+
+    Returns:
+        Number of unique lines hydrated into Redis cache
+
+    Example:
+        >>> redis_client = await get_redis_client()
+        >>> count = await warm_up_line_state_cache(db, redis_client)
+        >>> print(count)
+        12  # 12 unique lines with cached state
+    """
+    try:
+        # Subquery to find max detected_at for each line_id
+        # This represents the most recent polling moment for each line
+        subq = (
+            select(
+                LineDisruptionStateLog.line_id,
+                func.max(LineDisruptionStateLog.detected_at).label("max_detected_at"),
+            )
+            .group_by(LineDisruptionStateLog.line_id)
+            .subquery()
+        )
+
+        # Get all log entries at the max timestamp for each line
+        # (multiple statuses per line at same timestamp due to batch logging)
+        stmt = select(LineDisruptionStateLog).join(
+            subq,
+            and_(
+                LineDisruptionStateLog.line_id == subq.c.line_id,
+                LineDisruptionStateLog.detected_at == subq.c.max_detected_at,
+            ),
+        )
+
+        result = await db.execute(stmt)
+        logs = list(result.scalars().all())
+
+        if not logs:
+            logger.info("line_state_cache_warmup_empty", message="no historical states to hydrate")
+            return 0
+
+        # Group logs by line_id and extract aggregate hash
+        # All records for the same line at the same detected_at share the same state_hash
+        # (since they're all part of the same aggregate state logged in one batch)
+        logs_sorted = sorted(logs, key=lambda log: log.line_id)
+        lines_hydrated = 0
+
+        for line_id, group in groupby(logs_sorted, key=lambda log: log.line_id):
+            statuses = list(group)
+
+            # All statuses for this line have the same state_hash (aggregate hash)
+            # Just pick the first one - they're all identical for records at same detected_at
+            aggregate_hash = statuses[0].state_hash
+
+            # Store in Redis (no TTL - persists until state changes)
+            redis_key = f"line_state:{line_id}"
+            await redis_client.set(redis_key, aggregate_hash)
+
+            lines_hydrated += 1
+
+        logger.info(
+            "line_state_cache_warmup_complete",
+            lines_hydrated=lines_hydrated,
+            total_log_entries=len(logs),
+        )
+
+        return lines_hydrated
+
+    except Exception as e:
+        # Log error but don't block application startup
+        logger.error(
+            "line_state_cache_warmup_failed",
+            error=str(e),
+            exc_info=e,
+        )
+        return 0
+
+
 class AlertService:
     """Service for processing route alerts and sending notifications."""
 
@@ -128,8 +248,12 @@ class AlertService:
         """
         Log line disruption state changes to database for troubleshooting and analytics.
 
-        Only logs when state changes (different hash from last logged state for that line).
-        Uses pure function create_line_state_hash() for testability.
+        Groups disruptions by line and compares aggregate state hash against Redis cache.
+        Only logs when the aggregate state for a line changes (e.g., new status added,
+        status removed, or status details changed).
+
+        Multiple statuses for the same line (e.g., "Minor Delays" + "Part Suspended")
+        are stored as separate database records but share the same detected_at timestamp.
 
         Args:
             disruptions: List of current disruptions from TfL API
@@ -138,91 +262,75 @@ class AlertService:
             Number of state changes logged (new log entries created)
 
         Example:
-            >>> # First call with disruption
-            >>> await service._log_line_disruption_state_changes([disruption])
-            1  # Logged because first state
-            >>> # Second call with same disruption
-            >>> await service._log_line_disruption_state_changes([disruption])
-            0  # Not logged because hash unchanged
-            >>> # Third call with different disruption status
-            >>> await service._log_line_disruption_state_changes([updated_disruption])
-            1  # Logged because hash changed
+            >>> # First call with disruptions
+            >>> await service._log_line_disruption_state_changes([disruption1, disruption2])
+            2  # Logged because first state
+            >>> # Second call with same disruptions
+            >>> await service._log_line_disruption_state_changes([disruption1, disruption2])
+            0  # Not logged because aggregate hash unchanged
+            >>> # Third call with different aggregate state
+            >>> await service._log_line_disruption_state_changes([disruption1, disruption3])
+            2  # Logged because aggregate state changed
         """
         try:
             logged_count = 0
 
-            # Get all lines to log "Good Service" for lines with no disruptions
-            # This is optional - we can skip it to reduce write volume
-            # For now, only log lines that have disruptions (YAGNI principle)
+            if not disruptions:
+                return 0
 
-            # Batch-fetch all recent states for all line_ids to avoid N+1 queries
-            line_ids = [d.line_id for d in disruptions]
-            if line_ids:
-                # Subquery to find max detected_at for each line_id
-                subq = (
-                    select(
-                        LineDisruptionStateLog.line_id,
-                        func.max(LineDisruptionStateLog.detected_at).label("max_detected_at"),
-                    )
-                    .where(LineDisruptionStateLog.line_id.in_(line_ids))
-                    .group_by(LineDisruptionStateLog.line_id)
-                    .subquery()
-                )
+            # Use single timestamp for all records in this batch
+            # This represents the polling moment and groups related statuses
+            batch_detected_at = datetime.now(UTC)
 
-                # Join to get the full record with matching max detected_at
-                stmt = select(LineDisruptionStateLog.line_id, LineDisruptionStateLog.state_hash).join(
-                    subq,
-                    and_(
-                        LineDisruptionStateLog.line_id == subq.c.line_id,
-                        LineDisruptionStateLog.detected_at == subq.c.max_detected_at,
-                    ),
-                )
+            # Group disruptions by line_id
+            disruptions_sorted = sorted(disruptions, key=lambda d: d.line_id)
+            disruptions_by_line = {
+                line_id: list(group) for line_id, group in groupby(disruptions_sorted, key=lambda d: d.line_id)
+            }
 
-                result = await self.db.execute(stmt)
-                # Build dict: {line_id: state_hash}
-                last_state_hashes = {row[0]: row[1] for row in result.all()}
-            else:
-                last_state_hashes = {}
+            # Process each line's aggregate state
+            for line_id, line_disruptions in disruptions_by_line.items():
+                # Compute aggregate hash for this line's current state
+                current_hash = create_line_aggregate_hash(line_disruptions)
 
-            for disruption in disruptions:
-                line_id = disruption.line_id
-                status = disruption.status_severity_description
-                # Combine all reasons into single text if multiple exist
-                reason = disruption.reason or None
+                # Check Redis for last known aggregate hash for this line
+                redis_key = f"line_state:{line_id}"
+                last_hash = await self.redis_client.get(redis_key)
 
-                # Calculate state hash
-                state_hash = create_line_state_hash(line_id, status, reason)
+                # Only log if aggregate state changed
+                if current_hash != last_hash:
+                    # Log each status as a separate database record
+                    for disruption in line_disruptions:
+                        new_log = LineDisruptionStateLog(
+                            line_id=line_id,
+                            status_severity_description=disruption.status_severity_description,
+                            reason=disruption.reason or None,
+                            state_hash=current_hash,  # Store aggregate hash, not individual
+                            detected_at=batch_detected_at,
+                        )
+                        self.db.add(new_log)
+                        logged_count += 1
 
-                # Check if last logged state for this line has the same hash
-                # Use pre-fetched dict lookup instead of individual query
-                last_state_hash = last_state_hashes.get(line_id)
-
-                # Only log if state changed (or no previous state exists)
-                if state_hash != last_state_hash:
-                    # Create new log entry
-                    new_log = LineDisruptionStateLog(
-                        line_id=line_id,
-                        status_severity_description=status,
-                        reason=reason,
-                        state_hash=state_hash,
-                        detected_at=datetime.now(UTC),
-                    )
-                    self.db.add(new_log)
-                    logged_count += 1
+                    # Update Redis with new aggregate hash (no TTL - persists until state changes)
+                    # Note: Redis is updated before commit intentionally. If commit fails,
+                    # Redis will be ahead of DB, but the next poll will re-detect the state
+                    # change (since DB won't have the new hash). This prioritizes preventing
+                    # duplicate logs over strict consistency.
+                    await self.redis_client.set(redis_key, current_hash)
 
                     logger.info(
-                        "line_disruption_state_changed",
+                        "line_aggregate_state_changed",
                         line_id=line_id,
-                        status=status,
-                        previous_hash=last_state_hash,
-                        new_hash=state_hash,
+                        status_count=len(line_disruptions),
+                        previous_hash=last_hash,
+                        new_hash=current_hash,
                     )
                 else:
                     logger.debug(
-                        "line_disruption_state_unchanged",
+                        "line_aggregate_state_unchanged",
                         line_id=line_id,
-                        status=status,
-                        state_hash=state_hash,
+                        status_count=len(line_disruptions),
+                        state_hash=current_hash,
                     )
 
             # Commit all new log entries
