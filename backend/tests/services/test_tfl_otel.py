@@ -84,7 +84,23 @@ def create_mock_stop_point(
 def mock_db_session() -> AsyncMock:
     """Create mock database session."""
     session = AsyncMock(spec=AsyncSession)
-    session.execute = AsyncMock()
+
+    # Mock execute to return a result with scalar_one_or_none() and scalar_one() methods
+    # This is needed for the new upsert pattern in fetch_lines()
+    def create_mock_result(*args: Any, **kwargs: Any) -> MagicMock:  # noqa: ANN401
+        result = MagicMock()
+        # First call (check for existing line) returns None
+        result.scalar_one_or_none = MagicMock(return_value=None)
+        # Second call (fetch line after upsert) returns a mock Line
+        mock_line = MagicMock(spec=Line)
+        mock_line.id = "mock-uuid"
+        mock_line.tfl_id = "victoria"
+        mock_line.name = "Victoria"
+        mock_line.mode = "tube"
+        result.scalar_one = MagicMock(return_value=mock_line)
+        return result
+
+    session.execute = AsyncMock(side_effect=create_mock_result)
     session.commit = AsyncMock()
     session.rollback = AsyncMock()
     session.refresh = AsyncMock()

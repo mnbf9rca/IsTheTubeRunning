@@ -6093,15 +6093,17 @@ async def test_store_line_routes_regular_service(db_session: AsyncSession) -> No
     routes = line.route_variants["routes"]
     assert len(routes) == 2
 
+    # Find routes by direction (order is deterministic but based on station sorting)
+    inbound = next(r for r in routes if r["direction"] == "inbound")
+    outbound = next(r for r in routes if r["direction"] == "outbound")
+
     # Check inbound route
-    inbound = routes[0]
     assert inbound["name"] == "Walthamstow Central → Brixton"
     assert inbound["service_type"] == "Regular"
     assert inbound["direction"] == "inbound"
     assert inbound["stations"] == ["940GZZLUWAC", "940GZZLUVIC", "940GZZLUBXN"]
 
     # Check outbound route
-    outbound = routes[1]
     assert outbound["name"] == "Brixton → Walthamstow Central"
     assert outbound["service_type"] == "Regular"
     assert outbound["direction"] == "outbound"

@@ -491,7 +491,7 @@ async def warm_up_metadata_cache(db: AsyncSession, redis_url: str) -> dict[str, 
         }
 
 
-def _normalize_route_variants(routes: list[list[str]]) -> dict[str, Any]:
+def _normalize_route_variants(routes: list[dict[str, Any]]) -> dict[str, Any]:
     """Sort routes for deterministic JSON storage.
 
     The TfL API may return route variants in any order.
@@ -499,12 +499,13 @@ def _normalize_route_variants(routes: list[list[str]]) -> dict[str, Any]:
     avoiding false-positive change detection.
 
     Args:
-        routes: List of route variants, each a list of station IDs
+        routes: List of route variant dicts with keys: name, service_type, direction, stations
 
     Returns:
-        Normalized {"routes": [...]} dict with sorted outer list
+        Normalized {"routes": [...]} dict with sorted outer list (by station tuple)
     """
-    sorted_routes = sorted(routes, key=lambda r: tuple(r))
+    # Sort by station sequence to ensure deterministic ordering
+    sorted_routes = sorted(routes, key=lambda r: tuple(r["stations"]))
     return {"routes": sorted_routes}
 
 
@@ -2631,10 +2632,9 @@ class TfLService:
 
         # Update line's route_variants field (stored as JSON in database)
         if routes:
-            # Extract station lists for deterministic ordering
+            # Sort routes for deterministic ordering
             # (TfL API may return routes in any order, causing false change detection)
-            station_lists = [route["stations"] for route in routes]
-            new_route_variants = _normalize_route_variants(station_lists)
+            new_route_variants = _normalize_route_variants(routes)
 
             # Detect route_variants changes and log
             if line.route_variants != new_route_variants:
@@ -2654,7 +2654,7 @@ class TfLService:
                     "line_route_variants_changed",
                     line_tfl_id=line.tfl_id,
                     old_routes_count=len(line.route_variants.get("routes", [])) if line.route_variants else 0,
-                    new_routes_count=len(station_lists),
+                    new_routes_count=len(routes),
                 )
 
             line.route_variants = new_route_variants
