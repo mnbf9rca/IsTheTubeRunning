@@ -766,7 +766,7 @@ class TfLService:
 
         try:
             # Fetch lines for each mode and upsert (no delete!)
-            all_lines = []
+            all_tfl_ids: list[str] = []  # Track all TfL IDs to fetch in batch at end
             ttl = DEFAULT_LINES_CACHE_TTL
 
             for mode in modes:
@@ -794,12 +794,19 @@ class TfLService:
                 # response.content is a LineArray (RootModel), access via .root
                 line_data_list = response.content.root
 
+                # Batch fetch existing lines for this mode (optimize N+1 queries)
+                line_tfl_ids = [line_data.id for line_data in line_data_list if line_data.id is not None]
+                existing_result = await self.db.execute(select(Line).where(Line.tfl_id.in_(line_tfl_ids)))
+                existing_lines = {line.tfl_id: line for line in existing_result.scalars().all()}
+
+                now = datetime.now(UTC)
                 for line_data in line_data_list:
-                    now = datetime.now(UTC)
+                    # Skip lines with no ID
+                    if line_data.id is None:
+                        continue
 
                     # Check for existing line to detect changes
-                    existing_result = await self.db.execute(select(Line).where(Line.tfl_id == line_data.id))
-                    existing_line = existing_result.scalar_one_or_none()
+                    existing_line = existing_lines.get(line_data.id)
 
                     # Detect changes and log (extracted to helper for complexity)
                     _log_line_change_if_needed(
@@ -828,17 +835,21 @@ class TfLService:
                     )
                     await self.db.execute(stmt)
 
-                    # Collect line for return (query back after upsert)
-                    line_result = await self.db.execute(select(Line).where(Line.tfl_id == line_data.id))
-                    all_lines.append(line_result.scalar_one())
+                    # Track TfL ID for batch fetch after commit
+                    all_tfl_ids.append(line_data.id)
 
                 logger.debug("mode_lines_processed", mode=mode, count=len(line_data_list))
 
             await self.db.commit()
 
-            # Refresh all lines to get latest data after commit
-            for line in all_lines:
-                await self.db.refresh(line)
+            # Batch fetch all lines after commit (optimize N queries into 1)
+            # Use populate_existing to force reload from database
+            final_result = await self.db.execute(
+                select(Line).where(Line.tfl_id.in_(all_tfl_ids)).execution_options(populate_existing=True)
+            )
+            # Preserve order by building dict and reconstructing list in original order
+            lines_by_tfl_id = {line.tfl_id: line for line in final_result.scalars().all()}
+            all_lines = [lines_by_tfl_id[tfl_id] for tfl_id in all_tfl_ids]
 
             # Cache the results
             await self.cache.set(cache_key, all_lines, ttl=ttl)
