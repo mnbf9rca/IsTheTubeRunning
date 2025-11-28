@@ -559,6 +559,31 @@ def mock_redis() -> AsyncMock:
 
 
 @pytest.fixture
+def stateful_mock_redis() -> AsyncMock:
+    """Create a stateful mock Redis client that remembers set/get operations."""
+    mock = AsyncMock()
+    redis_storage: dict[str, str] = {}
+
+    async def mock_get(key: str) -> str | None:
+        return redis_storage.get(key)
+
+    async def mock_set(key: str, value: str) -> bool:
+        redis_storage[key] = value
+        return True
+
+    async def mock_setex(key: str, time: int, value: str) -> bool:
+        redis_storage[key] = value
+        return True
+
+    mock.get = mock_get
+    mock.set = mock_set
+    mock.setex = mock_setex
+    mock.close = AsyncMock()
+    mock.aclose = AsyncMock()
+    return mock
+
+
+@pytest.fixture
 def alert_service(db_session: AsyncSession, mock_redis: AsyncMock) -> AlertService:
     """Create AlertService instance with mocked Redis."""
     return AlertService(db=db_session, redis_client=mock_redis)

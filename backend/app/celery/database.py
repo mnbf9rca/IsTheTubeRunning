@@ -53,6 +53,10 @@ class RedisClientProtocol(Protocol):
         """Get the value at key name."""
         ...
 
+    async def set(self, name: str, value: str) -> bool:
+        """Set the value at key name (no expiration)."""
+        ...
+
     async def setex(self, name: str, time: int, value: str) -> bool:
         """Set the value at key name with expiration time."""
         ...

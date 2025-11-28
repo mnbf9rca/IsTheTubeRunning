@@ -25,9 +25,10 @@ from app.models.user_route_index import UserRouteStationIndex
 from app.schemas.tfl import AffectedRouteInfo, DisruptionResponse
 from app.services.alert_service import (
     AlertService,
-    create_line_state_hash,
+    create_line_aggregate_hash,
     extract_line_station_pairs,
     get_redis_client,
+    warm_up_line_state_cache,
 )
 from freezegun import freeze_time
 from sqlalchemy import select
@@ -42,6 +43,7 @@ def mock_redis() -> AsyncMock:
     """Mock Redis client for testing."""
     client = AsyncMock(spec=redis.Redis)
     client.get = AsyncMock(return_value=None)
+    client.set = AsyncMock(return_value=True)
     client.setex = AsyncMock()
     return client
 
@@ -2985,36 +2987,211 @@ class TestPerformance:
 class TestLineDisruptionStateLogging:
     """Tests for line disruption state logging functionality."""
 
-    def test_create_line_state_hash_pure_function(self):
-        """Test that create_line_state_hash produces consistent hashes."""
-        # Same inputs should produce same hash
-        hash1 = create_line_state_hash("bakerloo", "Minor Delays", "Signal failure")
-        hash2 = create_line_state_hash("bakerloo", "Minor Delays", "Signal failure")
+    def test_create_line_aggregate_hash_deterministic(self):
+        """Test that create_line_aggregate_hash produces consistent hashes."""
+        # Same disruptions should produce same hash
+        disruptions1 = [
+            DisruptionResponse(
+                line_id="bakerloo",
+                line_name="Bakerloo",
+                mode="tube",
+                status_severity=10,
+                status_severity_description="Minor Delays",
+                reason="Signal failure",
+            )
+        ]
+        disruptions2 = [
+            DisruptionResponse(
+                line_id="bakerloo",
+                line_name="Bakerloo",
+                mode="tube",
+                status_severity=10,
+                status_severity_description="Minor Delays",
+                reason="Signal failure",
+            )
+        ]
+
+        hash1 = create_line_aggregate_hash(disruptions1)
+        hash2 = create_line_aggregate_hash(disruptions2)
         assert hash1 == hash2
-
-        # Different inputs should produce different hashes
-        hash3 = create_line_state_hash("bakerloo", "Severe Delays", "Signal failure")
-        assert hash1 != hash3
-
-        hash4 = create_line_state_hash("victoria", "Minor Delays", "Signal failure")
-        assert hash1 != hash4
-
-        hash5 = create_line_state_hash("bakerloo", "Minor Delays", "Track fault")
-        assert hash1 != hash5
 
         # Hash should be 64 characters (SHA256 hex digest)
         assert len(hash1) == 64
         assert all(c in "0123456789abcdef" for c in hash1)
 
-    def test_create_line_state_hash_null_reason(self):
-        """Test that create_line_state_hash handles null reasons consistently."""
-        # None and empty string should produce same hash
-        hash_none = create_line_state_hash("victoria", "Good Service", None)
-        hash_empty = create_line_state_hash("victoria", "Good Service", "")
-        assert hash_none == hash_empty
+    def test_create_line_aggregate_hash_multiple_statuses_order_independent(self):
+        """Test that hash is same regardless of input order (function sorts internally)."""
+        # Create disruptions in different orders
+        disruptions_order1 = [
+            DisruptionResponse(
+                line_id="northern",
+                line_name="Northern",
+                mode="tube",
+                status_severity=10,
+                status_severity_description="Minor Delays",
+                reason="Signal failure",
+            ),
+            DisruptionResponse(
+                line_id="northern",
+                line_name="Northern",
+                mode="tube",
+                status_severity=20,
+                status_severity_description="Part Suspended",
+                reason="Engineering works",
+            ),
+        ]
 
-        # Good Service with no reason should differ from disruption with reason
-        hash_with_reason = create_line_state_hash("victoria", "Good Service", "Testing")
+        disruptions_order2 = [
+            DisruptionResponse(
+                line_id="northern",
+                line_name="Northern",
+                mode="tube",
+                status_severity=20,
+                status_severity_description="Part Suspended",
+                reason="Engineering works",
+            ),
+            DisruptionResponse(
+                line_id="northern",
+                line_name="Northern",
+                mode="tube",
+                status_severity=10,
+                status_severity_description="Minor Delays",
+                reason="Signal failure",
+            ),
+        ]
+
+        hash1 = create_line_aggregate_hash(disruptions_order1)
+        hash2 = create_line_aggregate_hash(disruptions_order2)
+        assert hash1 == hash2
+
+    def test_create_line_aggregate_hash_different_states(self):
+        """Test that different states produce different hashes."""
+        disruptions1 = [
+            DisruptionResponse(
+                line_id="victoria",
+                line_name="Victoria",
+                mode="tube",
+                status_severity=10,
+                status_severity_description="Minor Delays",
+                reason="Signal failure",
+            )
+        ]
+
+        disruptions2 = [
+            DisruptionResponse(
+                line_id="victoria",
+                line_name="Victoria",
+                mode="tube",
+                status_severity=20,
+                status_severity_description="Severe Delays",
+                reason="Signal failure",
+            )
+        ]
+
+        disruptions3 = [
+            DisruptionResponse(
+                line_id="victoria",
+                line_name="Victoria",
+                mode="tube",
+                status_severity=10,
+                status_severity_description="Minor Delays",
+                reason="Track fault",
+            )
+        ]
+
+        hash1 = create_line_aggregate_hash(disruptions1)
+        hash2 = create_line_aggregate_hash(disruptions2)
+        hash3 = create_line_aggregate_hash(disruptions3)
+
+        # All different
+        assert hash1 != hash2
+        assert hash1 != hash3
+        assert hash2 != hash3
+
+    def test_create_line_aggregate_hash_different_numeric_severity(self):
+        """Test that different numeric severity produces different hashes even with same status description."""
+        disruptions_severity_10 = [
+            DisruptionResponse(
+                line_id="jubilee",
+                line_name="Jubilee",
+                mode="tube",
+                status_severity=10,
+                status_severity_description="Minor Delays",
+                reason="Signal failure",
+            )
+        ]
+
+        disruptions_severity_15 = [
+            DisruptionResponse(
+                line_id="jubilee",
+                line_name="Jubilee",
+                mode="tube",
+                status_severity=15,
+                status_severity_description="Minor Delays",  # Same description
+                reason="Signal failure",  # Same reason
+            )
+        ]
+
+        hash1 = create_line_aggregate_hash(disruptions_severity_10)
+        hash2 = create_line_aggregate_hash(disruptions_severity_15)
+
+        # Different numeric severity should produce different hash
+        assert hash1 != hash2
+
+    def test_create_line_aggregate_hash_null_reason_normalization(self):
+        """Test that None, empty string, and whitespace reasons are normalized."""
+        disruptions_none = [
+            DisruptionResponse(
+                line_id="district",
+                line_name="District",
+                mode="tube",
+                status_severity=6,
+                status_severity_description="Good Service",
+                reason=None,
+            )
+        ]
+
+        disruptions_empty = [
+            DisruptionResponse(
+                line_id="district",
+                line_name="District",
+                mode="tube",
+                status_severity=6,
+                status_severity_description="Good Service",
+                reason="",
+            )
+        ]
+
+        disruptions_whitespace = [
+            DisruptionResponse(
+                line_id="district",
+                line_name="District",
+                mode="tube",
+                status_severity=6,
+                status_severity_description="Good Service",
+                reason="   ",
+            )
+        ]
+
+        hash_none = create_line_aggregate_hash(disruptions_none)
+        hash_empty = create_line_aggregate_hash(disruptions_empty)
+        hash_whitespace = create_line_aggregate_hash(disruptions_whitespace)
+
+        # All should produce the same hash
+        assert hash_none == hash_empty == hash_whitespace
+
+        # Should differ from a reason with actual content
+        disruptions_with_reason = [
+            DisruptionResponse(
+                line_id="district",
+                line_name="District",
+                mode="tube",
+                status_severity=6,
+                status_severity_description="Good Service",
+                reason="Testing",
+            )
+        ]
+        hash_with_reason = create_line_aggregate_hash(disruptions_with_reason)
         assert hash_none != hash_with_reason
 
     async def test_log_line_disruption_state_changes_first_state(
@@ -3054,10 +3231,10 @@ class TestLineDisruptionStateLogging:
     async def test_log_line_disruption_state_changes_no_change(
         self,
         db_session: AsyncSession,
-        mock_redis: AsyncMock,
+        stateful_mock_redis: AsyncMock,
     ):
         """Test that unchanged disruption state is not logged again."""
-        alert_service = AlertService(db=db_session, redis_client=mock_redis)
+        alert_service = AlertService(db=db_session, redis_client=stateful_mock_redis)
 
         # Create disruption
         disruption = DisruptionResponse(
@@ -3278,17 +3455,10 @@ class TestLineDisruptionStateLogging:
     async def test_log_line_disruption_state_changes_empty_reason_normalization(
         self,
         db_session: AsyncSession,
-        mock_redis: AsyncMock,
+        stateful_mock_redis: AsyncMock,
     ):
         """Test that empty string and whitespace-only reasons are normalized correctly."""
-        alert_service = AlertService(db=db_session, redis_client=mock_redis)
-
-        # Test that None, "", and "   " all produce the same hash
-        hash_none = create_line_state_hash("district", "Good Service", None)
-        hash_empty = create_line_state_hash("district", "Good Service", "")
-        hash_whitespace = create_line_state_hash("district", "Good Service", "   ")
-
-        assert hash_none == hash_empty == hash_whitespace
+        alert_service = AlertService(db=db_session, redis_client=stateful_mock_redis)
 
         # Log first disruption with None reason
         disruption1 = DisruptionResponse(
@@ -3415,8 +3585,188 @@ class TestLineDisruptionStateLogging:
             reason="Test error",
         )
 
-        # Mock db.execute to raise an exception
-        with patch.object(db_session, "execute", side_effect=Exception("Database error")):
+        # Mock db.commit to raise an exception
+        with patch.object(db_session, "commit", side_effect=Exception("Database commit error")):
             # Should not raise, should return 0
             logged_count = await alert_service._log_line_disruption_state_changes([disruption])
             assert logged_count == 0
+
+    async def test_warm_up_line_state_cache_empty_database(
+        self,
+        db_session: AsyncSession,
+        stateful_mock_redis: AsyncMock,
+    ):
+        """Test warm_up_line_state_cache with empty database."""
+        # Call warm_up with no existing logs
+        lines_hydrated = await warm_up_line_state_cache(db_session, stateful_mock_redis)
+
+        # Should return 0 and not crash
+        assert lines_hydrated == 0
+
+        # Redis should not have any line state keys set
+        # (we can't directly check this with mock, but function should handle gracefully)
+
+    async def test_warm_up_line_state_cache_single_line_single_status(
+        self,
+        db_session: AsyncSession,
+        stateful_mock_redis: AsyncMock,
+    ):
+        """Test warm_up_line_state_cache with single line and single status."""
+        # Create a log entry
+        detected_time = datetime(2025, 1, 15, 10, 30, 0, tzinfo=UTC)
+        state_hash = "abc123def456"
+
+        log_entry = LineDisruptionStateLog(
+            line_id="bakerloo",
+            status_severity_description="Minor Delays",
+            reason="Signal failure",
+            state_hash=state_hash,
+            detected_at=detected_time,
+        )
+        db_session.add(log_entry)
+        await db_session.commit()
+
+        # Warm up cache
+        lines_hydrated = await warm_up_line_state_cache(db_session, stateful_mock_redis)
+
+        # Should hydrate 1 line
+        assert lines_hydrated == 1
+
+        # Verify Redis was called with correct key/value
+        redis_value = await stateful_mock_redis.get("line_state:bakerloo")
+        assert redis_value == state_hash
+
+    async def test_warm_up_line_state_cache_single_line_multiple_statuses(
+        self,
+        db_session: AsyncSession,
+        stateful_mock_redis: AsyncMock,
+    ):
+        """Test warm_up_line_state_cache with single line having multiple statuses."""
+        # Create multiple log entries for same line at same timestamp (batch logging)
+        detected_time = datetime(2025, 1, 15, 10, 30, 0, tzinfo=UTC)
+        aggregate_hash = "shared_aggregate_hash_123"
+
+        log1 = LineDisruptionStateLog(
+            line_id="northern",
+            status_severity_description="Minor Delays",
+            reason="Signal failure",
+            state_hash=aggregate_hash,  # Same aggregate hash
+            detected_at=detected_time,
+        )
+        log2 = LineDisruptionStateLog(
+            line_id="northern",
+            status_severity_description="Part Suspended",
+            reason="Engineering works",
+            state_hash=aggregate_hash,  # Same aggregate hash
+            detected_at=detected_time,
+        )
+
+        db_session.add_all([log1, log2])
+        await db_session.commit()
+
+        # Warm up cache
+        lines_hydrated = await warm_up_line_state_cache(db_session, stateful_mock_redis)
+
+        # Should hydrate 1 line (not 2, even though 2 records)
+        assert lines_hydrated == 1
+
+        # Verify Redis has the aggregate hash
+        redis_value = await stateful_mock_redis.get("line_state:northern")
+        assert redis_value == aggregate_hash
+
+    async def test_warm_up_line_state_cache_multiple_lines(
+        self,
+        db_session: AsyncSession,
+        stateful_mock_redis: AsyncMock,
+    ):
+        """Test warm_up_line_state_cache with multiple lines."""
+        detected_time = datetime(2025, 1, 15, 10, 30, 0, tzinfo=UTC)
+
+        # Create logs for multiple lines
+        log1 = LineDisruptionStateLog(
+            line_id="victoria",
+            status_severity_description="Good Service",
+            reason=None,
+            state_hash="victoria_hash_abc",
+            detected_at=detected_time,
+        )
+        log2 = LineDisruptionStateLog(
+            line_id="central",
+            status_severity_description="Minor Delays",
+            reason="Train fault",
+            state_hash="central_hash_def",
+            detected_at=detected_time,
+        )
+        log3 = LineDisruptionStateLog(
+            line_id="piccadilly",
+            status_severity_description="Severe Delays",
+            reason="Signal failure",
+            state_hash="piccadilly_hash_ghi",
+            detected_at=detected_time,
+        )
+
+        db_session.add_all([log1, log2, log3])
+        await db_session.commit()
+
+        # Warm up cache
+        lines_hydrated = await warm_up_line_state_cache(db_session, stateful_mock_redis)
+
+        # Should hydrate 3 lines
+        assert lines_hydrated == 3
+
+        # Verify each line's state in Redis
+        assert await stateful_mock_redis.get("line_state:victoria") == "victoria_hash_abc"
+        assert await stateful_mock_redis.get("line_state:central") == "central_hash_def"
+        assert await stateful_mock_redis.get("line_state:piccadilly") == "piccadilly_hash_ghi"
+
+    async def test_warm_up_line_state_cache_uses_latest_state(
+        self,
+        db_session: AsyncSession,
+        stateful_mock_redis: AsyncMock,
+    ):
+        """Test that warm_up uses the latest detected_at timestamp per line."""
+        old_time = datetime(2025, 1, 15, 8, 0, 0, tzinfo=UTC)
+        new_time = datetime(2025, 1, 15, 10, 0, 0, tzinfo=UTC)
+
+        # Create older log entry
+        old_log = LineDisruptionStateLog(
+            line_id="jubilee",
+            status_severity_description="Good Service",
+            reason=None,
+            state_hash="old_hash_123",
+            detected_at=old_time,
+        )
+
+        # Create newer log entry (current state)
+        new_log = LineDisruptionStateLog(
+            line_id="jubilee",
+            status_severity_description="Minor Delays",
+            reason="Late running",
+            state_hash="new_hash_456",
+            detected_at=new_time,
+        )
+
+        db_session.add_all([old_log, new_log])
+        await db_session.commit()
+
+        # Warm up cache
+        lines_hydrated = await warm_up_line_state_cache(db_session, stateful_mock_redis)
+
+        # Should hydrate 1 line
+        assert lines_hydrated == 1
+
+        # Should use the LATEST state (new_hash), not old_hash
+        redis_value = await stateful_mock_redis.get("line_state:jubilee")
+        assert redis_value == "new_hash_456"
+
+    async def test_warm_up_line_state_cache_error_handling(
+        self,
+        db_session: AsyncSession,
+        stateful_mock_redis: AsyncMock,
+    ):
+        """Test that warm_up handles errors gracefully and returns 0."""
+        # Mock db.execute to raise an exception
+        with patch.object(db_session, "execute", side_effect=Exception("Database error")):
+            # Should not raise, should return 0
+            lines_hydrated = await warm_up_line_state_cache(db_session, stateful_mock_redis)
+            assert lines_hydrated == 0
