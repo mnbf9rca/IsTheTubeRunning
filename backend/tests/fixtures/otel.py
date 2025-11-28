@@ -3,6 +3,7 @@
 from collections.abc import Generator
 
 import pytest
+from opentelemetry import trace
 from opentelemetry.sdk.resources import Resource
 from opentelemetry.sdk.trace import TracerProvider
 from opentelemetry.sdk.trace.export import SimpleSpanProcessor
@@ -49,6 +50,55 @@ def test_tracer_provider(in_memory_span_exporter: InMemorySpanExporter) -> Trace
     return provider
 
 
+@pytest.fixture
+def otel_enabled_provider(monkeypatch: pytest.MonkeyPatch) -> Generator[TracerProvider]:
+    """Fixture that provides a clean TracerProvider with OTEL enabled for testing.
+
+    Sets up:
+    - OTEL_ENABLED=True
+    - DEBUG=True (skip endpoint validation)
+    - OTEL_EXPORTER_OTLP_TRACES_ENDPOINT=None
+    - OTEL_SDK_DISABLED unset (enables SDK)
+    - Clean tracer provider state
+
+    Yields:
+        TracerProvider configured for testing
+
+    Note:
+        All environment and settings changes are automatically restored by
+        monkeypatch after the test. Manual cleanup only needed for module state.
+    """
+    # Import here to avoid circular dependency
+    from app.core import telemetry  # noqa: PLC0415
+    from app.core.config import settings  # noqa: PLC0415
+
+    # Enable OTEL SDK (disabled by default in conftest.py)
+    # monkeypatch automatically restores this after the test
+    monkeypatch.delenv("OTEL_SDK_DISABLED", raising=False)
+
+    # Configure settings (automatically restored by monkeypatch)
+    monkeypatch.setattr(settings, "OTEL_ENABLED", True)
+    monkeypatch.setattr(settings, "DEBUG", True)
+    monkeypatch.setattr(settings, "OTEL_EXPORTER_OTLP_TRACES_ENDPOINT", None)
+
+    # Reset provider state
+    telemetry._tracer_provider = None  # type: ignore[attr-defined]
+
+    # Create provider
+    provider = telemetry.get_tracer_provider()
+    assert provider is not None
+
+    # Reset OTEL global state and set provider directly
+    # Bypass set_tracer_provider() which has override protection
+    trace._TRACER_PROVIDER = provider  # type: ignore[attr-defined]
+
+    yield provider
+
+    # Cleanup: reset state (autouse fixture will handle final cleanup)
+    telemetry._tracer_provider = None  # type: ignore[attr-defined]
+    trace._TRACER_PROVIDER = None  # type: ignore[attr-defined]
+
+
 @pytest.fixture(autouse=True)
 def reset_tracer_provider() -> Generator[None]:
     """
@@ -63,13 +113,12 @@ def reset_tracer_provider() -> Generator[None]:
     # Import here to avoid circular dependency at module level
     from app.celery import database as celery_database  # noqa: PLC0415
     from app.core import database, telemetry  # noqa: PLC0415  # Lazy import to avoid circular dependency
-    from opentelemetry import trace as otel_trace  # noqa: PLC0415
 
     # Reset telemetry module globals
     telemetry._tracer_provider = None  # type: ignore[attr-defined]
 
     # Reset OpenTelemetry global tracer provider to allow tests to set their own
-    otel_trace._TRACER_PROVIDER = None  # type: ignore[attr-defined]
+    trace._TRACER_PROVIDER = None  # type: ignore[attr-defined]
 
     # Reset database instrumentation flags (FastAPI and Celery worker)
     database._sqlalchemy_instrumented = False  # type: ignore[attr-defined]
@@ -79,6 +128,6 @@ def reset_tracer_provider() -> Generator[None]:
 
     # Reset again after test to clean up
     telemetry._tracer_provider = None  # type: ignore[attr-defined]
-    otel_trace._TRACER_PROVIDER = None  # type: ignore[attr-defined]
+    trace._TRACER_PROVIDER = None  # type: ignore[attr-defined]
     database._sqlalchemy_instrumented = False  # type: ignore[attr-defined]
     celery_database._worker_sqlalchemy_instrumented = False  # type: ignore[attr-defined]

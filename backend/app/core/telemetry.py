@@ -277,18 +277,51 @@ def set_logger_provider() -> None:
         otel_set_logger_provider(provider)
 
 
-def get_current_span() -> "Span | None":
+def get_current_span() -> "Span":
     """
     Get the current active span in the context.
 
     Utility function for adding custom attributes to the current span.
 
     Returns:
-        Current active Span or None if no span is active
+        Current active Span, or INVALID_SPAN (a NonRecordingSpan) if no span is active
+
+    Note:
+        Always returns a Span object (never None). When no span is active,
+        returns INVALID_SPAN which is a NonRecordingSpan(INVALID_SPAN_CONTEXT).
+        Check span.get_span_context().is_valid to verify there's a valid recording span.
 
     Example:
         >>> span = get_current_span()
-        >>> if span:
+        >>> if span.get_span_context().is_valid:
         ...     span.set_attribute("user.id", user_id)
     """
     return trace.get_current_span()
+
+
+def get_current_trace_id() -> str | None:
+    """
+    Get current OpenTelemetry trace ID for correlation.
+
+    Extracts the trace ID from the current active span context. Useful for
+    correlating database records with distributed traces.
+
+    Returns:
+        32-character hex trace ID, or None if no valid span context
+        (e.g., when get_current_span() returns INVALID_SPAN)
+
+    Note:
+        Returns None when there's no active span. The SDK's get_current_span()
+        returns INVALID_SPAN in this case, which has an invalid context.
+
+    Example:
+        >>> trace_id = get_current_trace_id()
+        >>> if trace_id:
+        ...     log_entry.trace_id = trace_id
+    """
+    span = trace.get_current_span()
+    ctx = span.get_span_context()
+    # INVALID_SPAN has is_valid=False, so this check handles that case
+    if not ctx.is_valid or ctx.trace_id == 0:
+        return None
+    return format(ctx.trace_id, "032x")

@@ -47,6 +47,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import aliased
 
 from app.core.config import settings
+from app.core.telemetry import get_current_trace_id
 from app.helpers.route_validation import find_valid_connection_in_routes
 from app.helpers.soft_delete_filters import add_active_filter, soft_delete
 from app.helpers.station_fetching import (
@@ -70,6 +71,7 @@ from app.models.tfl import (
     AlertDisabledSeverity,
     DisruptionCategory,
     Line,
+    LineChangeLog,
     SeverityCode,
     Station,
     StationConnection,
@@ -489,6 +491,125 @@ async def warm_up_metadata_cache(db: AsyncSession, redis_url: str) -> dict[str, 
         }
 
 
+def _normalize_route_variants(routes: list[dict[str, Any]]) -> dict[str, Any]:
+    """Sort routes for deterministic JSON storage.
+
+    The TfL API may return route variants in any order.
+    Sorting ensures the same routes produce the same JSON,
+    avoiding false-positive change detection.
+
+    Args:
+        routes: List of route variant dicts with keys: name, service_type, direction, stations
+
+    Returns:
+        Normalized {"routes": [...]} dict with sorted outer list (by station tuple, direction, name)
+    """
+    # Sort by station sequence, direction, and name to ensure deterministic ordering
+    # even when multiple routes share the same station sequence
+    sorted_routes = sorted(
+        routes,
+        key=lambda r: (tuple(r["stations"]), r.get("direction", ""), r.get("name", "")),
+    )
+    return {"routes": sorted_routes}
+
+
+def _verify_all_lines_fetched(
+    all_tfl_ids: list[str],
+    lines_by_tfl_id: dict[str, Line],
+) -> list[Line]:
+    """
+    Verify all expected lines were fetched and return ordered list.
+
+    Args:
+        all_tfl_ids: Expected TfL IDs in order
+        lines_by_tfl_id: Dict mapping TfL ID to Line object
+
+    Returns:
+        List of Line objects in same order as all_tfl_ids
+
+    Raises:
+        HTTPException: If any lines are missing after upsert
+    """
+    missing_ids = [tfl_id for tfl_id in all_tfl_ids if tfl_id not in lines_by_tfl_id]
+    if missing_ids:
+        logger.error(
+            "lines_missing_after_upsert",
+            missing_ids=missing_ids,
+            expected_count=len(all_tfl_ids),
+            fetched_count=len(lines_by_tfl_id),
+        )
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Database inconsistency: {len(missing_ids)} lines missing after upsert",
+        )
+    return [lines_by_tfl_id[tfl_id] for tfl_id in all_tfl_ids]
+
+
+def _log_line_change_if_needed(
+    db: AsyncSession,
+    tfl_id: str | None,
+    new_name: str | None,
+    new_mode: str,
+    existing_line: Line | None,
+    detected_at: datetime,
+) -> None:
+    """Detect and log line metadata changes.
+
+    Args:
+        db: Database session to add log entry
+        tfl_id: TfL line ID (None values are skipped)
+        new_name: New line name from API (None values are skipped)
+        new_mode: New line mode from API
+        existing_line: Existing line in database, or None if creating
+        detected_at: Timestamp when change was detected
+    """
+    # Skip if essential fields are missing
+    if tfl_id is None or new_name is None:
+        return
+
+    new_values = {"name": new_name, "mode": new_mode}
+
+    if existing_line is None:
+        # New line created
+        db.add(
+            LineChangeLog(
+                tfl_id=tfl_id,
+                change_type="created",
+                changed_fields=["name", "mode"],
+                old_values=None,
+                new_values=new_values,
+                detected_at=detected_at,
+                trace_id=get_current_trace_id(),
+            )
+        )
+        return
+
+    # Check for changes in existing line
+    changed_fields = []
+    old_values = {}
+
+    if existing_line.name != new_name:
+        changed_fields.append("name")
+        old_values["name"] = existing_line.name
+
+    if existing_line.mode != new_mode:
+        changed_fields.append("mode")
+        old_values["mode"] = existing_line.mode
+
+    if changed_fields:
+        db.add(
+            LineChangeLog(
+                tfl_id=tfl_id,
+                change_type="updated",
+                changed_fields=changed_fields,
+                old_values=old_values,
+                new_values={k: new_values[k] for k in changed_fields},
+                detected_at=detected_at,
+                trace_id=get_current_trace_id(),
+            )
+        )
+
+
 class TfLService:
     """Service for interacting with Transport for London's API and managing transport data.
 
@@ -680,11 +801,8 @@ class TfLService:
         logger.info("fetching_lines_from_tfl_api", modes=modes)
 
         try:
-            # Clear existing lines from database
-            await self.db.execute(delete(Line))
-
-            # Fetch lines for each mode
-            all_lines = []
+            # Fetch lines for each mode and upsert (no delete!)
+            all_tfl_ids: list[str] = []  # Track all TfL IDs to fetch in batch at end
             ttl = DEFAULT_LINES_CACHE_TTL
 
             for mode in modes:
@@ -712,23 +830,62 @@ class TfLService:
                 # response.content is a LineArray (RootModel), access via .root
                 line_data_list = response.content.root
 
+                # Batch fetch existing lines for this mode (optimize N+1 queries)
+                line_tfl_ids = [line_data.id for line_data in line_data_list if line_data.id is not None]
+                existing_result = await self.db.execute(select(Line).where(Line.tfl_id.in_(line_tfl_ids)))
+                existing_lines = {line.tfl_id: line for line in existing_result.scalars().all()}
+
+                now = datetime.now(UTC)
                 for line_data in line_data_list:
-                    line = Line(
+                    # Skip lines with no ID
+                    if line_data.id is None:
+                        continue
+
+                    # Check for existing line to detect changes
+                    existing_line = existing_lines.get(line_data.id)
+
+                    # Detect changes and log (extracted to helper for complexity)
+                    _log_line_change_if_needed(
+                        db=self.db,
+                        tfl_id=line_data.id,
+                        new_name=line_data.name,
+                        new_mode=mode,
+                        existing_line=existing_line,
+                        detected_at=now,
+                    )
+
+                    # Upsert the line (PostgreSQL INSERT ... ON CONFLICT DO UPDATE)
+                    stmt = insert(Line).values(
                         tfl_id=line_data.id,
                         name=line_data.name,
                         mode=mode,
-                        last_updated=datetime.now(UTC),
+                        last_updated=now,
                     )
-                    self.db.add(line)
-                    all_lines.append(line)
+                    stmt = stmt.on_conflict_do_update(
+                        index_elements=["tfl_id"],
+                        set_={
+                            "name": stmt.excluded.name,
+                            "mode": stmt.excluded.mode,
+                            "last_updated": stmt.excluded.last_updated,
+                        },
+                    )
+                    await self.db.execute(stmt)
+
+                    # Track TfL ID for batch fetch after commit
+                    all_tfl_ids.append(line_data.id)
 
                 logger.debug("mode_lines_processed", mode=mode, count=len(line_data_list))
 
             await self.db.commit()
 
-            # Refresh to get database IDs
-            for line in all_lines:
-                await self.db.refresh(line)
+            # Batch fetch all lines after commit (optimize N queries into 1)
+            # Use populate_existing to force reload from database
+            final_result = await self.db.execute(
+                select(Line).where(Line.tfl_id.in_(all_tfl_ids)).execution_options(populate_existing=True)
+            )
+            # Preserve order by building dict and reconstructing list in original order
+            lines_by_tfl_id = {line.tfl_id: line for line in final_result.scalars().all()}
+            all_lines = _verify_all_lines_fetched(all_tfl_ids, lines_by_tfl_id)
 
             # Cache the results
             await self.cache.set(cache_key, all_lines, ttl=ttl)
@@ -2522,7 +2679,32 @@ class TfLService:
 
         # Update line's route_variants field (stored as JSON in database)
         if routes:
-            line.route_variants = {"routes": routes}
+            # Sort routes for deterministic ordering
+            # (TfL API may return routes in any order, causing false change detection)
+            new_route_variants = _normalize_route_variants(routes)
+
+            # Detect route_variants changes and log
+            if line.route_variants != new_route_variants:
+                now = datetime.now(UTC)
+                self.db.add(
+                    LineChangeLog(
+                        tfl_id=line.tfl_id,
+                        change_type="updated",
+                        changed_fields=["route_variants"],
+                        old_values={"route_variants": line.route_variants},
+                        new_values={"route_variants": new_route_variants},
+                        detected_at=now,
+                        trace_id=get_current_trace_id(),
+                    )
+                )
+                logger.info(
+                    "line_route_variants_changed",
+                    line_tfl_id=line.tfl_id,
+                    old_routes_count=len(line.route_variants.get("routes", [])) if line.route_variants else 0,
+                    new_routes_count=len(routes),
+                )
+
+            line.route_variants = new_route_variants
             logger.info(
                 "stored_line_routes",
                 line_tfl_id=line.tfl_id,

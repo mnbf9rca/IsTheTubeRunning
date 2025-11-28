@@ -205,11 +205,35 @@ def test_shutdown_tracer_provider_multiple_calls(monkeypatch: pytest.MonkeyPatch
 
 
 def test_get_current_span_when_no_span_active() -> None:
-    """Test get_current_span returns None when no span is active."""
+    """Test get_current_span returns INVALID_SPAN when no span is active."""
     span = telemetry.get_current_span()
-    # In tests with OTEL_SDK_DISABLED, this should return a no-op span or None
-    # We just verify it doesn't crash
-    assert span is not None  # OTEL SDK returns a no-op span when disabled
+    # OTEL SDK always returns a Span object, never None
+    assert span is not None
+    # When no span is active, returns INVALID_SPAN (a NonRecordingSpan)
+    assert not span.get_span_context().is_valid
+
+
+def test_get_current_trace_id_when_no_span_active() -> None:
+    """Test get_current_trace_id returns None when no span is active."""
+    trace_id = telemetry.get_current_trace_id()
+    # With no active span (INVALID_SPAN), trace_id should be None
+    assert trace_id is None
+
+
+def test_get_current_trace_id_with_active_span(otel_enabled_provider: TracerProvider) -> None:
+    """Test get_current_trace_id returns trace ID when span is active."""
+    # Create a tracer and start a span
+    tracer = otel_enabled_provider.get_tracer(__name__)
+    with tracer.start_as_current_span("test_span") as span:
+        # Should return a valid trace ID
+        trace_id = telemetry.get_current_trace_id()
+        assert trace_id is not None
+        assert len(trace_id) == 32  # 32-character hex string
+        assert all(c in "0123456789abcdef" for c in trace_id)
+
+        # Verify it matches the span's trace ID
+        expected_trace_id = format(span.get_span_context().trace_id, "032x")
+        assert trace_id == expected_trace_id
 
 
 def test_create_tracer_provider_without_endpoint_in_debug(
