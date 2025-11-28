@@ -348,6 +348,72 @@ class LineDisruptionStateLog(BaseModel):
         )
 
 
+class LineChangeLog(BaseModel):
+    """Log of TfL line metadata changes.
+
+    Lines are stable reference data - changes should be rare.
+    This log helps debug unexpected changes and track data quality issues.
+
+    Example use cases:
+    - "When did the Victoria line name change?"
+    - "Why did route_variants change for the Piccadilly line?"
+    - "Trace back to the API call that caused this change"
+    """
+
+    __tablename__ = "line_change_logs"
+
+    tfl_id: Mapped[str] = mapped_column(
+        String(50),
+        nullable=False,
+        index=True,
+        comment="TfL line ID (e.g., 'victoria', 'northern')",
+    )
+    change_type: Mapped[str] = mapped_column(
+        String(20),
+        nullable=False,
+        comment="Type of change: 'created', 'updated'",
+    )
+    changed_fields: Mapped[list[str]] = mapped_column(
+        JSON,
+        nullable=False,
+        comment="List of fields that changed: ['name', 'mode', 'route_variants']",
+    )
+    old_values: Mapped[dict[str, Any] | None] = mapped_column(
+        JSON,
+        nullable=True,
+        comment="Previous values of changed fields (NULL for 'created')",
+    )
+    new_values: Mapped[dict[str, Any]] = mapped_column(
+        JSON,
+        nullable=False,
+        comment="New values of changed fields",
+    )
+    detected_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        index=True,
+        comment="When this change was detected",
+    )
+    trace_id: Mapped[str | None] = mapped_column(
+        String(32),
+        nullable=True,
+        index=True,
+        comment="OpenTelemetry trace ID for correlation with distributed traces",
+    )
+
+    __table_args__ = (
+        # Composite index for querying recent changes for a line
+        Index("ix_line_change_logs_tfl_detected", "tfl_id", "detected_at"),
+    )
+
+    def __repr__(self) -> str:
+        """String representation of the line change log."""
+        return (
+            f"<LineChangeLog(id={self.id}, tfl_id={self.tfl_id}, "
+            f"type={self.change_type}, detected_at={self.detected_at})>"
+        )
+
+
 class StopType(BaseModel):
     """TfL stop point type reference data."""
 

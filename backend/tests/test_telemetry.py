@@ -1,11 +1,60 @@
 """Tests for OpenTelemetry telemetry module."""
 
 import threading
+from collections.abc import Generator
 
 import pytest
 from app.core import telemetry
 from app.core.config import settings
+from opentelemetry import trace
 from opentelemetry.sdk.trace import TracerProvider
+
+
+@pytest.fixture
+def otel_enabled_provider(monkeypatch: pytest.MonkeyPatch) -> Generator[TracerProvider]:
+    """Fixture that provides a clean TracerProvider with OTEL enabled for testing.
+
+    Sets up:
+    - OTEL_ENABLED=True
+    - DEBUG=True (skip endpoint validation)
+    - OTEL_EXPORTER_OTLP_TRACES_ENDPOINT=None
+    - OTEL_SDK_DISABLED unset (enables SDK)
+    - Clean tracer provider state
+
+    Yields:
+        TracerProvider configured for testing
+
+    Note:
+        All environment and settings changes are automatically restored by
+        monkeypatch after the test. Manual cleanup only needed for module state.
+    """
+    # Enable OTEL SDK (disabled by default in conftest.py)
+    # monkeypatch automatically restores this after the test
+    monkeypatch.delenv("OTEL_SDK_DISABLED", raising=False)
+
+    # Configure settings (automatically restored by monkeypatch)
+    monkeypatch.setattr(settings, "OTEL_ENABLED", True)
+    monkeypatch.setattr(settings, "DEBUG", True)
+    monkeypatch.setattr(settings, "OTEL_EXPORTER_OTLP_TRACES_ENDPOINT", None)
+
+    # Reset provider state
+    telemetry._tracer_provider = None
+
+    # Create and yield provider
+    provider = telemetry.get_tracer_provider()
+    assert provider is not None
+
+    # Save original global provider to restore later
+    original_provider = trace.get_tracer_provider()
+
+    # Set as global provider for trace.get_current_span() to work
+    trace.set_tracer_provider(provider)
+
+    yield provider
+
+    # Cleanup: restore original state
+    trace.set_tracer_provider(original_provider)
+    telemetry._tracer_provider = None
 
 
 def test_get_tracer_provider_returns_none_when_disabled(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -205,11 +254,35 @@ def test_shutdown_tracer_provider_multiple_calls(monkeypatch: pytest.MonkeyPatch
 
 
 def test_get_current_span_when_no_span_active() -> None:
-    """Test get_current_span returns None when no span is active."""
+    """Test get_current_span returns INVALID_SPAN when no span is active."""
     span = telemetry.get_current_span()
-    # In tests with OTEL_SDK_DISABLED, this should return a no-op span or None
-    # We just verify it doesn't crash
-    assert span is not None  # OTEL SDK returns a no-op span when disabled
+    # OTEL SDK always returns a Span object, never None
+    assert span is not None
+    # When no span is active, returns INVALID_SPAN (a NonRecordingSpan)
+    assert not span.get_span_context().is_valid
+
+
+def test_get_current_trace_id_when_no_span_active() -> None:
+    """Test get_current_trace_id returns None when no span is active."""
+    trace_id = telemetry.get_current_trace_id()
+    # With no active span (INVALID_SPAN), trace_id should be None
+    assert trace_id is None
+
+
+def test_get_current_trace_id_with_active_span(otel_enabled_provider: TracerProvider) -> None:
+    """Test get_current_trace_id returns trace ID when span is active."""
+    # Create a tracer and start a span
+    tracer = otel_enabled_provider.get_tracer(__name__)
+    with tracer.start_as_current_span("test_span") as span:
+        # Should return a valid trace ID
+        trace_id = telemetry.get_current_trace_id()
+        assert trace_id is not None
+        assert len(trace_id) == 32  # 32-character hex string
+        assert all(c in "0123456789abcdef" for c in trace_id)
+
+        # Verify it matches the span's trace ID
+        expected_trace_id = format(span.get_span_context().trace_id, "032x")
+        assert trace_id == expected_trace_id
 
 
 def test_create_tracer_provider_without_endpoint_in_debug(
