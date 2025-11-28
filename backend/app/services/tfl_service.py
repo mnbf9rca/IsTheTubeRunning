@@ -502,11 +502,47 @@ def _normalize_route_variants(routes: list[dict[str, Any]]) -> dict[str, Any]:
         routes: List of route variant dicts with keys: name, service_type, direction, stations
 
     Returns:
-        Normalized {"routes": [...]} dict with sorted outer list (by station tuple)
+        Normalized {"routes": [...]} dict with sorted outer list (by station tuple, direction, name)
     """
-    # Sort by station sequence to ensure deterministic ordering
-    sorted_routes = sorted(routes, key=lambda r: tuple(r["stations"]))
+    # Sort by station sequence, direction, and name to ensure deterministic ordering
+    # even when multiple routes share the same station sequence
+    sorted_routes = sorted(
+        routes,
+        key=lambda r: (tuple(r["stations"]), r.get("direction", ""), r.get("name", "")),
+    )
     return {"routes": sorted_routes}
+
+
+def _verify_all_lines_fetched(
+    all_tfl_ids: list[str],
+    lines_by_tfl_id: dict[str, Line],
+) -> list[Line]:
+    """
+    Verify all expected lines were fetched and return ordered list.
+
+    Args:
+        all_tfl_ids: Expected TfL IDs in order
+        lines_by_tfl_id: Dict mapping TfL ID to Line object
+
+    Returns:
+        List of Line objects in same order as all_tfl_ids
+
+    Raises:
+        HTTPException: If any lines are missing after upsert
+    """
+    missing_ids = [tfl_id for tfl_id in all_tfl_ids if tfl_id not in lines_by_tfl_id]
+    if missing_ids:
+        logger.error(
+            "lines_missing_after_upsert",
+            missing_ids=missing_ids,
+            expected_count=len(all_tfl_ids),
+            fetched_count=len(lines_by_tfl_id),
+        )
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Database inconsistency: {len(missing_ids)} lines missing after upsert",
+        )
+    return [lines_by_tfl_id[tfl_id] for tfl_id in all_tfl_ids]
 
 
 def _log_line_change_if_needed(
@@ -849,7 +885,7 @@ class TfLService:
             )
             # Preserve order by building dict and reconstructing list in original order
             lines_by_tfl_id = {line.tfl_id: line for line in final_result.scalars().all()}
-            all_lines = [lines_by_tfl_id[tfl_id] for tfl_id in all_tfl_ids]
+            all_lines = _verify_all_lines_fetched(all_tfl_ids, lines_by_tfl_id)
 
             # Cache the results
             await self.cache.set(cache_key, all_lines, ttl=ttl)

@@ -1,60 +1,11 @@
 """Tests for OpenTelemetry telemetry module."""
 
 import threading
-from collections.abc import Generator
 
 import pytest
 from app.core import telemetry
 from app.core.config import settings
-from opentelemetry import trace
 from opentelemetry.sdk.trace import TracerProvider
-
-
-@pytest.fixture
-def otel_enabled_provider(monkeypatch: pytest.MonkeyPatch) -> Generator[TracerProvider]:
-    """Fixture that provides a clean TracerProvider with OTEL enabled for testing.
-
-    Sets up:
-    - OTEL_ENABLED=True
-    - DEBUG=True (skip endpoint validation)
-    - OTEL_EXPORTER_OTLP_TRACES_ENDPOINT=None
-    - OTEL_SDK_DISABLED unset (enables SDK)
-    - Clean tracer provider state
-
-    Yields:
-        TracerProvider configured for testing
-
-    Note:
-        All environment and settings changes are automatically restored by
-        monkeypatch after the test. Manual cleanup only needed for module state.
-    """
-    # Enable OTEL SDK (disabled by default in conftest.py)
-    # monkeypatch automatically restores this after the test
-    monkeypatch.delenv("OTEL_SDK_DISABLED", raising=False)
-
-    # Configure settings (automatically restored by monkeypatch)
-    monkeypatch.setattr(settings, "OTEL_ENABLED", True)
-    monkeypatch.setattr(settings, "DEBUG", True)
-    monkeypatch.setattr(settings, "OTEL_EXPORTER_OTLP_TRACES_ENDPOINT", None)
-
-    # Reset provider state
-    telemetry._tracer_provider = None
-
-    # Create and yield provider
-    provider = telemetry.get_tracer_provider()
-    assert provider is not None
-
-    # Save original global provider to restore later
-    original_provider = trace.get_tracer_provider()
-
-    # Set as global provider for trace.get_current_span() to work
-    trace.set_tracer_provider(provider)
-
-    yield provider
-
-    # Cleanup: restore original state
-    trace.set_tracer_provider(original_provider)
-    telemetry._tracer_provider = None
 
 
 def test_get_tracer_provider_returns_none_when_disabled(monkeypatch: pytest.MonkeyPatch) -> None:

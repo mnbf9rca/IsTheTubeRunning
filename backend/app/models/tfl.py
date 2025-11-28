@@ -365,7 +365,6 @@ class LineChangeLog(BaseModel):
     tfl_id: Mapped[str] = mapped_column(
         String(50),
         nullable=False,
-        index=True,
         comment="TfL line ID (e.g., 'victoria', 'northern')",
     )
     change_type: Mapped[str] = mapped_column(
@@ -391,13 +390,11 @@ class LineChangeLog(BaseModel):
     detected_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         nullable=False,
-        index=True,
         comment="When this change was detected",
     )
     trace_id: Mapped[str | None] = mapped_column(
         String(32),
         nullable=True,
-        index=True,
         comment="OpenTelemetry trace ID for correlation with distributed traces",
     )
 

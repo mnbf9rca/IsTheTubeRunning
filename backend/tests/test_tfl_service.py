@@ -1187,6 +1187,102 @@ async def test_fetch_lines_logs_changes(
         assert logs[1].new_values == {"name": "Victoria Line"}
 
 
+async def test_fetch_lines_logs_trace_id_when_otel_enabled(
+    tfl_service: TfLService,
+    db_session: AsyncSession,
+    otel_enabled_provider: Any,  # noqa: ANN401
+) -> None:
+    """Test that fetch_lines logs trace_id when OTEL is enabled and a span is active."""
+    # Import here to avoid issues with OTEL initialization
+    from opentelemetry import trace  # noqa: PLC0415
+
+    # Create mock line data
+    mock_lines = [create_mock_line(id="victoria", name="Victoria")]
+    mock_response = MockResponse(
+        data=mock_lines,
+        shared_expires=datetime(2025, 1, 2, 12, 0, 0, tzinfo=UTC),
+    )
+
+    # Start a span and verify trace_id is logged
+    tracer = trace.get_tracer(__name__)
+    with tracer.start_as_current_span("test_span") as span:
+        span_context = span.get_span_context()
+        expected_trace_id = format(span_context.trace_id, "032x")
+
+        with patch.object(
+            tfl_service.line_client,
+            "GetByModeByPathModes",
+            new_callable=AsyncMock,
+            return_value=mock_response,
+        ):
+            await tfl_service.fetch_lines(modes=["tube"], use_cache=False)
+
+        # Verify LineChangeLog has trace_id
+        result = await db_session.execute(select(LineChangeLog).where(LineChangeLog.tfl_id == "victoria"))
+        logs = result.scalars().all()
+        assert len(logs) == 1
+        assert logs[0].trace_id == expected_trace_id
+
+
+async def test_store_line_routes_logs_changes(
+    db_session: AsyncSession,
+) -> None:
+    """Test that _store_line_routes logs route_variants changes."""
+    # Create a line with initial route_variants
+    initial_routes = {
+        "routes": [
+            {
+                "name": "Route 1",
+                "service_type": "Regular",
+                "direction": "inbound",
+                "stations": ["940GZZLUBXN", "940GZZLUVIC"],
+            }
+        ]
+    }
+    line = Line(
+        tfl_id="victoria",
+        name="Victoria",
+        mode="tube",
+        route_variants=initial_routes,
+        last_updated=datetime.now(UTC),
+    )
+    db_session.add(line)
+    await db_session.commit()
+
+    # Create new route data (different from initial - using outbound direction)
+    new_route = MockOrderedRoute(
+        name="Route 2",
+        service_type="Regular",
+        naptan_ids=["940GZZLUVIC", "940GZZLUWAC"],
+    )
+    outbound_data = MockRouteSequence(orderedLineRoutes=[new_route])
+
+    # Execute _store_line_routes with different route data (pass as outbound)
+    tfl_service = TfLService(db_session)
+    tfl_service._store_line_routes(line, None, outbound_data)
+    await db_session.commit()
+
+    # Verify route_variants change was logged
+    result = await db_session.execute(
+        select(LineChangeLog).where(
+            LineChangeLog.tfl_id == "victoria",
+            LineChangeLog.change_type == "updated",
+        )
+    )
+    logs = result.scalars().all()
+    assert len(logs) == 1
+    assert logs[0].changed_fields == ["route_variants"]
+    assert logs[0].old_values == {"route_variants": initial_routes}
+    # Verify new values have the updated route
+    new_values = logs[0].new_values
+    assert "route_variants" in new_values
+    new_route_variants = new_values["route_variants"]
+    assert "routes" in new_route_variants
+    assert len(new_route_variants["routes"]) == 1
+    assert new_route_variants["routes"][0]["name"] == "Route 2"
+    assert new_route_variants["routes"][0]["direction"] == "outbound"
+
+
 # ==================== fetch_stations Tests ====================
 
 
