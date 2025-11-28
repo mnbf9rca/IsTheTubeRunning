@@ -233,7 +233,7 @@ async def readiness_check() -> dict[str, str]:
         try:
             await redis_client.ping()
         finally:
-            await redis_client.close()
+            await redis_client.aclose()  # type: ignore[attr-defined]
 
         return {"status": "ready"}
     except Exception as e:
