@@ -180,7 +180,9 @@ post_reply_graphql() {
     local thread_id="$1"
     local response_text="$2"
 
-    # Use heredoc to avoid quoting issues with GraphQL
+    # Safely encode variables as JSON to prevent injection
+    local thread_id_json
+    thread_id_json=$(echo "$thread_id" | jq -Rs '.')
     local body_json
     body_json=$(echo "$response_text" | jq -Rs '.')
 
@@ -188,7 +190,7 @@ post_reply_graphql() {
     response=$(cat << EOF | gh api graphql --input -
 {
   "query": "mutation(\$threadId: ID!, \$body: String!) { addPullRequestReviewThreadReply(input: { pullRequestReviewThreadId: \$threadId, body: \$body }) { comment { id } } }",
-  "variables": { "threadId": "$thread_id", "body": $body_json }
+  "variables": { "threadId": $thread_id_json, "body": $body_json }
 }
 EOF
 )
@@ -213,11 +215,15 @@ EOF
 get_database_id_from_node() {
     local node_id="$1"
 
+    # Safely encode node_id as JSON to prevent injection
+    local node_id_json
+    node_id_json=$(echo "$node_id" | jq -Rs '.')
+
     local response
     response=$(cat << EOF | gh api graphql --input -
 {
   "query": "query(\$nodeId: ID!) { node(id: \$nodeId) { ... on PullRequestReviewComment { databaseId } } }",
-  "variables": { "nodeId": "$node_id" }
+  "variables": { "nodeId": $node_id_json }
 }
 EOF
 )
@@ -262,11 +268,11 @@ action_resolve() {
         # Numeric comment database ID - use REST API to post reply, then resolve
         thread_id=$(get_thread_id_from_comment "$pr_number" "$id")
         post_reply_rest "$pr_number" "$id" "$response_text"
-    elif [[ "$id" =~ ^PRRT_ ]]; then
+    elif [[ "$id" =~ ^PRRT_[a-zA-Z0-9]+$ ]]; then
         # Thread ID - use GraphQL for both reply and resolve
         thread_id="$id"
         post_reply_graphql "$thread_id" "$response_text"
-    elif [[ "$id" =~ ^PRRC_ ]]; then
+    elif [[ "$id" =~ ^PRRC_[a-zA-Z0-9]+$ ]]; then
         # Comment node ID - convert to databaseId, then use REST flow
         local db_id
         db_id=$(get_database_id_from_node "$id")
