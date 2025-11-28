@@ -43,10 +43,9 @@ logger = structlog.get_logger(__name__)
 
 class RedisClientProtocol(Protocol):
     """
-    Protocol for Redis async client with proper type hints.
+    Protocol for Redis async client used for dependency injection and testing.
 
-    redis-py 5.x provides aclose() but redis-stubs package doesn't include it,
-    so we define this protocol to avoid type ignore comments everywhere.
+    Defines the subset of redis.asyncio.Redis methods used in this application.
     """
 
     async def get(self, name: str) -> str | None:
@@ -270,7 +269,7 @@ def get_worker_redis_client() -> "RedisClientProtocol":
             if _worker_redis_client is None:
                 _worker_redis_client = cast(
                     RedisClientProtocol,
-                    redis.asyncio.from_url(
+                    redis.asyncio.from_url(  # type: ignore[no-untyped-call]
                         settings.REDIS_URL,
                         encoding="utf-8",
                         decode_responses=True,

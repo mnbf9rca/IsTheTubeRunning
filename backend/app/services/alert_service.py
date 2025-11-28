@@ -93,10 +93,9 @@ def create_line_aggregate_hash(disruptions: list[DisruptionResponse]) -> str:
 
 class RedisClientProtocol(Protocol):
     """
-    Protocol for Redis async client with proper type hints.
+    Protocol for Redis async client used for dependency injection and testing.
 
-    redis-py 5.x provides aclose() but redis-stubs package doesn't include it,
-    so we define this protocol to avoid type ignore comments everywhere.
+    Defines the subset of redis.asyncio.Redis methods used in this application.
     """
 
     async def get(self, name: str) -> str | None:
@@ -122,14 +121,10 @@ async def get_redis_client() -> RedisClientProtocol:
 
     Returns:
         Redis client instance that satisfies RedisClientProtocol
-
-    Note:
-        redis.asyncio.Redis has aclose() at runtime, but redis-stubs doesn't
-        declare it. We cast to our Protocol to provide proper type hints.
     """
     return cast(
         RedisClientProtocol,
-        redis.from_url(
+        redis.from_url(  # type: ignore[no-untyped-call]
             settings.REDIS_URL,
             encoding="utf-8",
             decode_responses=True,

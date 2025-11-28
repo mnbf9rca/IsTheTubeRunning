@@ -229,11 +229,13 @@ async def readiness_check() -> dict[str, str]:
             await conn.execute(text("SELECT 1"))
 
         # Check Redis connectivity
-        redis_client = redis.from_url(settings.REDIS_URL, encoding="utf-8", decode_responses=True)
+        redis_client = redis.from_url(  # type: ignore[no-untyped-call]
+            settings.REDIS_URL, encoding="utf-8", decode_responses=True
+        )
         try:
             await redis_client.ping()
         finally:
-            await redis_client.aclose()  # type: ignore[attr-defined]
+            await redis_client.aclose()
 
         return {"status": "ready"}
     except Exception as e:
