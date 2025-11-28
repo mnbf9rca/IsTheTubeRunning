@@ -85,6 +85,7 @@
       "Bash(gh issue view:*)",
       "Bash(gh pr view:*)",
       "Bash(./scripts/gh_pr_comment_action.sh:*)",
+      "Bash(./scripts/gh_pr_comments_fetch.sh:*)",
       "WebFetch",
       "WebSearch"
     ],
@@ -95,7 +96,8 @@
     ],
     "deny": [
       "Bash(npx dotenv-vault@latest keys:*)",
-      "Bash(git commit --amend:*)"
+      "Bash(git commit --amend:*)",
+      "Read(.claude/settings.json)"
     ]
   }
 }

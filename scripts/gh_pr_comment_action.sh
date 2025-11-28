@@ -4,19 +4,18 @@
 # Wrapper script for GitHub CLI to manage PR review comments and threads
 #
 # Usage:
-#   gh_pr_comment_action.sh <pr_number> <comment_or_thread_id> <action> <response_text>
+#   gh_pr_comment_action.sh <pr_number> <id> <response_text>
 #
 # Arguments:
 #   pr_number           - Pull request number
-#   comment_or_thread_id - Comment ID (numeric) or Thread ID (PRT_xxx format)
-#   action              - Action to perform: respond | resolve | reject | in-progress
-#   response_text       - Response text (required for all actions)
+#   id                  - Comment ID, Thread ID, or Comment Node ID:
+#                         - Numeric comment database ID (e.g., 2566690774)
+#                         - Thread node ID (e.g., PRRT_kwDOQNO0Es5jvUvj)
+#                         - Comment node ID (e.g., PRRC_kwDOQNO0Es6Y_JfW)
+#   response_text       - Response text (required)
 #
-# Actions:
-#   respond     - Post a reply to a review comment
-#   resolve     - Mark a review thread as resolved (posts response then resolves)
-#   reject      - Post a comment marking the thread as rejected
-#   in-progress - Post a comment marking the thread as in-progress
+# Behavior:
+#   Posts a reply to the comment/thread, then marks the review thread as resolved
 #
 # Environment:
 #   GITHUB_TOKEN or gh authentication must be configured
@@ -142,8 +141,8 @@ get_thread_id_from_comment() {
     echo "$thread_id"
 }
 
-# Internal function to post a reply without output (returns comment ID on stdout)
-_post_reply() {
+# Post a reply to a review comment using REST API
+post_reply_rest() {
     local pr_number="$1"
     local comment_id="$2"
     local response_text="$3"
@@ -174,49 +173,117 @@ _post_reply() {
         log_error "Failed to post reply: $error_msg"
         exit 1
     fi
-
-    echo "$new_comment_id"
 }
 
-# Post a reply to a review comment
-action_respond() {
-    local pr_number="$1"
-    local comment_id="$2"
-    local response_text="$3"
+# Post a reply to a review thread using GraphQL
+post_reply_graphql() {
+    local thread_id="$1"
+    local response_text="$2"
 
-    # Call internal function to post reply
-    local new_comment_id
-    new_comment_id=$(_post_reply "$pr_number" "$comment_id" "$response_text")
+    # Safely encode variables as JSON to prevent injection
+    local thread_id_json
+    thread_id_json=$(echo "$thread_id" | jq -Rs '.')
+    local body_json
+    body_json=$(echo "$response_text" | jq -Rs '.')
 
-    # Output success with safely constructed JSON
-    local data_json
-    data_json=$(jq -n --arg cid "$new_comment_id" '{comment_id: $cid}')
-    log_success "Reply posted successfully" "$data_json"
+    local response
+    response=$(cat << EOF | gh api graphql --input -
+{
+  "query": "mutation(\$threadId: ID!, \$body: String!) { addPullRequestReviewThreadReply(input: { pullRequestReviewThreadId: \$threadId, body: \$body }) { comment { id } } }",
+  "variables": { "threadId": $thread_id_json, "body": $body_json }
+}
+EOF
+)
+    local gh_status=$?
+
+    # Check for errors from gh api command
+    if [[ $gh_status -ne 0 ]]; then
+        log_error "gh api command failed with exit code $gh_status"
+        exit 1
+    fi
+
+    # Check for GraphQL errors
+    if echo "$response" | jq -e '.errors' > /dev/null 2>&1; then
+        local error_msg
+        error_msg=$(echo "$response" | jq -r '.errors[0].message // "Unknown GraphQL error"')
+        log_error "Failed to post reply via GraphQL: $error_msg"
+        exit 1
+    fi
 }
 
-# Resolve a review thread
+# Convert comment node ID to database ID
+get_database_id_from_node() {
+    local node_id="$1"
+
+    # Safely encode node_id as JSON to prevent injection
+    local node_id_json
+    node_id_json=$(echo "$node_id" | jq -Rs '.')
+
+    local response
+    response=$(cat << EOF | gh api graphql --input -
+{
+  "query": "query(\$nodeId: ID!) { node(id: \$nodeId) { ... on PullRequestReviewComment { databaseId } } }",
+  "variables": { "nodeId": $node_id_json }
+}
+EOF
+)
+    local gh_status=$?
+
+    # Check for errors from gh api command
+    if [[ $gh_status -ne 0 ]]; then
+        log_error "gh api command failed with exit code $gh_status"
+        exit 1
+    fi
+
+    # Check for GraphQL errors
+    if echo "$response" | jq -e '.errors' > /dev/null 2>&1; then
+        local error_msg
+        error_msg=$(echo "$response" | jq -r '.errors[0].message // "Unknown GraphQL error"')
+        log_error "Failed to get database ID from node: $error_msg"
+        exit 1
+    fi
+
+    # Extract database ID
+    local db_id
+    db_id=$(echo "$response" | jq -r '.data.node.databaseId // empty')
+
+    if [[ -z "$db_id" ]]; then
+        log_error "Could not get database ID for node: $node_id"
+        exit 1
+    fi
+
+    echo "$db_id"
+}
+
+# Resolve a review thread (posts reply then resolves)
 action_resolve() {
     local pr_number="$1"
     local id="$2"
     local response_text="$3"
 
-    local comment_id
     local thread_id
 
-    # Check if ID is numeric (comment ID) or thread ID
+    # Determine ID type and handle accordingly
     if [[ "$id" =~ ^[0-9]+$ ]]; then
-        # It's a comment ID - convert to thread ID first
-        comment_id="$id"
-        thread_id=$(get_thread_id_from_comment "$pr_number" "$comment_id")
+        # Numeric comment database ID - use REST API to post reply, then resolve
+        thread_id=$(get_thread_id_from_comment "$pr_number" "$id")
+        post_reply_rest "$pr_number" "$id" "$response_text"
+    elif [[ "$id" =~ ^PRRT_[a-zA-Z0-9_-]+$ ]]; then
+        # Thread ID - use GraphQL for both reply and resolve
+        thread_id="$id"
+        post_reply_graphql "$thread_id" "$response_text"
+    elif [[ "$id" =~ ^PRRC_[a-zA-Z0-9_-]+$ ]]; then
+        # Comment node ID - convert to databaseId, then use REST flow
+        local db_id
+        db_id=$(get_database_id_from_node "$id")
+        thread_id=$(get_thread_id_from_comment "$pr_number" "$db_id")
+        post_reply_rest "$pr_number" "$db_id" "$response_text"
     else
-        # It's a thread ID - we cannot post a reply without a comment ID
-        log_error "Resolve action requires a numeric comment ID, not a thread ID: $id"
+        log_error "Invalid ID format: $id. Expected numeric ID, PRRT_xxx thread ID, or PRRC_xxx comment ID"
         exit 1
     fi
 
-    # Post the response comment using comment ID (suppress output, we'll output once at the end)
-    _post_reply "$pr_number" "$comment_id" "$response_text" > /dev/null
-
+    # Resolve the thread using GraphQL
     # shellcheck disable=SC2016
     local mutation='mutation($threadId: ID!) {
   resolveReviewThread(input: {threadId: $threadId}) {
@@ -262,55 +329,31 @@ action_resolve() {
     fi
 }
 
-# Post a comment marking thread as rejected (= resolved)
-action_reject() {
-    local pr_number="$1"
-    local comment_id="$2"
-    local response_text="$3"
-
-    # Use respond action to post the rejection comment and resolve the thread
-    action_resolve "$pr_number" "$comment_id" "$response_text"
-}
-
-# Post a comment marking thread as in-progress
-action_in_progress() {
-    local pr_number="$1"
-    local comment_id="$2"
-    local response_text="$3"
-
-    # Use respond action to post the in-progress comment
-    action_respond "$pr_number" "$comment_id" "$response_text"
-}
-
 # Display usage information
 usage() {
     cat << EOF
-Usage: $0 <pr_number> <comment_or_thread_id> <action> <response_text>
+Usage: $0 <pr_number> <id> <response_text>
 
 Arguments:
-  pr_number           Pull request number
-  comment_or_thread_id Comment ID (numeric) or Thread ID (PRT_xxx format)
-  action              Action to perform: respond | resolve | reject | in-progress
-  response_text       Response text (required for all actions)
+  pr_number      Pull request number
+  id             Comment ID, Thread ID, or Comment Node ID:
+                 - Numeric comment database ID (e.g., 2566690774)
+                 - Thread node ID (e.g., PRRT_kwDOQNO0Es5jvUvj)
+                 - Comment node ID (e.g., PRRC_kwDOQNO0Es6Y_JfW)
+  response_text  Response text (required)
 
-Actions:
-  respond     Post a reply to a review comment
-  resolve     Post a response and mark review thread as resolved (auto-converts comment ID to thread ID)
-  reject      Post a comment marking the thread as rejected
-  in-progress Post a comment marking the thread as in-progress
+Behavior:
+  Posts a reply to the comment/thread, then marks the review thread as resolved
 
 Examples:
-  # Reply to a comment
-  $0 123 456789 respond "Fixed in commit abc123"
+  # Resolve with numeric comment ID
+  $0 123 456789 "Fixed in commit abc123"
 
-  # Resolve a thread by comment ID
-  $0 123 456789 resolve "Addressed in latest commit"
+  # Resolve with thread ID
+  $0 123 PRRT_kwDOQNO0Es5jvUvj "Addressed in latest commit"
 
-  # Mark as rejected
-  $0 123 456789 reject "Not applicable for this PR"
-
-  # Mark as in-progress
-  $0 123 456789 in-progress "Working on this now"
+  # Resolve with comment node ID
+  $0 123 PRRC_kwDOQNO0Es6Y_JfW "Done, thanks!"
 
 Environment:
   GITHUB_TOKEN or gh authentication must be configured
@@ -324,14 +367,13 @@ EOF
 # Main function
 main() {
     # Parse arguments
-    if [[ $# -lt 4 ]]; then
+    if [[ $# -lt 3 ]]; then
         usage
     fi
 
     local pr_number="$1"
-    local comment_or_thread_id="$2"
-    local action="$3"
-    local response_text="${4:-}"
+    local id="$2"
+    local response_text="$3"
 
     # Validate PR number
     if [[ ! "$pr_number" =~ ^[0-9]+$ ]]; then
@@ -339,19 +381,9 @@ main() {
         exit 1
     fi
 
-    # Validate action
-    case "$action" in
-        respond|resolve|reject|in-progress)
-            ;;
-        *)
-            log_error "Invalid action: $action. Must be one of: respond, resolve, reject, in-progress"
-            exit 1
-            ;;
-    esac
-
     # Validate response text is provided
     if [[ -z "$response_text" ]]; then
-        log_error "Response text is required for action: $action"
+        log_error "Response text is required"
         exit 1
     fi
 
@@ -359,21 +391,8 @@ main() {
     check_gh_auth
     get_repo_info
 
-    # Execute action
-    case "$action" in
-        respond)
-            action_respond "$pr_number" "$comment_or_thread_id" "$response_text"
-            ;;
-        resolve)
-            action_resolve "$pr_number" "$comment_or_thread_id" "$response_text"
-            ;;
-        reject)
-            action_reject "$pr_number" "$comment_or_thread_id" "$response_text"
-            ;;
-        in-progress)
-            action_in_progress "$pr_number" "$comment_or_thread_id" "$response_text"
-            ;;
-    esac
+    # Execute action (always resolve)
+    action_resolve "$pr_number" "$id" "$response_text"
 }
 
 # Run main function
