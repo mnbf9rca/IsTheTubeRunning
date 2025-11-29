@@ -239,7 +239,7 @@ def tfl_api_span(
                 span.set_attribute("http.status_code", response.http_status_code)
     """
     # Import service_span from telemetry
-    from app.core.telemetry import service_span  # noqa: PLC0415  # Avoid circular import
+    from app.core.telemetry import service_span  # noqa: PLC0415  # Local import for deferred dependency
 
     # Delegate to service_span with TfL-specific conventions
     with service_span(

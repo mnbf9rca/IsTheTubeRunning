@@ -280,12 +280,16 @@ def set_logger_provider() -> None:
         otel_set_logger_provider(provider)
 
 
+# OpenTelemetry attribute values can be primitives or lists of primitives
+AttributeValue = str | int | float | bool | list[str] | list[int] | list[float] | list[bool]
+
+
 @contextmanager
 def service_span(
     name: str,
     service: str,
     kind: SpanKind = SpanKind.INTERNAL,
-    **attributes: str | int | float | bool,
+    **attributes: AttributeValue,
 ) -> Generator["Span"]:
     """Context manager for service operation spans with explicit status.
 

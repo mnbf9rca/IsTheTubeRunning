@@ -68,4 +68,4 @@ def assert_span_status(
 
     if check_exception and expected_status == StatusCode.ERROR:
         exception_events = [e for e in span.events if e.name == "exception"]
-        assert len(exception_events) >= 1, "Expected exception event in ERROR span"
+        assert exception_events, "Expected exception event in ERROR span"
