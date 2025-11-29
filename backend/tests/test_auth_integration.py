@@ -16,6 +16,7 @@ from freezegun import freeze_time
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from tests.helpers.http_assertions import assert_401_unauthorized
 from tests.helpers.jwt_helpers import MockJWTGenerator
 from tests.helpers.test_data import make_unique_external_id
 
@@ -89,8 +90,7 @@ class TestAuthMeEndpoint:
         with TestClient(app) as client:
             response = client.get("/api/v1/auth/me")
 
-            assert response.status_code == 401  # FastAPI 0.122+ returns 401 for missing credentials per RFC 7235
-            assert response.json()["detail"] == "Not authenticated"
+            assert_401_unauthorized(response, expected_detail="Not authenticated")
 
     def test_get_me_with_invalid_token(self) -> None:
         """Test /auth/me returns 401 with invalid token."""
@@ -99,7 +99,7 @@ class TestAuthMeEndpoint:
         with TestClient(app) as client:
             response = client.get("/api/v1/auth/me", headers=headers)
 
-            assert response.status_code == 401
+            assert_401_unauthorized(response)
             assert "detail" in response.json()
 
     def test_get_me_with_malformed_authorization_header(self) -> None:
@@ -108,8 +108,7 @@ class TestAuthMeEndpoint:
             # Missing 'Bearer' prefix
             headers = {"Authorization": "NotBearerToken"}
             response = client.get("/api/v1/auth/me", headers=headers)
-            assert response.status_code == 401  # FastAPI 0.122+ returns 401 for missing credentials per RFC 7235
-            assert response.json()["detail"] == "Not authenticated"
+            assert_401_unauthorized(response, expected_detail="Not authenticated")
 
     def test_get_me_with_expired_token(self) -> None:
         """Test /auth/me returns 401 with expired JWT token."""
@@ -126,8 +125,7 @@ class TestAuthMeEndpoint:
 
         with TestClient(app) as client:
             response = client.get("/api/v1/auth/me", headers=headers)
-            assert response.status_code == 401
-            assert "detail" in response.json()
+            assert_401_unauthorized(response)
             # Should mention expiration or invalid credentials
             detail_lower = response.json()["detail"].lower()
             assert "invalid" in detail_lower or "expired" in detail_lower
@@ -149,8 +147,7 @@ class TestAuthMeEndpoint:
         with TestClient(app) as client:
             response = client.get("/api/v1/auth/me", headers=headers)
 
-            assert response.status_code == 401
-            assert "detail" in response.json()
+            assert_401_unauthorized(response)
             assert "kid" in response.json()["detail"].lower()
 
     @pytest.mark.asyncio
