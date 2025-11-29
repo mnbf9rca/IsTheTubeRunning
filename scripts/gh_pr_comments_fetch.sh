@@ -14,7 +14,7 @@
 #                         reviews = review threads only (no issue comments)
 #                         issues = issue comments only
 #                         all = everything (reviews + issues)
-#   --status <status>   - Filter by status: unresolved|resolved|all (default: unresolved)
+#   --status <status>   - Filter by status: unresolved|resolved|all (default: all)
 #   --format <format>   - Output format: json|summary (default: json)
 #   --page <n>          - Page number for GraphQL cursor-based pagination (default: 1)
 #   --per-page <n>      - Items per page (default: 50, max: 100)
@@ -117,8 +117,7 @@ fetch_review_threads() {
                     -f owner="$REPO_OWNER" \
                     -f repo="$REPO_NAME" \
                     -F pr="$pr_number" \
-                    -F first="$per_page" \
-                    -f after=null)
+                    -F first="$per_page")
             fi
 
             # Extract the endCursor for the next iteration
@@ -196,8 +195,7 @@ fetch_review_threads() {
             -f owner="$REPO_OWNER" \
             -f repo="$REPO_NAME" \
             -F pr="$pr_number" \
-            -F first="$per_page" \
-            -f after=null)
+            -F first="$per_page")
     fi
     local gh_status=$?
 
@@ -556,23 +554,26 @@ Options:
                       reviews = review threads only (no issue comments)
                       issues = issue comments only
                       all = everything (reviews + issues)
-  --status <status>   Filter by status: unresolved|resolved|all (default: unresolved)
+  --status <status>   Filter by status: unresolved|resolved|all (default: all)
   --format <format>   Output format: json|summary (default: json)
   --page <n>          Page number for pagination (default: 1)
   --per-page <n>      Items per page (default: 50, max: 100)
 
 Examples:
-  # Fetch unresolved review threads only (default)
+  # Fetch all review threads (default)
   $0 123
+
+  # Fetch only unresolved review threads
+  $0 123 --status unresolved
 
   # Fetch all comments including issue comments
   $0 123 --type all
 
-  # Fetch only unresolved review threads as summary
+  # Fetch all review threads as summary
   $0 123 --format summary
 
-  # Fetch all threads (resolved and unresolved) with pagination
-  $0 123 --status all --page 2 --per-page 100
+  # Fetch resolved threads only with pagination
+  $0 123 --status resolved --page 2 --per-page 100
 
   # Fetch only issue comments
   $0 123 --type issues
@@ -590,7 +591,7 @@ EOF
 main() {
     # Default values
     local type_filter="reviews"
-    local status_filter="unresolved"
+    local status_filter="all"
     local format="json"
     local page=1
     local per_page=50
