@@ -127,6 +127,7 @@ async def verify_jwt(credentials: HTTPAuthorizationCredentials = Depends(securit
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail="Token missing 'kid' in header",
+                headers={"WWW-Authenticate": "Bearer"},
             )
 
         # Fetch JWKS (use mock JWKS in DEBUG mode)
@@ -147,6 +148,7 @@ async def verify_jwt(credentials: HTTPAuthorizationCredentials = Depends(securit
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail="Unable to find appropriate signing key",
+                headers={"WWW-Authenticate": "Bearer"},
             )
 
         # Validate required JWKS fields are present
@@ -180,6 +182,7 @@ async def verify_jwt(credentials: HTTPAuthorizationCredentials = Depends(securit
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail=f"Invalid authentication credentials: {e!s}",
+            headers={"WWW-Authenticate": "Bearer"},
         ) from e
 
 
@@ -212,6 +215,7 @@ async def get_current_user(
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Token missing 'sub' claim",
+            headers={"WWW-Authenticate": "Bearer"},
         )
 
     auth_service = AuthService(db)
