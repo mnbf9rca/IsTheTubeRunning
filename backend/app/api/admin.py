@@ -14,6 +14,7 @@ from app.celery.app import celery_app
 from app.celery.tasks import detect_and_rebuild_stale_routes
 from app.core.admin import require_admin
 from app.core.database import get_db
+from app.core.redis import get_redis_client
 from app.models.admin import AdminUser
 from app.models.notification import NotificationLog, NotificationStatus
 from app.schemas.admin import (
@@ -31,7 +32,7 @@ from app.schemas.admin import (
 )
 from app.schemas.tfl import BuildGraphResponse
 from app.services.admin_service import AdminService
-from app.services.alert_service import AlertService, get_redis_client
+from app.services.alert_service import AlertService
 from app.services.tfl_service import TfLService
 from app.services.user_route_index_service import UserRouteIndexService
 

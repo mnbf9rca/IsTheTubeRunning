@@ -12,6 +12,8 @@ from uuid import uuid4
 
 import pytest
 import redis.asyncio as redis
+from app.core.redis import get_redis_client
+from app.helpers.disruption_helpers import extract_line_station_pairs
 from app.models.notification import (
     NotificationLog,
     NotificationMethod,
@@ -26,8 +28,6 @@ from app.schemas.tfl import AffectedRouteInfo, DisruptionResponse
 from app.services.alert_service import (
     AlertService,
     create_line_aggregate_hash,
-    extract_line_station_pairs,
-    get_redis_client,
     warm_up_line_state_cache,
 )
 from freezegun import freeze_time

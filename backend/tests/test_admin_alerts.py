@@ -56,8 +56,8 @@ async def async_client_with_db(db_session: AsyncSession) -> AsyncGenerator[Async
 async def test_trigger_check_requires_auth(async_client_with_db: AsyncClient) -> None:
     """Test that trigger-check endpoint requires authentication."""
     response = await async_client_with_db.post(build_api_url("/admin/alerts/trigger-check"))
-    assert response.status_code == 403  # FastAPI HTTPBearer returns 403 for missing credentials
-    assert "detail" in response.json()
+    assert response.status_code == 401  # FastAPI 0.122+ returns 401 for missing credentials per RFC 7235
+    assert response.json()["detail"] == "Not authenticated"
 
 
 @pytest.mark.asyncio
@@ -71,7 +71,7 @@ async def test_trigger_check_requires_admin(
         build_api_url("/admin/alerts/trigger-check"),
         headers=auth_headers_for_user,
     )
-    assert response.status_code == 403
+    assert response.status_code == 403  # Forbidden - user is authenticated but lacks admin privileges
     assert response.json()["detail"] == "Admin privileges required"
 
 
@@ -79,8 +79,8 @@ async def test_trigger_check_requires_admin(
 async def test_worker_status_requires_auth(async_client_with_db: AsyncClient) -> None:
     """Test that worker-status endpoint requires authentication."""
     response = await async_client_with_db.get(build_api_url("/admin/alerts/worker-status"))
-    assert response.status_code == 403  # FastAPI HTTPBearer returns 403 for missing credentials
-    assert "detail" in response.json()
+    assert response.status_code == 401  # FastAPI 0.122+ returns 401 for missing credentials per RFC 7235
+    assert response.json()["detail"] == "Not authenticated"
 
 
 @pytest.mark.asyncio
@@ -94,7 +94,7 @@ async def test_worker_status_requires_admin(
         build_api_url("/admin/alerts/worker-status"),
         headers=auth_headers_for_user,
     )
-    assert response.status_code == 403
+    assert response.status_code == 403  # Forbidden - user is authenticated but lacks admin privileges
     assert response.json()["detail"] == "Admin privileges required"
 
 
@@ -102,8 +102,8 @@ async def test_worker_status_requires_admin(
 async def test_recent_logs_requires_auth(async_client_with_db: AsyncClient) -> None:
     """Test that recent-logs endpoint requires authentication."""
     response = await async_client_with_db.get(build_api_url("/admin/alerts/recent-logs"))
-    assert response.status_code == 403  # FastAPI HTTPBearer returns 403 for missing credentials
-    assert "detail" in response.json()
+    assert response.status_code == 401  # FastAPI 0.122+ returns 401 for missing credentials per RFC 7235
+    assert response.json()["detail"] == "Not authenticated"
 
 
 @pytest.mark.asyncio
@@ -117,7 +117,7 @@ async def test_recent_logs_requires_admin(
         build_api_url("/admin/alerts/recent-logs"),
         headers=auth_headers_for_user,
     )
-    assert response.status_code == 403
+    assert response.status_code == 403  # Forbidden - user is authenticated but lacks admin privileges
     assert response.json()["detail"] == "Admin privileges required"
 
 
