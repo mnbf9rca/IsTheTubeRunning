@@ -51,25 +51,37 @@ def test_tracer_provider(in_memory_span_exporter: InMemorySpanExporter) -> Trace
 
 
 @pytest.fixture
-def otel_enabled_provider(monkeypatch: pytest.MonkeyPatch) -> Generator[TracerProvider]:
-    """Fixture that provides a clean TracerProvider with OTEL enabled for testing.
+def otel_enabled_provider(
+    monkeypatch: pytest.MonkeyPatch,
+) -> Generator[tuple[TracerProvider, InMemorySpanExporter]]:
+    """Fixture that provides TracerProvider with InMemorySpanExporter for testing.
+
+    SAFE: Uses InMemorySpanExporter - no network calls, spans captured in memory only.
+    This ensures tests never send telemetry to production collectors.
 
     Sets up:
     - OTEL_ENABLED=True
-    - DEBUG=True (skip endpoint validation)
-    - OTEL_EXPORTER_OTLP_TRACES_ENDPOINT=None
     - OTEL_SDK_DISABLED unset (enables SDK)
-    - Clean tracer provider state
+    - InMemorySpanExporter for span capture (no network export)
+    - SimpleSpanProcessor for deterministic synchronous processing
 
     Yields:
-        TracerProvider configured for testing
+        Tuple of (TracerProvider, InMemorySpanExporter) - use exporter.get_finished_spans()
+        to verify span creation in tests.
+
+    Example:
+        def test_my_feature(otel_enabled_provider):
+            provider, exporter = otel_enabled_provider
+            # ... do something that creates spans ...
+            spans = exporter.get_finished_spans()
+            assert len(spans) == 1
+            assert spans[0].name == "expected.span.name"
 
     Note:
         All environment and settings changes are automatically restored by
         monkeypatch after the test. Manual cleanup only needed for module state.
     """
     # Import here to avoid circular dependency
-    from app.core import telemetry  # noqa: PLC0415
     from app.core.config import settings  # noqa: PLC0415
 
     # Enable OTEL SDK (disabled by default in conftest.py)
@@ -78,24 +90,33 @@ def otel_enabled_provider(monkeypatch: pytest.MonkeyPatch) -> Generator[TracerPr
 
     # Configure settings (automatically restored by monkeypatch)
     monkeypatch.setattr(settings, "OTEL_ENABLED", True)
-    monkeypatch.setattr(settings, "DEBUG", True)
-    monkeypatch.setattr(settings, "OTEL_EXPORTER_OTLP_TRACES_ENDPOINT", None)
 
-    # Reset provider state
-    telemetry._tracer_provider = None  # type: ignore[attr-defined]
+    # Create InMemorySpanExporter - spans go to memory, NOT network
+    exporter = InMemorySpanExporter()
 
-    # Create provider
-    provider = telemetry.get_tracer_provider()
-    assert provider is not None
+    # Create provider with test resource
+    resource = Resource(
+        attributes={
+            "service.name": "isthetuberunning-backend-test",
+            "service.version": "0.1.0-test",
+            "deployment.environment": "test",
+        }
+    )
+    provider = TracerProvider(resource=resource)
 
-    # Reset OTEL global state and set provider directly
+    # Use SimpleSpanProcessor for synchronous span processing in tests
+    # (BatchSpanProcessor is async and complicates test assertions)
+    span_processor = SimpleSpanProcessor(exporter)
+    provider.add_span_processor(span_processor)
+
+    # Set as global tracer provider
     # Bypass set_tracer_provider() which has override protection
     trace._TRACER_PROVIDER = provider  # type: ignore[attr-defined]
 
-    yield provider
+    yield provider, exporter
 
     # Cleanup: reset state (autouse fixture will handle final cleanup)
-    telemetry._tracer_provider = None  # type: ignore[attr-defined]
+    exporter.clear()
     trace._TRACER_PROVIDER = None  # type: ignore[attr-defined]
 
 

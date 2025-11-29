@@ -33,6 +33,8 @@ from app.services.tfl_service import (
 )
 from fastapi import HTTPException, status
 from freezegun import freeze_time
+from opentelemetry.sdk.trace import TracerProvider
+from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanExporter
 from pydantic_tfl_api.core import ApiError
 from pydantic_tfl_api.models import (
     DisruptedPoint,
@@ -1190,11 +1192,10 @@ async def test_fetch_lines_logs_changes(
 async def test_fetch_lines_logs_trace_id_when_otel_enabled(
     tfl_service: TfLService,
     db_session: AsyncSession,
-    otel_enabled_provider: Any,  # noqa: ANN401
+    otel_enabled_provider: tuple[TracerProvider, InMemorySpanExporter],
 ) -> None:
     """Test that fetch_lines logs trace_id when OTEL is enabled and a span is active."""
-    # Import here to avoid issues with OTEL initialization
-    from opentelemetry import trace  # noqa: PLC0415
+    provider, _exporter = otel_enabled_provider
 
     # Create mock line data
     mock_lines = [create_mock_line(id="victoria", name="Victoria")]
@@ -1204,7 +1205,7 @@ async def test_fetch_lines_logs_trace_id_when_otel_enabled(
     )
 
     # Start a span and verify trace_id is logged
-    tracer = trace.get_tracer(__name__)
+    tracer = provider.get_tracer(__name__)
     with tracer.start_as_current_span("test_span") as span:
         span_context = span.get_span_context()
         expected_trace_id = format(span_context.trace_id, "032x")
