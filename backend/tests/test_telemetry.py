@@ -6,6 +6,7 @@ import pytest
 from app.core import telemetry
 from app.core.config import settings
 from opentelemetry.sdk.trace import TracerProvider
+from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanExporter
 
 
 def test_get_tracer_provider_returns_none_when_disabled(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -220,10 +221,14 @@ def test_get_current_trace_id_when_no_span_active() -> None:
     assert trace_id is None
 
 
-def test_get_current_trace_id_with_active_span(otel_enabled_provider: TracerProvider) -> None:
+def test_get_current_trace_id_with_active_span(
+    otel_enabled_provider: tuple[TracerProvider, InMemorySpanExporter],
+) -> None:
     """Test get_current_trace_id returns trace ID when span is active."""
+    provider, _exporter = otel_enabled_provider
+
     # Create a tracer and start a span
-    tracer = otel_enabled_provider.get_tracer(__name__)
+    tracer = provider.get_tracer(__name__)
     with tracer.start_as_current_span("test_span") as span:
         # Should return a valid trace ID
         trace_id = telemetry.get_current_trace_id()

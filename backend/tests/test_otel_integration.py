@@ -11,6 +11,9 @@ import pytest
 from app.core.config import settings
 from app.models.user import User
 from httpx import AsyncClient
+from opentelemetry import trace
+from opentelemetry.sdk.trace import TracerProvider
+from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanExporter
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -291,3 +294,42 @@ class TestLoggerProviderCreation:
         # get_logger_provider should still work (provider created but no exporter)
         provider = telemetry.get_logger_provider()
         assert provider is not None  # Provider created even without endpoint
+
+
+def test_otel_enabled_provider_uses_in_memory_exporter(
+    otel_enabled_provider: tuple[TracerProvider, InMemorySpanExporter],
+) -> None:
+    """Verify otel_enabled_provider uses InMemorySpanExporter (no network calls).
+
+    This test ensures that OTEL-enabled tests never send telemetry to production
+    collectors by verifying the fixture uses an in-memory exporter and that the
+    global tracer provider is correctly wired to use it.
+    """
+    provider, exporter = otel_enabled_provider
+
+    # Verify exporter type - must be InMemorySpanExporter, not OTLP
+    assert isinstance(exporter, InMemorySpanExporter), (
+        "otel_enabled_provider must use InMemorySpanExporter to prevent network calls to production collectors"
+    )
+
+    # Verify that the global tracer provider is the same instance as the fixture's provider
+    global_provider = trace.get_tracer_provider()
+    assert global_provider is provider, (
+        "Global tracer provider must match fixture provider to prevent accidental use of wrong provider"
+    )
+
+    # Ensure exporter starts clean for this test
+    exporter.clear()
+
+    # Create a span via the global tracer API (not provider.get_tracer) to verify global state is correct
+    tracer = trace.get_tracer(__name__)
+    span_name = "test-safeguard-span"
+    with tracer.start_as_current_span(span_name) as span:
+        # Add some attributes to make the test more realistic
+        span.set_attribute("test.attribute", "value")
+
+    # Verify span was captured in memory (not sent to network)
+    spans = exporter.get_finished_spans()
+    assert len(spans) == 1, "Span should be captured in memory"
+    assert spans[0].name == span_name
+    assert spans[0].attributes["test.attribute"] == "value"  # type: ignore[index]
