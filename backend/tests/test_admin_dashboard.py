@@ -69,7 +69,7 @@ async def test_list_users_requires_auth(async_client_with_db: AsyncClient) -> No
     """Test that list users endpoint requires authentication."""
     response = await async_client_with_db.get(build_api_url("/admin/users"))
     assert response.status_code == 401  # FastAPI 0.122+ returns 401 for missing credentials per RFC 7235
-    assert "detail" in response.json()
+    assert response.json()["detail"] == "Not authenticated"
 
 
 @pytest.mark.asyncio
@@ -95,7 +95,7 @@ async def test_get_user_details_requires_auth(
     user_id = uuid4()
     response = await async_client_with_db.get(build_api_url(f"/admin/users/{user_id}"))
     assert response.status_code == 401  # FastAPI 0.122+ returns 401 for missing credentials per RFC 7235
-    assert "detail" in response.json()
+    assert response.json()["detail"] == "Not authenticated"
 
 
 @pytest.mark.asyncio
@@ -121,7 +121,7 @@ async def test_anonymise_user_requires_auth(
     user_id = uuid4()
     response = await async_client_with_db.delete(build_api_url(f"/admin/users/{user_id}"))
     assert response.status_code == 401  # FastAPI 0.122+ returns 401 for missing credentials per RFC 7235
-    assert "detail" in response.json()
+    assert response.json()["detail"] == "Not authenticated"
 
 
 @pytest.mark.asyncio
@@ -146,7 +146,7 @@ async def test_engagement_metrics_requires_auth(
     """Test that engagement metrics endpoint requires authentication."""
     response = await async_client_with_db.get(build_api_url("/admin/analytics/engagement"))
     assert response.status_code == 401  # FastAPI 0.122+ returns 401 for missing credentials per RFC 7235
-    assert "detail" in response.json()
+    assert response.json()["detail"] == "Not authenticated"
 
 
 @pytest.mark.asyncio

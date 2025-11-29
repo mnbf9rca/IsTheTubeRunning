@@ -15,7 +15,7 @@ import asyncio
 import contextlib
 import threading
 from collections.abc import AsyncGenerator
-from typing import Protocol, cast
+from typing import cast
 
 import redis.asyncio
 import structlog
@@ -24,6 +24,7 @@ from opentelemetry import trace
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker, create_async_engine
 
 from app.core.config import settings
+from app.core.redis import RedisClientProtocol
 
 # Module-level globals for worker resources
 # These are created once per worker process and reused across all tasks
@@ -39,30 +40,6 @@ _worker_sqlalchemy_instrumented: bool = False
 _init_lock = threading.RLock()
 
 logger = structlog.get_logger(__name__)
-
-
-class RedisClientProtocol(Protocol):
-    """
-    Protocol for Redis async client used for dependency injection and testing.
-
-    Defines the subset of redis.asyncio.Redis methods used in this application.
-    """
-
-    async def get(self, name: str) -> str | None:
-        """Get the value at key name."""
-        ...
-
-    async def set(self, name: str, value: str) -> bool:
-        """Set the value at key name (no expiration)."""
-        ...
-
-    async def setex(self, name: str, time: int, value: str) -> bool:
-        """Set the value at key name with expiration time."""
-        ...
-
-    async def aclose(self, close_connection_pool: bool = True) -> None:
-        """Close the client connection."""
-        ...
 
 
 @worker_process_init.connect

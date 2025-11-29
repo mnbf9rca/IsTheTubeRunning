@@ -136,6 +136,7 @@ async def test_get_lines_unauthenticated(async_client_with_auth: AsyncClient) ->
         response = await client.get(build_api_url("/tfl/lines"))
 
     assert response.status_code == 401  # FastAPI 0.122+ returns 401 for missing credentials per RFC 7235
+    assert response.json()["detail"] == "Not authenticated"
 
 
 # ==================== GET /tfl/stations Tests ====================
@@ -454,6 +455,7 @@ async def test_build_graph_unauthenticated(async_client_with_admin: AsyncClient)
         response = await client.post(build_api_url("/admin/tfl/build-graph"))
 
     assert response.status_code == 401  # FastAPI 0.122+ returns 401 for missing credentials per RFC 7235
+    assert response.json()["detail"] == "Not authenticated"
 
 
 async def test_build_graph_non_admin(async_client_with_auth: AsyncClient) -> None:
@@ -677,6 +679,7 @@ async def test_get_line_routes_unauthenticated(
         response = await client.get(build_api_url("/tfl/lines/victoria/routes"))
 
     assert response.status_code == 401  # FastAPI 0.122+ returns 401 for missing credentials per RFC 7235
+    assert response.json()["detail"] == "Not authenticated"
 
 
 @patch("app.services.tfl_service.TfLService.get_line_routes")
@@ -831,6 +834,7 @@ async def test_get_station_routes_unauthenticated(
         response = await client.get(build_api_url("/tfl/stations/940GZZLUVIC/routes"))
 
     assert response.status_code == 401  # FastAPI 0.122+ returns 401 for missing credentials per RFC 7235
+    assert response.json()["detail"] == "Not authenticated"
 
 
 @patch("app.services.tfl_service.TfLService.get_station_routes")

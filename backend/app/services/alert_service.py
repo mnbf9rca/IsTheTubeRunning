@@ -4,17 +4,16 @@ import hashlib
 import json
 from datetime import UTC, datetime
 from itertools import groupby
-from typing import Any, Protocol, cast
+from typing import Any
 from uuid import UUID
 from zoneinfo import ZoneInfo
 
-import redis.asyncio as redis
 import structlog
 from sqlalchemy import and_, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from app.core.config import settings
+from app.core.redis import RedisClientProtocol
 from app.helpers.disruption_helpers import disruption_affects_route, extract_line_station_pairs
 from app.helpers.soft_delete_filters import add_active_filter
 from app.models.notification import (
@@ -89,47 +88,6 @@ def create_line_aggregate_hash(disruptions: list[DisruptionResponse]) -> str:
     # Create JSON string and hash it
     hash_string = json.dumps(hash_input, sort_keys=True)
     return hashlib.sha256(hash_string.encode()).hexdigest()
-
-
-class RedisClientProtocol(Protocol):
-    """
-    Protocol for Redis async client used for dependency injection and testing.
-
-    Defines the subset of redis.asyncio.Redis methods used in this application.
-    """
-
-    async def get(self, name: str) -> str | None:
-        """Get the value at key name."""
-        ...
-
-    async def set(self, name: str, value: str) -> bool:
-        """Set the value at key name (no expiration)."""
-        ...
-
-    async def setex(self, name: str, time: int, value: str) -> bool:
-        """Set the value at key name with expiration time."""
-        ...
-
-    async def aclose(self, close_connection_pool: bool = True) -> None:
-        """Close the client connection."""
-        ...
-
-
-async def get_redis_client() -> RedisClientProtocol:
-    """
-    Create Redis client for alert deduplication.
-
-    Returns:
-        Redis client instance that satisfies RedisClientProtocol
-    """
-    return cast(
-        RedisClientProtocol,
-        redis.from_url(  # type: ignore[no-untyped-call]
-            settings.REDIS_URL,
-            encoding="utf-8",
-            decode_responses=True,
-        ),
-    )
 
 
 async def warm_up_line_state_cache(db: AsyncSession, redis_client: RedisClientProtocol) -> int:
