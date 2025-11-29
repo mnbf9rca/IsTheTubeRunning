@@ -89,7 +89,7 @@ class TestAuthMeEndpoint:
         with TestClient(app) as client:
             response = client.get("/api/v1/auth/me")
 
-            assert response.status_code == 403
+            assert response.status_code == 401  # FastAPI 0.122+ returns 401 for missing credentials per RFC 7235
             assert "detail" in response.json()
 
     def test_get_me_with_invalid_token(self) -> None:
@@ -108,7 +108,7 @@ class TestAuthMeEndpoint:
             # Missing 'Bearer' prefix
             headers = {"Authorization": "NotBearerToken"}
             response = client.get("/api/v1/auth/me", headers=headers)
-            assert response.status_code == 403
+            assert response.status_code == 401  # FastAPI 0.122+ returns 401 for missing credentials per RFC 7235
             assert "detail" in response.json()
 
     def test_get_me_with_expired_token(self) -> None:
