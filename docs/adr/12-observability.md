@@ -358,6 +358,106 @@ Already implemented via `_add_otel_context` processor:
 
 ---
 
+## Explicit Span Status Pattern
+
+### Status
+Active (Issue #289)
+
+### Context
+OpenTelemetry spans have three possible status values:
+- `UNSET` (default) - Status not explicitly set
+- `OK` - Operation completed successfully
+- `ERROR` - Operation failed with an error
+
+By default, spans remain in `UNSET` state unless explicitly changed. While the SDK automatically sets `ERROR` status when exceptions occur, successful operations remain `UNSET` rather than `OK`. This makes it difficult to distinguish between:
+- Operations that succeeded (should be `OK`)
+- Operations where status was never set (programmer oversight)
+- Operations that haven't completed yet
+
+In Grafana, traces with `UNSET` status appear ambiguous and don't clearly indicate success.
+
+### Decision
+All custom spans must have explicit status:
+- **Success**: Explicitly set `StatusCode.OK` on successful completion
+- **Failure**: Let SDK automatically set `StatusCode.ERROR` when exceptions propagate
+
+Use the `service_span` helper function from `app.core.telemetry` for all custom spans:
+
+**Generic helper for all services:**
+```python
+from app.core.telemetry import service_span
+from opentelemetry.trace import SpanKind
+
+# For internal operations
+with service_span("operation_name", "service-name") as span:
+    # ... perform operation ...
+    span.set_attribute("custom.attribute", value)
+    # OK status set automatically on success
+    # ERROR status set automatically on exception
+
+# For external API calls
+with service_span("api_call", "external-api", kind=SpanKind.CLIENT) as span:
+    response = await make_api_call()
+    span.set_attribute("http.status_code", response.status_code)
+```
+
+**Service-specific wrappers** (e.g., `tfl_api_span`) delegate to `service_span`:
+```python
+from app.core.telemetry import service_span
+
+@contextmanager
+def tfl_api_span(endpoint: str, client: str, **extra_attrs):
+    """Wrapper around service_span with TfL-specific conventions."""
+    with service_span(
+        name=f"tfl.api.{endpoint}",
+        service="api.tfl.gov.uk",
+        kind=SpanKind.CLIENT,
+        **{"tfl.api.endpoint": endpoint, "tfl.api.client": client, **extra_attrs},
+    ) as span:
+        yield span
+```
+
+### Implementation Details
+
+The `service_span` helper (`backend/app/core/telemetry.py`) uses try/except to set status:
+```python
+with tracer.start_as_current_span(...) as span:
+    try:
+        yield span
+        span.set_status(Status(StatusCode.OK))  # Success
+    except Exception:
+        # SDK records exception and sets ERROR status
+        raise
+```
+
+### Consequences
+
+**Easier:**
+- **Clear Success Indication**: All successful operations show `OK` status in Grafana
+- **Consistent Pattern**: `service_span` enforces explicit status across all services
+- **Better Debugging**: Can immediately see which operations succeeded vs. failed
+- **Service Graphs**: Grafana correctly shows success/error rates per service
+- **Alerting**: Can alert on spans with `ERROR` status vs. `UNSET` ambiguity
+
+**More Difficult:**
+- **Migration Required**: Existing `tfl_api_span` needed refactoring to use `service_span`
+- **Must Use Helper**: Direct `start_as_current_span` calls won't set status automatically
+- **Import Required**: Services must import `service_span` from `app.core.telemetry`
+
+### Testing
+- `backend/tests/core/test_telemetry.py` - Tests for `service_span` helper
+- `backend/tests/services/test_tfl_otel.py` - Tests verify `StatusCode.OK` on success
+- `backend/tests/helpers/otel.py` - `assert_span_status()` helper for consistent assertions
+
+### Files Modified
+- `backend/app/core/telemetry.py` - Added `service_span` helper
+- `backend/app/services/tfl_service.py` - Refactored `tfl_api_span` to use `service_span`
+- `backend/tests/core/test_telemetry.py` - Tests for `service_span`
+- `backend/tests/services/test_tfl_otel.py` - Success status tests
+- `backend/tests/helpers/otel.py` - `assert_span_status()` helper
+
+---
+
 ### Related ADRs
 - **ADR 08**: Worker Pool Fork Safety (Celery worker lazy initialization)
 - **ADR 10**: Testing Strategy (test coverage and mocking approach)
