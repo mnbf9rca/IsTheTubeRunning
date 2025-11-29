@@ -1,6 +1,8 @@
 """OpenTelemetry distributed tracing configuration."""
 
 import threading
+from collections.abc import Generator
+from contextlib import contextmanager
 from typing import TYPE_CHECKING
 
 import structlog
@@ -14,6 +16,7 @@ from opentelemetry.sdk._logs.export import BatchLogRecordProcessor
 from opentelemetry.sdk.resources import Resource
 from opentelemetry.sdk.trace import TracerProvider
 from opentelemetry.sdk.trace.export import BatchSpanProcessor
+from opentelemetry.trace import SpanKind, Status, StatusCode
 
 from app import __version__
 from app.core.config import require_config, settings
@@ -275,6 +278,57 @@ def set_logger_provider() -> None:
     """
     if provider := get_logger_provider():
         otel_set_logger_provider(provider)
+
+
+@contextmanager
+def service_span(
+    name: str,
+    service: str,
+    kind: SpanKind = SpanKind.INTERNAL,
+    **attributes: str | int | float | bool,
+) -> Generator["Span"]:
+    """Context manager for service operation spans with explicit status.
+
+    Creates an OpenTelemetry span with consistent attributes and proper status handling:
+    - Sets StatusCode.OK on successful completion
+    - SDK automatically records exceptions and sets StatusCode.ERROR on failure
+
+    Note: The tracer is acquired at call time (not module import time) to ensure
+    it uses the TracerProvider set during application startup. This enables proper
+    trace context propagation from parent spans.
+
+    Args:
+        name: Span name (e.g., "send_email", "process_alerts")
+        service: Service name for peer.service attribute (e.g., "smtp", "alert-service")
+        kind: Span kind (default INTERNAL, use CLIENT for external calls)
+        **attributes: Additional span attributes
+
+    Yields:
+        Span: The active span for setting additional attributes
+
+    Example:
+        with service_span("send_email", "smtp", kind=SpanKind.CLIENT, recipient=email) as span:
+            await send_email(...)
+            span.set_attribute("smtp.message_id", message_id)
+    """
+    # Get tracer at call time to use the correct TracerProvider (set in lifespan/worker init)
+    tracer = trace.get_tracer(__name__)
+    span_attributes = {
+        "peer.service": service,
+        **attributes,
+    }
+    with tracer.start_as_current_span(
+        name,
+        kind=kind,
+        attributes=span_attributes,
+    ) as span:
+        try:
+            yield span
+            # Set OK status on successful completion
+            span.set_status(Status(StatusCode.OK))
+        except Exception:
+            # Let exception propagate - SDK records it and sets ERROR status
+            raise
 
 
 def get_current_span() -> "Span":

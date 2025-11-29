@@ -23,7 +23,7 @@ from pydantic_tfl_api.models import (
 )
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from tests.helpers.otel import get_recorded_spans
+from tests.helpers.otel import assert_span_status, get_recorded_spans
 
 
 # Re-enable OTEL for these tests
@@ -718,3 +718,90 @@ class TestTflApiSpanErrorHandling:
         # Verify the method returns hub_code (from stop_point) and None for hub_name on error
         assert hub_code == "HUBVIC"
         assert hub_name is None
+
+
+class TestTflApiSpanSuccessStatus:
+    """Test class for verifying TfL API spans have OK status on success."""
+
+    @pytest.mark.asyncio
+    async def test_fetch_available_modes_has_ok_status_on_success(
+        self,
+        tfl_service_with_mock: TfLService,
+        in_memory_span_exporter: InMemorySpanExporter,
+        test_tracer_provider: TracerProvider,
+    ) -> None:
+        """Test that fetch_available_modes span has OK status on successful completion."""
+        exporter = in_memory_span_exporter
+        test_tracer = test_tracer_provider.get_tracer(tfl_service.__name__)
+
+        # Setup mock response
+        mock_modes = [create_mock_mode("tube"), create_mock_mode("dlr")]
+        mock_response = MockResponse(
+            data=mock_modes,
+            shared_expires=datetime.now(UTC) + timedelta(days=7),
+        )
+
+        # Fetch modes successfully
+        with (
+            patch("opentelemetry.trace.get_tracer", return_value=test_tracer),
+            patch.object(
+                tfl_service_with_mock.line_client,
+                "MetaModes",
+                new_callable=AsyncMock,
+                return_value=mock_response,
+            ),
+        ):
+            result = await tfl_service_with_mock.fetch_available_modes()
+
+        # Verify result
+        assert result == ["tube", "dlr"]
+
+        # Verify span was created with OK status
+        spans = get_recorded_spans(exporter)
+        assert len(spans) == 1
+
+        span = spans[0]
+        assert span.name == "tfl.api.MetaModes"
+        assert_span_status(span, StatusCode.OK)
+
+    @pytest.mark.asyncio
+    async def test_fetch_lines_has_ok_status_on_success(
+        self,
+        tfl_service_with_mock: TfLService,
+        in_memory_span_exporter: InMemorySpanExporter,
+        test_tracer_provider: TracerProvider,
+    ) -> None:
+        """Test that fetch_lines spans have OK status on successful completion."""
+        exporter = in_memory_span_exporter
+        test_tracer = test_tracer_provider.get_tracer(tfl_service.__name__)
+
+        # Setup mock response
+        mock_line = create_mock_line("victoria", "Victoria", modeName="tube")
+        mock_response = MockResponse(
+            data=[mock_line],
+            shared_expires=datetime.now(UTC) + timedelta(days=1),
+        )
+
+        # Fetch lines successfully
+        with (
+            patch("opentelemetry.trace.get_tracer", return_value=test_tracer),
+            patch.object(
+                tfl_service_with_mock.line_client,
+                "GetByModeByPathModes",
+                new_callable=AsyncMock,
+                return_value=mock_response,
+            ),
+        ):
+            result = await tfl_service_with_mock.fetch_lines(modes=["tube"])
+
+        # Verify result
+        assert len(result) == 1
+        assert result[0].name == "Victoria"
+
+        # Verify span was created with OK status
+        spans = get_recorded_spans(exporter)
+        assert len(spans) == 1
+
+        span = spans[0]
+        assert span.name == "tfl.api.GetByModeByPathModes"
+        assert_span_status(span, StatusCode.OK)
