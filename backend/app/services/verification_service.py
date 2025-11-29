@@ -9,6 +9,7 @@ from fastapi import HTTPException
 from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.telemetry import service_span
 from app.models.rate_limit import RateLimitAction, RateLimitLog
 from app.models.user import VerificationCode, VerificationType
 from app.services.contact_service import get_contact_by_id
@@ -193,49 +194,57 @@ class VerificationService:
         Raises:
             HTTPException: If rate limit exceeded or sending fails
         """
-        # Check rate limit
-        await self.check_verification_rate_limit(contact_id)
+        with service_span(
+            "verification.create_and_send_code",
+            "verification-service",
+        ) as span:
+            # Set span attributes
+            span.set_attribute("verification.contact_id", str(contact_id))
+            span.set_attribute("verification.user_id", str(user_id))
+            span.set_attribute("verification.contact_type", contact_type.value)
+            # Check rate limit
+            await self.check_verification_rate_limit(contact_id)
 
-        # Generate code
-        code = self.generate_code()
+            # Generate code
+            code = self.generate_code()
 
-        # Create verification code in database
-        verification_code = VerificationCode(
-            user_id=user_id,
-            contact_id=contact_id,
-            code=code,
-            type=contact_type,
-            expires_at=datetime.now(UTC) + timedelta(minutes=VERIFICATION_CODE_EXPIRY_MINUTES),
-            used=False,
-        )
-        self.db.add(verification_code)
-        await self.db.commit()
-
-        # Record rate limit event
-        await self.record_verification_code_request(contact_id, user_id)
-
-        # Send code via appropriate channel
-        try:
-            if contact_type == VerificationType.EMAIL:
-                await self.email_service.send_verification_email(contact_value, code)
-            else:
-                await self.sms_service.send_verification_sms(contact_value, code)
-
-            logger.info(
-                "verification_code_sent",
-                contact_id=str(contact_id),
-                contact_type=contact_type.value,
+            # Create verification code in database
+            verification_code = VerificationCode(
+                user_id=user_id,
+                contact_id=contact_id,
+                code=code,
+                type=contact_type,
+                expires_at=datetime.now(UTC) + timedelta(minutes=VERIFICATION_CODE_EXPIRY_MINUTES),
+                used=False,
             )
-        except Exception as e:
-            logger.error(
-                "verification_code_send_failed",
-                contact_id=str(contact_id),
-                error=str(e),
-            )
-            raise HTTPException(
-                status_code=500,
-                detail="Failed to send verification code. Please try again later.",
-            ) from e
+            self.db.add(verification_code)
+            await self.db.commit()
+
+            # Record rate limit event
+            await self.record_verification_code_request(contact_id, user_id)
+
+            # Send code via appropriate channel
+            try:
+                if contact_type == VerificationType.EMAIL:
+                    await self.email_service.send_verification_email(contact_value, code)
+                else:
+                    await self.sms_service.send_verification_sms(contact_value, code)
+
+                logger.info(
+                    "verification_code_sent",
+                    contact_id=str(contact_id),
+                    contact_type=contact_type.value,
+                )
+            except Exception as e:
+                logger.error(
+                    "verification_code_send_failed",
+                    contact_id=str(contact_id),
+                    error=str(e),
+                )
+                raise HTTPException(
+                    status_code=500,
+                    detail="Failed to send verification code. Please try again later.",
+                ) from e
 
     async def verify_code(self, code: str, contact_id: uuid.UUID, user_id: uuid.UUID) -> bool:
         """

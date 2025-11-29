@@ -6,8 +6,10 @@ from pathlib import Path
 import aiosmtplib
 import structlog
 from jinja2 import Environment, FileSystemLoader, select_autoescape
+from opentelemetry.trace import SpanKind
 
 from app.core.config import require_config, settings
+from app.core.telemetry import service_span
 
 # Validate required email configuration
 require_config("SMTP_HOST", "SMTP_PORT", "SMTP_USER", "SMTP_PASSWORD", "SMTP_FROM_EMAIL")
@@ -175,40 +177,50 @@ This is an automated message from IsTheTubeRunning.
             asyncio.TimeoutError: If SMTP operation times out
             OSError: If network/socket errors occur
         """
-        try:
-            # Create the email message
-            message = EmailMessage()
-            message["Subject"] = subject
-            message["From"] = self.from_email
-            message["To"] = to
+        with service_span(
+            "email.send",
+            "smtp",
+            kind=SpanKind.CLIENT,
+        ) as span:
+            # Set SMTP span attributes
+            span.set_attribute("smtp.host", self.smtp_host)
+            span.set_attribute("smtp.port", self.smtp_port)
+            span.set_attribute("email.recipient", to)
+            span.set_attribute("email.subject", subject)
+            try:
+                # Create the email message
+                message = EmailMessage()
+                message["Subject"] = subject
+                message["From"] = self.from_email
+                message["To"] = to
 
-            # Set content (plain text as fallback, HTML as preferred)
-            message.set_content(text_content)
-            message.add_alternative(html_content, subtype="html")
+                # Set content (plain text as fallback, HTML as preferred)
+                message.set_content(text_content)
+                message.add_alternative(html_content, subtype="html")
 
-            # Send the email via SMTP (async network I/O)
-            # timeout parameter prevents indefinite hangs on unreachable hosts
-            use_tls, start_tls = get_tls_settings(self.smtp_port, self.require_tls)
+                # Send the email via SMTP (async network I/O)
+                # timeout parameter prevents indefinite hangs on unreachable hosts
+                use_tls, start_tls = get_tls_settings(self.smtp_port, self.require_tls)
 
-            async with aiosmtplib.SMTP(
-                hostname=self.smtp_host,
-                port=self.smtp_port,
-                timeout=self.smtp_timeout,
-                use_tls=use_tls,
-                start_tls=start_tls,
-            ) as server:
-                await server.login(self.smtp_user, self.smtp_password)
-                await server.send_message(message)
+                async with aiosmtplib.SMTP(
+                    hostname=self.smtp_host,
+                    port=self.smtp_port,
+                    timeout=self.smtp_timeout,
+                    use_tls=use_tls,
+                    start_tls=start_tls,
+                ) as server:
+                    await server.login(self.smtp_user, self.smtp_password)
+                    await server.send_message(message)
 
-            logger.info("email_sent", recipient=to, subject=subject)
+                logger.info("email_sent", recipient=to, subject=subject)
 
-        except TimeoutError as e:
-            logger.error("email_send_timeout", recipient=to, subject=subject, error=str(e))
-            raise
-        except OSError as e:
-            # Catches ConnectionRefusedError, ConnectionResetError, socket errors, etc.
-            logger.error("email_send_network_error", recipient=to, subject=subject, error=str(e))
-            raise
-        except aiosmtplib.SMTPException as e:
-            logger.error("email_send_failed", recipient=to, subject=subject, error=str(e))
-            raise
+            except TimeoutError as e:
+                logger.error("email_send_timeout", recipient=to, subject=subject, error=str(e))
+                raise
+            except OSError as e:
+                # Catches ConnectionRefusedError, ConnectionResetError, socket errors, etc.
+                logger.error("email_send_network_error", recipient=to, subject=subject, error=str(e))
+                raise
+            except aiosmtplib.SMTPException as e:
+                logger.error("email_send_failed", recipient=to, subject=subject, error=str(e))
+                raise
