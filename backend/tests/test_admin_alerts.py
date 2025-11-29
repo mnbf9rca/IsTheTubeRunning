@@ -16,6 +16,8 @@ from app.models.user_route import UserRoute
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from tests.helpers.http_assertions import assert_401_unauthorized
+
 
 def build_api_url(endpoint: str) -> str:
     """
@@ -56,8 +58,7 @@ async def async_client_with_db(db_session: AsyncSession) -> AsyncGenerator[Async
 async def test_trigger_check_requires_auth(async_client_with_db: AsyncClient) -> None:
     """Test that trigger-check endpoint requires authentication."""
     response = await async_client_with_db.post(build_api_url("/admin/alerts/trigger-check"))
-    assert response.status_code == 401  # FastAPI 0.122+ returns 401 for missing credentials per RFC 7235
-    assert response.json()["detail"] == "Not authenticated"
+    assert_401_unauthorized(response, expected_detail="Not authenticated")
 
 
 @pytest.mark.asyncio
@@ -79,8 +80,7 @@ async def test_trigger_check_requires_admin(
 async def test_worker_status_requires_auth(async_client_with_db: AsyncClient) -> None:
     """Test that worker-status endpoint requires authentication."""
     response = await async_client_with_db.get(build_api_url("/admin/alerts/worker-status"))
-    assert response.status_code == 401  # FastAPI 0.122+ returns 401 for missing credentials per RFC 7235
-    assert response.json()["detail"] == "Not authenticated"
+    assert_401_unauthorized(response, expected_detail="Not authenticated")
 
 
 @pytest.mark.asyncio
@@ -102,8 +102,7 @@ async def test_worker_status_requires_admin(
 async def test_recent_logs_requires_auth(async_client_with_db: AsyncClient) -> None:
     """Test that recent-logs endpoint requires authentication."""
     response = await async_client_with_db.get(build_api_url("/admin/alerts/recent-logs"))
-    assert response.status_code == 401  # FastAPI 0.122+ returns 401 for missing credentials per RFC 7235
-    assert response.json()["detail"] == "Not authenticated"
+    assert_401_unauthorized(response, expected_detail="Not authenticated")
 
 
 @pytest.mark.asyncio

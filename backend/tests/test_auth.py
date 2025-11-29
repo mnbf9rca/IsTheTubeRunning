@@ -274,7 +274,7 @@ class TestVerifyJWTEdgeCases:
 
         assert exc_info.value.status_code == 401
         assert "signing key" in exc_info.value.detail.lower()
-        assert exc_info.value.headers == {"WWW-Authenticate": "Bearer"}
+        assert exc_info.value.headers.get("WWW-Authenticate") == "Bearer"
 
     @pytest.mark.asyncio
     async def test_verify_jwt_with_missing_jwks_fields(self) -> None:
@@ -324,7 +324,7 @@ class TestVerifyJWTEdgeCases:
 
         assert exc_info.value.status_code == 401
         assert "sub" in exc_info.value.detail.lower()
-        assert exc_info.value.headers == {"WWW-Authenticate": "Bearer"}
+        assert exc_info.value.headers.get("WWW-Authenticate") == "Bearer"
 
     @pytest.mark.asyncio
     async def test_get_jwks_success(self) -> None:

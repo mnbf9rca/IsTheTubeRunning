@@ -17,6 +17,8 @@ from fastapi import HTTPException, status
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from tests.helpers.http_assertions import assert_401_unauthorized
+
 
 def build_api_url(endpoint: str) -> str:
     """
@@ -135,8 +137,7 @@ async def test_get_lines_unauthenticated(async_client_with_auth: AsyncClient) ->
     ) as client:
         response = await client.get(build_api_url("/tfl/lines"))
 
-    assert response.status_code == 401  # FastAPI 0.122+ returns 401 for missing credentials per RFC 7235
-    assert response.json()["detail"] == "Not authenticated"
+    assert_401_unauthorized(response, expected_detail="Not authenticated")
 
 
 # ==================== GET /tfl/stations Tests ====================
@@ -454,8 +455,7 @@ async def test_build_graph_unauthenticated(async_client_with_admin: AsyncClient)
     ) as client:
         response = await client.post(build_api_url("/admin/tfl/build-graph"))
 
-    assert response.status_code == 401  # FastAPI 0.122+ returns 401 for missing credentials per RFC 7235
-    assert response.json()["detail"] == "Not authenticated"
+    assert_401_unauthorized(response, expected_detail="Not authenticated")
 
 
 async def test_build_graph_non_admin(async_client_with_auth: AsyncClient) -> None:
@@ -678,8 +678,7 @@ async def test_get_line_routes_unauthenticated(
     ) as client:
         response = await client.get(build_api_url("/tfl/lines/victoria/routes"))
 
-    assert response.status_code == 401  # FastAPI 0.122+ returns 401 for missing credentials per RFC 7235
-    assert response.json()["detail"] == "Not authenticated"
+    assert_401_unauthorized(response, expected_detail="Not authenticated")
 
 
 @patch("app.services.tfl_service.TfLService.get_line_routes")
@@ -833,8 +832,7 @@ async def test_get_station_routes_unauthenticated(
     ) as client:
         response = await client.get(build_api_url("/tfl/stations/940GZZLUVIC/routes"))
 
-    assert response.status_code == 401  # FastAPI 0.122+ returns 401 for missing credentials per RFC 7235
-    assert response.json()["detail"] == "Not authenticated"
+    assert_401_unauthorized(response, expected_detail="Not authenticated")
 
 
 @patch("app.services.tfl_service.TfLService.get_station_routes")
