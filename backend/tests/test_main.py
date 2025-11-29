@@ -30,7 +30,7 @@ def test_readiness_check(client: TestClient) -> None:
     """Test readiness check endpoint - happy path."""
     with (
         patch("app.main.get_engine") as mock_get_engine,
-        patch("app.main.redis.from_url") as mock_redis_from_url,
+        patch("app.main.get_redis_client") as mock_get_redis_client,
     ):
         # Mock database connection (async)
         mock_conn = AsyncMock()
@@ -48,7 +48,7 @@ def test_readiness_check(client: TestClient) -> None:
         # Mock Redis connection (async)
         mock_redis_client = AsyncMock()
         mock_redis_client.ping = AsyncMock()
-        mock_redis_from_url.return_value = mock_redis_client
+        mock_get_redis_client.return_value = mock_redis_client
 
         response = client.get("/ready")
         assert response.status_code == 200
@@ -78,7 +78,7 @@ async def test_readiness_check_redis_failure(async_client: AsyncClient) -> None:
     """Test readiness check returns 503 when Redis is unavailable."""
     with (
         patch("app.main.get_engine") as mock_get_engine,
-        patch("app.main.redis.from_url") as mock_redis_from_url,
+        patch("app.main.get_redis_client") as mock_get_redis_client,
     ):
         # Mock successful database connection
         mock_conn = AsyncMock()
@@ -91,7 +91,7 @@ async def test_readiness_check_redis_failure(async_client: AsyncClient) -> None:
         # Mock Redis connection failure
         mock_redis_client = AsyncMock()
         mock_redis_client.ping.side_effect = Exception("Redis connection failed")
-        mock_redis_from_url.return_value = mock_redis_client
+        mock_get_redis_client.return_value = mock_redis_client
 
         response = await async_client.get("/ready")
 
@@ -106,7 +106,7 @@ async def test_readiness_check_verifies_redis_connectivity(async_client: AsyncCl
     """Test readiness check actually pings Redis."""
     with (
         patch("app.main.get_engine") as mock_get_engine,
-        patch("app.main.redis.from_url") as mock_redis_from_url,
+        patch("app.main.get_redis_client") as mock_get_redis_client,
     ):
         # Mock database success
         mock_conn = AsyncMock()
@@ -120,15 +120,15 @@ async def test_readiness_check_verifies_redis_connectivity(async_client: AsyncCl
         mock_redis_client = AsyncMock()
         mock_redis_ping = AsyncMock()
         mock_redis_client.ping = mock_redis_ping
-        mock_redis_from_url.return_value = mock_redis_client
+        mock_get_redis_client.return_value = mock_redis_client
 
         response = await async_client.get("/ready")
 
         assert response.status_code == 200
         # Verify ping was called
         mock_redis_ping.assert_called_once()
-        # Verify close was called in cleanup
-        mock_redis_client.close.assert_called_once()
+        # Verify aclose was called in cleanup
+        mock_redis_client.aclose.assert_called_once()
 
 
 @pytest.mark.asyncio
@@ -136,7 +136,7 @@ async def test_readiness_check_closes_redis_on_error(async_client: AsyncClient) 
     """Test readiness check closes Redis client even when ping fails."""
     with (
         patch("app.main.get_engine") as mock_get_engine,
-        patch("app.main.redis.from_url") as mock_redis_from_url,
+        patch("app.main.get_redis_client") as mock_get_redis_client,
     ):
         # Mock database success
         mock_conn = AsyncMock()
@@ -149,15 +149,15 @@ async def test_readiness_check_closes_redis_on_error(async_client: AsyncClient) 
         # Mock Redis ping failure
         mock_redis_client = AsyncMock()
         mock_redis_client.ping.side_effect = Exception("Redis error")
-        mock_redis_close = AsyncMock()
-        mock_redis_client.close = mock_redis_close
-        mock_redis_from_url.return_value = mock_redis_client
+        mock_redis_aclose = AsyncMock()
+        mock_redis_client.aclose = mock_redis_aclose
+        mock_get_redis_client.return_value = mock_redis_client
 
         response = await async_client.get("/ready")
 
         assert response.status_code == 503
-        # Verify close was still called despite error
-        mock_redis_close.assert_called_once()
+        # Verify aclose was still called despite error
+        mock_redis_aclose.assert_called_once()
 
 
 @pytest.mark.asyncio

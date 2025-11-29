@@ -13,12 +13,15 @@ from app.core.config import settings
 from app.models.tfl import (
     DisruptionCategory,
     Line,
+    LineChangeLog,
     SeverityCode,
     Station,
     StationConnection,
     StationDisruption,
     StopType,
 )
+from app.models.user import User
+from app.models.user_route import UserRoute, UserRouteSegment
 from app.schemas.tfl import DisruptionResponse, RouteSegmentRequest, StationDisruptionResponse
 from app.services.tfl_service import (
     DEFAULT_METADATA_CACHE_TTL,
@@ -1014,6 +1017,270 @@ async def test_fetch_lines_invalid_mode(
         expected_cache_key = "lines:modes:spaceship"
         tfl_service.cache.set.assert_called_once()
         assert tfl_service.cache.set.call_args[0][0] == expected_cache_key
+
+
+async def test_fetch_lines_preserves_ids_on_update(
+    tfl_service: TfLService,
+    db_session: AsyncSession,
+) -> None:
+    """Test that fetch_lines updates existing lines without changing their IDs."""
+    with freeze_time("2025-01-01 12:00:00"):
+        # First fetch to create lines
+        mock_lines_v1 = [create_mock_line(id="victoria", name="Victoria")]
+        mock_response_v1 = MockResponse(
+            data=mock_lines_v1,
+            shared_expires=datetime(2025, 1, 2, 12, 0, 0, tzinfo=UTC),
+        )
+
+        with patch.object(
+            tfl_service.line_client,
+            "GetByModeByPathModes",
+            new_callable=AsyncMock,
+            return_value=mock_response_v1,
+        ):
+            first_lines = await tfl_service.fetch_lines(modes=["tube"], use_cache=False)
+
+        # Store the original ID
+        first_line_id = first_lines[0].id
+        assert first_lines[0].name == "Victoria"
+
+        # Second fetch with updated name
+        mock_lines_v2 = [create_mock_line(id="victoria", name="Victoria Line")]
+        mock_response_v2 = MockResponse(
+            data=mock_lines_v2,
+            shared_expires=datetime(2025, 1, 2, 12, 0, 0, tzinfo=UTC),
+        )
+
+        with patch.object(
+            tfl_service.line_client,
+            "GetByModeByPathModes",
+            new_callable=AsyncMock,
+            return_value=mock_response_v2,
+        ):
+            second_lines = await tfl_service.fetch_lines(modes=["tube"], use_cache=False)
+
+        # Verify: same ID but updated name
+        assert second_lines[0].id == first_line_id
+        assert second_lines[0].name == "Victoria Line"
+
+
+async def test_fetch_lines_with_existing_route_references(
+    tfl_service: TfLService,
+    db_session: AsyncSession,
+    test_user: User,
+) -> None:
+    """Test that fetch_lines works when lines are referenced by user route segments."""
+    with freeze_time("2025-01-01 12:00:00"):
+        # Create a line first
+        mock_lines = [create_mock_line(id="victoria", name="Victoria")]
+        mock_response = MockResponse(
+            data=mock_lines,
+            shared_expires=datetime(2025, 1, 2, 12, 0, 0, tzinfo=UTC),
+        )
+
+        with patch.object(
+            tfl_service.line_client,
+            "GetByModeByPathModes",
+            new_callable=AsyncMock,
+            return_value=mock_response,
+        ):
+            first_lines = await tfl_service.fetch_lines(modes=["tube"], use_cache=False)
+
+        line = first_lines[0]
+
+        # Create a station and user route that references this line
+        # (This would normally cause FK violation with old delete pattern)
+        station = Station(
+            tfl_id="940GZZLUVIC",
+            name="Victoria",
+            latitude=51.4963,
+            longitude=-0.1441,
+            lines=["victoria"],
+            last_updated=datetime.now(UTC),
+        )
+        db_session.add(station)
+
+        route = UserRoute(
+            user_id=test_user.id,
+            name="Test Route",
+            timezone="Europe/London",
+        )
+        db_session.add(route)
+        await db_session.flush()
+
+        segment = UserRouteSegment(
+            route_id=route.id,
+            station_id=station.id,
+            line_id=line.id,  # References the line
+            sequence=0,
+        )
+        db_session.add(segment)
+        await db_session.commit()
+
+        # Fetch lines again - should NOT raise IntegrityError
+        with patch.object(
+            tfl_service.line_client,
+            "GetByModeByPathModes",
+            new_callable=AsyncMock,
+            return_value=mock_response,
+        ):
+            updated_lines = await tfl_service.fetch_lines(modes=["tube"], use_cache=False)
+
+        # Line should still exist with same ID
+        assert any(updated_line.id == line.id for updated_line in updated_lines)
+
+
+async def test_fetch_lines_logs_changes(
+    tfl_service: TfLService,
+    db_session: AsyncSession,
+) -> None:
+    """Test that fetch_lines logs line metadata changes."""
+    with freeze_time("2025-01-01 12:00:00"):
+        # First fetch - creates line
+        mock_lines_v1 = [create_mock_line(id="victoria", name="Victoria")]
+        mock_response_v1 = MockResponse(
+            data=mock_lines_v1,
+            shared_expires=datetime(2025, 1, 2, 12, 0, 0, tzinfo=UTC),
+        )
+
+        with patch.object(
+            tfl_service.line_client,
+            "GetByModeByPathModes",
+            new_callable=AsyncMock,
+            return_value=mock_response_v1,
+        ):
+            await tfl_service.fetch_lines(modes=["tube"], use_cache=False)
+
+        # Check creation was logged
+        result = await db_session.execute(select(LineChangeLog).where(LineChangeLog.tfl_id == "victoria"))
+        logs = result.scalars().all()
+        assert len(logs) == 1
+        assert logs[0].change_type == "created"
+        assert logs[0].changed_fields == ["name", "mode"]
+        assert logs[0].old_values is None
+        assert logs[0].new_values == {"name": "Victoria", "mode": "tube"}
+
+        # Second fetch with name change
+        mock_lines_v2 = [create_mock_line(id="victoria", name="Victoria Line")]
+        mock_response_v2 = MockResponse(
+            data=mock_lines_v2,
+            shared_expires=datetime(2025, 1, 2, 12, 0, 0, tzinfo=UTC),
+        )
+
+        with patch.object(
+            tfl_service.line_client,
+            "GetByModeByPathModes",
+            new_callable=AsyncMock,
+            return_value=mock_response_v2,
+        ):
+            await tfl_service.fetch_lines(modes=["tube"], use_cache=False)
+
+        # Check update was logged
+        result = await db_session.execute(
+            select(LineChangeLog).where(LineChangeLog.tfl_id == "victoria").order_by(LineChangeLog.created_at)
+        )
+        logs = result.scalars().all()
+        assert len(logs) == 2
+        assert logs[1].change_type == "updated"
+        assert logs[1].changed_fields == ["name"]
+        assert logs[1].old_values == {"name": "Victoria"}
+        assert logs[1].new_values == {"name": "Victoria Line"}
+
+
+async def test_fetch_lines_logs_trace_id_when_otel_enabled(
+    tfl_service: TfLService,
+    db_session: AsyncSession,
+    otel_enabled_provider: Any,  # noqa: ANN401
+) -> None:
+    """Test that fetch_lines logs trace_id when OTEL is enabled and a span is active."""
+    # Import here to avoid issues with OTEL initialization
+    from opentelemetry import trace  # noqa: PLC0415
+
+    # Create mock line data
+    mock_lines = [create_mock_line(id="victoria", name="Victoria")]
+    mock_response = MockResponse(
+        data=mock_lines,
+        shared_expires=datetime(2025, 1, 2, 12, 0, 0, tzinfo=UTC),
+    )
+
+    # Start a span and verify trace_id is logged
+    tracer = trace.get_tracer(__name__)
+    with tracer.start_as_current_span("test_span") as span:
+        span_context = span.get_span_context()
+        expected_trace_id = format(span_context.trace_id, "032x")
+
+        with patch.object(
+            tfl_service.line_client,
+            "GetByModeByPathModes",
+            new_callable=AsyncMock,
+            return_value=mock_response,
+        ):
+            await tfl_service.fetch_lines(modes=["tube"], use_cache=False)
+
+        # Verify LineChangeLog has trace_id
+        result = await db_session.execute(select(LineChangeLog).where(LineChangeLog.tfl_id == "victoria"))
+        logs = result.scalars().all()
+        assert len(logs) == 1
+        assert logs[0].trace_id == expected_trace_id
+
+
+async def test_store_line_routes_logs_changes(
+    db_session: AsyncSession,
+) -> None:
+    """Test that _store_line_routes logs route_variants changes."""
+    # Create a line with initial route_variants
+    initial_routes = {
+        "routes": [
+            {
+                "name": "Route 1",
+                "service_type": "Regular",
+                "direction": "inbound",
+                "stations": ["940GZZLUBXN", "940GZZLUVIC"],
+            }
+        ]
+    }
+    line = Line(
+        tfl_id="victoria",
+        name="Victoria",
+        mode="tube",
+        route_variants=initial_routes,
+        last_updated=datetime.now(UTC),
+    )
+    db_session.add(line)
+    await db_session.commit()
+
+    # Create new route data (different from initial - using outbound direction)
+    new_route = MockOrderedRoute(
+        name="Route 2",
+        service_type="Regular",
+        naptan_ids=["940GZZLUVIC", "940GZZLUWAC"],
+    )
+    outbound_data = MockRouteSequence(orderedLineRoutes=[new_route])
+
+    # Execute _store_line_routes with different route data (pass as outbound)
+    tfl_service = TfLService(db_session)
+    tfl_service._store_line_routes(line, None, outbound_data)
+    await db_session.commit()
+
+    # Verify route_variants change was logged
+    result = await db_session.execute(
+        select(LineChangeLog).where(
+            LineChangeLog.tfl_id == "victoria",
+            LineChangeLog.change_type == "updated",
+        )
+    )
+    logs = result.scalars().all()
+    assert len(logs) == 1
+    assert logs[0].changed_fields == ["route_variants"]
+    assert logs[0].old_values == {"route_variants": initial_routes}
+    # Verify new values have the updated route
+    new_values = logs[0].new_values
+    assert "route_variants" in new_values
+    new_route_variants = new_values["route_variants"]
+    assert "routes" in new_route_variants
+    assert len(new_route_variants["routes"]) == 1
+    assert new_route_variants["routes"][0]["name"] == "Route 2"
+    assert new_route_variants["routes"][0]["direction"] == "outbound"
 
 
 # ==================== fetch_stations Tests ====================
@@ -5922,15 +6189,17 @@ async def test_store_line_routes_regular_service(db_session: AsyncSession) -> No
     routes = line.route_variants["routes"]
     assert len(routes) == 2
 
+    # Find routes by direction (order is deterministic but based on station sorting)
+    inbound = next(r for r in routes if r["direction"] == "inbound")
+    outbound = next(r for r in routes if r["direction"] == "outbound")
+
     # Check inbound route
-    inbound = routes[0]
     assert inbound["name"] == "Walthamstow Central → Brixton"
     assert inbound["service_type"] == "Regular"
     assert inbound["direction"] == "inbound"
     assert inbound["stations"] == ["940GZZLUWAC", "940GZZLUVIC", "940GZZLUBXN"]
 
     # Check outbound route
-    outbound = routes[1]
     assert outbound["name"] == "Brixton → Walthamstow Central"
     assert outbound["service_type"] == "Regular"
     assert outbound["direction"] == "outbound"

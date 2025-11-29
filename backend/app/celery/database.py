@@ -15,7 +15,7 @@ import asyncio
 import contextlib
 import threading
 from collections.abc import AsyncGenerator
-from typing import Protocol, cast
+from typing import cast
 
 import redis.asyncio
 import structlog
@@ -24,6 +24,7 @@ from opentelemetry import trace
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker, create_async_engine
 
 from app.core.config import settings
+from app.core.redis import RedisClientProtocol
 
 # Module-level globals for worker resources
 # These are created once per worker process and reused across all tasks
@@ -39,27 +40,6 @@ _worker_sqlalchemy_instrumented: bool = False
 _init_lock = threading.RLock()
 
 logger = structlog.get_logger(__name__)
-
-
-class RedisClientProtocol(Protocol):
-    """
-    Protocol for Redis async client with proper type hints.
-
-    redis-py 5.x provides aclose() but redis-stubs package doesn't include it,
-    so we define this protocol to avoid type ignore comments everywhere.
-    """
-
-    async def get(self, name: str) -> str | None:
-        """Get the value at key name."""
-        ...
-
-    async def setex(self, name: str, time: int, value: str) -> bool:
-        """Set the value at key name with expiration time."""
-        ...
-
-    async def aclose(self, close_connection_pool: bool = True) -> None:
-        """Close the client connection."""
-        ...
 
 
 @worker_process_init.connect
@@ -266,7 +246,7 @@ def get_worker_redis_client() -> "RedisClientProtocol":
             if _worker_redis_client is None:
                 _worker_redis_client = cast(
                     RedisClientProtocol,
-                    redis.asyncio.from_url(
+                    redis.asyncio.from_url(  # type: ignore[no-untyped-call]
                         settings.REDIS_URL,
                         encoding="utf-8",
                         decode_responses=True,

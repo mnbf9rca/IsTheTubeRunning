@@ -4,7 +4,6 @@ from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 from pathlib import Path
 
-import redis.asyncio as redis
 import structlog
 from alembic import script
 from alembic.config import Config
@@ -21,6 +20,7 @@ from app.api import admin, auth, contacts, notification_preferences, routes, tfl
 from app.core.config import settings
 from app.core.database import get_engine, get_session_factory
 from app.core.logging import configure_logging
+from app.core.redis import get_redis_client
 from app.core.telemetry import (
     get_tracer_provider,
     set_logger_provider,
@@ -28,6 +28,7 @@ from app.core.telemetry import (
     shutdown_tracer_provider,
 )
 from app.middleware import AccessLoggingMiddleware
+from app.services.alert_service import warm_up_line_state_cache
 from app.services.tfl_service import warm_up_metadata_cache
 
 # Configure logging at module level so Uvicorn startup logs go through structlog pipeline
@@ -142,6 +143,20 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
             stop_types=counts["stop_types_count"],
         )
 
+    # Warm up line disruption state cache from database
+    # Rehydrates Redis with latest aggregate state hash per line
+    # warm_up_line_state_cache handles all exceptions internally
+    redis_client = await get_redis_client()
+    try:
+        async with get_session_factory()() as session:
+            lines_count = await warm_up_line_state_cache(session, redis_client)
+            logger.info(
+                "line_state_cache_warmup_complete",
+                lines_hydrated=lines_count,
+            )
+    finally:
+        await redis_client.aclose()
+
     logger.info("startup_complete")
 
     yield
@@ -213,12 +228,12 @@ async def readiness_check() -> dict[str, str]:
         async with get_engine().begin() as conn:
             await conn.execute(text("SELECT 1"))
 
-        # Check Redis connectivity
-        redis_client = redis.from_url(settings.REDIS_URL, encoding="utf-8", decode_responses=True)
+        # Check Redis connectivity using the shared Redis client factory
+        redis_client = await get_redis_client()
         try:
             await redis_client.ping()
         finally:
-            await redis_client.close()
+            await redis_client.aclose()
 
         return {"status": "ready"}
     except Exception as e:
