@@ -11,6 +11,8 @@ import pytest
 from app.core.config import settings
 from app.models.user import User
 from httpx import AsyncClient
+from opentelemetry.sdk.trace import TracerProvider
+from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanExporter
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -291,3 +293,31 @@ class TestLoggerProviderCreation:
         # get_logger_provider should still work (provider created but no exporter)
         provider = telemetry.get_logger_provider()
         assert provider is not None  # Provider created even without endpoint
+
+
+def test_otel_enabled_provider_uses_in_memory_exporter(
+    otel_enabled_provider: tuple[TracerProvider, InMemorySpanExporter],
+) -> None:
+    """Verify otel_enabled_provider uses InMemorySpanExporter (no network calls).
+
+    This test ensures that OTEL-enabled tests never send telemetry to production
+    collectors by verifying the fixture uses an in-memory exporter.
+    """
+    provider, exporter = otel_enabled_provider
+
+    # Verify exporter type - must be InMemorySpanExporter, not OTLP
+    assert isinstance(exporter, InMemorySpanExporter), (
+        "otel_enabled_provider must use InMemorySpanExporter to prevent network calls to production collectors"
+    )
+
+    # Create a span and verify it's captured in memory
+    tracer = provider.get_tracer(__name__)
+    with tracer.start_as_current_span("test-safeguard-span") as span:
+        # Add some attributes to make the test more realistic
+        span.set_attribute("test.attribute", "value")
+
+    # Verify span was captured in memory (not sent to network)
+    spans = exporter.get_finished_spans()
+    assert len(spans) == 1, "Span should be captured in memory"
+    assert spans[0].name == "test-safeguard-span"
+    assert spans[0].attributes["test.attribute"] == "value"  # type: ignore[index]

@@ -191,3 +191,42 @@ Created CLI tool (`uv run python -m app.cli`) for admin user management with sha
 **More Difficult:**
 - Must remember to use CLI tool instead of manual SQL
 - CLI requires running from backend directory with `uv run`
+
+---
+
+## OTEL Test Isolation with InMemorySpanExporter
+
+### Status
+Active (Issue #278)
+
+### Context
+Tests that enable OpenTelemetry must not send telemetry data to production collectors. Without proper isolation, test spans could:
+- Pollute production telemetry with fake test data
+- Expose credentials in test environments
+- Create unwanted network dependencies during testing
+
+Need a safe way to test OTEL-enabled code paths without risking production data leaks.
+
+### Decision
+Use `InMemorySpanExporter` in the `otel_enabled_provider` test fixture. All OTEL-enabled tests capture spans in memory only, never sending data over the network.
+
+**Pattern:**
+- `otel_enabled_provider` fixture creates `TracerProvider` with `InMemorySpanExporter`
+- Returns tuple of `(TracerProvider, InMemorySpanExporter)` for optional span verification
+- Uses `SimpleSpanProcessor` for deterministic synchronous processing
+- No OTLP exporter configured - zero network calls possible
+
+**Implementation:** See `backend/tests/fixtures/otel.py` for detailed fixture implementation with usage examples in docstring.
+
+### Consequences
+
+**Easier:**
+- **Zero Network Calls**: Tests cannot accidentally send data to production collectors
+- **Deterministic Testing**: Synchronous span processing makes assertions reliable
+- **Span Verification**: Tests can optionally verify span creation via `exporter.get_finished_spans()`
+- **Fast Tests**: No network overhead, spans processed in-memory
+- **Explicit Safety**: Clear documentation in fixture prevents misuse
+
+**More Difficult:**
+- **Tuple Unpacking**: Tests must unpack `(provider, exporter)` tuple (minor syntax change)
+- **Not Testing OTLP Export**: Tests don't verify actual network export (acceptable tradeoff)
