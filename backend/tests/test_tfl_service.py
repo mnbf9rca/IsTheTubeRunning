@@ -1,8 +1,9 @@
 """Tests for TfL service."""
 
 import uuid
+from collections.abc import Callable
 from datetime import UTC, datetime
-from typing import Any
+from typing import Any, NoReturn
 from unittest.mock import AsyncMock, MagicMock, patch
 from urllib.parse import urlparse
 
@@ -386,11 +387,68 @@ def mock_cache() -> AsyncMock:
     return cache
 
 
+def apply_fail_safe_mocks(service: TfLService) -> None:
+    """Apply fail-safe mocking to a TfLService instance.
+
+    Auto-mocks all TfL API client methods to raise RuntimeError by default.
+    Tests must explicitly configure methods they need via:
+        service.line_client.MethodName.return_value = mock_response
+        service.line_client.MethodName.side_effect = None
+
+    Use this helper when creating TfLService instances outside the fixture
+    (e.g., for fresh_db_session tests).
+    """
+
+    # Helper to create fail-safe mock for a method
+    def unmocked_method_error(client_name: str, method_name: str) -> Callable[..., NoReturn]:
+        def raise_error(*args: object, **kwargs: object) -> NoReturn:
+            msg = (
+                f"TfL API method '{method_name}' on '{client_name}' was called but not mocked.\n"
+                f"Set service.{client_name}.{method_name}.return_value = ...\n"
+                f"and service.{client_name}.{method_name}.side_effect = None"
+            )
+            raise RuntimeError(msg)
+
+        return raise_error
+
+    # Auto-mock all public callable methods on line_client using introspection
+    for attr_name in dir(service.line_client):
+        # Skip private/dunder methods and non-callables
+        if attr_name.startswith("_"):
+            continue
+        attr = getattr(service.line_client, attr_name)
+        if callable(attr):
+            mock = AsyncMock(side_effect=unmocked_method_error("line_client", attr_name))
+            setattr(service.line_client, attr_name, mock)
+
+    # Auto-mock all public callable methods on stoppoint_client using introspection
+    for attr_name in dir(service.stoppoint_client):
+        # Skip private/dunder methods and non-callables
+        if attr_name.startswith("_"):
+            continue
+        attr = getattr(service.stoppoint_client, attr_name)
+        if callable(attr):
+            mock = AsyncMock(side_effect=unmocked_method_error("stoppoint_client", attr_name))
+            setattr(service.stoppoint_client, attr_name, mock)
+
+
 @pytest.fixture
 def tfl_service(db_session: AsyncSession, mock_cache: AsyncMock) -> TfLService:
-    """Create TfL service with mocked cache."""
+    """Create TfL service with FAIL-SAFE mocked TfL API clients.
+
+    All TfL API client methods are pre-mocked to raise RuntimeError by default.
+    Tests MUST explicitly configure methods they need via:
+        tfl_service.line_client.MethodName.return_value = mock_response
+        tfl_service.line_client.MethodName.side_effect = None
+
+    This prevents accidental real API calls if a test forgets to mock a dependency.
+
+    Integration tests (marked @pytest.mark.integration) should create their own
+    TfLService instance directly without using this fixture.
+    """
     service = TfLService(db_session)
     service.cache = mock_cache
+    apply_fail_safe_mocks(service)
     return service
 
 
@@ -430,21 +488,24 @@ async def assert_fetch_from_api(
         shared_expires=shared_expires,
     )
 
-    # Get the client object and mock the specific method
+    # Configure the client method using fail-safe fixture
     client = getattr(tfl_service, client_attr)
-    with patch.object(client, client_method, new_callable=AsyncMock, return_value=mock_response):
-        # Execute
-        result: list[Any] = await method_callable()
+    mock_method = getattr(client, client_method)
+    mock_method.return_value = mock_response
+    mock_method.side_effect = None  # Clear fail-safe error
 
-        # Verify
-        assert len(result) == expected_count
+    # Execute
+    result: list[Any] = await method_callable()
 
-        # Verify cache was set with correct TTL
-        tfl_service.cache.set.assert_called_once()
-        assert tfl_service.cache.set.call_args[0][0] == cache_key
-        assert tfl_service.cache.set.call_args[1]["ttl"] == expected_ttl
+    # Verify
+    assert len(result) == expected_count
 
-        return result
+    # Verify cache was set with correct TTL
+    tfl_service.cache.set.assert_called_once()
+    assert tfl_service.cache.set.call_args[0][0] == cache_key
+    assert tfl_service.cache.set.call_args[1]["ttl"] == expected_ttl
+
+    return result
 
 
 async def assert_cache_hit(
@@ -499,25 +560,28 @@ async def assert_cache_miss(
         shared_expires=shared_expires,
     )
 
-    # Get the client object and mock the specific method
+    # Configure the client method using fail-safe fixture
     client = getattr(tfl_service, client_attr)
-    with patch.object(client, client_method, new_callable=AsyncMock, return_value=mock_response):
-        # Cache returns None (miss)
-        tfl_service.cache.get = AsyncMock(return_value=None)
+    mock_method = getattr(client, client_method)
+    mock_method.return_value = mock_response
+    mock_method.side_effect = None  # Clear fail-safe error
 
-        # Execute
-        result: list[Any] = await method_callable()
+    # Cache returns None (miss)
+    tfl_service.cache.get = AsyncMock(return_value=None)
 
-        # Verify
-        assert len(result) == expected_count
+    # Execute
+    result: list[Any] = await method_callable()
 
-        # Verify cache was checked
-        tfl_service.cache.get.assert_called_once()
+    # Verify
+    assert len(result) == expected_count
 
-        # Verify cache was populated
-        tfl_service.cache.set.assert_called_once()
+    # Verify cache was checked
+    tfl_service.cache.get.assert_called_once()
 
-        return result
+    # Verify cache was populated
+    tfl_service.cache.set.assert_called_once()
+
+    return result
 
 
 async def assert_api_failure(
@@ -536,14 +600,16 @@ async def assert_api_failure(
         client_attr: Client attribute name ('line_client' or 'stoppoint_client')
         client_method: Method name to mock on the client
     """
-    # Get the client object and mock the specific method to raise an exception
+    # Configure the client method to raise an exception using fail-safe fixture
     client = getattr(tfl_service, client_attr)
-    with patch.object(client, client_method, new_callable=AsyncMock, side_effect=Exception("API Error")):
-        with pytest.raises(HTTPException) as exc_info:
-            await method_callable()
+    mock_method = getattr(client, client_method)
+    mock_method.side_effect = Exception("API Error")
 
-        assert exc_info.value.status_code == 503
-        assert expected_error_message in exc_info.value.detail
+    with pytest.raises(HTTPException) as exc_info:
+        await method_callable()
+
+    assert exc_info.value.status_code == 503
+    assert expected_error_message in exc_info.value.detail
 
 
 # ==================== Pure Helper Function Tests ====================
@@ -800,31 +866,27 @@ async def test_fetch_lines_from_api(
         ]
 
         # Mock the async client method with multiple responses
-        with patch.object(
-            tfl_service.line_client,
-            "GetByModeByPathModes",
-            new_callable=AsyncMock,
-            side_effect=mock_responses,
-        ):
-            # Execute - default modes: ["tube", "overground", "dlr", "elizabeth-line"]
-            lines = await tfl_service.fetch_lines(use_cache=False)
+        tfl_service.line_client.GetByModeByPathModes.side_effect = mock_responses
 
-            # Verify we got all lines from all modes
-            assert len(lines) == 5
+        # Execute - default modes: ["tube", "overground", "dlr", "elizabeth-line"]
+        lines = await tfl_service.fetch_lines(use_cache=False)
 
-            # Verify specific attributes
-            assert lines[0].tfl_id == "victoria"
-            assert lines[0].name == "Victoria"
-            assert lines[0].mode == "tube"
+        # Verify we got all lines from all modes
+        assert len(lines) == 5
 
-            assert lines[2].tfl_id == "london-overground"
-            assert lines[2].mode == "overground"
+        # Verify specific attributes
+        assert lines[0].tfl_id == "victoria"
+        assert lines[0].name == "Victoria"
+        assert lines[0].mode == "tube"
 
-            # Verify cache was set with correct key (modes sorted alphabetically)
-            expected_cache_key = "lines:modes:dlr,elizabeth-line,overground,tube"
-            tfl_service.cache.set.assert_called_once()
-            assert tfl_service.cache.set.call_args[0][0] == expected_cache_key
-            assert tfl_service.cache.set.call_args[1]["ttl"] == 86400  # 24 hours
+        assert lines[2].tfl_id == "london-overground"
+        assert lines[2].mode == "overground"
+
+        # Verify cache was set with correct key (modes sorted alphabetically)
+        expected_cache_key = "lines:modes:dlr,elizabeth-line,overground,tube"
+        tfl_service.cache.set.assert_called_once()
+        assert tfl_service.cache.set.call_args[0][0] == expected_cache_key
+        assert tfl_service.cache.set.call_args[1]["ttl"] == 86400  # 24 hours
 
 
 async def test_fetch_lines_cache_hit(
@@ -867,19 +929,15 @@ async def test_fetch_lines_cache_miss(
         ]
 
         # Mock the async client method with multiple responses
-        with patch.object(
-            tfl_service.line_client,
-            "GetByModeByPathModes",
-            new_callable=AsyncMock,
-            side_effect=mock_responses,
-        ):
-            # Execute with cache enabled but empty
-            lines = await tfl_service.fetch_lines(use_cache=True)
+        tfl_service.line_client.GetByModeByPathModes.side_effect = mock_responses
 
-            # Verify we got all 4 lines (one from each mode)
-            assert len(lines) == 4
-            assert lines[0].tfl_id == "victoria"
-            assert lines[0].mode == "tube"
+        # Execute with cache enabled but empty
+        lines = await tfl_service.fetch_lines(use_cache=True)
+
+        # Verify we got all 4 lines (one from each mode)
+        assert len(lines) == 4
+        assert lines[0].tfl_id == "victoria"
+        assert lines[0].mode == "tube"
 
 
 async def test_fetch_lines_api_failure(
@@ -912,26 +970,23 @@ async def test_fetch_lines_single_mode(
         )
 
         # Mock the async client method
-        with patch.object(
-            tfl_service.line_client,
-            "GetByModeByPathModes",
-            new_callable=AsyncMock,
-            return_value=mock_response,
-        ):
-            # Execute with single mode
-            lines = await tfl_service.fetch_lines(modes=["tube"], use_cache=False)
+        tfl_service.line_client.GetByModeByPathModes.return_value = mock_response
+        tfl_service.line_client.GetByModeByPathModes.side_effect = None  # Clear fail-safe error
 
-            # Verify results
-            assert len(lines) == 2
-            assert lines[0].tfl_id == "victoria"
-            assert lines[0].mode == "tube"
-            assert lines[1].tfl_id == "northern"
-            assert lines[1].mode == "tube"
+        # Execute with single mode
+        lines = await tfl_service.fetch_lines(modes=["tube"], use_cache=False)
 
-            # Verify cache key is mode-specific
-            expected_cache_key = "lines:modes:tube"
-            tfl_service.cache.set.assert_called_once()
-            assert tfl_service.cache.set.call_args[0][0] == expected_cache_key
+        # Verify results
+        assert len(lines) == 2
+        assert lines[0].tfl_id == "victoria"
+        assert lines[0].mode == "tube"
+        assert lines[1].tfl_id == "northern"
+        assert lines[1].mode == "tube"
+
+        # Verify cache key is mode-specific
+        expected_cache_key = "lines:modes:tube"
+        tfl_service.cache.set.assert_called_once()
+        assert tfl_service.cache.set.call_args[0][0] == expected_cache_key
 
 
 async def test_fetch_lines_multiple_custom_modes(
@@ -950,26 +1005,22 @@ async def test_fetch_lines_multiple_custom_modes(
         ]
 
         # Mock the async client method with multiple responses
-        with patch.object(
-            tfl_service.line_client,
-            "GetByModeByPathModes",
-            new_callable=AsyncMock,
-            side_effect=mock_responses,
-        ):
-            # Execute with custom modes
-            lines = await tfl_service.fetch_lines(modes=["overground", "dlr"], use_cache=False)
+        tfl_service.line_client.GetByModeByPathModes.side_effect = mock_responses
 
-            # Verify results
-            assert len(lines) == 2
-            assert lines[0].tfl_id == "overground"
-            assert lines[0].mode == "overground"
-            assert lines[1].tfl_id == "dlr"
-            assert lines[1].mode == "dlr"
+        # Execute with custom modes
+        lines = await tfl_service.fetch_lines(modes=["overground", "dlr"], use_cache=False)
 
-            # Verify cache key includes both modes (sorted)
-            expected_cache_key = "lines:modes:dlr,overground"
-            tfl_service.cache.set.assert_called_once()
-            assert tfl_service.cache.set.call_args[0][0] == expected_cache_key
+        # Verify results
+        assert len(lines) == 2
+        assert lines[0].tfl_id == "overground"
+        assert lines[0].mode == "overground"
+        assert lines[1].tfl_id == "dlr"
+        assert lines[1].mode == "dlr"
+
+        # Verify cache key includes both modes (sorted)
+        expected_cache_key = "lines:modes:dlr,overground"
+        tfl_service.cache.set.assert_called_once()
+        assert tfl_service.cache.set.call_args[0][0] == expected_cache_key
 
 
 async def test_fetch_lines_empty_mode_list(
@@ -1003,14 +1054,11 @@ async def test_fetch_lines_invalid_mode(
         )
 
         # Mock the async client method
-        with patch.object(
-            tfl_service.line_client,
-            "GetByModeByPathModes",
-            new_callable=AsyncMock,
-            return_value=mock_empty_response,
-        ):
-            # Execute with an invalid mode
-            lines = await tfl_service.fetch_lines(modes=["spaceship"], use_cache=False)
+        tfl_service.line_client.GetByModeByPathModes.return_value = mock_empty_response
+        tfl_service.line_client.GetByModeByPathModes.side_effect = None  # Clear fail-safe error
+
+        # Execute with an invalid mode
+        lines = await tfl_service.fetch_lines(modes=["spaceship"], use_cache=False)
 
         # Verify no lines returned
         assert len(lines) == 0
@@ -1034,13 +1082,10 @@ async def test_fetch_lines_preserves_ids_on_update(
             shared_expires=datetime(2025, 1, 2, 12, 0, 0, tzinfo=UTC),
         )
 
-        with patch.object(
-            tfl_service.line_client,
-            "GetByModeByPathModes",
-            new_callable=AsyncMock,
-            return_value=mock_response_v1,
-        ):
-            first_lines = await tfl_service.fetch_lines(modes=["tube"], use_cache=False)
+        tfl_service.line_client.GetByModeByPathModes.return_value = mock_response_v1
+        tfl_service.line_client.GetByModeByPathModes.side_effect = None  # Clear fail-safe error
+
+        first_lines = await tfl_service.fetch_lines(modes=["tube"], use_cache=False)
 
         # Store the original ID
         first_line_id = first_lines[0].id
@@ -1053,13 +1098,10 @@ async def test_fetch_lines_preserves_ids_on_update(
             shared_expires=datetime(2025, 1, 2, 12, 0, 0, tzinfo=UTC),
         )
 
-        with patch.object(
-            tfl_service.line_client,
-            "GetByModeByPathModes",
-            new_callable=AsyncMock,
-            return_value=mock_response_v2,
-        ):
-            second_lines = await tfl_service.fetch_lines(modes=["tube"], use_cache=False)
+        tfl_service.line_client.GetByModeByPathModes.return_value = mock_response_v2
+        tfl_service.line_client.GetByModeByPathModes.side_effect = None  # Clear fail-safe error
+
+        second_lines = await tfl_service.fetch_lines(modes=["tube"], use_cache=False)
 
         # Verify: same ID but updated name
         assert second_lines[0].id == first_line_id
@@ -1080,13 +1122,10 @@ async def test_fetch_lines_with_existing_route_references(
             shared_expires=datetime(2025, 1, 2, 12, 0, 0, tzinfo=UTC),
         )
 
-        with patch.object(
-            tfl_service.line_client,
-            "GetByModeByPathModes",
-            new_callable=AsyncMock,
-            return_value=mock_response,
-        ):
-            first_lines = await tfl_service.fetch_lines(modes=["tube"], use_cache=False)
+        tfl_service.line_client.GetByModeByPathModes.return_value = mock_response
+        tfl_service.line_client.GetByModeByPathModes.side_effect = None  # Clear fail-safe error
+
+        first_lines = await tfl_service.fetch_lines(modes=["tube"], use_cache=False)
 
         line = first_lines[0]
 
@@ -1120,13 +1159,10 @@ async def test_fetch_lines_with_existing_route_references(
         await db_session.commit()
 
         # Fetch lines again - should NOT raise IntegrityError
-        with patch.object(
-            tfl_service.line_client,
-            "GetByModeByPathModes",
-            new_callable=AsyncMock,
-            return_value=mock_response,
-        ):
-            updated_lines = await tfl_service.fetch_lines(modes=["tube"], use_cache=False)
+        tfl_service.line_client.GetByModeByPathModes.return_value = mock_response
+        tfl_service.line_client.GetByModeByPathModes.side_effect = None  # Clear fail-safe error
+
+        updated_lines = await tfl_service.fetch_lines(modes=["tube"], use_cache=False)
 
         # Line should still exist with same ID
         assert any(updated_line.id == line.id for updated_line in updated_lines)
@@ -1145,13 +1181,10 @@ async def test_fetch_lines_logs_changes(
             shared_expires=datetime(2025, 1, 2, 12, 0, 0, tzinfo=UTC),
         )
 
-        with patch.object(
-            tfl_service.line_client,
-            "GetByModeByPathModes",
-            new_callable=AsyncMock,
-            return_value=mock_response_v1,
-        ):
-            await tfl_service.fetch_lines(modes=["tube"], use_cache=False)
+        tfl_service.line_client.GetByModeByPathModes.return_value = mock_response_v1
+        tfl_service.line_client.GetByModeByPathModes.side_effect = None  # Clear fail-safe error
+
+        await tfl_service.fetch_lines(modes=["tube"], use_cache=False)
 
         # Check creation was logged
         result = await db_session.execute(select(LineChangeLog).where(LineChangeLog.tfl_id == "victoria"))
@@ -1169,13 +1202,10 @@ async def test_fetch_lines_logs_changes(
             shared_expires=datetime(2025, 1, 2, 12, 0, 0, tzinfo=UTC),
         )
 
-        with patch.object(
-            tfl_service.line_client,
-            "GetByModeByPathModes",
-            new_callable=AsyncMock,
-            return_value=mock_response_v2,
-        ):
-            await tfl_service.fetch_lines(modes=["tube"], use_cache=False)
+        tfl_service.line_client.GetByModeByPathModes.return_value = mock_response_v2
+        tfl_service.line_client.GetByModeByPathModes.side_effect = None  # Clear fail-safe error
+
+        await tfl_service.fetch_lines(modes=["tube"], use_cache=False)
 
         # Check update was logged
         result = await db_session.execute(
@@ -1210,13 +1240,10 @@ async def test_fetch_lines_logs_trace_id_when_otel_enabled(
         span_context = span.get_span_context()
         expected_trace_id = format(span_context.trace_id, "032x")
 
-        with patch.object(
-            tfl_service.line_client,
-            "GetByModeByPathModes",
-            new_callable=AsyncMock,
-            return_value=mock_response,
-        ):
-            await tfl_service.fetch_lines(modes=["tube"], use_cache=False)
+        tfl_service.line_client.GetByModeByPathModes.return_value = mock_response
+        tfl_service.line_client.GetByModeByPathModes.side_effect = None  # Clear fail-safe error
+
+        await tfl_service.fetch_lines(modes=["tube"], use_cache=False)
 
         # Verify LineChangeLog has trace_id
         result = await db_session.execute(select(LineChangeLog).where(LineChangeLog.tfl_id == "victoria"))
@@ -1260,6 +1287,7 @@ async def test_store_line_routes_logs_changes(
 
     # Execute _store_line_routes with different route data (pass as outbound)
     tfl_service = TfLService(db_session)
+    apply_fail_safe_mocks(tfl_service)  # Apply fail-safe mocking
     tfl_service._store_line_routes(line, None, outbound_data)
     await db_session.commit()
 
@@ -1303,14 +1331,11 @@ async def test_extract_hub_fields_with_hub_code(tfl_service: TfLService) -> None
     )
 
     # Mock the async client method
-    with patch.object(
-        tfl_service.stoppoint_client,
-        "GetByPathIdsQueryIncludeCrowdingData",
-        new_callable=AsyncMock,
-        return_value=mock_hub_response,
-    ):
-        # Extract hub fields
-        hub_code, hub_name = await tfl_service._extract_hub_fields(stop_point)
+    tfl_service.stoppoint_client.GetByPathIdsQueryIncludeCrowdingData.return_value = mock_hub_response
+    tfl_service.stoppoint_client.GetByPathIdsQueryIncludeCrowdingData.side_effect = None  # Clear fail-safe error
+
+    # Extract hub fields
+    hub_code, hub_name = await tfl_service._extract_hub_fields(stop_point)
 
     # Verify extraction
     assert hub_code == "HUBSVS"
@@ -1655,14 +1680,11 @@ async def test_extract_hub_fields_with_multiple_results(tfl_service: TfLService)
     )
 
     # Mock the async client method
-    with patch.object(
-        tfl_service.stoppoint_client,
-        "GetByPathIdsQueryIncludeCrowdingData",
-        new_callable=AsyncMock,
-        return_value=mock_hub_response,
-    ):
-        # Extract hub fields
-        hub_code, hub_name = await tfl_service._extract_hub_fields(stop_point)
+    tfl_service.stoppoint_client.GetByPathIdsQueryIncludeCrowdingData.return_value = mock_hub_response
+    tfl_service.stoppoint_client.GetByPathIdsQueryIncludeCrowdingData.side_effect = None  # Clear fail-safe error
+
+    # Extract hub fields
+    hub_code, hub_name = await tfl_service._extract_hub_fields(stop_point)
 
     # Should use the first hub in the list
     assert hub_code == "HUBSVS"
@@ -1744,12 +1766,12 @@ async def test_fetch_stations_filters_non_matching_modes(
     mock_response = MagicMock()
     mock_response.content.root = mock_stops
 
-    with patch.object(
-        tfl_service.line_client,
-        "StopPointsByPathIdQueryTflOperatedNationalRailStationsOnly",
-        return_value=mock_response,
-    ):
-        stations, _ = await tfl_service._fetch_stations_from_api("victoria")
+    tfl_service.line_client.StopPointsByPathIdQueryTflOperatedNationalRailStationsOnly.return_value = mock_response
+    tfl_service.line_client.StopPointsByPathIdQueryTflOperatedNationalRailStationsOnly.side_effect = (
+        None  # Clear fail-safe error
+    )
+
+    stations, _ = await tfl_service._fetch_stations_from_api("victoria")
 
     # Should only get the tube station, bus stops filtered out
     assert len(stations) == 1
@@ -1789,12 +1811,12 @@ async def test_fetch_stations_includes_stations_with_mode_overlap(
     mock_response = MagicMock()
     mock_response.content.root = mock_stops
 
-    with patch.object(
-        tfl_service.line_client,
-        "StopPointsByPathIdQueryTflOperatedNationalRailStationsOnly",
-        return_value=mock_response,
-    ):
-        stations, _ = await tfl_service._fetch_stations_from_api("overground")
+    tfl_service.line_client.StopPointsByPathIdQueryTflOperatedNationalRailStationsOnly.return_value = mock_response
+    tfl_service.line_client.StopPointsByPathIdQueryTflOperatedNationalRailStationsOnly.side_effect = (
+        None  # Clear fail-safe error
+    )
+
+    stations, _ = await tfl_service._fetch_stations_from_api("overground")
 
     # All three stations should be included
     assert len(stations) == 3
@@ -2391,14 +2413,11 @@ async def test_fetch_disruptions(
         )
 
         # Mock the async client method
-        with patch.object(
-            tfl_service.line_client,
-            "StatusByIdsByPathIdsQueryDetail",
-            new_callable=AsyncMock,
-            return_value=mock_response,
-        ):
-            # Execute with explicit single mode
-            disruptions = await tfl_service.fetch_line_disruptions(modes=["tube"], use_cache=False)
+        tfl_service.line_client.StatusByIdsByPathIdsQueryDetail.return_value = mock_response
+        tfl_service.line_client.StatusByIdsByPathIdsQueryDetail.side_effect = None  # Clear fail-safe error
+
+        # Execute with explicit single mode
+        disruptions = await tfl_service.fetch_line_disruptions(modes=["tube"], use_cache=False)
 
         # Verify
         assert len(disruptions) == 2
@@ -2471,17 +2490,14 @@ async def test_fetch_disruptions_cache_miss(
         )
 
         # Mock the async client method
-        with patch.object(
-            tfl_service.line_client,
-            "StatusByIdsByPathIdsQueryDetail",
-            new_callable=AsyncMock,
-            return_value=mock_response,
-        ):
-            # Cache returns None (miss)
-            tfl_service.cache.get = AsyncMock(return_value=None)
+        tfl_service.line_client.StatusByIdsByPathIdsQueryDetail.return_value = mock_response
+        tfl_service.line_client.StatusByIdsByPathIdsQueryDetail.side_effect = None  # Clear fail-safe error
 
-            # Execute with use_cache=True but cache is empty, single mode
-            disruptions = await tfl_service.fetch_line_disruptions(modes=["tube"], use_cache=True)
+        # Cache returns None (miss)
+        tfl_service.cache.get = AsyncMock(return_value=None)
+
+        # Execute with use_cache=True but cache is empty, single mode
+        disruptions = await tfl_service.fetch_line_disruptions(modes=["tube"], use_cache=True)
 
         # Verify
         assert len(disruptions) == 1
@@ -2571,14 +2587,11 @@ async def test_fetch_disruptions_with_affected_routes(
         )
 
         # Mock the async client method
-        with patch.object(
-            tfl_service.line_client,
-            "StatusByIdsByPathIdsQueryDetail",
-            new_callable=AsyncMock,
-            return_value=mock_response,
-        ):
-            # Execute
-            disruptions = await tfl_service.fetch_line_disruptions(modes=["tube"], use_cache=False)
+        tfl_service.line_client.StatusByIdsByPathIdsQueryDetail.return_value = mock_response
+        tfl_service.line_client.StatusByIdsByPathIdsQueryDetail.side_effect = None  # Clear fail-safe error
+
+        # Execute
+        disruptions = await tfl_service.fetch_line_disruptions(modes=["tube"], use_cache=False)
 
         # Verify disruption data
         assert len(disruptions) == 1
@@ -2651,14 +2664,11 @@ async def test_fetch_disruptions_without_affected_routes(
         )
 
         # Mock the async client method
-        with patch.object(
-            tfl_service.line_client,
-            "StatusByIdsByPathIdsQueryDetail",
-            new_callable=AsyncMock,
-            return_value=mock_response,
-        ):
-            # Execute
-            disruptions = await tfl_service.fetch_line_disruptions(modes=["tube"], use_cache=False)
+        tfl_service.line_client.StatusByIdsByPathIdsQueryDetail.return_value = mock_response
+        tfl_service.line_client.StatusByIdsByPathIdsQueryDetail.side_effect = None  # Clear fail-safe error
+
+        # Execute
+        disruptions = await tfl_service.fetch_line_disruptions(modes=["tube"], use_cache=False)
 
         # Verify - BOTH lines returned (no filtering by severity)
         assert len(disruptions) == 2
@@ -2723,14 +2733,11 @@ async def test_fetch_disruptions_includes_both_realtime_and_planned(
         )
 
         # Mock the async client method
-        with patch.object(
-            tfl_service.line_client,
-            "StatusByIdsByPathIdsQueryDetail",
-            new_callable=AsyncMock,
-            return_value=mock_response,
-        ):
-            # Execute
-            disruptions = await tfl_service.fetch_line_disruptions(modes=["tube"], use_cache=False)
+        tfl_service.line_client.StatusByIdsByPathIdsQueryDetail.return_value = mock_response
+        tfl_service.line_client.StatusByIdsByPathIdsQueryDetail.side_effect = None  # Clear fail-safe error
+
+        # Execute
+        disruptions = await tfl_service.fetch_line_disruptions(modes=["tube"], use_cache=False)
 
         # Verify BOTH disruptions are included (not just isNow=true)
         assert len(disruptions) == 2
@@ -2774,14 +2781,11 @@ async def test_fetch_disruptions_no_disruptions(
         )
 
         # Mock the async client method
-        with patch.object(
-            tfl_service.line_client,
-            "StatusByIdsByPathIdsQueryDetail",
-            new_callable=AsyncMock,
-            return_value=mock_response,
-        ):
-            # Execute
-            disruptions = await tfl_service.fetch_line_disruptions(modes=["tube"], use_cache=False)
+        tfl_service.line_client.StatusByIdsByPathIdsQueryDetail.return_value = mock_response
+        tfl_service.line_client.StatusByIdsByPathIdsQueryDetail.side_effect = None  # Clear fail-safe error
+
+        # Execute
+        disruptions = await tfl_service.fetch_line_disruptions(modes=["tube"], use_cache=False)
 
         # Verify empty list returned (not None, not an error)
         assert disruptions == []
@@ -2830,14 +2834,11 @@ async def test_fetch_disruptions_with_empty_affected_station_sequence(
         )
 
         # Mock the async client method
-        with patch.object(
-            tfl_service.line_client,
-            "StatusByIdsByPathIdsQueryDetail",
-            new_callable=AsyncMock,
-            return_value=mock_response,
-        ):
-            # Execute
-            disruptions = await tfl_service.fetch_line_disruptions(modes=["tube"], use_cache=False)
+        tfl_service.line_client.StatusByIdsByPathIdsQueryDetail.return_value = mock_response
+        tfl_service.line_client.StatusByIdsByPathIdsQueryDetail.side_effect = None  # Clear fail-safe error
+
+        # Execute
+        disruptions = await tfl_service.fetch_line_disruptions(modes=["tube"], use_cache=False)
 
         # Verify - affected_routes is None because no valid stations were extracted
         assert len(disruptions) == 1
@@ -2896,14 +2897,11 @@ async def test_fetch_disruptions_with_missing_stop_point_data(
         )
 
         # Mock the async client method
-        with patch.object(
-            tfl_service.line_client,
-            "StatusByIdsByPathIdsQueryDetail",
-            new_callable=AsyncMock,
-            return_value=mock_response,
-        ):
-            # Execute
-            disruptions = await tfl_service.fetch_line_disruptions(modes=["tube"], use_cache=False)
+        tfl_service.line_client.StatusByIdsByPathIdsQueryDetail.return_value = mock_response
+        tfl_service.line_client.StatusByIdsByPathIdsQueryDetail.side_effect = None  # Clear fail-safe error
+
+        # Execute
+        disruptions = await tfl_service.fetch_line_disruptions(modes=["tube"], use_cache=False)
 
         # Verify - only the valid station is included
         assert len(disruptions) == 1
@@ -2970,14 +2968,11 @@ async def test_fetch_disruptions_with_missing_naptan_id(
         )
 
         # Mock the async client method
-        with patch.object(
-            tfl_service.line_client,
-            "StatusByIdsByPathIdsQueryDetail",
-            new_callable=AsyncMock,
-            return_value=mock_response,
-        ):
-            # Execute
-            disruptions = await tfl_service.fetch_line_disruptions(modes=["tube"], use_cache=False)
+        tfl_service.line_client.StatusByIdsByPathIdsQueryDetail.return_value = mock_response
+        tfl_service.line_client.StatusByIdsByPathIdsQueryDetail.side_effect = None  # Clear fail-safe error
+
+        # Execute
+        disruptions = await tfl_service.fetch_line_disruptions(modes=["tube"], use_cache=False)
 
         # Verify - only the station with naptanId is included
         assert len(disruptions) == 1
@@ -3038,14 +3033,11 @@ async def test_fetch_disruptions_multiple_modes(
         )
 
         # Mock the async client method
-        with patch.object(
-            tfl_service.line_client,
-            "StatusByIdsByPathIdsQueryDetail",
-            new_callable=AsyncMock,
-            return_value=mock_response,
-        ):
-            # Execute with multiple modes
-            disruptions = await tfl_service.fetch_line_disruptions(modes=["tube", "overground"], use_cache=False)
+        tfl_service.line_client.StatusByIdsByPathIdsQueryDetail.return_value = mock_response
+        tfl_service.line_client.StatusByIdsByPathIdsQueryDetail.side_effect = None  # Clear fail-safe error
+
+        # Execute with multiple modes
+        disruptions = await tfl_service.fetch_line_disruptions(modes=["tube", "overground"], use_cache=False)
 
         # Verify we got disruptions from both modes
         assert len(disruptions) == 2
@@ -3138,14 +3130,11 @@ async def test_fetch_disruptions_default_modes(
         )
 
         # Mock the async client method
-        with patch.object(
-            tfl_service.line_client,
-            "StatusByIdsByPathIdsQueryDetail",
-            new_callable=AsyncMock,
-            return_value=mock_response,
-        ):
-            # Execute with default modes (None)
-            disruptions = await tfl_service.fetch_line_disruptions(use_cache=False)
+        tfl_service.line_client.StatusByIdsByPathIdsQueryDetail.return_value = mock_response
+        tfl_service.line_client.StatusByIdsByPathIdsQueryDetail.side_effect = None  # Clear fail-safe error
+
+        # Execute with default modes (None)
+        disruptions = await tfl_service.fetch_line_disruptions(use_cache=False)
 
         # Verify we got statuses from ALL lines (including DLR Good Service)
         assert len(disruptions) == 4  # victoria, overground, dlr, elizabeth
@@ -3325,6 +3314,7 @@ async def test_fetch_severity_codes_database_persistence(
 
         # Create TfL service with fresh_db_session
         tfl_service = TfLService(fresh_db_session)
+        apply_fail_safe_mocks(tfl_service)  # Apply fail-safe mocking
 
         # Mock TfL API call
         mock_response = MockResponse(
@@ -3332,20 +3322,17 @@ async def test_fetch_severity_codes_database_persistence(
             shared_expires=datetime(2025, 1, 8, 12, 0, 0, tzinfo=UTC),
         )
 
-        with patch.object(
-            tfl_service.line_client,
-            "MetaSeverity",
-            new_callable=AsyncMock,
-            return_value=mock_response,
-        ):
-            # Fetch severity codes (this should commit to database)
-            codes_from_fetch = await tfl_service.fetch_severity_codes(use_cache=False)
-            assert len(codes_from_fetch) == 2
+        tfl_service.line_client.MetaSeverity.return_value = mock_response
+        tfl_service.line_client.MetaSeverity.side_effect = None  # Clear fail-safe error
 
-            # Verify data exists in same session
-            result = await fresh_db_session.execute(select(SeverityCode))
-            codes_same_session = list(result.scalars().all())
-            assert len(codes_same_session) == 2
+        # Fetch severity codes (this should commit to database)
+        codes_from_fetch = await tfl_service.fetch_severity_codes(use_cache=False)
+        assert len(codes_from_fetch) == 2
+
+        # Verify data exists in same session
+        result = await fresh_db_session.execute(select(SeverityCode))
+        codes_same_session = list(result.scalars().all())
+        assert len(codes_same_session) == 2
 
         # Close the original session
         await fresh_db_session.close()
@@ -3619,14 +3606,15 @@ async def test_fetch_station_disruptions(
         )
 
         # Mock the async client method
-        with patch.object(
-            tfl_service.stoppoint_client,
-            "DisruptionByModeByPathModesQueryIncludeRouteBlockedStops",
-            new_callable=AsyncMock,
-            return_value=mock_response,
-        ):
-            # Execute
-            disruptions = await tfl_service.fetch_station_disruptions(modes=["tube"], use_cache=False)
+        tfl_service.stoppoint_client.DisruptionByModeByPathModesQueryIncludeRouteBlockedStops.return_value = (
+            mock_response
+        )
+        tfl_service.stoppoint_client.DisruptionByModeByPathModesQueryIncludeRouteBlockedStops.side_effect = (
+            None  # Clear fail-safe error
+        )
+
+        # Execute
+        disruptions = await tfl_service.fetch_station_disruptions(modes=["tube"], use_cache=False)
 
         # Verify responses
         assert len(disruptions) == 2
@@ -3716,17 +3704,18 @@ async def test_fetch_station_disruptions_cache_miss(
         )
 
         # Mock the async client method
-        with patch.object(
-            tfl_service.stoppoint_client,
-            "DisruptionByModeByPathModesQueryIncludeRouteBlockedStops",
-            new_callable=AsyncMock,
-            return_value=mock_response,
-        ):
-            # Cache returns None (miss)
-            tfl_service.cache.get = AsyncMock(return_value=None)
+        tfl_service.stoppoint_client.DisruptionByModeByPathModesQueryIncludeRouteBlockedStops.return_value = (
+            mock_response
+        )
+        tfl_service.stoppoint_client.DisruptionByModeByPathModesQueryIncludeRouteBlockedStops.side_effect = (
+            None  # Clear fail-safe error
+        )
 
-            # Execute with use_cache=True but cache is empty
-            disruptions = await tfl_service.fetch_station_disruptions(modes=["tube"], use_cache=True)
+        # Cache returns None (miss)
+        tfl_service.cache.get = AsyncMock(return_value=None)
+
+        # Execute with use_cache=True but cache is empty
+        disruptions = await tfl_service.fetch_station_disruptions(modes=["tube"], use_cache=True)
 
         # Verify
         assert len(disruptions) == 1
@@ -3744,15 +3733,11 @@ async def test_fetch_station_disruptions_api_failure(
 ) -> None:
     """Test handling TfL API failure when fetching station disruptions."""
     # Mock the async client method to raise exception
-    with (
-        patch.object(
-            tfl_service.stoppoint_client,
-            "DisruptionByModeByPathModesQueryIncludeRouteBlockedStops",
-            new_callable=AsyncMock,
-            side_effect=Exception("API Error"),
-        ),
-        pytest.raises(HTTPException) as exc_info,
-    ):
+    tfl_service.stoppoint_client.DisruptionByModeByPathModesQueryIncludeRouteBlockedStops.side_effect = Exception(
+        "API Error"
+    )
+
+    with pytest.raises(HTTPException) as exc_info:
         # Execute and verify exception
         await tfl_service.fetch_station_disruptions(use_cache=False)
 
@@ -3824,14 +3809,13 @@ async def test_fetch_station_disruptions_multiple_modes(
         )
 
         # Mock the async client method with side_effect for multiple responses
-        with patch.object(
-            tfl_service.stoppoint_client,
-            "DisruptionByModeByPathModesQueryIncludeRouteBlockedStops",
-            new_callable=AsyncMock,
-            side_effect=[mock_tube_response, mock_dlr_response],
-        ):
-            # Execute with multiple modes
-            disruptions = await tfl_service.fetch_station_disruptions(modes=["tube", "dlr"], use_cache=False)
+        tfl_service.stoppoint_client.DisruptionByModeByPathModesQueryIncludeRouteBlockedStops.side_effect = [
+            mock_tube_response,
+            mock_dlr_response,
+        ]
+
+        # Execute with multiple modes
+        disruptions = await tfl_service.fetch_station_disruptions(modes=["tube", "dlr"], use_cache=False)
 
         # Verify disruptions from both modes were returned
         assert len(disruptions) == 2
@@ -3873,14 +3857,15 @@ async def test_fetch_station_disruptions_unknown_station(
         )
 
         # Mock the async client method
-        with patch.object(
-            tfl_service.stoppoint_client,
-            "DisruptionByModeByPathModesQueryIncludeRouteBlockedStops",
-            new_callable=AsyncMock,
-            return_value=mock_response,
-        ):
-            # Execute
-            disruptions = await tfl_service.fetch_station_disruptions(use_cache=False)
+        tfl_service.stoppoint_client.DisruptionByModeByPathModesQueryIncludeRouteBlockedStops.return_value = (
+            mock_response
+        )
+        tfl_service.stoppoint_client.DisruptionByModeByPathModesQueryIncludeRouteBlockedStops.side_effect = (
+            None  # Clear fail-safe error
+        )
+
+        # Execute
+        disruptions = await tfl_service.fetch_station_disruptions(use_cache=False)
 
         # Verify - no disruptions should be created for unknown stations
         assert len(disruptions) == 0
@@ -3914,6 +3899,7 @@ async def test_create_station_disruption(db_session: AsyncSession) -> None:
 
     # Test creation
     tfl_service = TfLService(db_session)
+    apply_fail_safe_mocks(tfl_service)  # Apply fail-safe mocking
     result = await tfl_service._create_station_disruption_from_point(station, disrupted_point)
 
     # Verify response
@@ -3965,6 +3951,7 @@ async def test_create_station_disruption_missing_fields(db_session: AsyncSession
 
     # Test creation with defaults
     tfl_service = TfLService(db_session)
+    apply_fail_safe_mocks(tfl_service)  # Apply fail-safe mocking
     result = await tfl_service._create_station_disruption_from_point(station, disrupted_point)
 
     # Verify defaults were used
@@ -4005,6 +3992,7 @@ async def test_create_station_disruption_missing_atco_code(db_session: AsyncSess
 
     # Test creation - should use station.tfl_id as fallback
     tfl_service = TfLService(db_session)
+    apply_fail_safe_mocks(tfl_service)  # Apply fail-safe mocking
     result = await tfl_service._create_station_disruption_from_point(station, disrupted_point)
 
     # Verify disruption was created successfully using station.tfl_id as fallback
@@ -4133,28 +4121,25 @@ async def test_build_station_graph(
         mock_outbound_response = MockRouteResponse(content=mock_route_sequence)
 
         # Mock the async client methods
-        with (
-            patch.object(
-                tfl_service.line_client,
-                "GetByModeByPathModes",
-                new_callable=AsyncMock,
-                side_effect=[mock_tube_response, mock_empty_response, mock_empty_response, mock_empty_response],
-            ),
-            patch.object(
-                tfl_service.line_client,
-                "StopPointsByPathIdQueryTflOperatedNationalRailStationsOnly",
-                new_callable=AsyncMock,
-                return_value=mock_stations_response,
-            ),
-            patch.object(
-                tfl_service.line_client,
-                "RouteSequenceByPathIdPathDirectionQueryServiceTypesQueryExcludeCrowding",
-                new_callable=AsyncMock,
-                side_effect=[mock_inbound_response, mock_outbound_response],
-            ),
-        ):
-            # Execute
-            result = await tfl_service.build_station_graph()
+        tfl_service.line_client.GetByModeByPathModes.side_effect = [
+            mock_tube_response,
+            mock_empty_response,
+            mock_empty_response,
+            mock_empty_response,
+        ]
+        tfl_service.line_client.StopPointsByPathIdQueryTflOperatedNationalRailStationsOnly.return_value = (
+            mock_stations_response
+        )
+        tfl_service.line_client.StopPointsByPathIdQueryTflOperatedNationalRailStationsOnly.side_effect = (
+            None  # Clear fail-safe error
+        )
+        tfl_service.line_client.RouteSequenceByPathIdPathDirectionQueryServiceTypesQueryExcludeCrowding.side_effect = [
+            mock_inbound_response,
+            mock_outbound_response,
+        ]
+
+        # Execute
+        result = await tfl_service.build_station_graph()
 
         # Verify result
         assert result["lines_count"] == 1
@@ -4200,21 +4185,20 @@ async def test_build_station_graph_fails_without_stations(
         )
 
         # Mock the async client methods
-        with (
-            patch.object(
-                tfl_service.line_client,
-                "GetByModeByPathModes",
-                new_callable=AsyncMock,
-                side_effect=[mock_lines_response, mock_empty_response, mock_empty_response, mock_empty_response],
-            ),
-            patch.object(
-                tfl_service.line_client,
-                "StopPointsByPathIdQueryTflOperatedNationalRailStationsOnly",
-                new_callable=AsyncMock,
-                return_value=mock_stations_response,
-            ),
-            pytest.raises(HTTPException) as exc_info,
-        ):
+        tfl_service.line_client.GetByModeByPathModes.side_effect = [
+            mock_lines_response,
+            mock_empty_response,
+            mock_empty_response,
+            mock_empty_response,
+        ]
+        tfl_service.line_client.StopPointsByPathIdQueryTflOperatedNationalRailStationsOnly.return_value = (
+            mock_stations_response
+        )
+        tfl_service.line_client.StopPointsByPathIdQueryTflOperatedNationalRailStationsOnly.side_effect = (
+            None  # Clear fail-safe error
+        )
+
+        with pytest.raises(HTTPException) as exc_info:
             # Execute - should raise HTTPException with validation error
             await tfl_service.build_station_graph()
 
@@ -4344,28 +4328,25 @@ async def test_build_station_graph_no_duplicate_connections(
         mock_outbound_response = MockRouteResponse(content=mock_outbound_sequence)
 
         # Mock the async client methods
-        with (
-            patch.object(
-                tfl_service.line_client,
-                "GetByModeByPathModes",
-                new_callable=AsyncMock,
-                side_effect=[mock_lines_response, mock_empty_response, mock_empty_response, mock_empty_response],
-            ),
-            patch.object(
-                tfl_service.line_client,
-                "StopPointsByPathIdQueryTflOperatedNationalRailStationsOnly",
-                new_callable=AsyncMock,
-                return_value=mock_stations_response,
-            ),
-            patch.object(
-                tfl_service.line_client,
-                "RouteSequenceByPathIdPathDirectionQueryServiceTypesQueryExcludeCrowding",
-                new_callable=AsyncMock,
-                side_effect=[mock_inbound_response, mock_outbound_response],
-            ),
-        ):
-            # Execute
-            result = await tfl_service.build_station_graph()
+        tfl_service.line_client.GetByModeByPathModes.side_effect = [
+            mock_lines_response,
+            mock_empty_response,
+            mock_empty_response,
+            mock_empty_response,
+        ]
+        tfl_service.line_client.StopPointsByPathIdQueryTflOperatedNationalRailStationsOnly.return_value = (
+            mock_stations_response
+        )
+        tfl_service.line_client.StopPointsByPathIdQueryTflOperatedNationalRailStationsOnly.side_effect = (
+            None  # Clear fail-safe error
+        )
+        tfl_service.line_client.RouteSequenceByPathIdPathDirectionQueryServiceTypesQueryExcludeCrowding.side_effect = [
+            mock_inbound_response,
+            mock_outbound_response,
+        ]
+
+        # Execute
+        result = await tfl_service.build_station_graph()
 
         # Verify result - should create exactly 4 bidirectional connections (not 8!)
         # Inbound creates: A->B, B->A, B->C, C->B
@@ -4473,28 +4454,25 @@ async def test_build_station_graph_multiple_modes(
         )
 
         # Mock the async client methods
-        with (
-            patch.object(
-                tfl_service.line_client,
-                "GetByModeByPathModes",
-                new_callable=AsyncMock,
-                side_effect=[mock_tube_response, mock_empty_response, mock_dlr_response, mock_empty_response],
-            ),
-            patch.object(
-                tfl_service.line_client,
-                "StopPointsByPathIdQueryTflOperatedNationalRailStationsOnly",
-                new_callable=AsyncMock,
-                side_effect=[mock_victoria_stations_response, mock_dlr_stations_response],
-            ),
-            patch.object(
-                tfl_service.line_client,
-                "RouteSequenceByPathIdPathDirectionQueryServiceTypesQueryExcludeCrowding",
-                new_callable=AsyncMock,
-                side_effect=[mock_victoria_inbound, mock_victoria_outbound, mock_dlr_inbound, mock_dlr_outbound],
-            ),
-        ):
-            # Execute
-            result = await tfl_service.build_station_graph()
+        tfl_service.line_client.GetByModeByPathModes.side_effect = [
+            mock_tube_response,
+            mock_empty_response,
+            mock_dlr_response,
+            mock_empty_response,
+        ]
+        tfl_service.line_client.StopPointsByPathIdQueryTflOperatedNationalRailStationsOnly.side_effect = [
+            mock_victoria_stations_response,
+            mock_dlr_stations_response,
+        ]
+        tfl_service.line_client.RouteSequenceByPathIdPathDirectionQueryServiceTypesQueryExcludeCrowding.side_effect = [
+            mock_victoria_inbound,
+            mock_victoria_outbound,
+            mock_dlr_inbound,
+            mock_dlr_outbound,
+        ]
+
+        # Execute
+        result = await tfl_service.build_station_graph()
 
         # Verify result includes lines from multiple modes
         assert result["lines_count"] == 2  # Victoria (tube) + DLR
@@ -5567,6 +5545,7 @@ async def test_get_station_by_tfl_id_exists(db_session: AsyncSession) -> None:
 
     # Test lookup
     tfl_service = TfLService(db_session)
+    apply_fail_safe_mocks(tfl_service)  # Apply fail-safe mocking
     result = await tfl_service._get_station_by_tfl_id("940GZZLUVIC")
 
     assert result is not None
@@ -5577,6 +5556,7 @@ async def test_get_station_by_tfl_id_exists(db_session: AsyncSession) -> None:
 async def test_get_station_by_tfl_id_not_found(db_session: AsyncSession) -> None:
     """Test station lookup when station doesn't exist."""
     tfl_service = TfLService(db_session)
+    apply_fail_safe_mocks(tfl_service)  # Apply fail-safe mocking
     result = await tfl_service._get_station_by_tfl_id("nonexistent")
 
     assert result is None
@@ -5616,6 +5596,7 @@ async def test_connection_exists_true(db_session: AsyncSession) -> None:
 
     # Test existence check
     tfl_service = TfLService(db_session)
+    apply_fail_safe_mocks(tfl_service)  # Apply fail-safe mocking
     result = await tfl_service._connection_exists(station1.id, station2.id, line.id)
 
     assert result is True
@@ -5646,6 +5627,7 @@ async def test_connection_exists_false(db_session: AsyncSession) -> None:
 
     # Test existence check (no connection created)
     tfl_service = TfLService(db_session)
+    apply_fail_safe_mocks(tfl_service)  # Apply fail-safe mocking
     result = await tfl_service._connection_exists(station1.id, station2.id, line.id)
 
     assert result is False
@@ -5696,6 +5678,7 @@ async def test_process_station_pair_creates_both(db_session: AsyncSession) -> No
 
     # Process pair
     tfl_service = TfLService(db_session)
+    apply_fail_safe_mocks(tfl_service)  # Apply fail-safe mocking
     stations_set: set[str] = set()
     pending_connections: set[tuple[uuid.UUID, uuid.UUID, uuid.UUID]] = set()
     count = await tfl_service._process_station_pair(MockStop1(), MockStop2(), line, stations_set, pending_connections)
@@ -5721,6 +5704,7 @@ async def test_process_station_pair_missing_station(db_session: AsyncSession) ->
 
     # Process pair
     tfl_service = TfLService(db_session)
+    apply_fail_safe_mocks(tfl_service)  # Apply fail-safe mocking
     stations_set: set[str] = set()
     pending_connections: set[tuple[uuid.UUID, uuid.UUID, uuid.UUID]] = set()
     count = await tfl_service._process_station_pair(MockStop1(), MockStop2(), line, stations_set, pending_connections)
@@ -5761,6 +5745,7 @@ async def test_process_station_pair_existing_connections(db_session: AsyncSessio
 
     # Process pair
     tfl_service = TfLService(db_session)
+    apply_fail_safe_mocks(tfl_service)  # Apply fail-safe mocking
     stations_set: set[str] = set()
     # Pre-populate pending_connections with the connections we're about to create
     # This simulates them already being processed in this transaction
@@ -5984,14 +5969,15 @@ async def test_fetch_station_disruptions_stop_without_id(
         )
 
         # Mock the async client method
-        with patch.object(
-            tfl_service.stoppoint_client,
-            "DisruptionByModeByPathModesQueryIncludeRouteBlockedStops",
-            new_callable=AsyncMock,
-            return_value=mock_response,
-        ):
-            # Execute
-            disruptions = await tfl_service.fetch_station_disruptions(use_cache=False)
+        tfl_service.stoppoint_client.DisruptionByModeByPathModesQueryIncludeRouteBlockedStops.return_value = (
+            mock_response
+        )
+        tfl_service.stoppoint_client.DisruptionByModeByPathModesQueryIncludeRouteBlockedStops.side_effect = (
+            None  # Clear fail-safe error
+        )
+
+        # Execute
+        disruptions = await tfl_service.fetch_station_disruptions(use_cache=False)
 
         # Should skip disruption without station ATCO code (warning logged)
         assert len(disruptions) == 0
@@ -6016,15 +6002,16 @@ async def test_fetch_route_sequence_no_stop_points(
 
     # Execute
     tfl_service_instance = TfLService(db_session)
+    apply_fail_safe_mocks(tfl_service_instance)  # Apply fail-safe mocking
 
     # Mock the async client method
-    with patch.object(
-        tfl_service_instance.line_client,
-        "RouteSequenceByPathIdPathDirectionQueryServiceTypesQueryExcludeCrowding",
-        new_callable=AsyncMock,
-        return_value=mock_response,
-    ):
-        route_data = await tfl_service_instance._fetch_route_sequence(line.tfl_id, "inbound")
+    mock_method = (
+        tfl_service_instance.line_client.RouteSequenceByPathIdPathDirectionQueryServiceTypesQueryExcludeCrowding
+    )
+    mock_method.return_value = mock_response
+    mock_method.side_effect = None
+
+    route_data = await tfl_service_instance._fetch_route_sequence(line.tfl_id, "inbound")
 
     # Should return the route data object (not a list anymore)
     assert route_data is not None
@@ -6053,18 +6040,17 @@ async def test_process_route_sequence_empty_stop_points(
     mock_response.content = MockRouteWithEmptySequence()
 
     # Mock the async client method
-    with patch.object(
-        tfl_service.line_client,
-        "RouteSequenceByPathIdPathDirectionQueryServiceTypesQueryExcludeCrowding",
-        new_callable=AsyncMock,
-        return_value=mock_response,
-    ):
-        # Execute
-        stations_set: set[str] = set()
-        pending_connections: set[tuple[uuid.UUID, uuid.UUID, uuid.UUID]] = set()
-        count, route_data = await tfl_service._process_route_sequence(
-            line, "inbound", stations_set, pending_connections
-        )
+    tfl_service.line_client.RouteSequenceByPathIdPathDirectionQueryServiceTypesQueryExcludeCrowding.return_value = (
+        mock_response
+    )
+    tfl_service.line_client.RouteSequenceByPathIdPathDirectionQueryServiceTypesQueryExcludeCrowding.side_effect = (
+        None  # Clear fail-safe error
+    )
+
+    # Execute
+    stations_set: set[str] = set()
+    pending_connections: set[tuple[uuid.UUID, uuid.UUID, uuid.UUID]] = set()
+    count, route_data = await tfl_service._process_route_sequence(line, "inbound", stations_set, pending_connections)
 
     # Should skip sequence without stopPoint and return 0 connections
     assert count == 0
@@ -6091,17 +6077,14 @@ async def test_api_error_propagation_in_fetch_methods(
         relative_uri="/Line/Mode/tube",
     )
 
-    with patch.object(
-        tfl_service.line_client,
-        "GetByModeByPathModes",
-        new_callable=AsyncMock,
-        return_value=api_error,
-    ):
-        with pytest.raises(HTTPException) as exc_info:
-            await tfl_service.fetch_lines(use_cache=False)
+    tfl_service.line_client.GetByModeByPathModes.return_value = api_error
+    tfl_service.line_client.GetByModeByPathModes.side_effect = None  # Clear fail-safe error
 
-        assert exc_info.value.status_code == 503
-        assert "TfL API error" in exc_info.value.detail
+    with pytest.raises(HTTPException) as exc_info:
+        await tfl_service.fetch_lines(use_cache=False)
+
+    assert exc_info.value.status_code == 503
+    assert "TfL API error" in exc_info.value.detail
 
     # Test with fetch_severity_codes (covers line 279)
     api_error = ApiError(
@@ -6113,16 +6096,13 @@ async def test_api_error_propagation_in_fetch_methods(
         relative_uri="/Line/Meta/Severity",
     )
 
-    with patch.object(
-        tfl_service.line_client,
-        "MetaSeverity",
-        new_callable=AsyncMock,
-        return_value=api_error,
-    ):
-        with pytest.raises(HTTPException) as exc_info:
-            await tfl_service.fetch_severity_codes(use_cache=False)
+    tfl_service.line_client.MetaSeverity.return_value = api_error
+    tfl_service.line_client.MetaSeverity.side_effect = None  # Clear fail-safe error
 
-        assert exc_info.value.status_code == 503
+    with pytest.raises(HTTPException) as exc_info:
+        await tfl_service.fetch_severity_codes(use_cache=False)
+
+    assert exc_info.value.status_code == 503
 
     # Test with fetch_disruption_categories (covers line 355)
     api_error = ApiError(
@@ -6134,16 +6114,13 @@ async def test_api_error_propagation_in_fetch_methods(
         relative_uri="/Line/Meta/DisruptionCategories",
     )
 
-    with patch.object(
-        tfl_service.line_client,
-        "MetaDisruptionCategories",
-        new_callable=AsyncMock,
-        return_value=api_error,
-    ):
-        with pytest.raises(HTTPException) as exc_info:
-            await tfl_service.fetch_disruption_categories(use_cache=False)
+    tfl_service.line_client.MetaDisruptionCategories.return_value = api_error
+    tfl_service.line_client.MetaDisruptionCategories.side_effect = None  # Clear fail-safe error
 
-        assert exc_info.value.status_code == 503
+    with pytest.raises(HTTPException) as exc_info:
+        await tfl_service.fetch_disruption_categories(use_cache=False)
+
+    assert exc_info.value.status_code == 503
 
     # Test with fetch_stop_types (covers line 442)
     api_error = ApiError(
@@ -6155,16 +6132,13 @@ async def test_api_error_propagation_in_fetch_methods(
         relative_uri="/StopPoint/Meta/StopTypes",
     )
 
-    with patch.object(
-        tfl_service.stoppoint_client,
-        "MetaStopTypes",
-        new_callable=AsyncMock,
-        return_value=api_error,
-    ):
-        with pytest.raises(HTTPException) as exc_info:
-            await tfl_service.fetch_stop_types(use_cache=False)
+    tfl_service.stoppoint_client.MetaStopTypes.return_value = api_error
+    tfl_service.stoppoint_client.MetaStopTypes.side_effect = None  # Clear fail-safe error
 
-        assert exc_info.value.status_code == 503
+    with pytest.raises(HTTPException) as exc_info:
+        await tfl_service.fetch_stop_types(use_cache=False)
+
+    assert exc_info.value.status_code == 503
 
 
 async def test_fetch_stations_api_error_handling(
@@ -6172,15 +6146,11 @@ async def test_fetch_stations_api_error_handling(
 ) -> None:
     """Test fetch_stations handles non-HTTPException errors correctly (covers lines 540-545)."""
     # Mock the async client method to raise a generic Exception (not HTTPException)
-    with (
-        patch.object(
-            tfl_service.line_client,
-            "StopPointsByPathIdQueryTflOperatedNationalRailStationsOnly",
-            new_callable=AsyncMock,
-            side_effect=Exception("Unexpected database error"),
-        ),
-        pytest.raises(HTTPException) as exc_info,
-    ):
+    tfl_service.line_client.StopPointsByPathIdQueryTflOperatedNationalRailStationsOnly.side_effect = Exception(
+        "Unexpected database error"
+    )
+
+    with pytest.raises(HTTPException) as exc_info:
         # Execute and verify proper error handling
         await tfl_service.fetch_stations(line_tfl_id="victoria", use_cache=False, skip_database_validation=True)
 
@@ -6227,6 +6197,7 @@ async def test_store_line_routes_regular_service(db_session: AsyncSession) -> No
 
     # Execute
     tfl_service = TfLService(db_session)
+    apply_fail_safe_mocks(tfl_service)  # Apply fail-safe mocking
     tfl_service._store_line_routes(line, inbound_data, outbound_data)
 
     # Verify
@@ -6281,6 +6252,7 @@ async def test_store_line_routes_skip_night_service(db_session: AsyncSession) ->
 
     # Execute
     tfl_service = TfLService(db_session)
+    apply_fail_safe_mocks(tfl_service)  # Apply fail-safe mocking
     tfl_service._store_line_routes(line, inbound_data, None)
 
     # Verify - only Regular service should be stored
@@ -6305,6 +6277,7 @@ async def test_store_line_routes_none_data(db_session: AsyncSession) -> None:
 
     # Execute with None data
     tfl_service = TfLService(db_session)
+    apply_fail_safe_mocks(tfl_service)  # Apply fail-safe mocking
     tfl_service._store_line_routes(line, None, None)
 
     # Verify - routes should not be set
@@ -6328,6 +6301,7 @@ async def test_store_line_routes_empty_ordered_routes(db_session: AsyncSession) 
 
     # Execute
     tfl_service = TfLService(db_session)
+    apply_fail_safe_mocks(tfl_service)  # Apply fail-safe mocking
     tfl_service._store_line_routes(line, inbound_data, None)
 
     # Verify - routes should not be set
@@ -6358,6 +6332,7 @@ async def test_store_line_routes_no_naptan_ids(db_session: AsyncSession) -> None
 
     # Execute
     tfl_service = TfLService(db_session)
+    apply_fail_safe_mocks(tfl_service)  # Apply fail-safe mocking
     tfl_service._store_line_routes(line, inbound_data, None)
 
     # Verify - routes should not be set (route was skipped)
@@ -6384,6 +6359,7 @@ async def test_store_line_routes_no_ordered_routes_attr(db_session: AsyncSession
 
     # Execute
     tfl_service = TfLService(db_session)
+    apply_fail_safe_mocks(tfl_service)  # Apply fail-safe mocking
     tfl_service._store_line_routes(line, inbound_data, None)
 
     # Verify - routes should not be set
@@ -6414,6 +6390,7 @@ async def test_store_line_routes_only_inbound(db_session: AsyncSession) -> None:
 
     # Execute
     tfl_service = TfLService(db_session)
+    apply_fail_safe_mocks(tfl_service)  # Apply fail-safe mocking
     tfl_service._store_line_routes(line, inbound_data, None)
 
     # Verify
@@ -6447,6 +6424,7 @@ async def test_store_line_routes_only_outbound(db_session: AsyncSession) -> None
 
     # Execute
     tfl_service = TfLService(db_session)
+    apply_fail_safe_mocks(tfl_service)  # Apply fail-safe mocking
     tfl_service._store_line_routes(line, None, outbound_data)
 
     # Verify
@@ -6483,6 +6461,7 @@ async def test_get_line_routes_success(db_session: AsyncSession) -> None:
 
     # Execute
     tfl_service = TfLService(db_session)
+    apply_fail_safe_mocks(tfl_service)  # Apply fail-safe mocking
     result = await tfl_service.get_line_routes("victoria")
 
     # Verify
@@ -6499,6 +6478,7 @@ async def test_get_line_routes_line_not_found(db_session: AsyncSession) -> None:
     """Test get_line_routes when line does not exist."""
     # Execute
     tfl_service = TfLService(db_session)
+    apply_fail_safe_mocks(tfl_service)  # Apply fail-safe mocking
 
     # Verify - should raise 404
     with pytest.raises(HTTPException) as exc_info:
@@ -6522,6 +6502,7 @@ async def test_get_line_routes_not_built(db_session: AsyncSession) -> None:
 
     # Execute
     tfl_service = TfLService(db_session)
+    apply_fail_safe_mocks(tfl_service)  # Apply fail-safe mocking
 
     # Verify - should raise 503
     with pytest.raises(HTTPException) as exc_info:
@@ -6546,6 +6527,7 @@ async def test_get_line_routes_empty_routes(db_session: AsyncSession) -> None:
 
     # Execute
     tfl_service = TfLService(db_session)
+    apply_fail_safe_mocks(tfl_service)  # Apply fail-safe mocking
     result = await tfl_service.get_line_routes("victoria")
 
     # Verify - should return empty routes list
@@ -6562,6 +6544,7 @@ async def test_get_line_routes_database_error(
     """Test get_line_routes when database error occurs."""
     # Setup - create service with a session that will fail
     tfl_service = TfLService(db_session)
+    apply_fail_safe_mocks(tfl_service)  # Apply fail-safe mocking
 
     # Mock the database execute to raise an exception (not HTTPException)
     with patch.object(
@@ -6628,6 +6611,7 @@ async def test_get_station_routes_success(db_session: AsyncSession) -> None:
 
     # Execute
     tfl_service = TfLService(db_session)
+    apply_fail_safe_mocks(tfl_service)  # Apply fail-safe mocking
     result = await tfl_service.get_station_routes("940GZZLUVIC")
 
     # Verify
@@ -6657,6 +6641,7 @@ async def test_get_station_routes_station_not_found(db_session: AsyncSession) ->
     """Test get_station_routes when station does not exist."""
     # Execute
     tfl_service = TfLService(db_session)
+    apply_fail_safe_mocks(tfl_service)  # Apply fail-safe mocking
 
     # Verify - should raise 404
     with pytest.raises(HTTPException) as exc_info:
@@ -6682,6 +6667,7 @@ async def test_get_station_routes_no_lines(db_session: AsyncSession) -> None:
 
     # Execute
     tfl_service = TfLService(db_session)
+    apply_fail_safe_mocks(tfl_service)  # Apply fail-safe mocking
     result = await tfl_service.get_station_routes("940GZZLUVIC")
 
     # Verify - should return empty routes
@@ -6713,6 +6699,7 @@ async def test_get_station_routes_not_built(db_session: AsyncSession) -> None:
 
     # Execute
     tfl_service = TfLService(db_session)
+    apply_fail_safe_mocks(tfl_service)  # Apply fail-safe mocking
 
     # Verify - should raise 503
     with pytest.raises(HTTPException) as exc_info:
@@ -6754,6 +6741,7 @@ async def test_get_station_routes_station_not_on_route(db_session: AsyncSession)
 
     # Execute
     tfl_service = TfLService(db_session)
+    apply_fail_safe_mocks(tfl_service)  # Apply fail-safe mocking
 
     # Verify - should raise 503 (routes exist but station not on any)
     with pytest.raises(HTTPException) as exc_info:
@@ -6801,6 +6789,7 @@ async def test_get_station_routes_multiple_routes_same_line(db_session: AsyncSes
 
     # Execute
     tfl_service = TfLService(db_session)
+    apply_fail_safe_mocks(tfl_service)  # Apply fail-safe mocking
     result = await tfl_service.get_station_routes("940GZZLUVIC")
 
     # Verify - should return both routes
@@ -6819,6 +6808,7 @@ async def test_get_station_routes_database_error(
     """Test get_station_routes when database error occurs."""
     # Setup - create service with a session that will fail
     tfl_service = TfLService(db_session)
+    apply_fail_safe_mocks(tfl_service)  # Apply fail-safe mocking
 
     # Mock the database execute to raise an exception (not HTTPException)
     with patch.object(
@@ -6902,25 +6892,22 @@ async def test_fetch_stations_with_hub_fields(
         ]
 
         # Execute with helper and mock hub API
-        with patch.object(
-            tfl_service.stoppoint_client,
-            "GetByPathIdsQueryIncludeCrowdingData",
-            new_callable=AsyncMock,
-            return_value=mock_hub_response,
-        ):
-            stations = await assert_fetch_from_api(
-                tfl_service=tfl_service,
-                method_callable=lambda: tfl_service.fetch_stations(
-                    line_tfl_id="weaver", use_cache=False, skip_database_validation=True
-                ),
-                mock_data=mock_stops,
-                expected_count=1,
-                cache_key="stations:line:weaver",
-                expected_ttl=86400,
-                shared_expires=datetime(2025, 1, 2, 12, 0, 0, tzinfo=UTC),
-                client_attr="line_client",
-                client_method="StopPointsByPathIdQueryTflOperatedNationalRailStationsOnly",
-            )
+        tfl_service.stoppoint_client.GetByPathIdsQueryIncludeCrowdingData.return_value = mock_hub_response
+        tfl_service.stoppoint_client.GetByPathIdsQueryIncludeCrowdingData.side_effect = None  # Clear fail-safe error
+
+        stations = await assert_fetch_from_api(
+            tfl_service=tfl_service,
+            method_callable=lambda: tfl_service.fetch_stations(
+                line_tfl_id="weaver", use_cache=False, skip_database_validation=True
+            ),
+            mock_data=mock_stops,
+            expected_count=1,
+            cache_key="stations:line:weaver",
+            expected_ttl=86400,
+            shared_expires=datetime(2025, 1, 2, 12, 0, 0, tzinfo=UTC),
+            client_attr="line_client",
+            client_method="StopPointsByPathIdQueryTflOperatedNationalRailStationsOnly",
+        )
 
         # Verify hub fields populated
         assert stations[0].hub_naptan_code == "HUBSVS"
@@ -7001,25 +6988,22 @@ async def test_fetch_stations_updates_changed_hub_fields(
         ]
 
         # Execute with helper and mock hub API
-        with patch.object(
-            tfl_service.stoppoint_client,
-            "GetByPathIdsQueryIncludeCrowdingData",
-            new_callable=AsyncMock,
-            return_value=mock_hub_response,
-        ):
-            stations = await assert_fetch_from_api(
-                tfl_service=tfl_service,
-                method_callable=lambda: tfl_service.fetch_stations(
-                    line_tfl_id="victoria", use_cache=False, skip_database_validation=True
-                ),
-                mock_data=mock_stops,
-                expected_count=1,
-                cache_key="stations:line:victoria",
-                expected_ttl=86400,
-                shared_expires=datetime(2025, 1, 2, 12, 0, 0, tzinfo=UTC),
-                client_attr="line_client",
-                client_method="StopPointsByPathIdQueryTflOperatedNationalRailStationsOnly",
-            )
+        tfl_service.stoppoint_client.GetByPathIdsQueryIncludeCrowdingData.return_value = mock_hub_response
+        tfl_service.stoppoint_client.GetByPathIdsQueryIncludeCrowdingData.side_effect = None  # Clear fail-safe error
+
+        stations = await assert_fetch_from_api(
+            tfl_service=tfl_service,
+            method_callable=lambda: tfl_service.fetch_stations(
+                line_tfl_id="victoria", use_cache=False, skip_database_validation=True
+            ),
+            mock_data=mock_stops,
+            expected_count=1,
+            cache_key="stations:line:victoria",
+            expected_ttl=86400,
+            shared_expires=datetime(2025, 1, 2, 12, 0, 0, tzinfo=UTC),
+            client_attr="line_client",
+            client_method="StopPointsByPathIdQueryTflOperatedNationalRailStationsOnly",
+        )
 
         # Verify hub fields UPDATED (not just added)
         assert stations[0].hub_naptan_code == "HUBKGX"
@@ -7087,15 +7071,9 @@ async def test_fetch_stations_http_exception_reraise(
     """Test fetch_stations re-raises HTTPException (covers line 713)."""
     # Mock the async client method to raise HTTPException
     custom_http_error = HTTPException(status_code=429, detail="Rate limit exceeded")
-    with (
-        patch.object(
-            tfl_service.line_client,
-            "StopPointsByPathIdQueryTflOperatedNationalRailStationsOnly",
-            new_callable=AsyncMock,
-            side_effect=custom_http_error,
-        ),
-        pytest.raises(HTTPException) as exc_info,
-    ):
+    tfl_service.line_client.StopPointsByPathIdQueryTflOperatedNationalRailStationsOnly.side_effect = custom_http_error
+
+    with pytest.raises(HTTPException) as exc_info:
         # Execute and verify HTTPException is re-raised
         await tfl_service.fetch_stations(line_tfl_id="victoria", use_cache=False, skip_database_validation=True)
 
@@ -7107,18 +7085,15 @@ async def test_fetch_line_disruptions_http_exception_reraise(
     tfl_service: TfLService,
 ) -> None:
     """Test fetch_line_disruptions re-raises HTTPException (covers line 848)."""
-    # Mock the async client method to raise HTTPException
+    # Mock fetch_lines dependency (required by fetch_line_disruptions)
+    mock_line = Line(tfl_id="victoria", name="Victoria", mode="tube")
+    tfl_service.fetch_lines = AsyncMock(return_value=[mock_line])
+
+    # Configure StatusByIdsByPathIdsQueryDetail to raise HTTPException
     custom_http_error = HTTPException(status_code=401, detail="Unauthorized")
-    with (
-        patch.object(
-            tfl_service.line_client,
-            "StatusByIdsByPathIdsQueryDetail",
-            new_callable=AsyncMock,
-            side_effect=custom_http_error,
-        ),
-        pytest.raises(HTTPException) as exc_info,
-    ):
-        # Execute and verify HTTPException is re-raised
+    tfl_service.line_client.StatusByIdsByPathIdsQueryDetail.side_effect = custom_http_error
+
+    with pytest.raises(HTTPException) as exc_info:
         await tfl_service.fetch_line_disruptions(modes=["tube"], use_cache=False)
 
     assert exc_info.value.status_code == 401
@@ -7137,15 +7112,9 @@ async def test_fetch_line_disruptions_generic_exception(
     tfl_service.fetch_lines = AsyncMock(return_value=mock_lines_db)
 
     # Mock the async client method to raise a generic exception when calling StatusByIds
-    with (
-        patch.object(
-            tfl_service.line_client,
-            "StatusByIdsByPathIdsQueryDetail",
-            new_callable=AsyncMock,
-            side_effect=ValueError("Invalid data format"),
-        ),
-        pytest.raises(HTTPException) as exc_info,
-    ):
+    tfl_service.line_client.StatusByIdsByPathIdsQueryDetail.side_effect = ValueError("Invalid data format")
+
+    with pytest.raises(HTTPException) as exc_info:
         # Execute and verify exception is wrapped in HTTPException
         await tfl_service.fetch_line_disruptions(modes=["tube", "dlr"], use_cache=False)
 
@@ -7159,15 +7128,11 @@ async def test_fetch_station_disruptions_http_exception_reraise(
     """Test fetch_station_disruptions re-raises HTTPException (covers line 1044)."""
     # Mock the async client method to raise HTTPException
     custom_http_error = HTTPException(status_code=404, detail="Not found")
-    with (
-        patch.object(
-            tfl_service.stoppoint_client,
-            "DisruptionByModeByPathModesQueryIncludeRouteBlockedStops",
-            new_callable=AsyncMock,
-            side_effect=custom_http_error,
-        ),
-        pytest.raises(HTTPException) as exc_info,
-    ):
+    tfl_service.stoppoint_client.DisruptionByModeByPathModesQueryIncludeRouteBlockedStops.side_effect = (
+        custom_http_error
+    )
+
+    with pytest.raises(HTTPException) as exc_info:
         # Execute and verify HTTPException is re-raised
         await tfl_service.fetch_station_disruptions(modes=["tube"], use_cache=False)
 
@@ -7186,14 +7151,12 @@ async def test_process_route_sequence_exception_handling(
     await db_session.commit()
 
     # Mock the async client method to raise a generic exception during route sequence fetch
-    with patch.object(
-        tfl_service.line_client,
-        "RouteSequenceByPathIdPathDirectionQueryServiceTypesQueryExcludeCrowding",
-        new_callable=AsyncMock,
-        side_effect=ValueError("Invalid route data"),
-    ):
-        # Call _process_route_sequence - should catch exception and return (0, None)
-        count, route_data = await tfl_service._process_route_sequence(line, "inbound", set(), set())
+    tfl_service.line_client.RouteSequenceByPathIdPathDirectionQueryServiceTypesQueryExcludeCrowding.side_effect = (
+        ValueError("Invalid route data")
+    )
+
+    # Call _process_route_sequence - should catch exception and return (0, None)
+    count, route_data = await tfl_service._process_route_sequence(line, "inbound", set(), set())
 
     assert count == 0
     assert route_data is None
