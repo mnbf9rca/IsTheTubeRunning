@@ -1099,6 +1099,8 @@ class AlertService:
             span.set_attribute("alert.disruption_count", len(disruptions))
 
             alerts_sent = 0
+            # Initialize prefs outside try block so it's accessible in except block
+            prefs: list[NotificationPreference] = []
 
             try:
                 # Get notification preferences safely (may not be loaded in async context)
@@ -1197,9 +1199,13 @@ class AlertService:
                     exc_info=e,
                 )
                 await self.db.rollback()
-                # Set span attributes even on error (use 0 since we don't have reliable access to prefs)
-                span.set_attribute("alert.preference_count", 0)
-                span.set_attribute("alert.alerts_sent", 0)
+                # Set span attributes even on error (preserve prefs count if we got it)
+                try:
+                    pref_count = len(prefs) if isinstance(prefs, list) else 0
+                except (TypeError, AttributeError):
+                    pref_count = 0
+                span.set_attribute("alert.preference_count", pref_count)
+                span.set_attribute("alert.alerts_sent", alerts_sent)
                 return 0
 
     async def _store_alert_state(
