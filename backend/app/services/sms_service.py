@@ -2,12 +2,15 @@
 
 import asyncio
 import functools
+import hashlib
 from datetime import UTC, datetime
 from pathlib import Path
 
 import structlog
+from opentelemetry.trace import SpanKind
 
 from app.core.config import settings
+from app.core.telemetry import service_span
 
 logger = structlog.get_logger(__name__)
 
@@ -71,23 +74,30 @@ class SmsService:
             phone: Recipient phone number
             message: SMS message content
         """
-        timestamp = datetime.now(UTC).isoformat()
+        with service_span("sms.send", "sms", kind=SpanKind.CLIENT) as span:
+            # PII protection: hash the phone number
+            phone_hash = hashlib.sha256(phone.encode()).hexdigest()[:12]
+            span.set_attribute("sms.recipient_hash", phone_hash)
+            span.set_attribute("sms.message_length", len(message))
+            span.set_attribute("sms.stub", True)
 
-        # Log to structured logger (console) - non-blocking
-        logger.info(
-            "sms_sent",
-            recipient=phone,
-            message=message,
-            timestamp=timestamp,
-        )
+            timestamp = datetime.now(UTC).isoformat()
 
-        # Log to file asynchronously (runs in thread pool)
-        if SMS_LOG_FILE:
-            loop = asyncio.get_running_loop()
-            await loop.run_in_executor(
-                None,
-                functools.partial(self._write_to_file_sync, phone, message, timestamp),
+            # Log to structured logger (console) - non-blocking
+            logger.info(
+                "sms_sent",
+                recipient=phone,
+                message=message,
+                timestamp=timestamp,
             )
+
+            # Log to file asynchronously (runs in thread pool)
+            if SMS_LOG_FILE:
+                loop = asyncio.get_running_loop()
+                await loop.run_in_executor(
+                    None,
+                    functools.partial(self._write_to_file_sync, phone, message, timestamp),
+                )
 
     async def send_verification_sms(self, phone: str, code: str) -> None:
         """

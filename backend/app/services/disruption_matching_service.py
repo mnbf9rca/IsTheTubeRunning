@@ -5,6 +5,7 @@ from uuid import UUID
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.telemetry import service_span
 from app.helpers.disruption_helpers import (
     disruption_affects_route,
     extract_line_station_pairs,
@@ -60,19 +61,31 @@ class DisruptionMatchingService:
         Returns:
             Filtered list of alertable disruptions
         """
-        if not disruptions:
-            return []
+        with service_span("disruption.filter_alertable", "disruption-matching-service") as span:
+            input_count = len(disruptions)
+            span.set_attribute("disruption.input_count", input_count)
 
-        # Fetch disabled severity pairs from database
-        disabled_result = await self.db.execute(select(AlertDisabledSeverity))
-        disabled_severity_pairs = {(d.mode_id, d.severity_level) for d in disabled_result.scalars().all()}
+            if not disruptions:
+                span.set_attribute("disruption.output_count", 0)
+                span.set_attribute("disruption.filtered_count", 0)
+                return []
 
-        # Filter disruptions (list comprehension for efficiency)
-        return [
-            disruption
-            for disruption in disruptions
-            if (disruption.mode, disruption.status_severity) not in disabled_severity_pairs
-        ]
+            # Fetch disabled severity pairs from database
+            disabled_result = await self.db.execute(select(AlertDisabledSeverity))
+            disabled_severity_pairs = {(d.mode_id, d.severity_level) for d in disabled_result.scalars().all()}
+
+            # Filter disruptions (list comprehension for efficiency)
+            filtered = [
+                disruption
+                for disruption in disruptions
+                if (disruption.mode, disruption.status_severity) not in disabled_severity_pairs
+            ]
+
+            output_count = len(filtered)
+            span.set_attribute("disruption.output_count", output_count)
+            span.set_attribute("disruption.filtered_count", input_count - output_count)
+
+            return filtered
 
     def match_disruptions_to_route(
         self,
@@ -91,14 +104,20 @@ class DisruptionMatchingService:
         Returns:
             List of disruptions affecting this route
         """
-        matched_disruptions: list[DisruptionResponse] = []
+        with service_span("disruption.match_to_route", "disruption-matching-service") as span:
+            span.set_attribute("disruption.route_pairs_count", len(route_index_pairs))
+            span.set_attribute("disruption.input_count", len(all_disruptions))
 
-        for disruption in all_disruptions:
-            # Extract disruption pairs
-            disruption_pairs = extract_line_station_pairs(disruption)
+            matched_disruptions: list[DisruptionResponse] = []
 
-            # Check if disruption affects this route
-            if disruption_pairs and disruption_affects_route(disruption_pairs, route_index_pairs):
-                matched_disruptions.append(disruption)
+            for disruption in all_disruptions:
+                # Extract disruption pairs
+                disruption_pairs = extract_line_station_pairs(disruption)
 
-        return matched_disruptions
+                # Check if disruption affects this route
+                if disruption_pairs and disruption_affects_route(disruption_pairs, route_index_pairs):
+                    matched_disruptions.append(disruption)
+
+            span.set_attribute("disruption.matched_count", len(matched_disruptions))
+
+            return matched_disruptions
