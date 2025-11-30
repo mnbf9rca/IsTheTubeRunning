@@ -11,6 +11,7 @@ from sqlalchemy import (
     ForeignKey,
     Index,
     String,
+    Text,
     UniqueConstraint,
     text,
 )
@@ -318,7 +319,7 @@ class LineDisruptionStateLog(BaseModel):
         comment="Disruption status (e.g., 'Good Service', 'Minor Delays', 'Severe Delays')",
     )
     reason: Mapped[str | None] = mapped_column(
-        String(1000),
+        Text,
         nullable=True,
         comment="Full disruption reason text (nullable for good service)",
     )
@@ -457,7 +458,7 @@ class StationDisruption(BaseModel):
         comment="Disruption type from TfL API (e.g., 'Information', 'Interchange Message')",
     )
     description: Mapped[str] = mapped_column(
-        String(1000),
+        Text,
         nullable=False,
     )
     appearance: Mapped[str | None] = mapped_column(
