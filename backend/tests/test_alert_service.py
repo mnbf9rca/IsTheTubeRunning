@@ -4,7 +4,7 @@ import json
 import os
 import time
 from collections.abc import Callable
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime
 from datetime import time as time_class
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock, Mock, patch
@@ -20,7 +20,7 @@ from app.models.notification import (
     NotificationPreference,
     NotificationStatus,
 )
-from app.models.tfl import Line, LineDisruptionStateLog, Station
+from app.models.tfl import AlertDisabledSeverity, Line, LineDisruptionStateLog, Station
 from app.models.user import EmailAddress, PhoneNumber, User
 from app.models.user_route import UserRoute, UserRouteSchedule, UserRouteSegment
 from app.models.user_route_index import UserRouteStationIndex
@@ -379,6 +379,259 @@ def test_init_alert_processing_stats() -> None:
     assert stats2["routes_checked"] == 0
 
 
+# ==================== Helper Method Unit Tests ====================
+
+
+class TestSetSpanStatsAttributes:
+    """Unit tests for _set_span_stats_attributes helper."""
+
+    def test_sets_all_attributes_correctly(self, alert_service: AlertService) -> None:
+        """Test that _set_span_stats_attributes sets all span attributes correctly."""
+        mock_span = MagicMock()
+        stats = {"routes_checked": 5, "alerts_sent": 3, "errors": 1}
+
+        alert_service._set_span_stats_attributes(mock_span, stats)
+
+        assert mock_span.set_attribute.call_count == 3
+        mock_span.set_attribute.assert_any_call("alert.routes_checked", 5)
+        mock_span.set_attribute.assert_any_call("alert.alerts_sent", 3)
+        mock_span.set_attribute.assert_any_call("alert.errors", 1)
+
+    def test_sets_zero_values(self, alert_service: AlertService) -> None:
+        """Test that _set_span_stats_attributes handles zero values correctly."""
+        mock_span = MagicMock()
+        stats = {"routes_checked": 0, "alerts_sent": 0, "errors": 0}
+
+        alert_service._set_span_stats_attributes(mock_span, stats)
+
+        assert mock_span.set_attribute.call_count == 3
+        mock_span.set_attribute.assert_any_call("alert.routes_checked", 0)
+        mock_span.set_attribute.assert_any_call("alert.alerts_sent", 0)
+        mock_span.set_attribute.assert_any_call("alert.errors", 0)
+
+
+class TestFetchGlobalDisruptionData:
+    """Unit tests for _fetch_global_disruption_data."""
+
+    @pytest.mark.asyncio
+    @patch("app.services.alert_service.TfLService")
+    async def test_success(
+        self,
+        mock_tfl_class: MagicMock,
+        alert_service: AlertService,
+        db_session: AsyncSession,
+        sample_disruptions: list[DisruptionResponse],
+    ) -> None:
+        """Test successful fetching of global disruption data."""
+        # Mock TfL service
+        mock_tfl = AsyncMock()
+        mock_tfl.fetch_line_disruptions = AsyncMock(return_value=sample_disruptions)
+        mock_tfl_class.return_value = mock_tfl
+
+        # Mock _log_line_disruption_state_changes
+        alert_service._log_line_disruption_state_changes = AsyncMock()
+
+        # Create disabled severity in DB (use unique values to avoid conflicts)
+        disabled = AlertDisabledSeverity(mode_id="test-mode", severity_level=99)
+        db_session.add(disabled)
+        await db_session.commit()
+
+        # Execute
+        disruptions, disabled_pairs = await alert_service._fetch_global_disruption_data()
+
+        # Verify
+        assert len(disruptions) == len(sample_disruptions)
+        assert ("test-mode", 99) in disabled_pairs
+        mock_tfl.fetch_line_disruptions.assert_called_once_with(use_cache=True)
+        alert_service._log_line_disruption_state_changes.assert_called_once()
+
+    @pytest.mark.asyncio
+    @patch("app.services.alert_service.TfLService")
+    async def test_tfl_service_error_returns_empty(
+        self,
+        mock_tfl_class: MagicMock,
+        alert_service: AlertService,
+    ) -> None:
+        """Test that TfL service errors return empty data gracefully."""
+        # Mock TfL service to raise exception
+        mock_tfl = AsyncMock()
+        mock_tfl.fetch_line_disruptions = AsyncMock(side_effect=Exception("TfL API error"))
+        mock_tfl_class.return_value = mock_tfl
+
+        # Execute
+        disruptions, disabled_pairs = await alert_service._fetch_global_disruption_data()
+
+        # Verify returns empty data, doesn't raise
+        assert disruptions == []
+        assert disabled_pairs == set()
+
+    @pytest.mark.asyncio
+    @patch("app.services.alert_service.TfLService")
+    async def test_db_error_returns_partial_data(
+        self,
+        mock_tfl_class: MagicMock,
+        alert_service: AlertService,
+        sample_disruptions: list[DisruptionResponse],
+    ) -> None:
+        """Test that DB errors return partial data (disruptions but no disabled pairs) gracefully."""
+        # Mock TfL service successfully
+        mock_tfl = AsyncMock()
+        mock_tfl.fetch_line_disruptions = AsyncMock(return_value=sample_disruptions)
+        mock_tfl_class.return_value = mock_tfl
+
+        # Mock _log_line_disruption_state_changes
+        alert_service._log_line_disruption_state_changes = AsyncMock()
+
+        # Mock DB to raise exception
+        alert_service.db.execute = AsyncMock(side_effect=Exception("DB connection error"))
+
+        # Execute
+        disruptions, disabled_pairs = await alert_service._fetch_global_disruption_data()
+
+        # Verify returns disruptions (TfL succeeded) but empty disabled pairs (DB failed)
+        # This allows alert processing to continue with some functionality
+        assert len(disruptions) == len(sample_disruptions)
+        assert disabled_pairs == set()
+
+
+class TestProcessSingleRoute:
+    """Unit tests for _process_single_route."""
+
+    @pytest.mark.asyncio
+    async def test_not_in_schedule_returns_zero_no_error(
+        self,
+        alert_service: AlertService,
+        test_route_with_schedule: UserRoute,
+    ) -> None:
+        """Test that route not in schedule returns (0, False)."""
+        # Mock _get_active_schedule to return None
+        with patch.object(alert_service, "_get_active_schedule", return_value=None):
+            alerts_sent, error_occurred = await alert_service._process_single_route(
+                route=test_route_with_schedule,
+                disabled_severity_pairs=set(),
+            )
+
+        assert alerts_sent == 0
+        assert error_occurred is False
+
+    @pytest.mark.asyncio
+    async def test_no_disruptions_returns_zero_no_error(
+        self,
+        alert_service: AlertService,
+        test_route_with_schedule: UserRoute,
+    ) -> None:
+        """Test that no disruptions returns (0, False)."""
+        mock_schedule = MagicMock(spec=UserRouteSchedule)
+        mock_schedule.id = uuid4()
+
+        # Mock dependencies
+        with (
+            patch.object(alert_service, "_get_active_schedule", return_value=mock_schedule),
+            patch.object(alert_service, "_get_route_disruptions", return_value=([], False)),
+        ):
+            alerts_sent, error_occurred = await alert_service._process_single_route(
+                route=test_route_with_schedule,
+                disabled_severity_pairs=set(),
+            )
+
+        assert alerts_sent == 0
+        assert error_occurred is False
+
+    @pytest.mark.asyncio
+    async def test_success_returns_alerts_sent_no_error(
+        self,
+        alert_service: AlertService,
+        test_route_with_schedule: UserRoute,
+        sample_disruptions: list[DisruptionResponse],
+    ) -> None:
+        """Test successful processing returns (alerts_sent, False)."""
+        mock_schedule = MagicMock(spec=UserRouteSchedule)
+        mock_schedule.id = uuid4()
+
+        # Mock all dependencies for success path
+        with (
+            patch.object(alert_service, "_get_active_schedule", return_value=mock_schedule),
+            patch.object(alert_service, "_get_route_disruptions", return_value=(sample_disruptions, False)),
+            patch.object(alert_service, "_should_send_alert", return_value=True),
+            patch.object(alert_service, "_send_alerts_for_route", return_value=2),
+        ):
+            alerts_sent, error_occurred = await alert_service._process_single_route(
+                route=test_route_with_schedule,
+                disabled_severity_pairs=set(),
+            )
+
+        assert alerts_sent == 2
+        assert error_occurred is False
+
+    @pytest.mark.asyncio
+    async def test_disruption_fetch_error_propagates_error_flag(
+        self,
+        alert_service: AlertService,
+        test_route_with_schedule: UserRoute,
+        sample_disruptions: list[DisruptionResponse],
+    ) -> None:
+        """Test that disruption fetch error is propagated in error flag."""
+        mock_schedule = MagicMock(spec=UserRouteSchedule)
+        mock_schedule.id = uuid4()
+
+        # Mock dependencies with error in disruption fetch
+        with (
+            patch.object(alert_service, "_get_active_schedule", return_value=mock_schedule),
+            patch.object(alert_service, "_get_route_disruptions", return_value=(sample_disruptions, True)),
+            patch.object(alert_service, "_should_send_alert", return_value=True),
+            patch.object(alert_service, "_send_alerts_for_route", return_value=1),
+        ):
+            alerts_sent, error_occurred = await alert_service._process_single_route(
+                route=test_route_with_schedule,
+                disabled_severity_pairs=set(),
+            )
+
+        assert alerts_sent == 1
+        assert error_occurred is True  # Error flag propagated
+
+    @pytest.mark.asyncio
+    async def test_duplicate_alert_returns_zero_no_error(
+        self,
+        alert_service: AlertService,
+        test_route_with_schedule: UserRoute,
+        sample_disruptions: list[DisruptionResponse],
+    ) -> None:
+        """Test that duplicate alert (should_send=False) returns (0, False)."""
+        mock_schedule = MagicMock(spec=UserRouteSchedule)
+        mock_schedule.id = uuid4()
+
+        # Mock dependencies with should_send_alert returning False
+        with (
+            patch.object(alert_service, "_get_active_schedule", return_value=mock_schedule),
+            patch.object(alert_service, "_get_route_disruptions", return_value=(sample_disruptions, False)),
+            patch.object(alert_service, "_should_send_alert", return_value=False),
+        ):
+            alerts_sent, error_occurred = await alert_service._process_single_route(
+                route=test_route_with_schedule,
+                disabled_severity_pairs=set(),
+            )
+
+        assert alerts_sent == 0
+        assert error_occurred is False
+
+    @pytest.mark.asyncio
+    async def test_exception_returns_zero_with_error(
+        self,
+        alert_service: AlertService,
+        test_route_with_schedule: UserRoute,
+    ) -> None:
+        """Test that exceptions are caught and return (0, True)."""
+        # Mock _get_active_schedule to raise exception
+        with patch.object(alert_service, "_get_active_schedule", side_effect=Exception("Unexpected error")):
+            alerts_sent, error_occurred = await alert_service._process_single_route(
+                route=test_route_with_schedule,
+                disabled_severity_pairs=set(),
+            )
+
+        assert alerts_sent == 0
+        assert error_occurred is True
+
+
 # ==================== process_all_routes Tests ====================
 
 
@@ -429,48 +682,6 @@ async def test_process_all_routes_no_active_routes(alert_service: AlertService) 
 
 @pytest.mark.asyncio
 @patch("app.services.alert_service.TfLService")
-@freeze_time("2025-01-15 12:00:00", tz_offset=0)  # Wednesday 12:00 PM UTC (outside schedule)
-async def test_process_all_routes_not_in_schedule(
-    mock_tfl_class: MagicMock,
-    alert_service: AlertService,
-    test_route_with_schedule: UserRoute,
-) -> None:
-    """Test processing when route is not in schedule window."""
-    # Mock TfL service
-    mock_tfl_instance = AsyncMock()
-    mock_tfl_class.return_value = mock_tfl_instance
-
-    result = await alert_service.process_all_routes()
-
-    # Route checked but not in schedule, so no disruptions fetched
-    assert result["routes_checked"] == 1
-    assert result["alerts_sent"] == 0
-    assert result["errors"] == 0
-
-
-@pytest.mark.asyncio
-@patch("app.services.alert_service.TfLService")
-@freeze_time("2025-01-15 08:30:00", tz_offset=0)  # Wednesday 8:30 AM UTC
-async def test_process_all_routes_no_disruptions(
-    mock_tfl_class: MagicMock,
-    alert_service: AlertService,
-    test_route_with_schedule: UserRoute,
-) -> None:
-    """Test processing when there are no disruptions."""
-    # Mock TfL service with empty disruptions
-    mock_tfl_instance = AsyncMock()
-    mock_tfl_instance.fetch_line_disruptions = AsyncMock(return_value=[])
-    mock_tfl_class.return_value = mock_tfl_instance
-
-    result = await alert_service.process_all_routes()
-
-    assert result["routes_checked"] == 1
-    assert result["alerts_sent"] == 0
-    assert result["errors"] == 0
-
-
-@pytest.mark.asyncio
-@patch("app.services.alert_service.TfLService")
 @freeze_time("2025-01-15 08:30:00", tz_offset=0)
 async def test_process_all_routes_with_error(
     mock_tfl_class: MagicMock,
@@ -488,60 +699,6 @@ async def test_process_all_routes_with_error(
     assert result["routes_checked"] == 1
     assert result["alerts_sent"] == 0
     assert result["errors"] == 1
-
-
-@pytest.mark.asyncio
-@patch("app.services.alert_service.TfLService")
-@patch("app.services.alert_service.NotificationService")
-@freeze_time("2025-01-15 08:30:00", tz_offset=0)  # Wednesday 8:30 AM UTC
-async def test_process_all_routes_skips_duplicate_alert_with_logging(
-    mock_notif_class: MagicMock,
-    mock_tfl_class: MagicMock,
-    alert_service: AlertService,
-    test_route_with_schedule: UserRoute,
-    sample_disruptions: list[DisruptionResponse],
-    db_session: AsyncSession,
-) -> None:
-    """Test that duplicate alerts are skipped and logged (lines 165-170)."""
-    # Calculate the disruption hash that would be stored
-    disruption_hash = alert_service._create_disruption_hash(sample_disruptions)
-
-    # Pre-populate Redis to simulate a previous alert with the same content
-    stored_state = {
-        "hash": disruption_hash,  # Use "hash" key to match the actual implementation
-        "disruptions": [
-            {
-                "line_id": d.line_id,
-                "status": d.status_severity_description,
-                "reason": d.reason or "",
-            }
-            for d in sample_disruptions
-        ],
-        "stored_at": (datetime.now(UTC) - timedelta(hours=1)).isoformat(),
-    }
-    alert_service.redis_client.get = AsyncMock(return_value=json.dumps(stored_state))  # type: ignore[method-assign]
-    alert_service.redis_client.setex = AsyncMock()  # type: ignore[method-assign]
-
-    # Mock TfL to return disruptions
-    mock_tfl_instance = AsyncMock()
-    mock_tfl_instance.fetch_line_disruptions = AsyncMock(return_value=sample_disruptions)
-    mock_tfl_class.return_value = mock_tfl_instance
-
-    # Mock notification service (should not be called)
-    mock_notif_instance = AsyncMock()
-    mock_notif_instance.send_disruption_email = AsyncMock()
-    mock_notif_class.return_value = mock_notif_instance
-
-    # Process all routes
-    result = await alert_service.process_all_routes()
-
-    # Verify results
-    assert result["routes_checked"] == 1
-    assert result["alerts_sent"] == 0
-    assert result["errors"] == 0
-
-    # Notification service was not called (duplicate was skipped)
-    mock_notif_instance.send_disruption_email.assert_not_called()
 
 
 # ==================== _get_active_routes Tests ====================
