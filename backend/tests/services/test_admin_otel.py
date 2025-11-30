@@ -1,28 +1,18 @@
 """Tests for Admin Service OpenTelemetry instrumentation."""
 
 import uuid
-from collections.abc import Generator
 from datetime import UTC, datetime
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock
 
 import pytest
 from app.schemas.admin import UserDetailResponse
-from app.services import admin_service
 from app.services.admin_service import AdminService
 from fastapi import HTTPException
 from opentelemetry.sdk.trace import TracerProvider
 from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanExporter
 from opentelemetry.trace import SpanKind, StatusCode
 
-from tests.helpers.otel import assert_span_status, get_recorded_spans
-
-
-# Re-enable OTEL for these tests
-@pytest.fixture(autouse=True)
-def enable_otel_for_tests(monkeypatch: pytest.MonkeyPatch) -> Generator[None]:
-    """Enable OTEL SDK for tests in this module."""
-    monkeypatch.delenv("OTEL_SDK_DISABLED", raising=False)
-    return
+from tests.helpers.otel import assert_span_status
 
 
 class TestAdminServiceOtelSpans:
@@ -31,12 +21,10 @@ class TestAdminServiceOtelSpans:
     @pytest.mark.asyncio
     async def test_anonymise_user_creates_span_with_ok_status(
         self,
-        in_memory_span_exporter: InMemorySpanExporter,
-        test_tracer_provider: TracerProvider,
+        otel_enabled_provider: tuple[TracerProvider, InMemorySpanExporter],
     ) -> None:
         """Test that anonymise_user creates a span with OK status on success."""
-        exporter = in_memory_span_exporter
-        test_tracer = test_tracer_provider.get_tracer(admin_service.__name__)
+        _, exporter = otel_enabled_provider
 
         # Create mock database session
         mock_db = AsyncMock()
@@ -65,11 +53,10 @@ class TestAdminServiceOtelSpans:
         # Mock get_user_details to return the mock user
         admin_svc.get_user_details = AsyncMock(return_value=mock_user)
 
-        with patch("opentelemetry.trace.get_tracer", return_value=test_tracer):
-            await admin_svc.anonymise_user(user_id)
+        await admin_svc.anonymise_user(user_id)
 
         # Verify span was created with OK status
-        spans = get_recorded_spans(exporter)
+        spans = exporter.get_finished_spans()
         assert len(spans) == 1
 
         span = spans[0]
@@ -90,12 +77,10 @@ class TestAdminServiceOtelSpans:
     @pytest.mark.asyncio
     async def test_anonymise_user_records_exception_on_user_not_found(
         self,
-        in_memory_span_exporter: InMemorySpanExporter,
-        test_tracer_provider: TracerProvider,
+        otel_enabled_provider: tuple[TracerProvider, InMemorySpanExporter],
     ) -> None:
         """Test that span records exception when user not found."""
-        exporter = in_memory_span_exporter
-        test_tracer = test_tracer_provider.get_tracer(admin_service.__name__)
+        _, exporter = otel_enabled_provider
 
         # Create mock database session
         mock_db = AsyncMock()
@@ -107,14 +92,11 @@ class TestAdminServiceOtelSpans:
         user_id = uuid.uuid4()
         admin_svc.get_user_details = AsyncMock(side_effect=HTTPException(status_code=404, detail="User not found"))
 
-        with (
-            patch("opentelemetry.trace.get_tracer", return_value=test_tracer),
-            pytest.raises(HTTPException, match="User not found"),
-        ):
+        with pytest.raises(HTTPException, match="User not found"):
             await admin_svc.anonymise_user(user_id)
 
         # Verify span has error status
-        spans = get_recorded_spans(exporter)
+        spans = exporter.get_finished_spans()
         assert len(spans) == 1
 
         span = spans[0]
@@ -124,12 +106,10 @@ class TestAdminServiceOtelSpans:
     @pytest.mark.asyncio
     async def test_anonymise_user_records_exception_on_already_deleted(
         self,
-        in_memory_span_exporter: InMemorySpanExporter,
-        test_tracer_provider: TracerProvider,
+        otel_enabled_provider: tuple[TracerProvider, InMemorySpanExporter],
     ) -> None:
         """Test that span records exception when user already deleted."""
-        exporter = in_memory_span_exporter
-        test_tracer = test_tracer_provider.get_tracer(admin_service.__name__)
+        _, exporter = otel_enabled_provider
 
         # Create mock database session
         mock_db = AsyncMock()
@@ -155,14 +135,11 @@ class TestAdminServiceOtelSpans:
         # Mock get_user_details to return already-deleted user
         admin_svc.get_user_details = AsyncMock(return_value=mock_user)
 
-        with (
-            patch("opentelemetry.trace.get_tracer", return_value=test_tracer),
-            pytest.raises(HTTPException, match="User is already deleted"),
-        ):
+        with pytest.raises(HTTPException, match="User is already deleted"):
             await admin_svc.anonymise_user(user_id)
 
         # Verify span has error status
-        spans = get_recorded_spans(exporter)
+        spans = exporter.get_finished_spans()
         assert len(spans) == 1
 
         span = spans[0]
@@ -172,12 +149,10 @@ class TestAdminServiceOtelSpans:
     @pytest.mark.asyncio
     async def test_anonymise_user_records_exception_on_database_error(
         self,
-        in_memory_span_exporter: InMemorySpanExporter,
-        test_tracer_provider: TracerProvider,
+        otel_enabled_provider: tuple[TracerProvider, InMemorySpanExporter],
     ) -> None:
         """Test that span records exception on database errors."""
-        exporter = in_memory_span_exporter
-        test_tracer = test_tracer_provider.get_tracer(admin_service.__name__)
+        _, exporter = otel_enabled_provider
 
         # Create mock database session
         mock_db = AsyncMock()
@@ -205,14 +180,11 @@ class TestAdminServiceOtelSpans:
         # Mock get_user_details to return the mock user
         admin_svc.get_user_details = AsyncMock(return_value=mock_user)
 
-        with (
-            patch("opentelemetry.trace.get_tracer", return_value=test_tracer),
-            pytest.raises(Exception, match="Database connection error"),
-        ):
+        with pytest.raises(Exception, match="Database connection error"):
             await admin_svc.anonymise_user(user_id)
 
         # Verify span has error status
-        spans = get_recorded_spans(exporter)
+        spans = exporter.get_finished_spans()
         assert len(spans) == 1
 
         span = spans[0]

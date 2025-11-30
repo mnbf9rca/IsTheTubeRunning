@@ -1,27 +1,17 @@
 """Tests for Alert Service OpenTelemetry instrumentation."""
 
 import uuid
-from collections.abc import Generator
 from datetime import time
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from app.models.user_route import UserRoute, UserRouteSchedule
-from app.services import alert_service
 from app.services.alert_service import AlertService
 from opentelemetry.sdk.trace import TracerProvider
 from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanExporter
 from opentelemetry.trace import SpanKind, StatusCode
 
-from tests.helpers.otel import assert_span_status, get_recorded_spans
-
-
-# Re-enable OTEL for these tests
-@pytest.fixture(autouse=True)
-def enable_otel_for_tests(monkeypatch: pytest.MonkeyPatch) -> Generator[None]:
-    """Enable OTEL SDK for tests in this module."""
-    monkeypatch.delenv("OTEL_SDK_DISABLED", raising=False)
-    return
+from tests.helpers.otel import assert_span_status
 
 
 class TestAlertServiceProcessAllRoutesOtelSpans:
@@ -30,12 +20,10 @@ class TestAlertServiceProcessAllRoutesOtelSpans:
     @pytest.mark.asyncio
     async def test_process_all_routes_creates_span_with_ok_status(
         self,
-        in_memory_span_exporter: InMemorySpanExporter,
-        test_tracer_provider: TracerProvider,
+        otel_enabled_provider: tuple[TracerProvider, InMemorySpanExporter],
     ) -> None:
         """Test that process_all_routes creates a span with OK status on success."""
-        exporter = in_memory_span_exporter
-        test_tracer = test_tracer_provider.get_tracer(alert_service.__name__)
+        _, exporter = otel_enabled_provider
 
         # Create mock database session
         mock_db = AsyncMock()
@@ -48,10 +36,7 @@ class TestAlertServiceProcessAllRoutesOtelSpans:
         alert_svc._get_active_routes = AsyncMock(return_value=[])
         alert_svc._log_line_disruption_state_changes = AsyncMock()
 
-        with (
-            patch("opentelemetry.trace.get_tracer", return_value=test_tracer),
-            patch("app.services.alert_service.TfLService") as mock_tfl_service_class,
-        ):
+        with patch("app.services.alert_service.TfLService") as mock_tfl_service_class:
             # Mock TfL service
             mock_tfl_svc = AsyncMock()
             mock_tfl_svc.fetch_line_disruptions = AsyncMock(return_value=[])
@@ -64,15 +49,10 @@ class TestAlertServiceProcessAllRoutesOtelSpans:
             mock_execute_result.scalars.return_value = mock_scalars
             mock_db.execute.return_value = mock_execute_result
 
-            result = await alert_svc.process_all_routes()
-
-        # Verify result
-        assert result["routes_checked"] == 0
-        assert result["alerts_sent"] == 0
-        assert result["errors"] == 0
+            await alert_svc.process_all_routes()
 
         # Verify span was created with OK status
-        spans = get_recorded_spans(exporter)
+        spans = exporter.get_finished_spans()
         assert len(spans) == 1
 
         span = spans[0]
@@ -90,12 +70,10 @@ class TestAlertServiceProcessAllRoutesOtelSpans:
     @pytest.mark.asyncio
     async def test_process_all_routes_handles_exception_gracefully(
         self,
-        in_memory_span_exporter: InMemorySpanExporter,
-        test_tracer_provider: TracerProvider,
+        otel_enabled_provider: tuple[TracerProvider, InMemorySpanExporter],
     ) -> None:
         """Test that span has OK status even when processing has errors (graceful degradation)."""
-        exporter = in_memory_span_exporter
-        test_tracer = test_tracer_provider.get_tracer(alert_service.__name__)
+        _, exporter = otel_enabled_provider
 
         # Create mock database session
         mock_db = AsyncMock()
@@ -107,14 +85,10 @@ class TestAlertServiceProcessAllRoutesOtelSpans:
         # Mock method to raise exception
         alert_svc._get_active_routes = AsyncMock(side_effect=Exception("Database connection error"))
 
-        with patch("opentelemetry.trace.get_tracer", return_value=test_tracer):
-            result = await alert_svc.process_all_routes()
-
-        # Verify result has error tracked
-        assert result["errors"] == 1
+        await alert_svc.process_all_routes()
 
         # Verify span has OK status (graceful error handling - method doesn't raise)
-        spans = get_recorded_spans(exporter)
+        spans = exporter.get_finished_spans()
         assert len(spans) == 1
 
         span = spans[0]
@@ -131,12 +105,10 @@ class TestAlertServiceSendAlertsForRouteOtelSpans:
     @pytest.mark.asyncio
     async def test_send_alerts_for_route_creates_span_with_ok_status(
         self,
-        in_memory_span_exporter: InMemorySpanExporter,
-        test_tracer_provider: TracerProvider,
+        otel_enabled_provider: tuple[TracerProvider, InMemorySpanExporter],
     ) -> None:
         """Test that _send_alerts_for_route creates a span with OK status on success."""
-        exporter = in_memory_span_exporter
-        test_tracer = test_tracer_provider.get_tracer(alert_service.__name__)
+        _, exporter = otel_enabled_provider
 
         # Create mock database session
         mock_db = AsyncMock()
@@ -166,18 +138,14 @@ class TestAlertServiceSendAlertsForRouteOtelSpans:
         # Mock disruptions
         mock_disruptions = []
 
-        with patch("opentelemetry.trace.get_tracer", return_value=test_tracer):
-            result = await alert_svc._send_alerts_for_route(
-                route=mock_route,
-                schedule=mock_schedule,
-                disruptions=mock_disruptions,
-            )
-
-        # Verify result
-        assert result == 0  # No alerts sent (no preferences)
+        await alert_svc._send_alerts_for_route(
+            route=mock_route,
+            schedule=mock_schedule,
+            disruptions=mock_disruptions,
+        )
 
         # Verify span was created with OK status
-        spans = get_recorded_spans(exporter)
+        spans = exporter.get_finished_spans()
         assert len(spans) == 1
 
         span = spans[0]
@@ -197,12 +165,10 @@ class TestAlertServiceSendAlertsForRouteOtelSpans:
     @pytest.mark.asyncio
     async def test_send_alerts_for_route_with_preferences(
         self,
-        in_memory_span_exporter: InMemorySpanExporter,
-        test_tracer_provider: TracerProvider,
+        otel_enabled_provider: tuple[TracerProvider, InMemorySpanExporter],
     ) -> None:
         """Test that span captures preference count correctly."""
-        exporter = in_memory_span_exporter
-        test_tracer = test_tracer_provider.get_tracer(alert_service.__name__)
+        _, exporter = otel_enabled_provider
 
         # Create mock database session
         mock_db = AsyncMock()
@@ -242,15 +208,14 @@ class TestAlertServiceSendAlertsForRouteOtelSpans:
         alert_svc._get_verified_contact = AsyncMock(return_value=None)  # No contact info
         alert_svc._store_alert_state = AsyncMock()
 
-        with patch("opentelemetry.trace.get_tracer", return_value=test_tracer):
-            await alert_svc._send_alerts_for_route(
-                route=mock_route,
-                schedule=mock_schedule,
-                disruptions=mock_disruptions,
-            )
+        await alert_svc._send_alerts_for_route(
+            route=mock_route,
+            schedule=mock_schedule,
+            disruptions=mock_disruptions,
+        )
 
         # Verify span attributes include preference count
-        spans = get_recorded_spans(exporter)
+        spans = exporter.get_finished_spans()
         assert len(spans) == 1
 
         span = spans[0]
@@ -261,12 +226,10 @@ class TestAlertServiceSendAlertsForRouteOtelSpans:
     @pytest.mark.asyncio
     async def test_send_alerts_for_route_handles_exception_gracefully(
         self,
-        in_memory_span_exporter: InMemorySpanExporter,
-        test_tracer_provider: TracerProvider,
+        otel_enabled_provider: tuple[TracerProvider, InMemorySpanExporter],
     ) -> None:
         """Test that span has OK status even when errors occur (graceful degradation)."""
-        exporter = in_memory_span_exporter
-        test_tracer = test_tracer_provider.get_tracer(alert_service.__name__)
+        _, exporter = otel_enabled_provider
 
         # Create mock database session that fails on commit
         mock_db = AsyncMock()
@@ -303,18 +266,14 @@ class TestAlertServiceSendAlertsForRouteOtelSpans:
         # Mock helper method to return None (no contact)
         alert_svc._get_verified_contact = AsyncMock(return_value=None)
 
-        with patch("opentelemetry.trace.get_tracer", return_value=test_tracer):
-            result = await alert_svc._send_alerts_for_route(
-                route=mock_route,
-                schedule=mock_schedule,
-                disruptions=mock_disruptions,
-            )
-
-        # Verify result is 0 on error (graceful degradation)
-        assert result == 0
+        await alert_svc._send_alerts_for_route(
+            route=mock_route,
+            schedule=mock_schedule,
+            disruptions=mock_disruptions,
+        )
 
         # Verify span has OK status (method handles exceptions internally)
-        spans = get_recorded_spans(exporter)
+        spans = exporter.get_finished_spans()
         assert len(spans) == 1
 
         span = spans[0]

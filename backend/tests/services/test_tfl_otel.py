@@ -1,13 +1,11 @@
 """Tests for TfL service OpenTelemetry instrumentation."""
 
-from collections.abc import Generator
 from datetime import UTC, datetime, timedelta
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from app.models.tfl import Line
-from app.services import tfl_service
 from app.services.tfl_service import TfLService
 from opentelemetry.sdk.trace import TracerProvider
 from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanExporter
@@ -23,18 +21,7 @@ from pydantic_tfl_api.models import (
 )
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from tests.helpers.otel import assert_span_status, get_recorded_spans
-
-
-# Re-enable OTEL for these tests
-# conftest.py sets OTEL_SDK_DISABLED=true by default
-@pytest.fixture(autouse=True)
-def enable_otel_for_tests(monkeypatch: pytest.MonkeyPatch) -> Generator[None]:
-    """Enable OTEL SDK for tests in this module."""
-    # Remove OTEL_SDK_DISABLED if present (enables OTEL)
-    monkeypatch.delenv("OTEL_SDK_DISABLED", raising=False)
-    return
-    # Monkeypatch automatically restores original environment on cleanup
+from tests.helpers.otel import assert_span_status
 
 
 class MockResponse:
@@ -136,12 +123,10 @@ class TestTflApiSpans:
     async def test_fetch_available_modes_creates_span(
         self,
         tfl_service_with_mock: TfLService,
-        in_memory_span_exporter: InMemorySpanExporter,
-        test_tracer_provider: TracerProvider,
+        otel_enabled_provider: tuple[TracerProvider, InMemorySpanExporter],
     ) -> None:
         """Test that fetch_available_modes creates a span with correct attributes."""
-        exporter = in_memory_span_exporter
-        test_tracer = test_tracer_provider.get_tracer(tfl_service.__name__)
+        _, exporter = otel_enabled_provider
 
         # Setup mock response
         mock_modes = [create_mock_mode("tube"), create_mock_mode("dlr")]
@@ -150,20 +135,17 @@ class TestTflApiSpans:
             shared_expires=datetime.now(UTC) + timedelta(days=7),
         )
 
-        # Patch the tracer and mock the API call
-        with (
-            patch("opentelemetry.trace.get_tracer", return_value=test_tracer),
-            patch.object(
-                tfl_service_with_mock.line_client,
-                "MetaModes",
-                new_callable=AsyncMock,
-                return_value=mock_response,
-            ),
+        # Mock the API call
+        with patch.object(
+            tfl_service_with_mock.line_client,
+            "MetaModes",
+            new_callable=AsyncMock,
+            return_value=mock_response,
         ):
             await tfl_service_with_mock.fetch_available_modes()
 
         # Verify span was created
-        spans = get_recorded_spans(exporter)
+        spans = exporter.get_finished_spans()
         assert len(spans) == 1
 
         span = spans[0]
@@ -178,12 +160,10 @@ class TestTflApiSpans:
     async def test_fetch_lines_creates_span_per_mode(
         self,
         tfl_service_with_mock: TfLService,
-        in_memory_span_exporter: InMemorySpanExporter,
-        test_tracer_provider: TracerProvider,
+        otel_enabled_provider: tuple[TracerProvider, InMemorySpanExporter],
     ) -> None:
         """Test that fetch_lines creates a span for each mode fetched."""
-        exporter = in_memory_span_exporter
-        test_tracer = test_tracer_provider.get_tracer(tfl_service.__name__)
+        _, exporter = otel_enabled_provider
 
         # Setup mock response
         mock_line = create_mock_line("victoria", "Victoria")
@@ -192,20 +172,17 @@ class TestTflApiSpans:
             shared_expires=datetime.now(UTC) + timedelta(days=1),
         )
 
-        # Patch the tracer and mock the API call (will be called twice, once per mode)
-        with (
-            patch("opentelemetry.trace.get_tracer", return_value=test_tracer),
-            patch.object(
-                tfl_service_with_mock.line_client,
-                "GetByModeByPathModes",
-                new_callable=AsyncMock,
-                return_value=mock_response,
-            ),
+        # Mock the API call (will be called twice, once per mode)
+        with patch.object(
+            tfl_service_with_mock.line_client,
+            "GetByModeByPathModes",
+            new_callable=AsyncMock,
+            return_value=mock_response,
         ):
             await tfl_service_with_mock.fetch_lines(modes=["tube", "dlr"])
 
         # Verify spans were created (one per mode)
-        spans = get_recorded_spans(exporter)
+        spans = exporter.get_finished_spans()
         assert len(spans) == 2
 
         for span in spans:
@@ -219,12 +196,10 @@ class TestTflApiSpans:
     async def test_extract_hub_fields_creates_span_when_hub_exists(
         self,
         tfl_service_with_mock: TfLService,
-        in_memory_span_exporter: InMemorySpanExporter,
-        test_tracer_provider: TracerProvider,
+        otel_enabled_provider: tuple[TracerProvider, InMemorySpanExporter],
     ) -> None:
         """Test that _extract_hub_fields creates a span when hub code exists."""
-        exporter = in_memory_span_exporter
-        test_tracer = test_tracer_provider.get_tracer(tfl_service.__name__)
+        _, exporter = otel_enabled_provider
 
         # Create stop point with hub code
         stop_point = create_mock_stop_point()
@@ -235,20 +210,17 @@ class TestTflApiSpans:
         hub_data.commonName = "Victoria"
         mock_response = MockResponse(data=[hub_data])
 
-        # Patch the tracer and mock the API call
-        with (
-            patch("opentelemetry.trace.get_tracer", return_value=test_tracer),
-            patch.object(
-                tfl_service_with_mock.stoppoint_client,
-                "GetByPathIdsQueryIncludeCrowdingData",
-                new_callable=AsyncMock,
-                return_value=mock_response,
-            ),
+        # Mock the API call
+        with patch.object(
+            tfl_service_with_mock.stoppoint_client,
+            "GetByPathIdsQueryIncludeCrowdingData",
+            new_callable=AsyncMock,
+            return_value=mock_response,
         ):
             await tfl_service_with_mock._extract_hub_fields(stop_point)
 
         # Verify span was created
-        spans = get_recorded_spans(exporter)
+        spans = exporter.get_finished_spans()
         assert len(spans) == 1
 
         span = spans[0]
@@ -260,22 +232,19 @@ class TestTflApiSpans:
     async def test_extract_hub_fields_no_span_when_no_hub(
         self,
         tfl_service_with_mock: TfLService,
-        in_memory_span_exporter: InMemorySpanExporter,
-        test_tracer_provider: TracerProvider,
+        otel_enabled_provider: tuple[TracerProvider, InMemorySpanExporter],
     ) -> None:
         """Test that _extract_hub_fields creates no span when hub code is None."""
-        exporter = in_memory_span_exporter
-        test_tracer = test_tracer_provider.get_tracer(tfl_service.__name__)
+        _, exporter = otel_enabled_provider
 
         # Create stop point without hub code
         stop_point = create_mock_stop_point()
         # hubNaptanCode is None by default
 
-        with patch("opentelemetry.trace.get_tracer", return_value=test_tracer):
-            hub_code, hub_name = await tfl_service_with_mock._extract_hub_fields(stop_point)
+        hub_code, hub_name = await tfl_service_with_mock._extract_hub_fields(stop_point)
 
         # Verify no span was created
-        spans = get_recorded_spans(exporter)
+        spans = exporter.get_finished_spans()
         assert len(spans) == 0
 
         # Verify return values
@@ -286,12 +255,10 @@ class TestTflApiSpans:
     async def test_fetch_route_sequence_creates_span(
         self,
         tfl_service_with_mock: TfLService,
-        in_memory_span_exporter: InMemorySpanExporter,
-        test_tracer_provider: TracerProvider,
+        otel_enabled_provider: tuple[TracerProvider, InMemorySpanExporter],
     ) -> None:
         """Test that _fetch_route_sequence creates a span with line_id and direction."""
-        exporter = in_memory_span_exporter
-        test_tracer = test_tracer_provider.get_tracer(tfl_service.__name__)
+        _, exporter = otel_enabled_provider
 
         # Setup mock response
         mock_route_sequence = MagicMock()
@@ -299,19 +266,16 @@ class TestTflApiSpans:
         mock_response = MockResponse(data=mock_route_sequence)
         mock_response.content = mock_route_sequence
 
-        with (
-            patch("opentelemetry.trace.get_tracer", return_value=test_tracer),
-            patch.object(
-                tfl_service_with_mock.line_client,
-                "RouteSequenceByPathIdPathDirectionQueryServiceTypesQueryExcludeCrowding",
-                new_callable=AsyncMock,
-                return_value=mock_response,
-            ),
+        with patch.object(
+            tfl_service_with_mock.line_client,
+            "RouteSequenceByPathIdPathDirectionQueryServiceTypesQueryExcludeCrowding",
+            new_callable=AsyncMock,
+            return_value=mock_response,
         ):
             await tfl_service_with_mock._fetch_route_sequence("victoria", "outbound")
 
         # Verify span was created
-        spans = get_recorded_spans(exporter)
+        spans = exporter.get_finished_spans()
         assert len(spans) == 1
 
         span = spans[0]
@@ -324,22 +288,19 @@ class TestTflApiSpans:
     async def test_cache_hit_does_not_create_span(
         self,
         tfl_service_with_mock: TfLService,
-        in_memory_span_exporter: InMemorySpanExporter,
-        test_tracer_provider: TracerProvider,
+        otel_enabled_provider: tuple[TracerProvider, InMemorySpanExporter],
     ) -> None:
         """Test that cache hits don't create TfL API spans."""
-        exporter = in_memory_span_exporter
-        test_tracer = test_tracer_provider.get_tracer(tfl_service.__name__)
+        _, exporter = otel_enabled_provider
 
         # Set up cache to return data
         cached_modes = ["tube", "dlr"]
         tfl_service_with_mock.cache.get = AsyncMock(return_value=cached_modes)
 
-        with patch("opentelemetry.trace.get_tracer", return_value=test_tracer):
-            result = await tfl_service_with_mock.fetch_available_modes()
+        result = await tfl_service_with_mock.fetch_available_modes()
 
         # Verify no spans were created
-        spans = get_recorded_spans(exporter)
+        spans = exporter.get_finished_spans()
         assert len(spans) == 0
 
         # Verify result came from cache
@@ -349,12 +310,10 @@ class TestTflApiSpans:
     async def test_fetch_severity_codes_creates_span(
         self,
         tfl_service_with_mock: TfLService,
-        in_memory_span_exporter: InMemorySpanExporter,
-        test_tracer_provider: TracerProvider,
+        otel_enabled_provider: tuple[TracerProvider, InMemorySpanExporter],
     ) -> None:
         """Test that fetch_severity_codes creates a span with correct attributes."""
-        exporter = in_memory_span_exporter
-        test_tracer = test_tracer_provider.get_tracer(tfl_service.__name__)
+        _, exporter = otel_enabled_provider
 
         # Setup mock response - severity codes response
         mock_severity = MagicMock()
@@ -375,19 +334,16 @@ class TestTflApiSpans:
         tfl_service_with_mock.db.commit = AsyncMock()
         tfl_service_with_mock.db.refresh = AsyncMock()
 
-        with (
-            patch("opentelemetry.trace.get_tracer", return_value=test_tracer),
-            patch.object(
-                tfl_service_with_mock.line_client,
-                "MetaSeverity",
-                new_callable=AsyncMock,
-                return_value=mock_response,
-            ),
+        with patch.object(
+            tfl_service_with_mock.line_client,
+            "MetaSeverity",
+            new_callable=AsyncMock,
+            return_value=mock_response,
         ):
             await tfl_service_with_mock.fetch_severity_codes()
 
         # Verify span was created
-        spans = get_recorded_spans(exporter)
+        spans = exporter.get_finished_spans()
         assert len(spans) == 1
 
         span = spans[0]
@@ -402,12 +358,10 @@ class TestTflApiSpans:
     async def test_fetch_disruption_categories_creates_span(
         self,
         tfl_service_with_mock: TfLService,
-        in_memory_span_exporter: InMemorySpanExporter,
-        test_tracer_provider: TracerProvider,
+        otel_enabled_provider: tuple[TracerProvider, InMemorySpanExporter],
     ) -> None:
         """Test that fetch_disruption_categories creates a span with correct attributes."""
-        exporter = in_memory_span_exporter
-        test_tracer = test_tracer_provider.get_tracer(tfl_service.__name__)
+        _, exporter = otel_enabled_provider
 
         # Setup mock response - disruption categories response
         mock_response = MockResponse(
@@ -424,19 +378,16 @@ class TestTflApiSpans:
         tfl_service_with_mock.db.commit = AsyncMock()
         tfl_service_with_mock.db.refresh = AsyncMock()
 
-        with (
-            patch("opentelemetry.trace.get_tracer", return_value=test_tracer),
-            patch.object(
-                tfl_service_with_mock.line_client,
-                "MetaDisruptionCategories",
-                new_callable=AsyncMock,
-                return_value=mock_response,
-            ),
+        with patch.object(
+            tfl_service_with_mock.line_client,
+            "MetaDisruptionCategories",
+            new_callable=AsyncMock,
+            return_value=mock_response,
         ):
             await tfl_service_with_mock.fetch_disruption_categories()
 
         # Verify span was created
-        spans = get_recorded_spans(exporter)
+        spans = exporter.get_finished_spans()
         assert len(spans) == 1
 
         span = spans[0]
@@ -451,12 +402,10 @@ class TestTflApiSpans:
     async def test_fetch_stop_types_creates_span(
         self,
         tfl_service_with_mock: TfLService,
-        in_memory_span_exporter: InMemorySpanExporter,
-        test_tracer_provider: TracerProvider,
+        otel_enabled_provider: tuple[TracerProvider, InMemorySpanExporter],
     ) -> None:
         """Test that fetch_stop_types creates a span with correct attributes."""
-        exporter = in_memory_span_exporter
-        test_tracer = test_tracer_provider.get_tracer(tfl_service.__name__)
+        _, exporter = otel_enabled_provider
 
         # Setup mock response - stop types response
         mock_response = MockResponse(
@@ -473,19 +422,16 @@ class TestTflApiSpans:
         tfl_service_with_mock.db.commit = AsyncMock()
         tfl_service_with_mock.db.refresh = AsyncMock()
 
-        with (
-            patch("opentelemetry.trace.get_tracer", return_value=test_tracer),
-            patch.object(
-                tfl_service_with_mock.stoppoint_client,
-                "MetaStopTypes",
-                new_callable=AsyncMock,
-                return_value=mock_response,
-            ),
+        with patch.object(
+            tfl_service_with_mock.stoppoint_client,
+            "MetaStopTypes",
+            new_callable=AsyncMock,
+            return_value=mock_response,
         ):
             await tfl_service_with_mock.fetch_stop_types()
 
         # Verify span was created
-        spans = get_recorded_spans(exporter)
+        spans = exporter.get_finished_spans()
         assert len(spans) == 1
 
         span = spans[0]
@@ -500,12 +446,10 @@ class TestTflApiSpans:
     async def test_fetch_line_disruptions_creates_span(
         self,
         tfl_service_with_mock: TfLService,
-        in_memory_span_exporter: InMemorySpanExporter,
-        test_tracer_provider: TracerProvider,
+        otel_enabled_provider: tuple[TracerProvider, InMemorySpanExporter],
     ) -> None:
         """Test that fetch_line_disruptions creates a span with correct attributes."""
-        exporter = in_memory_span_exporter
-        test_tracer = test_tracer_provider.get_tracer(tfl_service.__name__)
+        _, exporter = otel_enabled_provider
 
         # Setup mock response - line status response
         mock_line_status = MagicMock()
@@ -526,19 +470,16 @@ class TestTflApiSpans:
         cache_key = tfl_service_with_mock._build_modes_cache_key("lines", ["tube"])
         tfl_service_with_mock.cache.get = AsyncMock(side_effect=lambda key: [mock_line] if key == cache_key else None)
 
-        with (
-            patch("opentelemetry.trace.get_tracer", return_value=test_tracer),
-            patch.object(
-                tfl_service_with_mock.line_client,
-                "StatusByIdsByPathIdsQueryDetail",
-                new_callable=AsyncMock,
-                return_value=mock_response,
-            ),
+        with patch.object(
+            tfl_service_with_mock.line_client,
+            "StatusByIdsByPathIdsQueryDetail",
+            new_callable=AsyncMock,
+            return_value=mock_response,
         ):
             await tfl_service_with_mock.fetch_line_disruptions(modes=["tube"])
 
         # Verify span was created (only the disruptions span, not the lines span)
-        spans = get_recorded_spans(exporter)
+        spans = exporter.get_finished_spans()
         assert len(spans) == 1
 
         span = spans[0]
@@ -554,12 +495,10 @@ class TestTflApiSpans:
     async def test_fetch_station_disruptions_creates_span(
         self,
         tfl_service_with_mock: TfLService,
-        in_memory_span_exporter: InMemorySpanExporter,
-        test_tracer_provider: TracerProvider,
+        otel_enabled_provider: tuple[TracerProvider, InMemorySpanExporter],
     ) -> None:
         """Test that fetch_station_disruptions creates a span for each mode."""
-        exporter = in_memory_span_exporter
-        test_tracer = test_tracer_provider.get_tracer(tfl_service.__name__)
+        _, exporter = otel_enabled_provider
 
         # Setup mock response - station disruptions response
         mock_response = MockResponse(
@@ -567,19 +506,16 @@ class TestTflApiSpans:
             shared_expires=datetime.now(UTC) + timedelta(minutes=2),
         )
 
-        with (
-            patch("opentelemetry.trace.get_tracer", return_value=test_tracer),
-            patch.object(
-                tfl_service_with_mock.stoppoint_client,
-                "DisruptionByModeByPathModesQueryIncludeRouteBlockedStops",
-                new_callable=AsyncMock,
-                return_value=mock_response,
-            ),
+        with patch.object(
+            tfl_service_with_mock.stoppoint_client,
+            "DisruptionByModeByPathModesQueryIncludeRouteBlockedStops",
+            new_callable=AsyncMock,
+            return_value=mock_response,
         ):
             await tfl_service_with_mock.fetch_station_disruptions(modes=["tube"])
 
         # Verify span was created
-        spans = get_recorded_spans(exporter)
+        spans = exporter.get_finished_spans()
         assert len(spans) == 1
 
         span = spans[0]
@@ -604,18 +540,15 @@ class TestTflApiSpanErrorHandling:
     async def test_span_records_exception_on_api_error(
         self,
         tfl_service_with_mock: TfLService,
-        in_memory_span_exporter: InMemorySpanExporter,
-        test_tracer_provider: TracerProvider,
+        otel_enabled_provider: tuple[TracerProvider, InMemorySpanExporter],
     ) -> None:
         """Test that span records exception when API call fails."""
-        exporter = in_memory_span_exporter
-        test_tracer = test_tracer_provider.get_tracer(tfl_service.__name__)
+        _, exporter = otel_enabled_provider
 
         # Mock API to raise an exception
         api_error = Exception("TfL API connection error")
 
         with (
-            patch("opentelemetry.trace.get_tracer", return_value=test_tracer),
             patch.object(
                 tfl_service_with_mock.line_client,
                 "MetaModes",
@@ -627,7 +560,7 @@ class TestTflApiSpanErrorHandling:
             await tfl_service_with_mock.fetch_available_modes()
 
         # Verify span was created and has error status
-        spans = get_recorded_spans(exporter)
+        spans = exporter.get_finished_spans()
         assert len(spans) == 1
 
         span = spans[0]
@@ -644,12 +577,10 @@ class TestTflApiSpanErrorHandling:
     async def test_span_records_exception_on_fetch_lines_error(
         self,
         tfl_service_with_mock: TfLService,
-        in_memory_span_exporter: InMemorySpanExporter,
-        test_tracer_provider: TracerProvider,
+        otel_enabled_provider: tuple[TracerProvider, InMemorySpanExporter],
     ) -> None:
         """Test that span records exception when fetch_lines API call fails."""
-        exporter = in_memory_span_exporter
-        test_tracer = test_tracer_provider.get_tracer(tfl_service.__name__)
+        _, exporter = otel_enabled_provider
 
         # Mock database execute to succeed for the delete
         tfl_service_with_mock.db.execute = AsyncMock()
@@ -658,7 +589,6 @@ class TestTflApiSpanErrorHandling:
         api_error = Exception("Network timeout")
 
         with (
-            patch("opentelemetry.trace.get_tracer", return_value=test_tracer),
             patch.object(
                 tfl_service_with_mock.line_client,
                 "GetByModeByPathModes",
@@ -670,7 +600,7 @@ class TestTflApiSpanErrorHandling:
             await tfl_service_with_mock.fetch_lines(modes=["tube"])
 
         # Verify span was created and has error status
-        spans = get_recorded_spans(exporter)
+        spans = exporter.get_finished_spans()
         assert len(spans) == 1
 
         span = spans[0]
@@ -681,12 +611,10 @@ class TestTflApiSpanErrorHandling:
     async def test_span_records_exception_on_hub_fetch_error(
         self,
         tfl_service_with_mock: TfLService,
-        in_memory_span_exporter: InMemorySpanExporter,
-        test_tracer_provider: TracerProvider,
+        otel_enabled_provider: tuple[TracerProvider, InMemorySpanExporter],
     ) -> None:
         """Test that span records exception when hub API call fails."""
-        exporter = in_memory_span_exporter
-        test_tracer = test_tracer_provider.get_tracer(tfl_service.__name__)
+        _, exporter = otel_enabled_provider
 
         # Create stop point with hub code
         stop_point = create_mock_stop_point()
@@ -695,20 +623,17 @@ class TestTflApiSpanErrorHandling:
         # Mock API to raise an exception
         api_error = Exception("Hub API error")
 
-        with (
-            patch("opentelemetry.trace.get_tracer", return_value=test_tracer),
-            patch.object(
-                tfl_service_with_mock.stoppoint_client,
-                "GetByPathIdsQueryIncludeCrowdingData",
-                new_callable=AsyncMock,
-                side_effect=api_error,
-            ),
+        with patch.object(
+            tfl_service_with_mock.stoppoint_client,
+            "GetByPathIdsQueryIncludeCrowdingData",
+            new_callable=AsyncMock,
+            side_effect=api_error,
         ):
             # _extract_hub_fields catches exceptions and returns original hub_code, None for hub_name
             hub_code, hub_name = await tfl_service_with_mock._extract_hub_fields(stop_point)
 
         # Verify span was created and has error status
-        spans = get_recorded_spans(exporter)
+        spans = exporter.get_finished_spans()
         assert len(spans) == 1
 
         span = spans[0]
@@ -727,12 +652,10 @@ class TestTflApiSpanSuccessStatus:
     async def test_fetch_available_modes_has_ok_status_on_success(
         self,
         tfl_service_with_mock: TfLService,
-        in_memory_span_exporter: InMemorySpanExporter,
-        test_tracer_provider: TracerProvider,
+        otel_enabled_provider: tuple[TracerProvider, InMemorySpanExporter],
     ) -> None:
         """Test that fetch_available_modes span has OK status on successful completion."""
-        exporter = in_memory_span_exporter
-        test_tracer = test_tracer_provider.get_tracer(tfl_service.__name__)
+        _, exporter = otel_enabled_provider
 
         # Setup mock response
         mock_modes = [create_mock_mode("tube"), create_mock_mode("dlr")]
@@ -742,14 +665,11 @@ class TestTflApiSpanSuccessStatus:
         )
 
         # Fetch modes successfully
-        with (
-            patch("opentelemetry.trace.get_tracer", return_value=test_tracer),
-            patch.object(
-                tfl_service_with_mock.line_client,
-                "MetaModes",
-                new_callable=AsyncMock,
-                return_value=mock_response,
-            ),
+        with patch.object(
+            tfl_service_with_mock.line_client,
+            "MetaModes",
+            new_callable=AsyncMock,
+            return_value=mock_response,
         ):
             result = await tfl_service_with_mock.fetch_available_modes()
 
@@ -757,7 +677,7 @@ class TestTflApiSpanSuccessStatus:
         assert result == ["tube", "dlr"]
 
         # Verify span was created with OK status
-        spans = get_recorded_spans(exporter)
+        spans = exporter.get_finished_spans()
         assert len(spans) == 1
 
         span = spans[0]
@@ -768,12 +688,10 @@ class TestTflApiSpanSuccessStatus:
     async def test_fetch_lines_has_ok_status_on_success(
         self,
         tfl_service_with_mock: TfLService,
-        in_memory_span_exporter: InMemorySpanExporter,
-        test_tracer_provider: TracerProvider,
+        otel_enabled_provider: tuple[TracerProvider, InMemorySpanExporter],
     ) -> None:
         """Test that fetch_lines spans have OK status on successful completion."""
-        exporter = in_memory_span_exporter
-        test_tracer = test_tracer_provider.get_tracer(tfl_service.__name__)
+        _, exporter = otel_enabled_provider
 
         # Setup mock response
         mock_line = create_mock_line("victoria", "Victoria", modeName="tube")
@@ -783,14 +701,11 @@ class TestTflApiSpanSuccessStatus:
         )
 
         # Fetch lines successfully
-        with (
-            patch("opentelemetry.trace.get_tracer", return_value=test_tracer),
-            patch.object(
-                tfl_service_with_mock.line_client,
-                "GetByModeByPathModes",
-                new_callable=AsyncMock,
-                return_value=mock_response,
-            ),
+        with patch.object(
+            tfl_service_with_mock.line_client,
+            "GetByModeByPathModes",
+            new_callable=AsyncMock,
+            return_value=mock_response,
         ):
             result = await tfl_service_with_mock.fetch_lines(modes=["tube"])
 
@@ -799,7 +714,7 @@ class TestTflApiSpanSuccessStatus:
         assert result[0].name == "Victoria"
 
         # Verify span was created with OK status
-        spans = get_recorded_spans(exporter)
+        spans = exporter.get_finished_spans()
         assert len(spans) == 1
 
         span = spans[0]
