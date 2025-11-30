@@ -459,6 +459,7 @@ class AlertService:
                     error=str(e),
                     exc_info=e,
                 )
+                span.record_exception(e)
                 await self.db.rollback()
                 span.set_attribute("alert.logged_count", 0)
                 # Don't raise - logging failures shouldn't block alert processing

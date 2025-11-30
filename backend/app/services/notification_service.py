@@ -1,5 +1,6 @@
 """Notification service for sending disruption alerts via email and SMS."""
 
+import hashlib
 from pathlib import Path
 from typing import Any
 
@@ -15,6 +16,20 @@ logger = structlog.get_logger(__name__)
 
 # SMS character limit constant
 SMS_MAX_LENGTH = 160
+
+
+def _hash_recipient(value: str) -> str:
+    """
+    Hash recipient for span attribute (PII protection).
+
+    Args:
+        value: Email or phone number to hash
+
+    Returns:
+        First 12 characters of SHA256 hash in lowercase hex
+    """
+    return hashlib.sha256(value.encode()).hexdigest()[:12]
+
 
 # Initialize Jinja2 environment for email templates
 TEMPLATE_DIR = Path(__file__).parent.parent / "templates"
@@ -61,7 +76,7 @@ class NotificationService:
             "notification-service",
         ) as span:
             span.set_attribute("notification.type", "email")
-            span.set_attribute("notification.recipient", email)
+            span.set_attribute("notification.recipient_hash", _hash_recipient(email))
             span.set_attribute("notification.route_name", route_name)
             span.set_attribute("notification.disruption_count", len(disruptions))
 
@@ -141,7 +156,7 @@ This is an automated alert from IsTheTubeRunning.
             "notification-service",
         ) as span:
             span.set_attribute("notification.type", "sms")
-            span.set_attribute("notification.recipient", phone)
+            span.set_attribute("notification.recipient_hash", _hash_recipient(phone))
             span.set_attribute("notification.route_name", route_name)
             span.set_attribute("notification.disruption_count", len(disruptions))
 

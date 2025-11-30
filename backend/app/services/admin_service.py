@@ -97,7 +97,7 @@ class AdminService:
             span.set_attribute("admin.operation", "get_users_paginated")
             span.set_attribute("admin.limit", limit)
             span.set_attribute("admin.offset", offset)
-            span.set_attribute("admin.search_enabled", search is not None)
+            span.set_attribute("admin.search_enabled", bool(search))
             span.set_attribute("admin.include_deleted", include_deleted)
             # Build count query (separate from main query to avoid cartesian product)
             count_query = select(func.count(func.distinct(User.id)))

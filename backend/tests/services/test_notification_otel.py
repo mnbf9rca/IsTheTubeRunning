@@ -69,7 +69,8 @@ class TestNotificationServiceOtelSpans:
         assert notif_span.attributes is not None
         assert notif_span.attributes["peer.service"] == "notification-service"
         assert notif_span.attributes["notification.type"] == "email"
-        assert notif_span.attributes["notification.recipient"] == "test@example.com"
+        assert "notification.recipient_hash" in notif_span.attributes
+        assert len(notif_span.attributes["notification.recipient_hash"]) == 12
         assert notif_span.attributes["notification.route_name"] == "Home to Work"
         assert notif_span.attributes["notification.disruption_count"] == 2
 
@@ -158,7 +159,8 @@ class TestNotificationServiceOtelSpans:
         assert sms_span.attributes is not None
         assert sms_span.attributes["peer.service"] == "notification-service"
         assert sms_span.attributes["notification.type"] == "sms"
-        assert sms_span.attributes["notification.recipient"] == "+447700900000"
+        assert "notification.recipient_hash" in sms_span.attributes
+        assert len(sms_span.attributes["notification.recipient_hash"]) == 12
         assert sms_span.attributes["notification.route_name"] == "Home to Work"
         assert sms_span.attributes["notification.disruption_count"] == 1
         # Message length should be set after message construction
