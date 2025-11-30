@@ -3856,11 +3856,12 @@ class TestLineDisruptionStateLogging:
         db_session: AsyncSession,
         mock_redis: AsyncMock,
     ):
-        """Test that very long reason strings (at 1000 char limit) are handled correctly."""
+        """Test that very long reason strings (>1000 chars) are handled correctly after TEXT migration."""
         alert_service = AlertService(db=db_session, redis_client=mock_redis)
 
-        # Create reason string at exactly 1000 characters (String(1000) limit)
-        long_reason = "A" * 1000
+        # Create reason string exceeding old 1000 character VARCHAR limit
+        # This simulates real TfL API responses that can exceed 1000 characters
+        long_reason = "A" * 2000
 
         disruption = DisruptionResponse(
             line_id="central",
@@ -3871,11 +3872,11 @@ class TestLineDisruptionStateLogging:
             reason=long_reason,
         )
 
-        # Log state - should succeed without truncation error
+        # Log state - should succeed without truncation error after TEXT migration
         logged_count = await alert_service._log_line_disruption_state_changes([disruption])
         assert logged_count == 1
 
-        # Verify database entry with full 1000-character reason
+        # Verify database entry with full 2000-character reason (no truncation)
         result = await db_session.execute(
             select(LineDisruptionStateLog).where(LineDisruptionStateLog.line_id == "central")
         )
@@ -3883,7 +3884,7 @@ class TestLineDisruptionStateLogging:
         assert log.line_id == "central"
         assert log.status_severity_description == "Severe Delays"
         assert log.reason == long_reason
-        assert len(log.reason) == 1000
+        assert len(log.reason) == 2000
 
     async def test_log_line_disruption_state_changes_null_reason(
         self,
