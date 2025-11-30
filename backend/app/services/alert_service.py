@@ -4,11 +4,14 @@ import hashlib
 import json
 from datetime import UTC, datetime, time
 from itertools import groupby
-from typing import Any
+from typing import TYPE_CHECKING, Any
 from uuid import UUID
 from zoneinfo import ZoneInfo
 
 import structlog
+
+if TYPE_CHECKING:
+    from opentelemetry.trace import Span
 from sqlalchemy import and_, func, inspect, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
@@ -451,147 +454,69 @@ class AlertService:
             # Don't raise - logging failures shouldn't block alert processing
             return 0
 
+    def _set_span_stats_attributes(self, span: "Span", stats: dict[str, int]) -> None:
+        """
+        Set alert processing statistics as span attributes.
+
+        Args:
+            span: OpenTelemetry span to set attributes on
+            stats: Statistics dictionary with routes_checked, alerts_sent, errors
+        """
+        span.set_attribute("alert.routes_checked", stats["routes_checked"])
+        span.set_attribute("alert.alerts_sent", stats["alerts_sent"])
+        span.set_attribute("alert.errors", stats["errors"])
+
     async def process_all_routes(self) -> dict[str, Any]:
         """
         Main entry point for processing all active routes.
 
-        Checks all active routes, determines if they are in a schedule window,
-        and sends alerts if disruptions are detected.
+        Orchestrates the alert processing workflow:
+        1. Fetch all active routes
+        2. Fetch global disruption data (cached, reused for all routes)
+        3. Process each route individually
+        4. Return statistics
 
         Returns:
             Statistics dictionary with routes_checked, alerts_sent, and errors
         """
         with service_span("alert.process_all_routes", "alert-service") as span:
             logger.info("alert_processing_started")
-
             stats = init_alert_processing_stats()
 
             try:
+                # Fetch all active routes with relationships
                 routes = await self._get_active_routes()
                 logger.info("active_routes_fetched", count=len(routes))
 
-                # Fetch all line disruptions once and log state changes
-                # Uses cache automatically, so subsequent per-route calls will be fast
-                # Errors here are non-fatal - per-route processing will still work
-                all_disruptions, disabled_severity_pairs = [], set()
+                # Fetch global disruption data once for all routes
+                # Errors are non-fatal - returns empty data on failure
+                _, disabled_severity_pairs = await self._fetch_global_disruption_data()
 
-                try:
-                    tfl_service = TfLService(db=self.db)
-                    all_disruptions = await tfl_service.fetch_line_disruptions(use_cache=True)
-                    logger.info("all_disruptions_fetched", count=len(all_disruptions))
-
-                    # Log line disruption state changes (for troubleshooting and analytics)
-                    await self._log_line_disruption_state_changes(all_disruptions)
-
-                    # Fetch disabled severity pairs once for all routes
-                    disabled_result = await self.db.execute(select(AlertDisabledSeverity))
-                    disabled_severity_pairs = {(d.mode_id, d.severity_level) for d in disabled_result.scalars().all()}
-
-                except Exception as e:
-                    logger.error(
-                        "disruption_logging_failed",
-                        error=str(e),
-                        exc_info=e,
-                    )
-                    # Don't track as error - per-route processing will handle its own disruptions
-                    # This is just for centralized logging
-
+                # Process each route individually
                 for route in routes:
-                    try:
-                        stats["routes_checked"] += 1
+                    stats["routes_checked"] += 1
 
-                        # Check if route is in an active schedule window
-                        # schedules are eagerly loaded in _get_active_routes
-                        active_schedule = await self._get_active_schedule(route, route.schedules)
-                        if not active_schedule:
-                            logger.debug(
-                                "route_not_in_schedule",
-                                route_id=str(route.id),
-                                route_name=route.name,
-                            )
-                            continue
+                    # Process this route and collect results
+                    alerts_sent, error_occurred = await self._process_single_route(
+                        route=route,
+                        disabled_severity_pairs=disabled_severity_pairs,
+                    )
 
-                        logger.info(
-                            "route_in_active_schedule",
-                            route_id=str(route.id),
-                            route_name=route.name,
-                            schedule_id=str(active_schedule.id),
-                        )
-
-                        # Get disruptions for this route
-                        disruptions, error_occurred = await self._get_route_disruptions(route, disabled_severity_pairs)
-
-                        # Track error if one occurred
-                        if error_occurred:
-                            stats["errors"] += 1
-
-                        # Skip if no disruptions
-                        if not disruptions:
-                            logger.debug(
-                                "no_disruptions_for_route",
-                                route_id=str(route.id),
-                                route_name=route.name,
-                            )
-                            continue
-
-                        logger.info(
-                            "disruptions_found_for_route",
-                            route_id=str(route.id),
-                            route_name=route.name,
-                            disruption_count=len(disruptions),
-                        )
-
-                        # Check if we should send alert (deduplication)
-                        should_send = await self._should_send_alert(
-                            route=route,
-                            user_id=route.user_id,
-                            schedule=active_schedule,
-                            disruptions=disruptions,
-                        )
-
-                        if not should_send:
-                            logger.debug(
-                                "alert_skipped_duplicate",
-                                route_id=str(route.id),
-                                route_name=route.name,
-                            )
-                            continue
-
-                        # Send alerts
-                        alerts_sent = await self._send_alerts_for_route(
-                            route=route,
-                            schedule=active_schedule,
-                            disruptions=disruptions,
-                        )
-
-                        stats["alerts_sent"] += alerts_sent
-
-                    except Exception as e:
+                    stats["alerts_sent"] += alerts_sent
+                    if error_occurred:
                         stats["errors"] += 1
-                        logger.error(
-                            "route_processing_failed",
-                            route_id=str(route.id),
-                            error=str(e),
-                            exc_info=e,
-                        )
-                        # Continue processing other routes
-
-                # Set span attributes at the end
-                span.set_attribute("alert.routes_checked", stats["routes_checked"])
-                span.set_attribute("alert.alerts_sent", stats["alerts_sent"])
-                span.set_attribute("alert.errors", stats["errors"])
 
                 logger.info("alert_processing_completed", **stats)
-                return stats
 
             except Exception as e:
                 logger.error("alert_processing_failed", error=str(e), exc_info=e)
                 stats["errors"] += 1
-                # Set span attributes even on error
-                span.set_attribute("alert.routes_checked", stats["routes_checked"])
-                span.set_attribute("alert.alerts_sent", stats["alerts_sent"])
-                span.set_attribute("alert.errors", stats["errors"])
-                return stats
+
+            finally:
+                # Always set span attributes, even on error
+                self._set_span_stats_attributes(span, stats)
+
+            return stats
 
     async def _get_active_routes(self) -> list[UserRoute]:
         """
@@ -619,6 +544,44 @@ class AlertService:
         except Exception as e:
             logger.error("fetch_active_routes_failed", error=str(e), exc_info=e)
             return []
+
+    async def _fetch_global_disruption_data(self) -> tuple[list[DisruptionResponse], set[tuple[str, int]]]:
+        """
+        Fetch all disruptions and disabled severities once for all routes.
+
+        This method fetches global disruption data that can be reused across all routes:
+        - All line disruptions (cached by TfL service)
+        - Disabled severity pairs for filtering
+
+        Errors are non-fatal - returns empty data on failure so per-route processing can continue.
+
+        Returns:
+            Tuple of (all_disruptions, disabled_severity_pairs)
+        """
+        all_disruptions, disabled_severity_pairs = [], set()
+
+        try:
+            tfl_service = TfLService(db=self.db)
+            all_disruptions = await tfl_service.fetch_line_disruptions(use_cache=True)
+            logger.info("all_disruptions_fetched", count=len(all_disruptions))
+
+            # Log line disruption state changes (for troubleshooting and analytics)
+            await self._log_line_disruption_state_changes(all_disruptions)
+
+            # Fetch disabled severity pairs once for all routes
+            disabled_result = await self.db.execute(select(AlertDisabledSeverity))
+            disabled_severity_pairs = {(d.mode_id, d.severity_level) for d in disabled_result.scalars().all()}
+
+        except Exception as e:
+            logger.error(
+                "disruption_logging_failed",
+                error=str(e),
+                exc_info=e,
+            )
+            # Don't track as error - per-route processing will handle its own disruptions
+            # This is just for centralized logging
+
+        return all_disruptions, disabled_severity_pairs
 
     async def _get_active_schedule(
         self,
@@ -1166,6 +1129,99 @@ class AlertService:
                 exc_info=send_error,
             )
             return False, str(send_error)
+
+    async def _process_single_route(
+        self,
+        route: UserRoute,
+        disabled_severity_pairs: set[tuple[str, int]],
+    ) -> tuple[int, bool]:
+        """
+        Process a single route: check schedule, get disruptions, send alerts.
+
+        This method encapsulates all the logic for processing one route, including:
+        - Checking if the route is in an active schedule window
+        - Fetching disruptions relevant to the route
+        - Checking if an alert should be sent (deduplication)
+        - Sending alerts to configured notification preferences
+
+        Args:
+            route: UserRoute to process (with schedules, segments, preferences loaded)
+            disabled_severity_pairs: Set of (mode_id, severity_level) pairs to filter out
+
+        Returns:
+            Tuple of (alerts_sent, error_occurred)
+        """
+        try:
+            # Check if route is in an active schedule window
+            # schedules are eagerly loaded in _get_active_routes
+            active_schedule = await self._get_active_schedule(route, route.schedules)
+            if not active_schedule:
+                logger.debug(
+                    "route_not_in_schedule",
+                    route_id=str(route.id),
+                    route_name=route.name,
+                )
+                return 0, False
+
+            logger.info(
+                "route_in_active_schedule",
+                route_id=str(route.id),
+                route_name=route.name,
+                schedule_id=str(active_schedule.id),
+            )
+
+            # Get disruptions for this route
+            disruptions, error_occurred = await self._get_route_disruptions(route, disabled_severity_pairs)
+
+            # Skip if no disruptions
+            if not disruptions:
+                logger.debug(
+                    "no_disruptions_for_route",
+                    route_id=str(route.id),
+                    route_name=route.name,
+                )
+                return 0, error_occurred
+
+            logger.info(
+                "disruptions_found_for_route",
+                route_id=str(route.id),
+                route_name=route.name,
+                disruption_count=len(disruptions),
+            )
+
+            # Check if we should send alert (deduplication)
+            should_send = await self._should_send_alert(
+                route=route,
+                user_id=route.user_id,
+                schedule=active_schedule,
+                disruptions=disruptions,
+            )
+
+            if not should_send:
+                logger.debug(
+                    "alert_skipped_duplicate",
+                    route_id=str(route.id),
+                    route_name=route.name,
+                )
+                return 0, error_occurred
+
+            # Send alerts
+            alerts_sent = await self._send_alerts_for_route(
+                route=route,
+                schedule=active_schedule,
+                disruptions=disruptions,
+            )
+
+            return alerts_sent, error_occurred
+
+        except Exception as e:
+            logger.error(
+                "route_processing_failed",
+                route_id=str(route.id),
+                error=str(e),
+                exc_info=e,
+            )
+            return 0, True
 
     async def _send_alerts_for_route(
         self,
