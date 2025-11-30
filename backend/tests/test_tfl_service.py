@@ -4023,6 +4023,51 @@ async def test_create_station_disruption_missing_atco_code(db_session: AsyncSess
     assert disruption.station_id == station.id
 
 
+async def test_create_station_disruption_long_description(db_session: AsyncSession) -> None:
+    """Test that very long description strings (>1000 chars) are stored correctly after TEXT migration."""
+    # Create station (required for FK)
+    station = Station(
+        tfl_id="940GZZLUKSX",
+        name="King's Cross St. Pancras",
+        latitude=51.5,
+        longitude=-0.1,
+        lines=["circle", "hammersmith-city", "metropolitan", "northern", "piccadilly", "victoria"],
+        last_updated=datetime.now(UTC),
+    )
+    db_session.add(station)
+    await db_session.commit()
+
+    # Create StationDisruption with 2000-char description exceeding old VARCHAR(1000) limit
+    # This simulates real TfL API responses that can exceed 1000 characters
+    long_description = "X" * 2000
+
+    disruption = StationDisruption(
+        station_id=station.id,
+        description=long_description,
+        type="Information",
+        appearance="RealTime",
+        tfl_id="test-hash-long-desc",
+        created_at_source=datetime.now(UTC),
+        end_date=None,
+    )
+
+    # Persist - should succeed without truncation error after TEXT migration
+    db_session.add(disruption)
+    await db_session.commit()
+    await db_session.refresh(disruption)
+
+    # Fetch back and verify no truncation
+    result = await db_session.execute(select(StationDisruption).where(StationDisruption.id == disruption.id))
+    persisted = result.scalar_one()
+
+    # Verify all fields match and description is not truncated
+    assert persisted.station_id == station.id
+    assert persisted.description == long_description
+    assert len(persisted.description) == 2000
+    assert persisted.type == "Information"
+    assert persisted.appearance == "RealTime"
+
+
 # ==================== build_station_graph Tests ====================
 
 

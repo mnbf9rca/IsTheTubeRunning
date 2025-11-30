@@ -42,8 +42,13 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
-    """Downgrade schema - revert TEXT columns to VARCHAR(1000)."""
-    # WARNING: Downgrade may truncate data if any values exceed 1000 characters
+    """Downgrade schema - revert TEXT columns to VARCHAR(1000).
+
+    Note: If any existing values exceed 1000 characters, this downgrade may fail
+    (or behave differently) depending on the database backend and its settings.
+    """
+    # NOTE: Downgrade may fail if any values exceed 1000 characters, or behave
+    # differently depending on the database backend and configuration.
     op.alter_column(
         "line_disruption_state_logs",
         "reason",
