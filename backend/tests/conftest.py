@@ -48,7 +48,16 @@ from tests.helpers.network_helpers import build_connections_from_routes
 from tests.helpers.railway_network import TestRailwayNetwork
 from tests.helpers.types import RailwayNetworkFixture
 
-# Import OTEL fixtures
+# Import OTEL fixtures from tests/fixtures/otel.py
+# OTEL is disabled by default for all tests (OTEL_SDK_DISABLED=true set above)
+# For OTEL tests, use the 'otel_enabled_provider' fixture which:
+#   - Enables OTEL SDK for that test
+#   - Returns tuple[TracerProvider, InMemorySpanExporter]
+#   - Automatically cleans up after test
+# Usage: def test_name(otel_enabled_provider: tuple[TracerProvider, InMemorySpanExporter]):
+#           _, exporter = otel_enabled_provider
+#           # ... your test code ...
+#           spans = exporter.get_finished_spans()
 pytest_plugins = ["tests.fixtures.otel"]
 
 

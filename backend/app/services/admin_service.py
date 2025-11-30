@@ -8,6 +8,7 @@ from sqlalchemy import String, and_, delete, func, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
+from app.core.telemetry import service_span
 from app.models.admin import AdminUser
 from app.models.notification import NotificationLog, NotificationPreference, NotificationStatus
 from app.models.user import EmailAddress, PhoneNumber, User, VerificationCode
@@ -199,58 +200,65 @@ class AdminService:
         Raises:
             HTTPException: 404 if user not found, 400 if already deleted
         """
-        # Check if user exists
-        user = await self.get_user_details(user_id)
+        with service_span(
+            "admin.anonymise_user",
+            "admin-service",
+        ) as span:
+            # Set span attributes
+            span.set_attribute("admin.user_id", str(user_id))
+            span.set_attribute("admin.operation", "anonymise_user")
+            # Check if user exists
+            user = await self.get_user_details(user_id)
 
-        # Check if already deleted
-        if user.deleted_at is not None:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="User is already deleted.",
-            )
-
-        # Wrap all operations in a transaction to ensure atomicity
-        try:
-            # Begin anonymisation process
-            # 1. Delete verification codes first (they reference emails/phones via contact_id)
-            await self.db.execute(delete(VerificationCode).where(VerificationCode.user_id == user_id))
-
-            # 2. Delete email addresses
-            await self.db.execute(delete(EmailAddress).where(EmailAddress.user_id == user_id))
-
-            # 3. Delete phone numbers
-            await self.db.execute(delete(PhoneNumber).where(PhoneNumber.user_id == user_id))
-
-            # 4. Delete notification preferences
-            # Note: CASCADE from email/phone deletion would handle this, but we're explicit
-            # for clarity. Preferences without active contacts/user are not actionable;
-            # NotificationLog preserves historical behavior data for analytics.
-            await self.db.execute(
-                delete(NotificationPreference).where(
-                    NotificationPreference.route_id.in_(select(UserRoute.id).where(UserRoute.user_id == user_id))
+            # Check if already deleted
+            if user.deleted_at is not None:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="User is already deleted.",
                 )
-            )
 
-            # 5. Deactivate all routes
-            await self.db.execute(update(UserRoute).where(UserRoute.user_id == user_id).values(active=False))
+            # Wrap all operations in a transaction to ensure atomicity
+            try:
+                # Begin anonymisation process
+                # 1. Delete verification codes first (they reference emails/phones via contact_id)
+                await self.db.execute(delete(VerificationCode).where(VerificationCode.user_id == user_id))
 
-            # 6. Update user: anonymise external_id, clear auth_provider, set deleted_at
-            await self.db.execute(
-                update(User)
-                .where(User.id == user_id)
-                .values(
-                    external_id=f"deleted_{user_id}",
-                    auth_provider="",
-                    deleted_at=datetime.now(UTC),
+                # 2. Delete email addresses
+                await self.db.execute(delete(EmailAddress).where(EmailAddress.user_id == user_id))
+
+                # 3. Delete phone numbers
+                await self.db.execute(delete(PhoneNumber).where(PhoneNumber.user_id == user_id))
+
+                # 4. Delete notification preferences
+                # Note: CASCADE from email/phone deletion would handle this, but we're explicit
+                # for clarity. Preferences without active contacts/user are not actionable;
+                # NotificationLog preserves historical behavior data for analytics.
+                await self.db.execute(
+                    delete(NotificationPreference).where(
+                        NotificationPreference.route_id.in_(select(UserRoute.id).where(UserRoute.user_id == user_id))
+                    )
                 )
-            )
 
-            # Commit all changes atomically
-            await self.db.commit()
-        except Exception:
-            # Rollback on any failure to ensure no partial deletion
-            await self.db.rollback()
-            raise
+                # 5. Deactivate all routes
+                await self.db.execute(update(UserRoute).where(UserRoute.user_id == user_id).values(active=False))
+
+                # 6. Update user: anonymise external_id, clear auth_provider, set deleted_at
+                await self.db.execute(
+                    update(User)
+                    .where(User.id == user_id)
+                    .values(
+                        external_id=f"deleted_{user_id}",
+                        auth_provider="",
+                        deleted_at=datetime.now(UTC),
+                    )
+                )
+
+                # Commit all changes atomically
+                await self.db.commit()
+            except Exception:
+                # Rollback on any failure to ensure no partial deletion
+                await self.db.rollback()
+                raise
 
     # ==================== Private Helper Methods for Metrics ====================
 
