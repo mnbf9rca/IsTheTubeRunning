@@ -2,11 +2,10 @@
 
 import uuid
 from datetime import time
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 from app.models.user_route import UserRoute, UserRouteSchedule
-from app.schemas.tfl import DisruptionResponse
 from app.services.alert_service import AlertService
 from opentelemetry.sdk.trace import TracerProvider
 from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanExporter
@@ -33,24 +32,11 @@ class TestAlertServiceProcessAllRoutesOtelSpans:
         # Create alert service
         alert_svc = AlertService(db=mock_db, redis_client=mock_redis)
 
-        # Mock all internal methods to avoid complex execution
+        # Mock the new helper methods after refactoring
         alert_svc._get_active_routes = AsyncMock(return_value=[])
-        alert_svc._log_line_disruption_state_changes = AsyncMock()
+        alert_svc._fetch_global_disruption_data = AsyncMock(return_value=([], set()))
 
-        with patch("app.services.alert_service.TfLService") as mock_tfl_service_class:
-            # Mock TfL service
-            mock_tfl_svc = AsyncMock()
-            mock_tfl_svc.fetch_line_disruptions = AsyncMock(return_value=[])
-            mock_tfl_service_class.return_value = mock_tfl_svc
-
-            # Mock database execute for AlertDisabledSeverity
-            mock_execute_result = AsyncMock()
-            mock_scalars = MagicMock()
-            mock_scalars.all.return_value = []
-            mock_execute_result.scalars.return_value = mock_scalars
-            mock_db.execute.return_value = mock_execute_result
-
-            await alert_svc.process_all_routes()
+        await alert_svc.process_all_routes()
 
         # Verify span was created with OK status
         spans = exporter.get_finished_spans()
@@ -125,47 +111,22 @@ class TestAlertServiceProcessAllRoutesOtelSpans:
 
         # Mock _get_active_routes to return both routes
         alert_svc._get_active_routes = AsyncMock(return_value=[successful_route, failing_route])
-        alert_svc._log_line_disruption_state_changes = AsyncMock()
 
-        # Mock _get_active_schedule to return a schedule for both routes
-        mock_schedule = MagicMock(spec=UserRouteSchedule)
-        mock_schedule.id = uuid.uuid4()
-        alert_svc._get_active_schedule = AsyncMock(return_value=mock_schedule)
+        # Mock _fetch_global_disruption_data (refactored method)
+        alert_svc._fetch_global_disruption_data = AsyncMock(return_value=set())
 
-        # Mock _get_route_disruptions to return disruptions for both routes
-        mock_disruptions = [MagicMock()]
-        alert_svc._get_route_disruptions = AsyncMock(return_value=(mock_disruptions, False))
-
-        # Mock _should_send_alert to return True for both routes
-        alert_svc._should_send_alert = AsyncMock(return_value=True)
-
-        # Mock _send_alerts_for_route: succeed for first route, fail for second
-        async def mock_send_alerts(
-            route: UserRoute, schedule: UserRouteSchedule, disruptions: list[DisruptionResponse]
-        ) -> int:
+        # Mock _process_single_route: succeed for first route, fail for second
+        async def mock_process_route(route: UserRoute, disabled_severity_pairs: set) -> tuple[int, bool]:
             if route is successful_route:
-                return 3  # 3 alerts sent successfully
+                return 3, False  # 3 alerts sent, no error
             if route is failing_route:
-                msg = "Route processing failed"
-                raise RuntimeError(msg)
-            return 0
+                return 0, True  # No alerts sent, error occurred
+            return 0, False
 
-        alert_svc._send_alerts_for_route = AsyncMock(side_effect=mock_send_alerts)
+        alert_svc._process_single_route = AsyncMock(side_effect=mock_process_route)
 
-        # Mock TfL service and database execute
-        with patch("app.services.alert_service.TfLService") as mock_tfl_service_class:
-            mock_tfl_svc = AsyncMock()
-            mock_tfl_svc.fetch_line_disruptions = AsyncMock(return_value=[])
-            mock_tfl_service_class.return_value = mock_tfl_svc
-
-            mock_execute_result = AsyncMock()
-            mock_scalars = MagicMock()
-            mock_scalars.all.return_value = []
-            mock_execute_result.scalars.return_value = mock_scalars
-            mock_db.execute.return_value = mock_execute_result
-
-            # Act
-            stats = await alert_svc.process_all_routes()
+        # Act
+        stats = await alert_svc.process_all_routes()
 
         # Assert stats reflect both success and failure
         assert stats["routes_checked"] == 2

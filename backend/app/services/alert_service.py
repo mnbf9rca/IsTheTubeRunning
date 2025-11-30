@@ -2,13 +2,16 @@
 
 import hashlib
 import json
-from datetime import UTC, datetime
+from datetime import UTC, datetime, time
 from itertools import groupby
-from typing import Any
+from typing import TYPE_CHECKING, Any
 from uuid import UUID
 from zoneinfo import ZoneInfo
 
 import structlog
+
+if TYPE_CHECKING:
+    from opentelemetry.trace import Span
 from sqlalchemy import and_, func, inspect, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
@@ -32,6 +35,153 @@ from app.services.notification_service import NotificationService
 from app.services.tfl_service import TfLService
 
 logger = structlog.get_logger(__name__)
+
+
+# ==================== Pure Helper Functions ====================
+# Pure functions with no side effects for easy testing
+
+
+def get_day_code(weekday: int) -> str:
+    """
+    Convert Python weekday integer to day code string.
+
+    Pure function for easy testing without datetime dependencies.
+
+    Args:
+        weekday: Python weekday (0=Monday, 1=Tuesday, ..., 6=Sunday)
+
+    Returns:
+        Day code string (MON, TUE, WED, THU, FRI, SAT, SUN)
+
+    Example:
+        >>> get_day_code(0)
+        'MON'
+        >>> get_day_code(6)
+        'SUN'
+    """
+    return ["MON", "TUE", "WED", "THU", "FRI", "SAT", "SUN"][weekday]
+
+
+def is_time_in_schedule_window(
+    current_time: time,
+    current_day: str,
+    days_of_week: list[str],
+    start_time: time,
+    end_time: time,
+) -> bool:
+    """
+    Check if current time and day fall within a schedule window.
+
+    Pure function for easy testing without datetime dependencies.
+
+    Args:
+        current_time: Current time (already converted to route timezone)
+        current_day: Current day code (MON, TUE, WED, etc.)
+        days_of_week: List of active day codes for this schedule
+        start_time: Schedule start time
+        end_time: Schedule end time
+
+    Returns:
+        True if current time is within the schedule window, False otherwise
+
+    Example:
+        >>> import datetime
+        >>> is_time_in_schedule_window(
+        ...     datetime.time(9, 0),
+        ...     "MON",
+        ...     ["MON", "TUE", "WED"],
+        ...     datetime.time(8, 0),
+        ...     datetime.time(10, 0)
+        ... )
+        True
+        >>> is_time_in_schedule_window(
+        ...     datetime.time(11, 0),
+        ...     "MON",
+        ...     ["MON", "TUE", "WED"],
+        ...     datetime.time(8, 0),
+        ...     datetime.time(10, 0)
+        ... )
+        False
+    """
+    if current_day not in days_of_week:
+        return False
+    return start_time <= current_time <= end_time
+
+
+def filter_alertable_disruptions(
+    disruptions: list[DisruptionResponse],
+    disabled_severity_pairs: set[tuple[str, int]],
+) -> list[DisruptionResponse]:
+    """
+    Filter disruptions to only include those that should trigger alerts.
+
+    Removes disruptions with severity levels configured as non-alertable
+    (e.g., "Good Service" with severity_level=10).
+
+    Pure function for easy testing without database dependencies.
+
+    Args:
+        disruptions: List of disruptions to filter
+        disabled_severity_pairs: Set of (mode_id, severity_level) pairs to exclude
+
+    Returns:
+        List of disruptions that should trigger alerts
+
+    Example:
+        >>> from app.schemas.tfl import DisruptionResponse
+        >>> from datetime import UTC, datetime
+        >>> disruptions = [
+        ...     DisruptionResponse(
+        ...         line_id="victoria",
+        ...         line_name="Victoria",
+        ...         mode="tube",
+        ...         status_severity=10,
+        ...         status_severity_description="Good Service",
+        ...         created_at=datetime.now(UTC),
+        ...     ),
+        ...     DisruptionResponse(
+        ...         line_id="northern",
+        ...         line_name="Northern",
+        ...         mode="tube",
+        ...         status_severity=5,
+        ...         status_severity_description="Severe Delays",
+        ...         reason="Signal failure",
+        ...         created_at=datetime.now(UTC),
+        ...     ),
+        ... ]
+        >>> disabled = {("tube", 10)}
+        >>> result = filter_alertable_disruptions(disruptions, disabled)
+        >>> len(result)
+        1
+        >>> result[0].line_id
+        'northern'
+    """
+    return [
+        disruption
+        for disruption in disruptions
+        if (disruption.mode, disruption.status_severity) not in disabled_severity_pairs
+    ]
+
+
+def init_alert_processing_stats() -> dict[str, int]:
+    """
+    Initialize alert processing statistics dictionary.
+
+    Pure function for easy testing.
+
+    Returns:
+        Dictionary with routes_checked, alerts_sent, and errors all set to 0
+
+    Example:
+        >>> stats = init_alert_processing_stats()
+        >>> stats
+        {'routes_checked': 0, 'alerts_sent': 0, 'errors': 0}
+    """
+    return {
+        "routes_checked": 0,
+        "alerts_sent": 0,
+        "errors": 0,
+    }
 
 
 # Pure helper functions for testability
@@ -304,152 +454,69 @@ class AlertService:
             # Don't raise - logging failures shouldn't block alert processing
             return 0
 
-    async def process_all_routes(self) -> dict[str, Any]:  # noqa: PLR0915
+    def _set_span_stats_attributes(self, span: "Span", stats: dict[str, int]) -> None:
+        """
+        Set alert processing statistics as span attributes.
+
+        Args:
+            span: OpenTelemetry span to set attributes on
+            stats: Statistics dictionary with routes_checked, alerts_sent, errors
+        """
+        span.set_attribute("alert.routes_checked", stats["routes_checked"])
+        span.set_attribute("alert.alerts_sent", stats["alerts_sent"])
+        span.set_attribute("alert.errors", stats["errors"])
+
+    async def process_all_routes(self) -> dict[str, Any]:
         """
         Main entry point for processing all active routes.
 
-        Checks all active routes, determines if they are in a schedule window,
-        and sends alerts if disruptions are detected.
+        Orchestrates the alert processing workflow:
+        1. Fetch all active routes
+        2. Fetch global disruption data (cached, reused for all routes)
+        3. Process each route individually
+        4. Return statistics
 
         Returns:
             Statistics dictionary with routes_checked, alerts_sent, and errors
         """
         with service_span("alert.process_all_routes", "alert-service") as span:
             logger.info("alert_processing_started")
-
-            stats = {
-                "routes_checked": 0,
-                "alerts_sent": 0,
-                "errors": 0,
-            }
+            stats = init_alert_processing_stats()
 
             try:
+                # Fetch all active routes with relationships
                 routes = await self._get_active_routes()
                 logger.info("active_routes_fetched", count=len(routes))
 
-                # Fetch all line disruptions once and log state changes
-                # Uses cache automatically, so subsequent per-route calls will be fast
-                # Errors here are non-fatal - per-route processing will still work
-                all_disruptions: list[DisruptionResponse] = []
-                disabled_severity_pairs: set[tuple[str, int]] = set()
+                # Fetch global disruption data once for all routes
+                # Errors are non-fatal - returns empty data on failure
+                disabled_severity_pairs = await self._fetch_global_disruption_data()
 
-                try:
-                    tfl_service = TfLService(db=self.db)
-                    all_disruptions = await tfl_service.fetch_line_disruptions(use_cache=True)
-                    logger.info("all_disruptions_fetched", count=len(all_disruptions))
-
-                    # Log line disruption state changes (for troubleshooting and analytics)
-                    await self._log_line_disruption_state_changes(all_disruptions)
-
-                    # Fetch disabled severity pairs once for all routes
-                    disabled_result = await self.db.execute(select(AlertDisabledSeverity))
-                    disabled_severity_pairs = {(d.mode_id, d.severity_level) for d in disabled_result.scalars().all()}
-
-                except Exception as e:
-                    logger.error(
-                        "disruption_logging_failed",
-                        error=str(e),
-                        exc_info=e,
-                    )
-                    # Don't track as error - per-route processing will handle its own disruptions
-                    # This is just for centralized logging
-
+                # Process each route individually
                 for route in routes:
-                    try:
-                        stats["routes_checked"] += 1
+                    stats["routes_checked"] += 1
 
-                        # Check if route is in an active schedule window
-                        # schedules are eagerly loaded in _get_active_routes
-                        active_schedule = await self._get_active_schedule(route, route.schedules)
-                        if not active_schedule:
-                            logger.debug(
-                                "route_not_in_schedule",
-                                route_id=str(route.id),
-                                route_name=route.name,
-                            )
-                            continue
+                    # Process this route and collect results
+                    alerts_sent, error_occurred = await self._process_single_route(
+                        route=route,
+                        disabled_severity_pairs=disabled_severity_pairs,
+                    )
 
-                        logger.info(
-                            "route_in_active_schedule",
-                            route_id=str(route.id),
-                            route_name=route.name,
-                            schedule_id=str(active_schedule.id),
-                        )
-
-                        # Get disruptions for this route
-                        disruptions, error_occurred = await self._get_route_disruptions(route, disabled_severity_pairs)
-
-                        # Track error if one occurred
-                        if error_occurred:
-                            stats["errors"] += 1
-
-                        # Skip if no disruptions
-                        if not disruptions:
-                            logger.debug(
-                                "no_disruptions_for_route",
-                                route_id=str(route.id),
-                                route_name=route.name,
-                            )
-                            continue
-
-                        logger.info(
-                            "disruptions_found_for_route",
-                            route_id=str(route.id),
-                            route_name=route.name,
-                            disruption_count=len(disruptions),
-                        )
-
-                        # Check if we should send alert (deduplication)
-                        should_send = await self._should_send_alert(
-                            route=route,
-                            user_id=route.user_id,
-                            schedule=active_schedule,
-                            disruptions=disruptions,
-                        )
-
-                        if not should_send:
-                            logger.debug(
-                                "alert_skipped_duplicate",
-                                route_id=str(route.id),
-                                route_name=route.name,
-                            )
-                            continue
-
-                        # Send alerts
-                        alerts_sent = await self._send_alerts_for_route(
-                            route=route,
-                            schedule=active_schedule,
-                            disruptions=disruptions,
-                        )
-
-                        stats["alerts_sent"] += alerts_sent
-
-                    except Exception as e:
+                    stats["alerts_sent"] += alerts_sent
+                    if error_occurred:
                         stats["errors"] += 1
-                        logger.error(
-                            "route_processing_failed",
-                            route_id=str(route.id),
-                            error=str(e),
-                            exc_info=e,
-                        )
-                        # Continue processing other routes
-
-                # Set span attributes at the end
-                span.set_attribute("alert.routes_checked", stats["routes_checked"])
-                span.set_attribute("alert.alerts_sent", stats["alerts_sent"])
-                span.set_attribute("alert.errors", stats["errors"])
 
                 logger.info("alert_processing_completed", **stats)
-                return stats
 
             except Exception as e:
                 logger.error("alert_processing_failed", error=str(e), exc_info=e)
                 stats["errors"] += 1
-                # Set span attributes even on error
-                span.set_attribute("alert.routes_checked", stats["routes_checked"])
-                span.set_attribute("alert.alerts_sent", stats["alerts_sent"])
-                span.set_attribute("alert.errors", stats["errors"])
-                return stats
+
+            finally:
+                # Always set span attributes, even on error
+                self._set_span_stats_attributes(span, stats)
+
+            return stats
 
     async def _get_active_routes(self) -> list[UserRoute]:
         """
@@ -478,6 +545,47 @@ class AlertService:
             logger.error("fetch_active_routes_failed", error=str(e), exc_info=e)
             return []
 
+    async def _fetch_global_disruption_data(self) -> set[tuple[str, int]]:
+        """
+        Fetch all disruptions and disabled severities once for all routes.
+
+        This method fetches global disruption data that can be reused across all routes:
+        - All line disruptions (cached by TfL service)
+        - Disabled severity pairs for filtering
+
+        Internally uses disruptions for state change logging, but only returns
+        the disabled severity pairs needed by callers.
+
+        Errors are non-fatal - returns empty data on failure so per-route processing can continue.
+
+        Returns:
+            Set of (mode_id, severity_level) pairs that should not trigger alerts
+        """
+        all_disruptions, disabled_severity_pairs = [], set()
+
+        try:
+            tfl_service = TfLService(db=self.db)
+            all_disruptions = await tfl_service.fetch_line_disruptions(use_cache=True)
+            logger.info("all_disruptions_fetched", count=len(all_disruptions))
+
+            # Log line disruption state changes (for troubleshooting and analytics)
+            await self._log_line_disruption_state_changes(all_disruptions)
+
+            # Fetch disabled severity pairs once for all routes
+            disabled_result = await self.db.execute(select(AlertDisabledSeverity))
+            disabled_severity_pairs = {(d.mode_id, d.severity_level) for d in disabled_result.scalars().all()}
+
+        except Exception as e:
+            logger.error(
+                "disruption_logging_failed",
+                error=str(e),
+                exc_info=e,
+            )
+            # Don't track as error - per-route processing will handle its own disruptions
+            # This is just for centralized logging
+
+        return disabled_severity_pairs
+
     async def _get_active_schedule(
         self,
         route: UserRoute,
@@ -503,7 +611,7 @@ class AlertService:
             now_local = now_utc.astimezone(route_tz)
 
             current_time = now_local.time()
-            current_day = ["MON", "TUE", "WED", "THU", "FRI", "SAT", "SUN"][now_local.weekday()]
+            current_day = get_day_code(now_local.weekday())
 
             logger.debug(
                 "checking_schedule",
@@ -518,12 +626,14 @@ class AlertService:
 
             # Check each schedule
             for schedule in schedules_to_check:
-                # Check if current day is in schedule's days
-                if current_day not in schedule.days_of_week:
-                    continue
-
                 # Check if current time is within schedule window
-                if schedule.start_time <= current_time <= schedule.end_time:
+                if is_time_in_schedule_window(
+                    current_time=current_time,
+                    current_day=current_day,
+                    days_of_week=schedule.days_of_week,
+                    start_time=schedule.start_time,
+                    end_time=schedule.end_time,
+                ):
                     logger.info(
                         "active_schedule_found",
                         route_id=str(route.id),
@@ -741,13 +851,16 @@ class AlertService:
                     route_disruptions.append(disruption)
 
             # Filter disruptions by severity (remove non-alertable severities like "Good Service")
-            route_disruptions = self._filter_alertable_disruptions(route_disruptions, disabled_severity_pairs)
+            before_filter_count = len(route_disruptions)
+            route_disruptions = filter_alertable_disruptions(route_disruptions, disabled_severity_pairs)
+            filtered_count = before_filter_count - len(route_disruptions)
 
             logger.debug(
                 "route_disruptions_filtered",
                 route_id=str(route.id),
                 total_disruptions=len(all_disruptions),
                 route_disruptions=len(route_disruptions),
+                filtered_count=filtered_count,
             )
 
             return route_disruptions, False
@@ -760,55 +873,6 @@ class AlertService:
                 exc_info=e,
             )
             return [], True
-
-    def _filter_alertable_disruptions(
-        self,
-        disruptions: list[DisruptionResponse],
-        disabled_severity_pairs: set[tuple[str, int]],
-    ) -> list[DisruptionResponse]:
-        """
-        Filter disruptions to only include those that should trigger alerts.
-
-        Removes disruptions with severity levels that are configured as non-alertable
-        (e.g., "Good Service" with severity_level=10).
-
-        Args:
-            disruptions: List of disruptions to filter
-            disabled_severity_pairs: Set of (mode_id, severity_level) pairs to filter out
-
-        Returns:
-            List of disruptions that should trigger alerts
-        """
-        if not disruptions:
-            return []
-
-        # Filter disruptions
-        alertable_disruptions = []
-        filtered_count = 0
-
-        for disruption in disruptions:
-            # Check if this (mode, severity) should be filtered
-            if (disruption.mode, disruption.status_severity) in disabled_severity_pairs:
-                filtered_count += 1
-                logger.debug(
-                    "disruption_filtered_by_severity",
-                    line_id=disruption.line_id,
-                    mode=disruption.mode,
-                    severity=disruption.status_severity,
-                    description=disruption.status_severity_description,
-                )
-            else:
-                alertable_disruptions.append(disruption)
-
-        if filtered_count > 0:
-            logger.info(
-                "disruptions_filtered_by_severity",
-                total=len(disruptions),
-                filtered=filtered_count,
-                remaining=len(alertable_disruptions),
-            )
-
-        return alertable_disruptions
 
     async def _should_send_alert(
         self,
@@ -1071,6 +1135,99 @@ class AlertService:
                 exc_info=send_error,
             )
             return False, str(send_error)
+
+    async def _process_single_route(
+        self,
+        route: UserRoute,
+        disabled_severity_pairs: set[tuple[str, int]],
+    ) -> tuple[int, bool]:
+        """
+        Process a single route: check schedule, get disruptions, send alerts.
+
+        This method encapsulates all the logic for processing one route, including:
+        - Checking if the route is in an active schedule window
+        - Fetching disruptions relevant to the route
+        - Checking if an alert should be sent (deduplication)
+        - Sending alerts to configured notification preferences
+
+        Args:
+            route: UserRoute to process (with schedules, segments, preferences loaded)
+            disabled_severity_pairs: Set of (mode_id, severity_level) pairs to filter out
+
+        Returns:
+            Tuple of (alerts_sent, error_occurred)
+        """
+        try:
+            # Check if route is in an active schedule window
+            # schedules are eagerly loaded in _get_active_routes
+            active_schedule = await self._get_active_schedule(route, route.schedules)
+            if not active_schedule:
+                logger.debug(
+                    "route_not_in_schedule",
+                    route_id=str(route.id),
+                    route_name=route.name,
+                )
+                return 0, False
+
+            logger.info(
+                "route_in_active_schedule",
+                route_id=str(route.id),
+                route_name=route.name,
+                schedule_id=str(active_schedule.id),
+            )
+
+            # Get disruptions for this route
+            disruptions, error_occurred = await self._get_route_disruptions(route, disabled_severity_pairs)
+
+            # Skip if no disruptions
+            if not disruptions:
+                logger.debug(
+                    "no_disruptions_for_route",
+                    route_id=str(route.id),
+                    route_name=route.name,
+                )
+                return 0, error_occurred
+
+            logger.info(
+                "disruptions_found_for_route",
+                route_id=str(route.id),
+                route_name=route.name,
+                disruption_count=len(disruptions),
+            )
+
+            # Check if we should send alert (deduplication)
+            should_send = await self._should_send_alert(
+                route=route,
+                user_id=route.user_id,
+                schedule=active_schedule,
+                disruptions=disruptions,
+            )
+
+            if not should_send:
+                logger.debug(
+                    "alert_skipped_duplicate",
+                    route_id=str(route.id),
+                    route_name=route.name,
+                )
+                return 0, error_occurred
+
+            # Send alerts
+            alerts_sent = await self._send_alerts_for_route(
+                route=route,
+                schedule=active_schedule,
+                disruptions=disruptions,
+            )
+
+            return alerts_sent, error_occurred
+
+        except Exception as e:
+            logger.error(
+                "route_processing_failed",
+                route_id=str(route.id),
+                error=str(e),
+                exc_info=e,
+            )
+            return 0, True
 
     async def _send_alerts_for_route(
         self,
