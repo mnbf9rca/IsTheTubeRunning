@@ -223,7 +223,7 @@ class TestAdminServiceOtelSpans:
         # Create admin service
         admin_svc = AdminService(db=mock_db)
 
-        _users, _total = await admin_svc.get_users_paginated(limit=10, offset=0, search="test")
+        await admin_svc.get_users_paginated(limit=10, offset=0, search="test")
 
         # Verify span was created with OK status
         spans = exporter.get_finished_spans()
