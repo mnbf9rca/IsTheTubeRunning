@@ -490,7 +490,7 @@ class AlertService:
 
                 # Fetch global disruption data once for all routes
                 # Errors are non-fatal - returns empty data on failure
-                _, disabled_severity_pairs = await self._fetch_global_disruption_data()
+                disabled_severity_pairs = await self._fetch_global_disruption_data()
 
                 # Process each route individually
                 for route in routes:
@@ -545,7 +545,7 @@ class AlertService:
             logger.error("fetch_active_routes_failed", error=str(e), exc_info=e)
             return []
 
-    async def _fetch_global_disruption_data(self) -> tuple[list[DisruptionResponse], set[tuple[str, int]]]:
+    async def _fetch_global_disruption_data(self) -> set[tuple[str, int]]:
         """
         Fetch all disruptions and disabled severities once for all routes.
 
@@ -553,10 +553,13 @@ class AlertService:
         - All line disruptions (cached by TfL service)
         - Disabled severity pairs for filtering
 
+        Internally uses disruptions for state change logging, but only returns
+        the disabled severity pairs needed by callers.
+
         Errors are non-fatal - returns empty data on failure so per-route processing can continue.
 
         Returns:
-            Tuple of (all_disruptions, disabled_severity_pairs)
+            Set of (mode_id, severity_level) pairs that should not trigger alerts
         """
         all_disruptions, disabled_severity_pairs = [], set()
 
@@ -581,7 +584,7 @@ class AlertService:
             # Don't track as error - per-route processing will handle its own disruptions
             # This is just for centralized logging
 
-        return all_disruptions, disabled_severity_pairs
+        return disabled_severity_pairs
 
     async def _get_active_schedule(
         self,
@@ -848,13 +851,16 @@ class AlertService:
                     route_disruptions.append(disruption)
 
             # Filter disruptions by severity (remove non-alertable severities like "Good Service")
+            before_filter_count = len(route_disruptions)
             route_disruptions = filter_alertable_disruptions(route_disruptions, disabled_severity_pairs)
+            filtered_count = before_filter_count - len(route_disruptions)
 
             logger.debug(
                 "route_disruptions_filtered",
                 route_id=str(route.id),
                 total_disruptions=len(all_disruptions),
                 route_disruptions=len(route_disruptions),
+                filtered_count=filtered_count,
             )
 
             return route_disruptions, False

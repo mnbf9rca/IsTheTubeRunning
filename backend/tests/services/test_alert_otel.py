@@ -113,7 +113,7 @@ class TestAlertServiceProcessAllRoutesOtelSpans:
         alert_svc._get_active_routes = AsyncMock(return_value=[successful_route, failing_route])
 
         # Mock _fetch_global_disruption_data (refactored method)
-        alert_svc._fetch_global_disruption_data = AsyncMock(return_value=([], set()))
+        alert_svc._fetch_global_disruption_data = AsyncMock(return_value=set())
 
         # Mock _process_single_route: succeed for first route, fail for second
         async def mock_process_route(route: UserRoute, disabled_severity_pairs: set) -> tuple[int, bool]:

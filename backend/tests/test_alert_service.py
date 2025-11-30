@@ -437,10 +437,9 @@ class TestFetchGlobalDisruptionData:
         await db_session.commit()
 
         # Execute
-        disruptions, disabled_pairs = await alert_service._fetch_global_disruption_data()
+        disabled_pairs = await alert_service._fetch_global_disruption_data()
 
         # Verify
-        assert len(disruptions) == len(sample_disruptions)
         assert ("test-mode", 99) in disabled_pairs
         mock_tfl.fetch_line_disruptions.assert_called_once_with(use_cache=True)
         alert_service._log_line_disruption_state_changes.assert_called_once()
@@ -459,10 +458,9 @@ class TestFetchGlobalDisruptionData:
         mock_tfl_class.return_value = mock_tfl
 
         # Execute
-        disruptions, disabled_pairs = await alert_service._fetch_global_disruption_data()
+        disabled_pairs = await alert_service._fetch_global_disruption_data()
 
         # Verify returns empty data, doesn't raise
-        assert disruptions == []
         assert disabled_pairs == set()
 
     @pytest.mark.asyncio
@@ -486,11 +484,10 @@ class TestFetchGlobalDisruptionData:
         alert_service.db.execute = AsyncMock(side_effect=Exception("DB connection error"))
 
         # Execute
-        disruptions, disabled_pairs = await alert_service._fetch_global_disruption_data()
+        disabled_pairs = await alert_service._fetch_global_disruption_data()
 
-        # Verify returns disruptions (TfL succeeded) but empty disabled pairs (DB failed)
+        # Verify returns empty disabled pairs (DB failed)
         # This allows alert processing to continue with some functionality
-        assert len(disruptions) == len(sample_disruptions)
         assert disabled_pairs == set()
 
 
@@ -505,7 +502,7 @@ class TestProcessSingleRoute:
     ) -> None:
         """Test that route not in schedule returns (0, False)."""
         # Mock _get_active_schedule to return None
-        with patch.object(alert_service, "_get_active_schedule", return_value=None):
+        with patch.object(alert_service, "_get_active_schedule", new_callable=AsyncMock, return_value=None):
             alerts_sent, error_occurred = await alert_service._process_single_route(
                 route=test_route_with_schedule,
                 disabled_severity_pairs=set(),
@@ -526,8 +523,8 @@ class TestProcessSingleRoute:
 
         # Mock dependencies
         with (
-            patch.object(alert_service, "_get_active_schedule", return_value=mock_schedule),
-            patch.object(alert_service, "_get_route_disruptions", return_value=([], False)),
+            patch.object(alert_service, "_get_active_schedule", new_callable=AsyncMock, return_value=mock_schedule),
+            patch.object(alert_service, "_get_route_disruptions", new_callable=AsyncMock, return_value=([], False)),
         ):
             alerts_sent, error_occurred = await alert_service._process_single_route(
                 route=test_route_with_schedule,
@@ -550,10 +547,15 @@ class TestProcessSingleRoute:
 
         # Mock all dependencies for success path
         with (
-            patch.object(alert_service, "_get_active_schedule", return_value=mock_schedule),
-            patch.object(alert_service, "_get_route_disruptions", return_value=(sample_disruptions, False)),
-            patch.object(alert_service, "_should_send_alert", return_value=True),
-            patch.object(alert_service, "_send_alerts_for_route", return_value=2),
+            patch.object(alert_service, "_get_active_schedule", new_callable=AsyncMock, return_value=mock_schedule),
+            patch.object(
+                alert_service,
+                "_get_route_disruptions",
+                new_callable=AsyncMock,
+                return_value=(sample_disruptions, False),
+            ),
+            patch.object(alert_service, "_should_send_alert", new_callable=AsyncMock, return_value=True),
+            patch.object(alert_service, "_send_alerts_for_route", new_callable=AsyncMock, return_value=2),
         ):
             alerts_sent, error_occurred = await alert_service._process_single_route(
                 route=test_route_with_schedule,
@@ -576,10 +578,12 @@ class TestProcessSingleRoute:
 
         # Mock dependencies with error in disruption fetch
         with (
-            patch.object(alert_service, "_get_active_schedule", return_value=mock_schedule),
-            patch.object(alert_service, "_get_route_disruptions", return_value=(sample_disruptions, True)),
-            patch.object(alert_service, "_should_send_alert", return_value=True),
-            patch.object(alert_service, "_send_alerts_for_route", return_value=1),
+            patch.object(alert_service, "_get_active_schedule", new_callable=AsyncMock, return_value=mock_schedule),
+            patch.object(
+                alert_service, "_get_route_disruptions", new_callable=AsyncMock, return_value=(sample_disruptions, True)
+            ),
+            patch.object(alert_service, "_should_send_alert", new_callable=AsyncMock, return_value=True),
+            patch.object(alert_service, "_send_alerts_for_route", new_callable=AsyncMock, return_value=1),
         ):
             alerts_sent, error_occurred = await alert_service._process_single_route(
                 route=test_route_with_schedule,
@@ -602,9 +606,14 @@ class TestProcessSingleRoute:
 
         # Mock dependencies with should_send_alert returning False
         with (
-            patch.object(alert_service, "_get_active_schedule", return_value=mock_schedule),
-            patch.object(alert_service, "_get_route_disruptions", return_value=(sample_disruptions, False)),
-            patch.object(alert_service, "_should_send_alert", return_value=False),
+            patch.object(alert_service, "_get_active_schedule", new_callable=AsyncMock, return_value=mock_schedule),
+            patch.object(
+                alert_service,
+                "_get_route_disruptions",
+                new_callable=AsyncMock,
+                return_value=(sample_disruptions, False),
+            ),
+            patch.object(alert_service, "_should_send_alert", new_callable=AsyncMock, return_value=False),
         ):
             alerts_sent, error_occurred = await alert_service._process_single_route(
                 route=test_route_with_schedule,
