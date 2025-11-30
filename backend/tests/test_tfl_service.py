@@ -411,25 +411,18 @@ def apply_fail_safe_mocks(service: TfLService) -> None:
 
         return raise_error
 
-    # Auto-mock all public callable methods on line_client using introspection
-    for attr_name in dir(service.line_client):
-        # Skip private/dunder methods and non-callables
-        if attr_name.startswith("_"):
-            continue
-        attr = getattr(service.line_client, attr_name)
-        if callable(attr):
-            mock = AsyncMock(side_effect=unmocked_method_error("line_client", attr_name))
-            setattr(service.line_client, attr_name, mock)
-
-    # Auto-mock all public callable methods on stoppoint_client using introspection
-    for attr_name in dir(service.stoppoint_client):
-        # Skip private/dunder methods and non-callables
-        if attr_name.startswith("_"):
-            continue
-        attr = getattr(service.stoppoint_client, attr_name)
-        if callable(attr):
-            mock = AsyncMock(side_effect=unmocked_method_error("stoppoint_client", attr_name))
-            setattr(service.stoppoint_client, attr_name, mock)
+    # Auto-mock all public callable methods on each client using introspection
+    client_names = ["line_client", "stoppoint_client"]
+    for client_name in client_names:
+        client = getattr(service, client_name)
+        for attr_name in dir(client):
+            # Skip private/dunder methods and non-callables
+            if attr_name.startswith("_"):
+                continue
+            attr = getattr(client, attr_name)
+            if callable(attr):
+                mock = AsyncMock(side_effect=unmocked_method_error(client_name, attr_name))
+                setattr(client, attr_name, mock)
 
 
 @pytest.fixture
@@ -866,6 +859,8 @@ async def test_fetch_lines_from_api(
         ]
 
         # Mock the async client method with multiple responses
+        # Note: Assigning a list to side_effect automatically replaces the fail-safe error,
+        # so explicit clearing (side_effect = None) is not needed here.
         tfl_service.line_client.GetByModeByPathModes.side_effect = mock_responses
 
         # Execute - default modes: ["tube", "overground", "dlr", "elizabeth-line"]

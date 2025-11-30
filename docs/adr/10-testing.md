@@ -242,7 +242,7 @@ Active (Issue #303)
 TfLService creates real TfL API clients in its constructor. Tests that forget to mock internal method dependencies can accidentally make real API calls, causing rate limit errors and test failures. Manual mocking requires developers to remember all method dependencies, leading to brittle tests.
 
 ### Decision
-Use fail-safe pre-mocking in the `tfl_service` fixture: automatically mock ALL TfL API client methods to raise errors by default. Tests must explicitly configure the methods they need. Use introspection to discover methods automatically, avoiding manual maintenance. Note current implementation covers `line_client`and `stoppoint_client` - other clients must be added later if needed.
+Use fail-safe pre-mocking in the `tfl_service` fixture: automatically mock ALL TfL API client methods to raise errors by default. Tests must explicitly configure the methods they need. Use introspection to discover methods automatically, avoiding manual maintenance. Note current implementation covers `line_client` and `stoppoint_client` - other clients must be added later if needed.
 
 ### Consequences
 **Easier:**
