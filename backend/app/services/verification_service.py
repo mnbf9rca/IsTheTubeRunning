@@ -9,6 +9,7 @@ from fastapi import HTTPException
 from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.telemetry import service_span
 from app.models.rate_limit import RateLimitAction, RateLimitLog
 from app.models.user import VerificationCode, VerificationType
 from app.services.contact_service import get_contact_by_id
@@ -193,49 +194,57 @@ class VerificationService:
         Raises:
             HTTPException: If rate limit exceeded or sending fails
         """
-        # Check rate limit
-        await self.check_verification_rate_limit(contact_id)
+        with service_span(
+            "verification.create_and_send_code",
+            "verification-service",
+        ) as span:
+            # Set span attributes
+            span.set_attribute("verification.contact_id", str(contact_id))
+            span.set_attribute("verification.user_id", str(user_id))
+            span.set_attribute("verification.contact_type", contact_type.value)
+            # Check rate limit
+            await self.check_verification_rate_limit(contact_id)
 
-        # Generate code
-        code = self.generate_code()
+            # Generate code
+            code = self.generate_code()
 
-        # Create verification code in database
-        verification_code = VerificationCode(
-            user_id=user_id,
-            contact_id=contact_id,
-            code=code,
-            type=contact_type,
-            expires_at=datetime.now(UTC) + timedelta(minutes=VERIFICATION_CODE_EXPIRY_MINUTES),
-            used=False,
-        )
-        self.db.add(verification_code)
-        await self.db.commit()
-
-        # Record rate limit event
-        await self.record_verification_code_request(contact_id, user_id)
-
-        # Send code via appropriate channel
-        try:
-            if contact_type == VerificationType.EMAIL:
-                await self.email_service.send_verification_email(contact_value, code)
-            else:
-                await self.sms_service.send_verification_sms(contact_value, code)
-
-            logger.info(
-                "verification_code_sent",
-                contact_id=str(contact_id),
-                contact_type=contact_type.value,
+            # Create verification code in database
+            verification_code = VerificationCode(
+                user_id=user_id,
+                contact_id=contact_id,
+                code=code,
+                type=contact_type,
+                expires_at=datetime.now(UTC) + timedelta(minutes=VERIFICATION_CODE_EXPIRY_MINUTES),
+                used=False,
             )
-        except Exception as e:
-            logger.error(
-                "verification_code_send_failed",
-                contact_id=str(contact_id),
-                error=str(e),
-            )
-            raise HTTPException(
-                status_code=500,
-                detail="Failed to send verification code. Please try again later.",
-            ) from e
+            self.db.add(verification_code)
+            await self.db.commit()
+
+            # Record rate limit event
+            await self.record_verification_code_request(contact_id, user_id)
+
+            # Send code via appropriate channel
+            try:
+                if contact_type == VerificationType.EMAIL:
+                    await self.email_service.send_verification_email(contact_value, code)
+                else:
+                    await self.sms_service.send_verification_sms(contact_value, code)
+
+                logger.info(
+                    "verification_code_sent",
+                    contact_id=str(contact_id),
+                    contact_type=contact_type.value,
+                )
+            except Exception as e:
+                logger.error(
+                    "verification_code_send_failed",
+                    contact_id=str(contact_id),
+                    error=str(e),
+                )
+                raise HTTPException(
+                    status_code=500,
+                    detail="Failed to send verification code. Please try again later.",
+                ) from e
 
     async def verify_code(self, code: str, contact_id: uuid.UUID, user_id: uuid.UUID) -> bool:
         """
@@ -252,58 +261,67 @@ class VerificationService:
         Raises:
             HTTPException: If code is invalid, expired, or already used
         """
-        # Find the most recent unused verification code for this user and contact
-        result = await self.db.execute(
-            select(VerificationCode)
-            .where(
-                VerificationCode.user_id == user_id,
-                VerificationCode.contact_id == contact_id,
-                VerificationCode.code == code,
-                VerificationCode.used == False,  # noqa: E712
+        with service_span(
+            "verification.verify_code",
+            "verification-service",
+        ) as span:
+            span.set_attribute("verification.contact_id", str(contact_id))
+            span.set_attribute("verification.user_id", str(user_id))
+            # Find the most recent unused verification code for this user and contact
+            result = await self.db.execute(
+                select(VerificationCode)
+                .where(
+                    VerificationCode.user_id == user_id,
+                    VerificationCode.contact_id == contact_id,
+                    VerificationCode.code == code,
+                    VerificationCode.used == False,  # noqa: E712
+                )
+                .order_by(VerificationCode.created_at.desc())
+                .limit(1)
             )
-            .order_by(VerificationCode.created_at.desc())
-            .limit(1)
-        )
-        verification_code = result.scalar_one_or_none()
+            verification_code = result.scalar_one_or_none()
 
-        if not verification_code:
-            logger.warning(
-                "verification_code_not_found",
-                user_id=str(user_id),
+            if not verification_code:
+                logger.warning(
+                    "verification_code_not_found",
+                    user_id=str(user_id),
+                    contact_id=str(contact_id),
+                )
+                span.set_attribute("verification.result", False)
+                raise HTTPException(
+                    status_code=400,
+                    detail="Invalid verification code.",
+                )
+
+            if verification_code.is_expired:
+                logger.warning(
+                    "verification_code_expired",
+                    user_id=str(user_id),
+                    contact_id=str(contact_id),
+                )
+                span.set_attribute("verification.result", False)
+                raise HTTPException(
+                    status_code=400,
+                    detail="Verification code has expired. Please request a new one.",
+                )
+
+            # Validate contact exists and belongs to user (hoisted from conditional)
+            contact = await get_contact_by_id(contact_id, user_id, self.db)
+
+            # Mark code as used and contact as verified
+            verification_code.used = True
+            contact.verified = True
+            await self.db.commit()
+
+            # Reset rate limit after successful verification
+            await self.reset_verification_rate_limit(contact_id)
+
+            logger.info(
+                "contact_verified",
                 contact_id=str(contact_id),
-            )
-            raise HTTPException(
-                status_code=400,
-                detail="Invalid verification code.",
-            )
-
-        if verification_code.is_expired:
-            logger.warning(
-                "verification_code_expired",
                 user_id=str(user_id),
-                contact_id=str(contact_id),
-            )
-            raise HTTPException(
-                status_code=400,
-                detail="Verification code has expired. Please request a new one.",
+                contact_type=verification_code.type.value,
             )
 
-        # Validate contact exists and belongs to user (hoisted from conditional)
-        contact = await get_contact_by_id(contact_id, user_id, self.db)
-
-        # Mark code as used and contact as verified
-        verification_code.used = True
-        contact.verified = True
-        await self.db.commit()
-
-        # Reset rate limit after successful verification
-        await self.reset_verification_rate_limit(contact_id)
-
-        logger.info(
-            "contact_verified",
-            contact_id=str(contact_id),
-            user_id=str(user_id),
-            contact_type=verification_code.type.value,
-        )
-
-        return True
+            span.set_attribute("verification.result", True)
+            return True

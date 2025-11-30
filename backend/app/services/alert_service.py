@@ -2,18 +2,22 @@
 
 import hashlib
 import json
-from datetime import UTC, datetime
+from datetime import UTC, datetime, time
 from itertools import groupby
-from typing import Any
+from typing import TYPE_CHECKING, Any
 from uuid import UUID
 from zoneinfo import ZoneInfo
 
 import structlog
-from sqlalchemy import and_, func, or_, select
+
+if TYPE_CHECKING:
+    from opentelemetry.trace import Span
+from sqlalchemy import and_, func, inspect, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.core.redis import RedisClientProtocol
+from app.core.telemetry import service_span
 from app.helpers.disruption_helpers import disruption_affects_route, extract_line_station_pairs
 from app.helpers.soft_delete_filters import add_active_filter
 from app.models.notification import (
@@ -31,6 +35,153 @@ from app.services.notification_service import NotificationService
 from app.services.tfl_service import TfLService
 
 logger = structlog.get_logger(__name__)
+
+
+# ==================== Pure Helper Functions ====================
+# Pure functions with no side effects for easy testing
+
+
+def get_day_code(weekday: int) -> str:
+    """
+    Convert Python weekday integer to day code string.
+
+    Pure function for easy testing without datetime dependencies.
+
+    Args:
+        weekday: Python weekday (0=Monday, 1=Tuesday, ..., 6=Sunday)
+
+    Returns:
+        Day code string (MON, TUE, WED, THU, FRI, SAT, SUN)
+
+    Example:
+        >>> get_day_code(0)
+        'MON'
+        >>> get_day_code(6)
+        'SUN'
+    """
+    return ["MON", "TUE", "WED", "THU", "FRI", "SAT", "SUN"][weekday]
+
+
+def is_time_in_schedule_window(
+    current_time: time,
+    current_day: str,
+    days_of_week: list[str],
+    start_time: time,
+    end_time: time,
+) -> bool:
+    """
+    Check if current time and day fall within a schedule window.
+
+    Pure function for easy testing without datetime dependencies.
+
+    Args:
+        current_time: Current time (already converted to route timezone)
+        current_day: Current day code (MON, TUE, WED, etc.)
+        days_of_week: List of active day codes for this schedule
+        start_time: Schedule start time
+        end_time: Schedule end time
+
+    Returns:
+        True if current time is within the schedule window, False otherwise
+
+    Example:
+        >>> import datetime
+        >>> is_time_in_schedule_window(
+        ...     datetime.time(9, 0),
+        ...     "MON",
+        ...     ["MON", "TUE", "WED"],
+        ...     datetime.time(8, 0),
+        ...     datetime.time(10, 0)
+        ... )
+        True
+        >>> is_time_in_schedule_window(
+        ...     datetime.time(11, 0),
+        ...     "MON",
+        ...     ["MON", "TUE", "WED"],
+        ...     datetime.time(8, 0),
+        ...     datetime.time(10, 0)
+        ... )
+        False
+    """
+    if current_day not in days_of_week:
+        return False
+    return start_time <= current_time <= end_time
+
+
+def filter_alertable_disruptions(
+    disruptions: list[DisruptionResponse],
+    disabled_severity_pairs: set[tuple[str, int]],
+) -> list[DisruptionResponse]:
+    """
+    Filter disruptions to only include those that should trigger alerts.
+
+    Removes disruptions with severity levels configured as non-alertable
+    (e.g., "Good Service" with severity_level=10).
+
+    Pure function for easy testing without database dependencies.
+
+    Args:
+        disruptions: List of disruptions to filter
+        disabled_severity_pairs: Set of (mode_id, severity_level) pairs to exclude
+
+    Returns:
+        List of disruptions that should trigger alerts
+
+    Example:
+        >>> from app.schemas.tfl import DisruptionResponse
+        >>> from datetime import UTC, datetime
+        >>> disruptions = [
+        ...     DisruptionResponse(
+        ...         line_id="victoria",
+        ...         line_name="Victoria",
+        ...         mode="tube",
+        ...         status_severity=10,
+        ...         status_severity_description="Good Service",
+        ...         created_at=datetime.now(UTC),
+        ...     ),
+        ...     DisruptionResponse(
+        ...         line_id="northern",
+        ...         line_name="Northern",
+        ...         mode="tube",
+        ...         status_severity=5,
+        ...         status_severity_description="Severe Delays",
+        ...         reason="Signal failure",
+        ...         created_at=datetime.now(UTC),
+        ...     ),
+        ... ]
+        >>> disabled = {("tube", 10)}
+        >>> result = filter_alertable_disruptions(disruptions, disabled)
+        >>> len(result)
+        1
+        >>> result[0].line_id
+        'northern'
+    """
+    return [
+        disruption
+        for disruption in disruptions
+        if (disruption.mode, disruption.status_severity) not in disabled_severity_pairs
+    ]
+
+
+def init_alert_processing_stats() -> dict[str, int]:
+    """
+    Initialize alert processing statistics dictionary.
+
+    Pure function for easy testing.
+
+    Returns:
+        Dictionary with routes_checked, alerts_sent, and errors all set to 0
+
+    Example:
+        >>> stats = init_alert_processing_stats()
+        >>> stats
+        {'routes_checked': 0, 'alerts_sent': 0, 'errors': 0}
+    """
+    return {
+        "routes_checked": 0,
+        "alerts_sent": 0,
+        "errors": 0,
+    }
 
 
 # Pure helper functions for testability
@@ -114,70 +265,85 @@ async def warm_up_line_state_cache(db: AsyncSession, redis_client: RedisClientPr
         >>> print(count)
         12  # 12 unique lines with cached state
     """
-    try:
-        # Subquery to find max detected_at for each line_id
-        # This represents the most recent polling moment for each line
-        subq = (
-            select(
-                LineDisruptionStateLog.line_id,
-                func.max(LineDisruptionStateLog.detected_at).label("max_detected_at"),
+    with service_span("alert.warm_up_cache", "alert-service") as span:
+        span.set_attribute("cache.operation", "warmup")
+
+        try:
+            # Subquery to find max detected_at for each line_id
+            # This represents the most recent polling moment for each line
+            subq = (
+                select(
+                    LineDisruptionStateLog.line_id,
+                    func.max(LineDisruptionStateLog.detected_at).label("max_detected_at"),
+                )
+                .group_by(LineDisruptionStateLog.line_id)
+                .subquery()
             )
-            .group_by(LineDisruptionStateLog.line_id)
-            .subquery()
-        )
 
-        # Get all log entries at the max timestamp for each line
-        # (multiple statuses per line at same timestamp due to batch logging)
-        stmt = select(LineDisruptionStateLog).join(
-            subq,
-            and_(
-                LineDisruptionStateLog.line_id == subq.c.line_id,
-                LineDisruptionStateLog.detected_at == subq.c.max_detected_at,
-            ),
-        )
+            # Get all log entries at the max timestamp for each line
+            # (multiple statuses per line at same timestamp due to batch logging)
+            stmt = select(LineDisruptionStateLog).join(
+                subq,
+                and_(
+                    LineDisruptionStateLog.line_id == subq.c.line_id,
+                    LineDisruptionStateLog.detected_at == subq.c.max_detected_at,
+                ),
+            )
 
-        result = await db.execute(stmt)
-        logs = list(result.scalars().all())
+            result = await db.execute(stmt)
+            logs = list(result.scalars().all())
 
-        if not logs:
-            logger.info("line_state_cache_warmup_empty", message="no historical states to hydrate")
+            if not logs:
+                logger.info("line_state_cache_warmup_empty", message="no historical states to hydrate")
+                span.set_attribute("cache.lines_hydrated", 0)
+                span.set_attribute("cache.total_log_entries", 0)
+                span.set_attribute("cache.success", True)
+                return 0
+
+            # Group logs by line_id and extract aggregate hash
+            # All records for the same line at the same detected_at share the same state_hash
+            # (since they're all part of the same aggregate state logged in one batch)
+            logs_sorted = sorted(logs, key=lambda log: log.line_id)
+            lines_hydrated = 0
+
+            for line_id, group in groupby(logs_sorted, key=lambda log: log.line_id):
+                statuses = list(group)
+
+                # All statuses for this line have the same state_hash (aggregate hash)
+                # Just pick the first one - they're all identical for records at same detected_at
+                aggregate_hash = statuses[0].state_hash
+
+                # Store in Redis (no TTL - persists until state changes)
+                redis_key = f"line_state:{line_id}"
+                await redis_client.set(redis_key, aggregate_hash)
+
+                lines_hydrated += 1
+
+            span.set_attribute("cache.lines_hydrated", lines_hydrated)
+            span.set_attribute("cache.total_log_entries", len(logs))
+            span.set_attribute("cache.success", True)
+
+            logger.info(
+                "line_state_cache_warmup_complete",
+                lines_hydrated=lines_hydrated,
+                total_log_entries=len(logs),
+            )
+
+            return lines_hydrated
+
+        except Exception as e:
+            # Log error but don't block application startup
+            span.set_attribute("cache.success", False)
+            span.set_attribute("cache.lines_hydrated", 0)
+            span.set_attribute("cache.total_log_entries", 0)
+            span.set_attribute("cache.error", True)
+            span.set_attribute("cache.error_type", type(e).__name__)
+            logger.error(
+                "line_state_cache_warmup_failed",
+                error=str(e),
+                exc_info=e,
+            )
             return 0
-
-        # Group logs by line_id and extract aggregate hash
-        # All records for the same line at the same detected_at share the same state_hash
-        # (since they're all part of the same aggregate state logged in one batch)
-        logs_sorted = sorted(logs, key=lambda log: log.line_id)
-        lines_hydrated = 0
-
-        for line_id, group in groupby(logs_sorted, key=lambda log: log.line_id):
-            statuses = list(group)
-
-            # All statuses for this line have the same state_hash (aggregate hash)
-            # Just pick the first one - they're all identical for records at same detected_at
-            aggregate_hash = statuses[0].state_hash
-
-            # Store in Redis (no TTL - persists until state changes)
-            redis_key = f"line_state:{line_id}"
-            await redis_client.set(redis_key, aggregate_hash)
-
-            lines_hydrated += 1
-
-        logger.info(
-            "line_state_cache_warmup_complete",
-            lines_hydrated=lines_hydrated,
-            total_log_entries=len(logs),
-        )
-
-        return lines_hydrated
-
-    except Exception as e:
-        # Log error but don't block application startup
-        logger.error(
-            "line_state_cache_warmup_failed",
-            error=str(e),
-            exc_info=e,
-        )
-        return 0
 
 
 class AlertService:
@@ -225,219 +391,157 @@ class AlertService:
             >>> await service._log_line_disruption_state_changes([disruption1, disruption3])
             2  # Logged because aggregate state changed
         """
-        try:
-            logged_count = 0
+        with service_span(
+            "alert.log_line_state_changes",
+            "alert-service",
+        ) as span:
+            span.set_attribute("alert.operation", "log_line_state_changes")
+            span.set_attribute("alert.disruption_count", len(disruptions))
 
-            if not disruptions:
+            try:
+                logged_count = 0
+
+                if not disruptions:
+                    span.set_attribute("alert.logged_count", 0)
+                    return 0
+
+                # Use single timestamp for all records in this batch
+                # This represents the polling moment and groups related statuses
+                batch_detected_at = datetime.now(UTC)
+
+                # Group disruptions by line_id
+                disruptions_sorted = sorted(disruptions, key=lambda d: d.line_id)
+                disruptions_by_line = {
+                    line_id: list(group) for line_id, group in groupby(disruptions_sorted, key=lambda d: d.line_id)
+                }
+
+                # Process each line's aggregate state
+                for line_id, line_disruptions in disruptions_by_line.items():
+                    # Compute aggregate hash for this line's current state
+                    current_hash = create_line_aggregate_hash(line_disruptions)
+
+                    # Check Redis for last known aggregate hash for this line
+                    redis_key = f"line_state:{line_id}"
+                    last_hash = await self.redis_client.get(redis_key)
+
+                    # Only log if aggregate state changed
+                    if current_hash != last_hash:
+                        # Log each status as a separate database record
+                        for disruption in line_disruptions:
+                            new_log = LineDisruptionStateLog(
+                                line_id=line_id,
+                                status_severity_description=disruption.status_severity_description,
+                                reason=disruption.reason or None,
+                                state_hash=current_hash,  # Store aggregate hash, not individual
+                                detected_at=batch_detected_at,
+                            )
+                            self.db.add(new_log)
+                            logged_count += 1
+
+                        # Update Redis with new aggregate hash (no TTL - persists until state changes)
+                        # Note: Redis is updated before commit intentionally. If commit fails,
+                        # Redis will be ahead of DB, but the next poll will re-detect the state
+                        # change (since DB won't have the new hash). This prioritizes preventing
+                        # duplicate logs over strict consistency.
+                        await self.redis_client.set(redis_key, current_hash)
+
+                        logger.info(
+                            "line_aggregate_state_changed",
+                            line_id=line_id,
+                            status_count=len(line_disruptions),
+                            previous_hash=last_hash,
+                            new_hash=current_hash,
+                        )
+                    else:
+                        logger.debug(
+                            "line_aggregate_state_unchanged",
+                            line_id=line_id,
+                            status_count=len(line_disruptions),
+                            state_hash=current_hash,
+                        )
+
+                # Commit all new log entries
+                if logged_count > 0:
+                    await self.db.commit()
+                    logger.info("line_disruption_states_logged", count=logged_count)
+
+                span.set_attribute("alert.logged_count", logged_count)
+                return logged_count
+
+            except Exception as e:
+                logger.error(
+                    "log_line_disruption_states_failed",
+                    error=str(e),
+                    exc_info=e,
+                )
+                span.record_exception(e)
+                await self.db.rollback()
+                span.set_attribute("alert.logged_count", 0)
+                # Don't raise - logging failures shouldn't block alert processing
                 return 0
 
-            # Use single timestamp for all records in this batch
-            # This represents the polling moment and groups related statuses
-            batch_detected_at = datetime.now(UTC)
+    def _set_span_stats_attributes(self, span: "Span", stats: dict[str, int]) -> None:
+        """
+        Set alert processing statistics as span attributes.
 
-            # Group disruptions by line_id
-            disruptions_sorted = sorted(disruptions, key=lambda d: d.line_id)
-            disruptions_by_line = {
-                line_id: list(group) for line_id, group in groupby(disruptions_sorted, key=lambda d: d.line_id)
-            }
-
-            # Process each line's aggregate state
-            for line_id, line_disruptions in disruptions_by_line.items():
-                # Compute aggregate hash for this line's current state
-                current_hash = create_line_aggregate_hash(line_disruptions)
-
-                # Check Redis for last known aggregate hash for this line
-                redis_key = f"line_state:{line_id}"
-                last_hash = await self.redis_client.get(redis_key)
-
-                # Only log if aggregate state changed
-                if current_hash != last_hash:
-                    # Log each status as a separate database record
-                    for disruption in line_disruptions:
-                        new_log = LineDisruptionStateLog(
-                            line_id=line_id,
-                            status_severity_description=disruption.status_severity_description,
-                            reason=disruption.reason or None,
-                            state_hash=current_hash,  # Store aggregate hash, not individual
-                            detected_at=batch_detected_at,
-                        )
-                        self.db.add(new_log)
-                        logged_count += 1
-
-                    # Update Redis with new aggregate hash (no TTL - persists until state changes)
-                    # Note: Redis is updated before commit intentionally. If commit fails,
-                    # Redis will be ahead of DB, but the next poll will re-detect the state
-                    # change (since DB won't have the new hash). This prioritizes preventing
-                    # duplicate logs over strict consistency.
-                    await self.redis_client.set(redis_key, current_hash)
-
-                    logger.info(
-                        "line_aggregate_state_changed",
-                        line_id=line_id,
-                        status_count=len(line_disruptions),
-                        previous_hash=last_hash,
-                        new_hash=current_hash,
-                    )
-                else:
-                    logger.debug(
-                        "line_aggregate_state_unchanged",
-                        line_id=line_id,
-                        status_count=len(line_disruptions),
-                        state_hash=current_hash,
-                    )
-
-            # Commit all new log entries
-            if logged_count > 0:
-                await self.db.commit()
-                logger.info("line_disruption_states_logged", count=logged_count)
-
-            return logged_count
-
-        except Exception as e:
-            logger.error(
-                "log_line_disruption_states_failed",
-                error=str(e),
-                exc_info=e,
-            )
-            await self.db.rollback()
-            # Don't raise - logging failures shouldn't block alert processing
-            return 0
+        Args:
+            span: OpenTelemetry span to set attributes on
+            stats: Statistics dictionary with routes_checked, alerts_sent, errors
+        """
+        span.set_attribute("alert.routes_checked", stats["routes_checked"])
+        span.set_attribute("alert.alerts_sent", stats["alerts_sent"])
+        span.set_attribute("alert.errors", stats["errors"])
 
     async def process_all_routes(self) -> dict[str, Any]:
         """
         Main entry point for processing all active routes.
 
-        Checks all active routes, determines if they are in a schedule window,
-        and sends alerts if disruptions are detected.
+        Orchestrates the alert processing workflow:
+        1. Fetch all active routes
+        2. Fetch global disruption data (cached, reused for all routes)
+        3. Process each route individually
+        4. Return statistics
 
         Returns:
             Statistics dictionary with routes_checked, alerts_sent, and errors
         """
-        logger.info("alert_processing_started")
-
-        stats = {
-            "routes_checked": 0,
-            "alerts_sent": 0,
-            "errors": 0,
-        }
-
-        try:
-            routes = await self._get_active_routes()
-            logger.info("active_routes_fetched", count=len(routes))
-
-            # Fetch all line disruptions once and log state changes
-            # Uses cache automatically, so subsequent per-route calls will be fast
-            # Errors here are non-fatal - per-route processing will still work
-            all_disruptions: list[DisruptionResponse] = []
-            disabled_severity_pairs: set[tuple[str, int]] = set()
+        with service_span("alert.process_all_routes", "alert-service") as span:
+            logger.info("alert_processing_started")
+            stats = init_alert_processing_stats()
 
             try:
-                tfl_service = TfLService(db=self.db)
-                all_disruptions = await tfl_service.fetch_line_disruptions(use_cache=True)
-                logger.info("all_disruptions_fetched", count=len(all_disruptions))
+                # Fetch all active routes with relationships
+                routes = await self._get_active_routes()
+                logger.info("active_routes_fetched", count=len(routes))
 
-                # Log line disruption state changes (for troubleshooting and analytics)
-                await self._log_line_disruption_state_changes(all_disruptions)
+                # Fetch global disruption data once for all routes
+                # Errors are non-fatal - returns empty data on failure
+                disabled_severity_pairs = await self._fetch_global_disruption_data()
 
-                # Fetch disabled severity pairs once for all routes
-                disabled_result = await self.db.execute(select(AlertDisabledSeverity))
-                disabled_severity_pairs = {(d.mode_id, d.severity_level) for d in disabled_result.scalars().all()}
-
-            except Exception as e:
-                logger.error(
-                    "disruption_logging_failed",
-                    error=str(e),
-                    exc_info=e,
-                )
-                # Don't track as error - per-route processing will handle its own disruptions
-                # This is just for centralized logging
-
-            for route in routes:
-                try:
+                # Process each route individually
+                for route in routes:
                     stats["routes_checked"] += 1
 
-                    # Check if route is in an active schedule window
-                    # schedules are eagerly loaded in _get_active_routes
-                    active_schedule = await self._get_active_schedule(route, route.schedules)
-                    if not active_schedule:
-                        logger.debug(
-                            "route_not_in_schedule",
-                            route_id=str(route.id),
-                            route_name=route.name,
-                        )
-                        continue
-
-                    logger.info(
-                        "route_in_active_schedule",
-                        route_id=str(route.id),
-                        route_name=route.name,
-                        schedule_id=str(active_schedule.id),
-                    )
-
-                    # Get disruptions for this route
-                    disruptions, error_occurred = await self._get_route_disruptions(route, disabled_severity_pairs)
-
-                    # Track error if one occurred
-                    if error_occurred:
-                        stats["errors"] += 1
-
-                    # Skip if no disruptions
-                    if not disruptions:
-                        logger.debug(
-                            "no_disruptions_for_route",
-                            route_id=str(route.id),
-                            route_name=route.name,
-                        )
-                        continue
-
-                    logger.info(
-                        "disruptions_found_for_route",
-                        route_id=str(route.id),
-                        route_name=route.name,
-                        disruption_count=len(disruptions),
-                    )
-
-                    # Check if we should send alert (deduplication)
-                    should_send = await self._should_send_alert(
+                    # Process this route and collect results
+                    alerts_sent, error_occurred = await self._process_single_route(
                         route=route,
-                        user_id=route.user_id,
-                        schedule=active_schedule,
-                        disruptions=disruptions,
-                    )
-
-                    if not should_send:
-                        logger.debug(
-                            "alert_skipped_duplicate",
-                            route_id=str(route.id),
-                            route_name=route.name,
-                        )
-                        continue
-
-                    # Send alerts
-                    alerts_sent = await self._send_alerts_for_route(
-                        route=route,
-                        schedule=active_schedule,
-                        disruptions=disruptions,
+                        disabled_severity_pairs=disabled_severity_pairs,
                     )
 
                     stats["alerts_sent"] += alerts_sent
+                    if error_occurred:
+                        stats["errors"] += 1
 
-                except Exception as e:
-                    stats["errors"] += 1
-                    logger.error(
-                        "route_processing_failed",
-                        route_id=str(route.id),
-                        error=str(e),
-                        exc_info=e,
-                    )
-                    # Continue processing other routes
+                logger.info("alert_processing_completed", **stats)
 
-            logger.info("alert_processing_completed", **stats)
-            return stats
+            except Exception as e:
+                logger.error("alert_processing_failed", error=str(e), exc_info=e)
+                stats["errors"] += 1
 
-        except Exception as e:
-            logger.error("alert_processing_failed", error=str(e), exc_info=e)
-            stats["errors"] += 1
+            finally:
+                # Always set span attributes, even on error
+                self._set_span_stats_attributes(span, stats)
+
             return stats
 
     async def _get_active_routes(self) -> list[UserRoute]:
@@ -467,6 +571,47 @@ class AlertService:
             logger.error("fetch_active_routes_failed", error=str(e), exc_info=e)
             return []
 
+    async def _fetch_global_disruption_data(self) -> set[tuple[str, int]]:
+        """
+        Fetch all disruptions and disabled severities once for all routes.
+
+        This method fetches global disruption data that can be reused across all routes:
+        - All line disruptions (cached by TfL service)
+        - Disabled severity pairs for filtering
+
+        Internally uses disruptions for state change logging, but only returns
+        the disabled severity pairs needed by callers.
+
+        Errors are non-fatal - returns empty data on failure so per-route processing can continue.
+
+        Returns:
+            Set of (mode_id, severity_level) pairs that should not trigger alerts
+        """
+        all_disruptions, disabled_severity_pairs = [], set()
+
+        try:
+            tfl_service = TfLService(db=self.db)
+            all_disruptions = await tfl_service.fetch_line_disruptions(use_cache=True)
+            logger.info("all_disruptions_fetched", count=len(all_disruptions))
+
+            # Log line disruption state changes (for troubleshooting and analytics)
+            await self._log_line_disruption_state_changes(all_disruptions)
+
+            # Fetch disabled severity pairs once for all routes
+            disabled_result = await self.db.execute(select(AlertDisabledSeverity))
+            disabled_severity_pairs = {(d.mode_id, d.severity_level) for d in disabled_result.scalars().all()}
+
+        except Exception as e:
+            logger.error(
+                "disruption_logging_failed",
+                error=str(e),
+                exc_info=e,
+            )
+            # Don't track as error - per-route processing will handle its own disruptions
+            # This is just for centralized logging
+
+        return disabled_severity_pairs
+
     async def _get_active_schedule(
         self,
         route: UserRoute,
@@ -492,7 +637,7 @@ class AlertService:
             now_local = now_utc.astimezone(route_tz)
 
             current_time = now_local.time()
-            current_day = ["MON", "TUE", "WED", "THU", "FRI", "SAT", "SUN"][now_local.weekday()]
+            current_day = get_day_code(now_local.weekday())
 
             logger.debug(
                 "checking_schedule",
@@ -507,12 +652,14 @@ class AlertService:
 
             # Check each schedule
             for schedule in schedules_to_check:
-                # Check if current day is in schedule's days
-                if current_day not in schedule.days_of_week:
-                    continue
-
                 # Check if current time is within schedule window
-                if schedule.start_time <= current_time <= schedule.end_time:
+                if is_time_in_schedule_window(
+                    current_time=current_time,
+                    current_day=current_day,
+                    days_of_week=schedule.days_of_week,
+                    start_time=schedule.start_time,
+                    end_time=schedule.end_time,
+                ):
                     logger.info(
                         "active_schedule_found",
                         route_id=str(route.id),
@@ -730,13 +877,16 @@ class AlertService:
                     route_disruptions.append(disruption)
 
             # Filter disruptions by severity (remove non-alertable severities like "Good Service")
-            route_disruptions = self._filter_alertable_disruptions(route_disruptions, disabled_severity_pairs)
+            before_filter_count = len(route_disruptions)
+            route_disruptions = filter_alertable_disruptions(route_disruptions, disabled_severity_pairs)
+            filtered_count = before_filter_count - len(route_disruptions)
 
             logger.debug(
                 "route_disruptions_filtered",
                 route_id=str(route.id),
                 total_disruptions=len(all_disruptions),
                 route_disruptions=len(route_disruptions),
+                filtered_count=filtered_count,
             )
 
             return route_disruptions, False
@@ -749,55 +899,6 @@ class AlertService:
                 exc_info=e,
             )
             return [], True
-
-    def _filter_alertable_disruptions(
-        self,
-        disruptions: list[DisruptionResponse],
-        disabled_severity_pairs: set[tuple[str, int]],
-    ) -> list[DisruptionResponse]:
-        """
-        Filter disruptions to only include those that should trigger alerts.
-
-        Removes disruptions with severity levels that are configured as non-alertable
-        (e.g., "Good Service" with severity_level=10).
-
-        Args:
-            disruptions: List of disruptions to filter
-            disabled_severity_pairs: Set of (mode_id, severity_level) pairs to filter out
-
-        Returns:
-            List of disruptions that should trigger alerts
-        """
-        if not disruptions:
-            return []
-
-        # Filter disruptions
-        alertable_disruptions = []
-        filtered_count = 0
-
-        for disruption in disruptions:
-            # Check if this (mode, severity) should be filtered
-            if (disruption.mode, disruption.status_severity) in disabled_severity_pairs:
-                filtered_count += 1
-                logger.debug(
-                    "disruption_filtered_by_severity",
-                    line_id=disruption.line_id,
-                    mode=disruption.mode,
-                    severity=disruption.status_severity,
-                    description=disruption.status_severity_description,
-                )
-            else:
-                alertable_disruptions.append(disruption)
-
-        if filtered_count > 0:
-            logger.info(
-                "disruptions_filtered_by_severity",
-                total=len(disruptions),
-                filtered=filtered_count,
-                remaining=len(alertable_disruptions),
-            )
-
-        return alertable_disruptions
 
     async def _should_send_alert(
         self,
@@ -821,65 +922,87 @@ class AlertService:
         Returns:
             True if alert should be sent, False if duplicate
         """
-        try:
-            # Build Redis key for this route/user/schedule combination
-            redis_key = f"alert:{route.id}:{user_id}:{schedule.id}"
+        with service_span("alert.should_send_check", "alert-service") as span:
+            span.set_attribute("alert.route_id", str(route.id))
+            span.set_attribute("alert.user_id", str(user_id))
+            span.set_attribute("alert.schedule_id", str(schedule.id))
 
-            # Check if key exists in Redis
-            stored_state = await self.redis_client.get(redis_key)
-
-            if not stored_state:
-                # No previous alert, should send
-                logger.debug(
-                    "no_previous_alert_state",
-                    route_id=str(route.id),
-                    redis_key=redis_key,
-                )
-                return True
-
-            # Parse stored state and compare with current disruptions
             try:
-                stored_data = json.loads(stored_state)
-                stored_hash = stored_data.get("hash", "")
-            except (json.JSONDecodeError, AttributeError):
-                # Invalid stored data, send alert
-                logger.warning(
-                    "invalid_stored_alert_state",
+                # Build Redis key for this route/user/schedule combination
+                redis_key = f"alert:{route.id}:{user_id}:{schedule.id}"
+
+                # Check if key exists in Redis
+                stored_state = await self.redis_client.get(redis_key)
+
+                if not stored_state:
+                    # No previous alert, should send
+                    logger.debug(
+                        "no_previous_alert_state",
+                        route_id=str(route.id),
+                        redis_key=redis_key,
+                    )
+                    span.set_attribute("alert.has_previous_state", False)
+                    span.set_attribute("alert.state_changed", True)
+                    span.set_attribute("alert.result", True)
+                    return True
+
+                span.set_attribute("alert.has_previous_state", True)
+
+                # Parse stored state and compare with current disruptions
+                try:
+                    stored_data = json.loads(stored_state)
+                    stored_hash = stored_data.get("hash", "")
+                except (json.JSONDecodeError, AttributeError):
+                    # Invalid stored data, send alert
+                    logger.warning(
+                        "invalid_stored_alert_state",
+                        route_id=str(route.id),
+                        redis_key=redis_key,
+                    )
+                    span.set_attribute("alert.state_changed", True)
+                    span.set_attribute("alert.result", True)
+                    return True
+
+                # Create hash of current disruptions
+                current_hash = self._create_disruption_hash(disruptions)
+
+                # Compare hashes
+                if current_hash == stored_hash:
+                    logger.debug(
+                        "disruption_state_unchanged",
+                        route_id=str(route.id),
+                        redis_key=redis_key,
+                    )
+                    span.set_attribute("alert.state_changed", False)
+                    span.set_attribute("alert.result", False)
+                    return False
+
+                logger.info(
+                    "disruption_state_changed",
                     route_id=str(route.id),
                     redis_key=redis_key,
+                    stored_hash=stored_hash,
+                    current_hash=current_hash,
                 )
+                span.set_attribute("alert.state_changed", True)
+                span.set_attribute("alert.result", True)
                 return True
 
-            # Create hash of current disruptions
-            current_hash = self._create_disruption_hash(disruptions)
-
-            # Compare hashes
-            if current_hash == stored_hash:
-                logger.debug(
-                    "disruption_state_unchanged",
+            except Exception as e:
+                logger.error(
+                    "should_send_alert_check_failed",
                     route_id=str(route.id),
-                    redis_key=redis_key,
+                    error=str(e),
+                    exc_info=e,
                 )
-                return False
-
-            logger.info(
-                "disruption_state_changed",
-                route_id=str(route.id),
-                redis_key=redis_key,
-                stored_hash=stored_hash,
-                current_hash=current_hash,
-            )
-            return True
-
-        except Exception as e:
-            logger.error(
-                "should_send_alert_check_failed",
-                route_id=str(route.id),
-                error=str(e),
-                exc_info=e,
-            )
-            # On error, default to sending alert (better to over-notify than under-notify)
-            return True
+                # Set consistent attributes for telemetry even in error case
+                span.set_attribute("alert.has_previous_state", False)  # Unknown due to error
+                span.set_attribute("alert.state_changed", True)  # Treating as changed (conservative)
+                span.set_attribute("alert.result", True)
+                span.set_attribute("alert.error", True)
+                span.set_attribute("alert.error_type", type(e).__name__)
+                # On error, default to sending alert (better to over-notify than under-notify)
+                return True
 
     async def _get_verified_contact(  # noqa: PLR0911
         self,
@@ -1061,6 +1184,99 @@ class AlertService:
             )
             return False, str(send_error)
 
+    async def _process_single_route(
+        self,
+        route: UserRoute,
+        disabled_severity_pairs: set[tuple[str, int]],
+    ) -> tuple[int, bool]:
+        """
+        Process a single route: check schedule, get disruptions, send alerts.
+
+        This method encapsulates all the logic for processing one route, including:
+        - Checking if the route is in an active schedule window
+        - Fetching disruptions relevant to the route
+        - Checking if an alert should be sent (deduplication)
+        - Sending alerts to configured notification preferences
+
+        Args:
+            route: UserRoute to process (with schedules, segments, preferences loaded)
+            disabled_severity_pairs: Set of (mode_id, severity_level) pairs to filter out
+
+        Returns:
+            Tuple of (alerts_sent, error_occurred)
+        """
+        try:
+            # Check if route is in an active schedule window
+            # schedules are eagerly loaded in _get_active_routes
+            active_schedule = await self._get_active_schedule(route, route.schedules)
+            if not active_schedule:
+                logger.debug(
+                    "route_not_in_schedule",
+                    route_id=str(route.id),
+                    route_name=route.name,
+                )
+                return 0, False
+
+            logger.info(
+                "route_in_active_schedule",
+                route_id=str(route.id),
+                route_name=route.name,
+                schedule_id=str(active_schedule.id),
+            )
+
+            # Get disruptions for this route
+            disruptions, error_occurred = await self._get_route_disruptions(route, disabled_severity_pairs)
+
+            # Skip if no disruptions
+            if not disruptions:
+                logger.debug(
+                    "no_disruptions_for_route",
+                    route_id=str(route.id),
+                    route_name=route.name,
+                )
+                return 0, error_occurred
+
+            logger.info(
+                "disruptions_found_for_route",
+                route_id=str(route.id),
+                route_name=route.name,
+                disruption_count=len(disruptions),
+            )
+
+            # Check if we should send alert (deduplication)
+            should_send = await self._should_send_alert(
+                route=route,
+                user_id=route.user_id,
+                schedule=active_schedule,
+                disruptions=disruptions,
+            )
+
+            if not should_send:
+                logger.debug(
+                    "alert_skipped_duplicate",
+                    route_id=str(route.id),
+                    route_name=route.name,
+                )
+                return 0, error_occurred
+
+            # Send alerts
+            alerts_sent = await self._send_alerts_for_route(
+                route=route,
+                schedule=active_schedule,
+                disruptions=disruptions,
+            )
+
+            return alerts_sent, error_occurred
+
+        except Exception as e:
+            logger.error(
+                "route_processing_failed",
+                route_id=str(route.id),
+                error=str(e),
+                exc_info=e,
+            )
+            return 0, True
+
     async def _send_alerts_for_route(
         self,
         route: UserRoute,
@@ -1078,92 +1294,124 @@ class AlertService:
         Returns:
             Number of alerts successfully sent
         """
-        alerts_sent = 0
+        with service_span(
+            "alert.send_for_route",
+            "alert-service",
+        ) as span:
+            # Set span attributes
+            span.set_attribute("alert.route_id", str(route.id))
+            span.set_attribute("alert.route_name", route.name)
+            span.set_attribute("alert.disruption_count", len(disruptions))
 
-        try:
-            # Check if route has notification preferences
-            if not route.notification_preferences:
-                logger.warning(
-                    "no_notification_preferences",
-                    route_id=str(route.id),
-                    route_name=route.name,
-                )
-                return 0
+            alerts_sent = 0
+            # Initialize prefs outside try block so it's accessible in except block
+            prefs: list[NotificationPreference] = []
 
-            # Process each notification preference
-            for pref in route.notification_preferences:
+            try:
+                # Get notification preferences safely (may not be loaded in async context)
                 try:
-                    # Get verified contact information
-                    contact_info = await self._get_verified_contact(pref, route.id)
-                    if not contact_info:
-                        continue
+                    insp = inspect(route)
+                    prefs = [] if "notification_preferences" in insp.unloaded else route.notification_preferences or []
+                except Exception:
+                    # Can't inspect (e.g., Mock object in tests) - try direct access
+                    prefs = route.notification_preferences or []
 
-                    # Send notification
-                    success, error_message = await self._send_single_notification(
-                        pref=pref,
-                        contact_info=contact_info,
+                # Check if route has notification preferences
+                if not prefs:
+                    logger.warning(
+                        "no_notification_preferences",
+                        route_id=str(route.id),
+                        route_name=route.name,
+                    )
+                    span.set_attribute("alert.preference_count", 0)
+                    span.set_attribute("alert.alerts_sent", 0)
+                    return 0
+
+                # Process each notification preference
+                for pref in prefs:
+                    try:
+                        # Get verified contact information
+                        contact_info = await self._get_verified_contact(pref, route.id)
+                        if not contact_info:
+                            continue
+
+                        # Send notification
+                        success, error_message = await self._send_single_notification(
+                            pref=pref,
+                            contact_info=contact_info,
+                            route=route,
+                            disruptions=disruptions,
+                        )
+
+                        # Create notification log
+                        if success:
+                            self._create_notification_log(
+                                user_id=route.user_id,
+                                route_id=route.id,
+                                method=pref.method,
+                                status=NotificationStatus.SENT,
+                            )
+                            alerts_sent += 1
+                        else:
+                            self._create_notification_log(
+                                user_id=route.user_id,
+                                route_id=route.id,
+                                method=pref.method,
+                                status=NotificationStatus.FAILED,
+                                error_message=error_message,
+                            )
+
+                    except Exception as e:
+                        # Catch any other unexpected errors in preference processing
+                        logger.error(
+                            "preference_processing_failed",
+                            pref_id=str(pref.id),
+                            route_id=str(route.id),
+                            error=str(e),
+                            exc_info=e,
+                        )
+
+                # Commit all notification logs
+                await self.db.commit()
+
+                # If any alerts were sent successfully, store the disruption state in Redis
+                if alerts_sent > 0:
+                    await self._store_alert_state(
                         route=route,
+                        user_id=route.user_id,
+                        schedule=schedule,
                         disruptions=disruptions,
                     )
 
-                    # Create notification log
-                    if success:
-                        self._create_notification_log(
-                            user_id=route.user_id,
-                            route_id=route.id,
-                            method=pref.method,
-                            status=NotificationStatus.SENT,
-                        )
-                        alerts_sent += 1
-                    else:
-                        self._create_notification_log(
-                            user_id=route.user_id,
-                            route_id=route.id,
-                            method=pref.method,
-                            status=NotificationStatus.FAILED,
-                            error_message=error_message,
-                        )
+                # Set span attributes at the end
+                span.set_attribute("alert.preference_count", len(prefs))
+                span.set_attribute("alert.alerts_sent", alerts_sent)
 
-                except Exception as e:
-                    # Catch any other unexpected errors in preference processing
-                    logger.error(
-                        "preference_processing_failed",
-                        pref_id=str(pref.id),
-                        route_id=str(route.id),
-                        error=str(e),
-                        exc_info=e,
-                    )
-
-            # Commit all notification logs
-            await self.db.commit()
-
-            # If any alerts were sent successfully, store the disruption state in Redis
-            if alerts_sent > 0:
-                await self._store_alert_state(
-                    route=route,
-                    user_id=route.user_id,
-                    schedule=schedule,
-                    disruptions=disruptions,
+                logger.info(
+                    "alerts_sent_for_route",
+                    route_id=str(route.id),
+                    route_name=route.name,
+                    alerts_sent=alerts_sent,
                 )
 
-            logger.info(
-                "alerts_sent_for_route",
-                route_id=str(route.id),
-                route_name=route.name,
-                alerts_sent=alerts_sent,
-            )
+                return alerts_sent
 
-            return alerts_sent
-
-        except Exception as e:
-            logger.error(
-                "send_alerts_for_route_failed",
-                route_id=str(route.id),
-                error=str(e),
-                exc_info=e,
-            )
-            await self.db.rollback()
-            return 0
+            except Exception as e:
+                logger.error(
+                    "send_alerts_for_route_failed",
+                    route_id=str(route.id),
+                    error=str(e),
+                    exc_info=e,
+                )
+                await self.db.rollback()
+                # Set span attributes even on error (preserve prefs count if we got it)
+                try:
+                    pref_count = len(prefs) if isinstance(prefs, list) else 0
+                except (TypeError, AttributeError):
+                    pref_count = 0
+                span.set_attribute("alert.preference_count", pref_count)
+                span.set_attribute("alert.alerts_sent", alerts_sent)
+                return 0
 
     async def _store_alert_state(
         self,
@@ -1184,76 +1432,84 @@ class AlertService:
             schedule: Active schedule
             disruptions: Disruptions that were alerted
         """
-        try:
-            # Calculate TTL: seconds from now until schedule.end_time in route's timezone
-            route_tz = ZoneInfo(route.timezone)
-            now_utc = datetime.now(UTC)
-            now_local = now_utc.astimezone(route_tz)
+        with service_span("alert.store_state", "alert-service") as span:
+            span.set_attribute("alert.route_id", str(route.id))
+            span.set_attribute("alert.user_id", str(user_id))
+            span.set_attribute("alert.schedule_id", str(schedule.id))
+            span.set_attribute("alert.disruption_count", len(disruptions))
 
-            # Create datetime for schedule end time today
-            end_datetime = datetime.combine(now_local.date(), schedule.end_time, tzinfo=route_tz)
+            try:
+                # Calculate TTL: seconds from now until schedule.end_time in route's timezone
+                route_tz = ZoneInfo(route.timezone)
+                now_utc = datetime.now(UTC)
+                now_local = now_utc.astimezone(route_tz)
 
-            # If end time has already passed today, set TTL to 0 (expire immediately)
-            if end_datetime <= now_local:
-                ttl_seconds = 0
-                logger.warning(
-                    "schedule_end_time_passed",
+                # Create datetime for schedule end time today
+                end_datetime = datetime.combine(now_local.date(), schedule.end_time, tzinfo=route_tz)
+
+                # If end time has already passed today, set TTL to 0 (expire immediately)
+                if end_datetime <= now_local:
+                    ttl_seconds = 0
+                    logger.warning(
+                        "schedule_end_time_passed",
+                        route_id=str(route.id),
+                        schedule_id=str(schedule.id),
+                        end_time=schedule.end_time.isoformat(),
+                        current_time=now_local.time().isoformat(),
+                    )
+                else:
+                    ttl_seconds = int((end_datetime - now_local).total_seconds())
+
+                span.set_attribute("alert.ttl_seconds", ttl_seconds)
+
+                # Create disruption state
+                disruption_hash = self._create_disruption_hash(disruptions)
+                state_data = {
+                    "hash": disruption_hash,
+                    "disruptions": [
+                        {
+                            "line_id": d.line_id,
+                            "status": d.status_severity_description,
+                            "reason": d.reason or "",
+                        }
+                        for d in disruptions
+                    ],
+                    "stored_at": now_utc.isoformat(),
+                }
+
+                # Build Redis key
+                redis_key = f"alert:{route.id}:{user_id}:{schedule.id}"
+
+                # Store in Redis with TTL
+                if ttl_seconds > 0:
+                    await self.redis_client.setex(
+                        redis_key,
+                        ttl_seconds,
+                        json.dumps(state_data),
+                    )
+                    logger.info(
+                        "alert_state_stored",
+                        route_id=str(route.id),
+                        redis_key=redis_key,
+                        ttl_seconds=ttl_seconds,
+                        disruption_hash=disruption_hash,
+                    )
+                else:
+                    # TTL is 0 or negative, don't store (or store with minimal TTL)
+                    logger.debug(
+                        "alert_state_not_stored",
+                        route_id=str(route.id),
+                        redis_key=redis_key,
+                        reason="schedule_ended",
+                    )
+
+            except Exception as e:
+                logger.error(
+                    "store_alert_state_failed",
                     route_id=str(route.id),
-                    schedule_id=str(schedule.id),
-                    end_time=schedule.end_time.isoformat(),
-                    current_time=now_local.time().isoformat(),
+                    error=str(e),
+                    exc_info=e,
                 )
-            else:
-                ttl_seconds = int((end_datetime - now_local).total_seconds())
-
-            # Create disruption state
-            disruption_hash = self._create_disruption_hash(disruptions)
-            state_data = {
-                "hash": disruption_hash,
-                "disruptions": [
-                    {
-                        "line_id": d.line_id,
-                        "status": d.status_severity_description,
-                        "reason": d.reason or "",
-                    }
-                    for d in disruptions
-                ],
-                "stored_at": now_utc.isoformat(),
-            }
-
-            # Build Redis key
-            redis_key = f"alert:{route.id}:{user_id}:{schedule.id}"
-
-            # Store in Redis with TTL
-            if ttl_seconds > 0:
-                await self.redis_client.setex(
-                    redis_key,
-                    ttl_seconds,
-                    json.dumps(state_data),
-                )
-                logger.info(
-                    "alert_state_stored",
-                    route_id=str(route.id),
-                    redis_key=redis_key,
-                    ttl_seconds=ttl_seconds,
-                    disruption_hash=disruption_hash,
-                )
-            else:
-                # TTL is 0 or negative, don't store (or store with minimal TTL)
-                logger.debug(
-                    "alert_state_not_stored",
-                    route_id=str(route.id),
-                    redis_key=redis_key,
-                    reason="schedule_ended",
-                )
-
-        except Exception as e:
-            logger.error(
-                "store_alert_state_failed",
-                route_id=str(route.id),
-                error=str(e),
-                exc_info=e,
-            )
             # Don't raise - failure to store state shouldn't prevent alert sending
 
     def _create_disruption_hash(self, disruptions: list[DisruptionResponse]) -> str:

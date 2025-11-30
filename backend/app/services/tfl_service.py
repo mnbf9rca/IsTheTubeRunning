@@ -219,13 +219,10 @@ def tfl_api_span(
 ) -> Generator[trace.Span]:
     """Context manager for TfL API call spans with standard attributes.
 
-    Creates an OpenTelemetry span with consistent attributes for TfL API calls.
-    The SDK automatically records exceptions and sets error status if an
-    exception occurs within the span context.
-
-    Note: The tracer is acquired at call time (not module import time) to ensure
-    it uses the TracerProvider set during application startup. This enables proper
-    trace context propagation from parent spans (e.g., FastAPI HTTP requests).
+    Wrapper around service_span with TfL-specific conventions. Creates spans with:
+    - Explicit StatusCode.OK on success
+    - Automatic StatusCode.ERROR on exceptions (via SDK)
+    - Consistent TfL API attributes
 
     Args:
         endpoint: API endpoint name (e.g., "MetaModes", "GetByModeByPathModes")
@@ -241,18 +238,15 @@ def tfl_api_span(
             if hasattr(response, "http_status_code"):
                 span.set_attribute("http.status_code", response.http_status_code)
     """
-    # Get tracer at call time to use the correct TracerProvider (set in FastAPI lifespan)
-    tracer = trace.get_tracer(__name__)
-    attributes = {
-        "tfl.api.endpoint": endpoint,
-        "tfl.api.client": client,
-        "peer.service": "api.tfl.gov.uk",
-        **extra_attrs,
-    }
-    with tracer.start_as_current_span(
-        f"tfl.api.{endpoint}",
+    # Import service_span from telemetry
+    from app.core.telemetry import service_span  # noqa: PLC0415  # Local import for deferred dependency
+
+    # Delegate to service_span with TfL-specific conventions
+    with service_span(
+        name=f"tfl.api.{endpoint}",
+        service="api.tfl.gov.uk",
         kind=trace.SpanKind.CLIENT,
-        attributes=attributes,
+        **{"tfl.api.endpoint": endpoint, "tfl.api.client": client, **extra_attrs},
     ) as span:
         yield span
 
