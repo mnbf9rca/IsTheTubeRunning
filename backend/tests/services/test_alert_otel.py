@@ -7,7 +7,7 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 from app.models.user_route import UserRoute, UserRouteSchedule
 from app.schemas.tfl import DisruptionResponse
-from app.services.alert_service import AlertService
+from app.services.alert_service import AlertService, warm_up_line_state_cache
 from opentelemetry.sdk.trace import TracerProvider
 from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanExporter
 from opentelemetry.trace import SpanKind, StatusCode
@@ -520,3 +520,295 @@ class TestAlertServiceLogLineStateChangesOtelSpans:
 
         # Verify rollback was called
         assert mock_db.rollback.called
+
+
+class TestWarmUpLineStateCacheOtelSpans:
+    """Test class for warm_up_line_state_cache() OpenTelemetry instrumentation."""
+
+    @pytest.mark.asyncio
+    async def test_warm_up_cache_creates_span_with_ok_status(
+        self,
+        otel_enabled_provider: tuple[TracerProvider, InMemorySpanExporter],
+    ) -> None:
+        """Test that warm_up_line_state_cache creates a span with OK status on success."""
+        _, exporter = otel_enabled_provider
+
+        # Create mock database session
+        mock_db = AsyncMock()
+        mock_result = MagicMock()
+        mock_result.scalars.return_value.all.return_value = []  # Empty logs
+        mock_db.execute = AsyncMock(return_value=mock_result)
+
+        # Create mock Redis client
+        mock_redis = AsyncMock()
+
+        # Call the function
+        lines_hydrated = await warm_up_line_state_cache(mock_db, mock_redis)
+
+        assert lines_hydrated == 0  # No lines to hydrate
+
+        # Verify span was created with OK status
+        spans = exporter.get_finished_spans()
+        assert len(spans) == 1
+
+        span = spans[0]
+        assert span.name == "alert.warm_up_cache"
+        assert span.kind == SpanKind.INTERNAL
+        assert_span_status(span, StatusCode.OK)
+
+        # Verify span attributes
+        assert span.attributes is not None
+        assert span.attributes["peer.service"] == "alert-service"
+        assert span.attributes["cache.operation"] == "warmup"
+        assert span.attributes["cache.lines_hydrated"] == 0
+        assert span.attributes["cache.total_log_entries"] == 0
+        assert span.attributes["cache.success"] is True
+
+    @pytest.mark.asyncio
+    async def test_warm_up_cache_handles_error_gracefully(
+        self,
+        otel_enabled_provider: tuple[TracerProvider, InMemorySpanExporter],
+    ) -> None:
+        """Test that span has OK status when database error is handled gracefully."""
+        _, exporter = otel_enabled_provider
+
+        # Create mock database session that fails
+        mock_db = AsyncMock()
+        mock_db.execute = AsyncMock(side_effect=Exception("Database connection error"))
+
+        # Create mock Redis client
+        mock_redis = AsyncMock()
+
+        # Function should return 0 instead of raising (graceful error handling)
+        lines_hydrated = await warm_up_line_state_cache(mock_db, mock_redis)
+
+        assert lines_hydrated == 0  # Graceful failure returns 0
+
+        # Verify span has OK status (exception was caught and handled)
+        spans = exporter.get_finished_spans()
+        assert len(spans) == 1
+
+        span = spans[0]
+        assert span.name == "alert.warm_up_cache"
+        assert_span_status(span, StatusCode.OK)
+
+        # Verify attributes show failure
+        assert span.attributes is not None
+        assert span.attributes["cache.success"] is False
+
+
+class TestAlertServiceShouldSendAlertOtelSpans:
+    """Test class for AlertService._should_send_alert() OTEL instrumentation."""
+
+    @pytest.mark.asyncio
+    async def test_should_send_alert_creates_span_with_ok_status(
+        self,
+        otel_enabled_provider: tuple[TracerProvider, InMemorySpanExporter],
+    ) -> None:
+        """Test that _should_send_alert creates a span with OK status."""
+        _, exporter = otel_enabled_provider
+
+        # Create mock database session
+        mock_db = AsyncMock()
+
+        # Create mock Redis client
+        mock_redis = AsyncMock()
+        mock_redis.get = AsyncMock(return_value=None)  # No previous state
+
+        # Create alert service
+        alert_svc = AlertService(db=mock_db, redis_client=mock_redis)
+
+        # Create mock route
+        route_id = uuid.uuid4()
+        user_id = uuid.uuid4()
+        schedule_id = uuid.uuid4()
+
+        mock_route = MagicMock()
+        mock_route.id = route_id
+        mock_schedule = MagicMock()
+        mock_schedule.id = schedule_id
+
+        # Call the method
+        should_send = await alert_svc._should_send_alert(
+            route=mock_route,
+            user_id=user_id,
+            schedule=mock_schedule,
+            disruptions=[],
+        )
+
+        assert should_send is True  # Should send when no previous state
+
+        # Verify span was created with OK status
+        spans = exporter.get_finished_spans()
+        assert len(spans) == 1
+
+        span = spans[0]
+        assert span.name == "alert.should_send_check"
+        assert span.kind == SpanKind.INTERNAL
+        assert_span_status(span, StatusCode.OK)
+
+        # Verify span attributes
+        assert span.attributes is not None
+        assert span.attributes["peer.service"] == "alert-service"
+        assert span.attributes["alert.route_id"] == str(route_id)
+        assert span.attributes["alert.user_id"] == str(user_id)
+        assert span.attributes["alert.schedule_id"] == str(schedule_id)
+        assert span.attributes["alert.has_previous_state"] is False
+        assert span.attributes["alert.state_changed"] is True
+        assert span.attributes["alert.result"] is True
+
+    @pytest.mark.asyncio
+    async def test_should_send_alert_handles_error_gracefully(
+        self,
+        otel_enabled_provider: tuple[TracerProvider, InMemorySpanExporter],
+    ) -> None:
+        """Test that span has OK status when Redis error is handled gracefully."""
+        _, exporter = otel_enabled_provider
+
+        # Create mock database session
+        mock_db = AsyncMock()
+
+        # Create mock Redis client that fails
+        mock_redis = AsyncMock()
+        mock_redis.get = AsyncMock(side_effect=Exception("Redis connection error"))
+
+        # Create alert service
+        alert_svc = AlertService(db=mock_db, redis_client=mock_redis)
+
+        # Create mock route
+        route_id = uuid.uuid4()
+        user_id = uuid.uuid4()
+        schedule_id = uuid.uuid4()
+
+        mock_route = MagicMock()
+        mock_route.id = route_id
+        mock_schedule = MagicMock()
+        mock_schedule.id = schedule_id
+
+        # Method handles exception gracefully and returns True
+        should_send = await alert_svc._should_send_alert(
+            route=mock_route,
+            user_id=user_id,
+            schedule=mock_schedule,
+            disruptions=[],
+        )
+
+        assert should_send is True  # Defaults to sending on error
+
+        # Verify span has OK status (exception was caught and handled)
+        spans = exporter.get_finished_spans()
+        assert len(spans) == 1
+
+        span = spans[0]
+        assert span.name == "alert.should_send_check"
+        assert_span_status(span, StatusCode.OK)
+
+        # Verify attributes show result=True (send on error)
+        assert span.attributes is not None
+        assert span.attributes["alert.result"] is True
+
+
+class TestAlertServiceStoreAlertStateOtelSpans:
+    """Test class for AlertService._store_alert_state() OTEL instrumentation."""
+
+    @pytest.mark.asyncio
+    async def test_store_alert_state_creates_span_with_ok_status(
+        self,
+        otel_enabled_provider: tuple[TracerProvider, InMemorySpanExporter],
+    ) -> None:
+        """Test that _store_alert_state creates a span with OK status."""
+        _, exporter = otel_enabled_provider
+
+        # Create mock database session
+        mock_db = AsyncMock()
+
+        # Create mock Redis client
+        mock_redis = AsyncMock()
+        mock_redis.setex = AsyncMock()
+
+        # Create alert service
+        alert_svc = AlertService(db=mock_db, redis_client=mock_redis)
+
+        # Create mock route
+        route_id = uuid.uuid4()
+        user_id = uuid.uuid4()
+        schedule_id = uuid.uuid4()
+
+        mock_route = MagicMock()
+        mock_route.id = route_id
+        mock_route.timezone = "Europe/London"
+        mock_schedule = MagicMock()
+        mock_schedule.id = schedule_id
+        mock_schedule.end_time = time(23, 59)  # End time in future
+
+        # Call the method
+        await alert_svc._store_alert_state(
+            route=mock_route,
+            user_id=user_id,
+            schedule=mock_schedule,
+            disruptions=[],
+        )
+
+        # Verify span was created with OK status
+        spans = exporter.get_finished_spans()
+        assert len(spans) == 1
+
+        span = spans[0]
+        assert span.name == "alert.store_state"
+        assert span.kind == SpanKind.INTERNAL
+        assert_span_status(span, StatusCode.OK)
+
+        # Verify span attributes
+        assert span.attributes is not None
+        assert span.attributes["peer.service"] == "alert-service"
+        assert span.attributes["alert.route_id"] == str(route_id)
+        assert span.attributes["alert.user_id"] == str(user_id)
+        assert span.attributes["alert.schedule_id"] == str(schedule_id)
+        assert span.attributes["alert.disruption_count"] == 0
+        assert "alert.ttl_seconds" in span.attributes
+
+    @pytest.mark.asyncio
+    async def test_store_alert_state_handles_error_gracefully(
+        self,
+        otel_enabled_provider: tuple[TracerProvider, InMemorySpanExporter],
+    ) -> None:
+        """Test that span has OK status when Redis error is handled gracefully."""
+        _, exporter = otel_enabled_provider
+
+        # Create mock database session
+        mock_db = AsyncMock()
+
+        # Create mock Redis client that fails
+        mock_redis = AsyncMock()
+        mock_redis.setex = AsyncMock(side_effect=Exception("Redis connection error"))
+
+        # Create alert service
+        alert_svc = AlertService(db=mock_db, redis_client=mock_redis)
+
+        # Create mock route
+        route_id = uuid.uuid4()
+        user_id = uuid.uuid4()
+        schedule_id = uuid.uuid4()
+
+        mock_route = MagicMock()
+        mock_route.id = route_id
+        mock_route.timezone = "Europe/London"
+        mock_schedule = MagicMock()
+        mock_schedule.id = schedule_id
+        mock_schedule.end_time = time(23, 59)  # End time in future
+
+        # Method handles exception gracefully (doesn't raise)
+        await alert_svc._store_alert_state(
+            route=mock_route,
+            user_id=user_id,
+            schedule=mock_schedule,
+            disruptions=[],
+        )
+
+        # Verify span has OK status (exception was caught and handled)
+        spans = exporter.get_finished_spans()
+        assert len(spans) == 1
+
+        span = spans[0]
+        assert span.name == "alert.store_state"
+        assert_span_status(span, StatusCode.OK)
