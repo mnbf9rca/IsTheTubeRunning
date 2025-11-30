@@ -376,83 +376,93 @@ class AlertService:
             >>> await service._log_line_disruption_state_changes([disruption1, disruption3])
             2  # Logged because aggregate state changed
         """
-        try:
-            logged_count = 0
+        with service_span(
+            "alert.log_line_state_changes",
+            "alert-service",
+        ) as span:
+            span.set_attribute("alert.operation", "log_line_state_changes")
+            span.set_attribute("alert.disruption_count", len(disruptions))
 
-            if not disruptions:
-                return 0
+            try:
+                logged_count = 0
 
-            # Use single timestamp for all records in this batch
-            # This represents the polling moment and groups related statuses
-            batch_detected_at = datetime.now(UTC)
+                if not disruptions:
+                    span.set_attribute("alert.logged_count", 0)
+                    return 0
 
-            # Group disruptions by line_id
-            disruptions_sorted = sorted(disruptions, key=lambda d: d.line_id)
-            disruptions_by_line = {
-                line_id: list(group) for line_id, group in groupby(disruptions_sorted, key=lambda d: d.line_id)
-            }
+                # Use single timestamp for all records in this batch
+                # This represents the polling moment and groups related statuses
+                batch_detected_at = datetime.now(UTC)
 
-            # Process each line's aggregate state
-            for line_id, line_disruptions in disruptions_by_line.items():
-                # Compute aggregate hash for this line's current state
-                current_hash = create_line_aggregate_hash(line_disruptions)
+                # Group disruptions by line_id
+                disruptions_sorted = sorted(disruptions, key=lambda d: d.line_id)
+                disruptions_by_line = {
+                    line_id: list(group) for line_id, group in groupby(disruptions_sorted, key=lambda d: d.line_id)
+                }
 
-                # Check Redis for last known aggregate hash for this line
-                redis_key = f"line_state:{line_id}"
-                last_hash = await self.redis_client.get(redis_key)
+                # Process each line's aggregate state
+                for line_id, line_disruptions in disruptions_by_line.items():
+                    # Compute aggregate hash for this line's current state
+                    current_hash = create_line_aggregate_hash(line_disruptions)
 
-                # Only log if aggregate state changed
-                if current_hash != last_hash:
-                    # Log each status as a separate database record
-                    for disruption in line_disruptions:
-                        new_log = LineDisruptionStateLog(
+                    # Check Redis for last known aggregate hash for this line
+                    redis_key = f"line_state:{line_id}"
+                    last_hash = await self.redis_client.get(redis_key)
+
+                    # Only log if aggregate state changed
+                    if current_hash != last_hash:
+                        # Log each status as a separate database record
+                        for disruption in line_disruptions:
+                            new_log = LineDisruptionStateLog(
+                                line_id=line_id,
+                                status_severity_description=disruption.status_severity_description,
+                                reason=disruption.reason or None,
+                                state_hash=current_hash,  # Store aggregate hash, not individual
+                                detected_at=batch_detected_at,
+                            )
+                            self.db.add(new_log)
+                            logged_count += 1
+
+                        # Update Redis with new aggregate hash (no TTL - persists until state changes)
+                        # Note: Redis is updated before commit intentionally. If commit fails,
+                        # Redis will be ahead of DB, but the next poll will re-detect the state
+                        # change (since DB won't have the new hash). This prioritizes preventing
+                        # duplicate logs over strict consistency.
+                        await self.redis_client.set(redis_key, current_hash)
+
+                        logger.info(
+                            "line_aggregate_state_changed",
                             line_id=line_id,
-                            status_severity_description=disruption.status_severity_description,
-                            reason=disruption.reason or None,
-                            state_hash=current_hash,  # Store aggregate hash, not individual
-                            detected_at=batch_detected_at,
+                            status_count=len(line_disruptions),
+                            previous_hash=last_hash,
+                            new_hash=current_hash,
                         )
-                        self.db.add(new_log)
-                        logged_count += 1
+                    else:
+                        logger.debug(
+                            "line_aggregate_state_unchanged",
+                            line_id=line_id,
+                            status_count=len(line_disruptions),
+                            state_hash=current_hash,
+                        )
 
-                    # Update Redis with new aggregate hash (no TTL - persists until state changes)
-                    # Note: Redis is updated before commit intentionally. If commit fails,
-                    # Redis will be ahead of DB, but the next poll will re-detect the state
-                    # change (since DB won't have the new hash). This prioritizes preventing
-                    # duplicate logs over strict consistency.
-                    await self.redis_client.set(redis_key, current_hash)
+                # Commit all new log entries
+                if logged_count > 0:
+                    await self.db.commit()
+                    logger.info("line_disruption_states_logged", count=logged_count)
 
-                    logger.info(
-                        "line_aggregate_state_changed",
-                        line_id=line_id,
-                        status_count=len(line_disruptions),
-                        previous_hash=last_hash,
-                        new_hash=current_hash,
-                    )
-                else:
-                    logger.debug(
-                        "line_aggregate_state_unchanged",
-                        line_id=line_id,
-                        status_count=len(line_disruptions),
-                        state_hash=current_hash,
-                    )
+                span.set_attribute("alert.logged_count", logged_count)
+                return logged_count
 
-            # Commit all new log entries
-            if logged_count > 0:
-                await self.db.commit()
-                logger.info("line_disruption_states_logged", count=logged_count)
-
-            return logged_count
-
-        except Exception as e:
-            logger.error(
-                "log_line_disruption_states_failed",
-                error=str(e),
-                exc_info=e,
-            )
-            await self.db.rollback()
-            # Don't raise - logging failures shouldn't block alert processing
-            return 0
+            except Exception as e:
+                logger.error(
+                    "log_line_disruption_states_failed",
+                    error=str(e),
+                    exc_info=e,
+                )
+                await self.db.rollback()
+                span.set_attribute("alert.logged_count", 0)
+                # Don't raise - logging failures shouldn't block alert processing
+                return 0
 
     def _set_span_stats_attributes(self, span: "Span", stats: dict[str, int]) -> None:
         """
