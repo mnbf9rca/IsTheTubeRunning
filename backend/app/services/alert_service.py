@@ -2,7 +2,7 @@
 
 import hashlib
 import json
-from datetime import UTC, datetime
+from datetime import UTC, datetime, time
 from itertools import groupby
 from typing import Any
 from uuid import UUID
@@ -32,6 +32,153 @@ from app.services.notification_service import NotificationService
 from app.services.tfl_service import TfLService
 
 logger = structlog.get_logger(__name__)
+
+
+# ==================== Pure Helper Functions ====================
+# Pure functions with no side effects for easy testing
+
+
+def get_day_code(weekday: int) -> str:
+    """
+    Convert Python weekday integer to day code string.
+
+    Pure function for easy testing without datetime dependencies.
+
+    Args:
+        weekday: Python weekday (0=Monday, 1=Tuesday, ..., 6=Sunday)
+
+    Returns:
+        Day code string (MON, TUE, WED, THU, FRI, SAT, SUN)
+
+    Example:
+        >>> get_day_code(0)
+        'MON'
+        >>> get_day_code(6)
+        'SUN'
+    """
+    return ["MON", "TUE", "WED", "THU", "FRI", "SAT", "SUN"][weekday]
+
+
+def is_time_in_schedule_window(
+    current_time: time,
+    current_day: str,
+    days_of_week: list[str],
+    start_time: time,
+    end_time: time,
+) -> bool:
+    """
+    Check if current time and day fall within a schedule window.
+
+    Pure function for easy testing without datetime dependencies.
+
+    Args:
+        current_time: Current time (already converted to route timezone)
+        current_day: Current day code (MON, TUE, WED, etc.)
+        days_of_week: List of active day codes for this schedule
+        start_time: Schedule start time
+        end_time: Schedule end time
+
+    Returns:
+        True if current time is within the schedule window, False otherwise
+
+    Example:
+        >>> import datetime
+        >>> is_time_in_schedule_window(
+        ...     datetime.time(9, 0),
+        ...     "MON",
+        ...     ["MON", "TUE", "WED"],
+        ...     datetime.time(8, 0),
+        ...     datetime.time(10, 0)
+        ... )
+        True
+        >>> is_time_in_schedule_window(
+        ...     datetime.time(11, 0),
+        ...     "MON",
+        ...     ["MON", "TUE", "WED"],
+        ...     datetime.time(8, 0),
+        ...     datetime.time(10, 0)
+        ... )
+        False
+    """
+    if current_day not in days_of_week:
+        return False
+    return start_time <= current_time <= end_time
+
+
+def filter_alertable_disruptions(
+    disruptions: list[DisruptionResponse],
+    disabled_severity_pairs: set[tuple[str, int]],
+) -> list[DisruptionResponse]:
+    """
+    Filter disruptions to only include those that should trigger alerts.
+
+    Removes disruptions with severity levels configured as non-alertable
+    (e.g., "Good Service" with severity_level=10).
+
+    Pure function for easy testing without database dependencies.
+
+    Args:
+        disruptions: List of disruptions to filter
+        disabled_severity_pairs: Set of (mode_id, severity_level) pairs to exclude
+
+    Returns:
+        List of disruptions that should trigger alerts
+
+    Example:
+        >>> from app.schemas.tfl import DisruptionResponse
+        >>> from datetime import UTC, datetime
+        >>> disruptions = [
+        ...     DisruptionResponse(
+        ...         line_id="victoria",
+        ...         line_name="Victoria",
+        ...         mode="tube",
+        ...         status_severity=10,
+        ...         status_severity_description="Good Service",
+        ...         created_at=datetime.now(UTC),
+        ...     ),
+        ...     DisruptionResponse(
+        ...         line_id="northern",
+        ...         line_name="Northern",
+        ...         mode="tube",
+        ...         status_severity=5,
+        ...         status_severity_description="Severe Delays",
+        ...         reason="Signal failure",
+        ...         created_at=datetime.now(UTC),
+        ...     ),
+        ... ]
+        >>> disabled = {("tube", 10)}
+        >>> result = filter_alertable_disruptions(disruptions, disabled)
+        >>> len(result)
+        1
+        >>> result[0].line_id
+        'northern'
+    """
+    return [
+        disruption
+        for disruption in disruptions
+        if (disruption.mode, disruption.status_severity) not in disabled_severity_pairs
+    ]
+
+
+def init_alert_processing_stats() -> dict[str, int]:
+    """
+    Initialize alert processing statistics dictionary.
+
+    Pure function for easy testing.
+
+    Returns:
+        Dictionary with routes_checked, alerts_sent, and errors all set to 0
+
+    Example:
+        >>> stats = init_alert_processing_stats()
+        >>> stats
+        {'routes_checked': 0, 'alerts_sent': 0, 'errors': 0}
+    """
+    return {
+        "routes_checked": 0,
+        "alerts_sent": 0,
+        "errors": 0,
+    }
 
 
 # Pure helper functions for testability
@@ -304,7 +451,7 @@ class AlertService:
             # Don't raise - logging failures shouldn't block alert processing
             return 0
 
-    async def process_all_routes(self) -> dict[str, Any]:  # noqa: PLR0915
+    async def process_all_routes(self) -> dict[str, Any]:
         """
         Main entry point for processing all active routes.
 
@@ -317,11 +464,7 @@ class AlertService:
         with service_span("alert.process_all_routes", "alert-service") as span:
             logger.info("alert_processing_started")
 
-            stats = {
-                "routes_checked": 0,
-                "alerts_sent": 0,
-                "errors": 0,
-            }
+            stats = init_alert_processing_stats()
 
             try:
                 routes = await self._get_active_routes()
@@ -330,8 +473,7 @@ class AlertService:
                 # Fetch all line disruptions once and log state changes
                 # Uses cache automatically, so subsequent per-route calls will be fast
                 # Errors here are non-fatal - per-route processing will still work
-                all_disruptions: list[DisruptionResponse] = []
-                disabled_severity_pairs: set[tuple[str, int]] = set()
+                all_disruptions, disabled_severity_pairs = [], set()
 
                 try:
                     tfl_service = TfLService(db=self.db)
@@ -503,7 +645,7 @@ class AlertService:
             now_local = now_utc.astimezone(route_tz)
 
             current_time = now_local.time()
-            current_day = ["MON", "TUE", "WED", "THU", "FRI", "SAT", "SUN"][now_local.weekday()]
+            current_day = get_day_code(now_local.weekday())
 
             logger.debug(
                 "checking_schedule",
@@ -518,12 +660,14 @@ class AlertService:
 
             # Check each schedule
             for schedule in schedules_to_check:
-                # Check if current day is in schedule's days
-                if current_day not in schedule.days_of_week:
-                    continue
-
                 # Check if current time is within schedule window
-                if schedule.start_time <= current_time <= schedule.end_time:
+                if is_time_in_schedule_window(
+                    current_time=current_time,
+                    current_day=current_day,
+                    days_of_week=schedule.days_of_week,
+                    start_time=schedule.start_time,
+                    end_time=schedule.end_time,
+                ):
                     logger.info(
                         "active_schedule_found",
                         route_id=str(route.id),
@@ -741,7 +885,7 @@ class AlertService:
                     route_disruptions.append(disruption)
 
             # Filter disruptions by severity (remove non-alertable severities like "Good Service")
-            route_disruptions = self._filter_alertable_disruptions(route_disruptions, disabled_severity_pairs)
+            route_disruptions = filter_alertable_disruptions(route_disruptions, disabled_severity_pairs)
 
             logger.debug(
                 "route_disruptions_filtered",
@@ -760,55 +904,6 @@ class AlertService:
                 exc_info=e,
             )
             return [], True
-
-    def _filter_alertable_disruptions(
-        self,
-        disruptions: list[DisruptionResponse],
-        disabled_severity_pairs: set[tuple[str, int]],
-    ) -> list[DisruptionResponse]:
-        """
-        Filter disruptions to only include those that should trigger alerts.
-
-        Removes disruptions with severity levels that are configured as non-alertable
-        (e.g., "Good Service" with severity_level=10).
-
-        Args:
-            disruptions: List of disruptions to filter
-            disabled_severity_pairs: Set of (mode_id, severity_level) pairs to filter out
-
-        Returns:
-            List of disruptions that should trigger alerts
-        """
-        if not disruptions:
-            return []
-
-        # Filter disruptions
-        alertable_disruptions = []
-        filtered_count = 0
-
-        for disruption in disruptions:
-            # Check if this (mode, severity) should be filtered
-            if (disruption.mode, disruption.status_severity) in disabled_severity_pairs:
-                filtered_count += 1
-                logger.debug(
-                    "disruption_filtered_by_severity",
-                    line_id=disruption.line_id,
-                    mode=disruption.mode,
-                    severity=disruption.status_severity,
-                    description=disruption.status_severity_description,
-                )
-            else:
-                alertable_disruptions.append(disruption)
-
-        if filtered_count > 0:
-            logger.info(
-                "disruptions_filtered_by_severity",
-                total=len(disruptions),
-                filtered=filtered_count,
-                remaining=len(alertable_disruptions),
-            )
-
-        return alertable_disruptions
 
     async def _should_send_alert(
         self,

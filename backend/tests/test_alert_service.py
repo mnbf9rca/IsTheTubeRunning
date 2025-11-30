@@ -28,6 +28,10 @@ from app.schemas.tfl import AffectedRouteInfo, DisruptionResponse
 from app.services.alert_service import (
     AlertService,
     create_line_aggregate_hash,
+    filter_alertable_disruptions,
+    get_day_code,
+    init_alert_processing_stats,
+    is_time_in_schedule_window,
     warm_up_line_state_cache,
 )
 from freezegun import freeze_time
@@ -221,6 +225,158 @@ def sample_disruptions() -> list[DisruptionResponse]:
             created_at=datetime.now(UTC),
         ),
     ]
+
+
+# ==================== Pure Function Tests ====================
+
+
+@pytest.mark.parametrize(
+    ("weekday", "expected"),
+    [
+        (0, "MON"),
+        (1, "TUE"),
+        (2, "WED"),
+        (3, "THU"),
+        (4, "FRI"),
+        (5, "SAT"),
+        (6, "SUN"),
+    ],
+)
+def test_get_day_code(weekday: int, expected: str) -> None:
+    """Test get_day_code converts weekday integers to day codes."""
+    assert get_day_code(weekday) == expected
+
+
+@pytest.mark.parametrize(
+    ("current_time", "current_day", "days", "start", "end", "expected"),
+    [
+        # In window - correct day and time
+        (time_class(9, 0), "MON", ["MON", "TUE"], time_class(8, 0), time_class(10, 0), True),
+        # In window - edge case at start time
+        (time_class(8, 0), "MON", ["MON", "TUE"], time_class(8, 0), time_class(10, 0), True),
+        # In window - edge case at end time
+        (time_class(10, 0), "MON", ["MON", "TUE"], time_class(8, 0), time_class(10, 0), True),
+        # Out of window - too early
+        (time_class(7, 59), "MON", ["MON", "TUE"], time_class(8, 0), time_class(10, 0), False),
+        # Out of window - too late
+        (time_class(10, 1), "MON", ["MON", "TUE"], time_class(8, 0), time_class(10, 0), False),
+        # Out of window - wrong day
+        (time_class(9, 0), "WED", ["MON", "TUE"], time_class(8, 0), time_class(10, 0), False),
+        # In window - different day
+        (time_class(9, 0), "TUE", ["MON", "TUE"], time_class(8, 0), time_class(10, 0), True),
+    ],
+)
+def test_is_time_in_schedule_window(
+    current_time: time_class,
+    current_day: str,
+    days: list[str],
+    start: time_class,
+    end: time_class,
+    expected: bool,
+) -> None:
+    """Test is_time_in_schedule_window with various time/day combinations."""
+    result = is_time_in_schedule_window(current_time, current_day, days, start, end)
+    assert result == expected
+
+
+def test_filter_alertable_disruptions_empty_list() -> None:
+    """Test filter_alertable_disruptions with empty disruptions list."""
+    result = filter_alertable_disruptions([], set())
+    assert result == []
+
+
+def test_filter_alertable_disruptions_no_disabled() -> None:
+    """Test filter_alertable_disruptions with no disabled severities."""
+    disruptions = [
+        DisruptionResponse(
+            line_id="victoria",
+            line_name="Victoria",
+            mode="tube",
+            status_severity=5,
+            status_severity_description="Severe Delays",
+            created_at=datetime.now(UTC),
+        ),
+        DisruptionResponse(
+            line_id="northern",
+            line_name="Northern",
+            mode="tube",
+            status_severity=10,
+            status_severity_description="Minor Delays",
+            created_at=datetime.now(UTC),
+        ),
+    ]
+    result = filter_alertable_disruptions(disruptions, set())
+    assert len(result) == 2
+    assert result == disruptions
+
+
+def test_filter_alertable_disruptions_with_disabled() -> None:
+    """Test filter_alertable_disruptions filters disabled severities."""
+    disruptions = [
+        DisruptionResponse(
+            line_id="victoria",
+            line_name="Victoria",
+            mode="tube",
+            status_severity=10,
+            status_severity_description="Good Service",
+            created_at=datetime.now(UTC),
+        ),
+        DisruptionResponse(
+            line_id="northern",
+            line_name="Northern",
+            mode="tube",
+            status_severity=5,
+            status_severity_description="Severe Delays",
+            reason="Signal failure",
+            created_at=datetime.now(UTC),
+        ),
+        DisruptionResponse(
+            line_id="piccadilly",
+            line_name="Piccadilly",
+            mode="tube",
+            status_severity=10,
+            status_severity_description="Good Service",
+            created_at=datetime.now(UTC),
+        ),
+    ]
+    disabled = {("tube", 10)}
+    result = filter_alertable_disruptions(disruptions, disabled)
+
+    # Should only return the severe delays disruption
+    assert len(result) == 1
+    assert result[0].line_id == "northern"
+    assert result[0].status_severity == 5
+
+
+def test_filter_alertable_disruptions_all_filtered() -> None:
+    """Test filter_alertable_disruptions when all disruptions are filtered."""
+    disruptions = [
+        DisruptionResponse(
+            line_id="victoria",
+            line_name="Victoria",
+            mode="tube",
+            status_severity=10,
+            status_severity_description="Good Service",
+            created_at=datetime.now(UTC),
+        ),
+    ]
+    disabled = {("tube", 10)}
+    result = filter_alertable_disruptions(disruptions, disabled)
+    assert result == []
+
+
+def test_init_alert_processing_stats() -> None:
+    """Test init_alert_processing_stats returns correct structure."""
+    stats = init_alert_processing_stats()
+    assert stats == {
+        "routes_checked": 0,
+        "alerts_sent": 0,
+        "errors": 0,
+    }
+    # Verify it's a new dict each time (not a shared reference)
+    stats2 = init_alert_processing_stats()
+    stats["routes_checked"] = 5
+    assert stats2["routes_checked"] == 0
 
 
 # ==================== process_all_routes Tests ====================
