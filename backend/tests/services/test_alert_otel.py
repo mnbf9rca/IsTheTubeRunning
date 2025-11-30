@@ -6,6 +6,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 from app.models.user_route import UserRoute, UserRouteSchedule
+from app.schemas.tfl import DisruptionResponse
 from app.services.alert_service import AlertService
 from opentelemetry.sdk.trace import TracerProvider
 from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanExporter
@@ -400,3 +401,122 @@ class TestAlertServiceSendAlertsForRouteOtelSpans:
         assert span.attributes["alert.preference_count"] == 2  # Should use fallback and count prefs
         assert span.attributes["alert.disruption_count"] == 1
         assert span.attributes["alert.alerts_sent"] == 0  # None sent due to no contact
+
+
+class TestAlertServiceLogLineStateChangesOtelSpans:
+    """Test class for Alert Service _log_line_disruption_state_changes() OpenTelemetry instrumentation."""
+
+    @pytest.mark.asyncio
+    async def test_log_line_state_changes_creates_span_with_ok_status(
+        self,
+        otel_enabled_provider: tuple[TracerProvider, InMemorySpanExporter],
+    ) -> None:
+        """Test that _log_line_disruption_state_changes creates a span with OK status on success."""
+        _, exporter = otel_enabled_provider
+
+        # Create mock database session
+        mock_db = AsyncMock()
+        mock_db.add = MagicMock()
+        mock_db.commit = AsyncMock()
+
+        # Create mock Redis client
+        mock_redis = AsyncMock()
+        mock_redis.get = AsyncMock(return_value=None)  # No previous hash
+        mock_redis.set = AsyncMock()
+
+        # Create alert service
+        alert_svc = AlertService(db=mock_db, redis_client=mock_redis)
+
+        # Create mock disruptions
+
+        disruptions = [
+            DisruptionResponse(
+                line_id="victoria",
+                line_name="Victoria",
+                mode="tube",
+                status_severity=14,
+                status_severity_description="Severe Delays",
+                reason="Signal failure",
+            ),
+            DisruptionResponse(
+                line_id="jubilee",
+                line_name="Jubilee",
+                mode="tube",
+                status_severity=12,
+                status_severity_description="Minor Delays",
+                reason="Earlier incident",
+            ),
+        ]
+
+        logged_count = await alert_svc._log_line_disruption_state_changes(disruptions)
+
+        assert logged_count == 2  # Both disruptions should be logged
+
+        # Verify span was created with OK status
+        spans = exporter.get_finished_spans()
+        assert len(spans) == 1
+
+        span = spans[0]
+        assert span.name == "alert.log_line_state_changes"
+        assert span.kind == SpanKind.INTERNAL
+        assert_span_status(span, StatusCode.OK)
+
+        # Verify span attributes
+        assert span.attributes is not None
+        assert span.attributes["peer.service"] == "alert-service"
+        assert span.attributes["alert.operation"] == "log_line_state_changes"
+        assert span.attributes["alert.disruption_count"] == 2
+        assert span.attributes["alert.logged_count"] == 2
+
+    @pytest.mark.asyncio
+    async def test_log_line_state_changes_handles_exception_gracefully(
+        self,
+        otel_enabled_provider: tuple[TracerProvider, InMemorySpanExporter],
+    ) -> None:
+        """Test that span has OK status even when database error occurs (graceful handling)."""
+        _, exporter = otel_enabled_provider
+
+        # Create mock database session that raises exception on add
+        mock_db = AsyncMock()
+        mock_db.add = MagicMock(side_effect=Exception("Database connection lost"))
+        mock_db.rollback = AsyncMock()
+
+        # Create mock Redis client
+        mock_redis = AsyncMock()
+        mock_redis.get = AsyncMock(return_value=None)
+        mock_redis.set = AsyncMock()
+
+        # Create alert service
+        alert_svc = AlertService(db=mock_db, redis_client=mock_redis)
+
+        # Create mock disruptions
+
+        disruptions = [
+            DisruptionResponse(
+                line_id="victoria",
+                line_name="Victoria",
+                mode="tube",
+                status_severity=14,
+                status_severity_description="Severe Delays",
+            ),
+        ]
+
+        # Method should return 0 instead of raising
+        logged_count = await alert_svc._log_line_disruption_state_changes(disruptions)
+
+        assert logged_count == 0  # Graceful failure returns 0
+
+        # Verify span has OK status (method handles exceptions internally)
+        spans = exporter.get_finished_spans()
+        assert len(spans) == 1
+
+        span = spans[0]
+        assert span.name == "alert.log_line_state_changes"
+        assert_span_status(span, StatusCode.OK)  # Still OK because method doesn't raise
+
+        # Verify attributes show 0 logged count
+        assert span.attributes is not None
+        assert span.attributes["alert.logged_count"] == 0
+
+        # Verify rollback was called
+        assert mock_db.rollback.called

@@ -1,7 +1,7 @@
 """Tests for Verification Service OpenTelemetry instrumentation."""
 
 import uuid
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from app.models.user import VerificationType
@@ -197,3 +197,104 @@ class TestVerificationServiceOtelSpans:
         span = spans[0]
         assert span.name == "verification.create_and_send_code"
         assert_span_status(span, StatusCode.ERROR, check_exception=True)
+
+    @pytest.mark.asyncio
+    async def test_verify_code_creates_span_with_ok_status(
+        self,
+        otel_enabled_provider: tuple[TracerProvider, InMemorySpanExporter],
+    ) -> None:
+        """Test that verify_code creates a span with OK status on success."""
+        _, exporter = otel_enabled_provider
+
+        # Create mock database session
+        mock_db = AsyncMock()
+
+        # Mock verification code from database
+        mock_verification_code = MagicMock()
+        mock_verification_code.is_expired = False
+        mock_verification_code.used = False
+        mock_verification_code.type = VerificationType.EMAIL
+
+        # Mock database query result
+        mock_result = MagicMock()
+        mock_result.scalar_one_or_none = MagicMock(return_value=mock_verification_code)
+        mock_db.execute = AsyncMock(return_value=mock_result)
+        mock_db.commit = AsyncMock()
+
+        # Mock contact
+        mock_contact = MagicMock()
+        mock_contact.verified = False
+
+        # Create verification service
+        verification_svc = VerificationService(db=mock_db)
+        verification_svc.reset_verification_rate_limit = AsyncMock()
+
+        contact_id = uuid.uuid4()
+        user_id = uuid.uuid4()
+
+        # Mock get_contact_by_id
+        with patch("app.services.verification_service.get_contact_by_id", return_value=mock_contact):
+            result = await verification_svc.verify_code(
+                code="123456",
+                contact_id=contact_id,
+                user_id=user_id,
+            )
+
+        assert result is True
+
+        # Verify span was created with OK status
+        spans = exporter.get_finished_spans()
+        assert len(spans) == 1
+
+        span = spans[0]
+        assert span.name == "verification.verify_code"
+        assert span.kind == SpanKind.INTERNAL
+        assert_span_status(span, StatusCode.OK)
+
+        # Verify span attributes
+        assert span.attributes is not None
+        assert span.attributes["peer.service"] == "verification-service"
+        assert span.attributes["verification.contact_id"] == str(contact_id)
+        assert span.attributes["verification.user_id"] == str(user_id)
+        assert span.attributes["verification.result"] is True
+
+    @pytest.mark.asyncio
+    async def test_verify_code_records_exception_on_invalid_code(
+        self,
+        otel_enabled_provider: tuple[TracerProvider, InMemorySpanExporter],
+    ) -> None:
+        """Test that span records exception when verification code is invalid."""
+        _, exporter = otel_enabled_provider
+
+        # Create mock database session
+        mock_db = AsyncMock()
+
+        # Mock database query to return None (code not found)
+        mock_result = MagicMock()
+        mock_result.scalar_one_or_none = MagicMock(return_value=None)
+        mock_db.execute = AsyncMock(return_value=mock_result)
+
+        # Create verification service
+        verification_svc = VerificationService(db=mock_db)
+
+        contact_id = uuid.uuid4()
+        user_id = uuid.uuid4()
+
+        with pytest.raises(HTTPException, match="Invalid verification code"):
+            await verification_svc.verify_code(
+                code="999999",
+                contact_id=contact_id,
+                user_id=user_id,
+            )
+
+        # Verify span has error status
+        spans = exporter.get_finished_spans()
+        assert len(spans) == 1
+
+        span = spans[0]
+        assert span.name == "verification.verify_code"
+        assert_span_status(span, StatusCode.ERROR, check_exception=True)
+
+        # Verify result attribute set to False before raising
+        assert span.attributes is not None
+        assert span.attributes["verification.result"] is False

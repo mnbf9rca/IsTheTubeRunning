@@ -90,66 +90,79 @@ class AdminService:
         Returns:
             Tuple of (list of users, total count)
         """
-        # Build count query (separate from main query to avoid cartesian product)
-        count_query = select(func.count(func.distinct(User.id)))
+        with service_span(
+            "admin.get_users_paginated",
+            "admin-service",
+        ) as span:
+            span.set_attribute("admin.operation", "get_users_paginated")
+            span.set_attribute("admin.limit", limit)
+            span.set_attribute("admin.offset", offset)
+            span.set_attribute("admin.search_enabled", search is not None)
+            span.set_attribute("admin.include_deleted", include_deleted)
+            # Build count query (separate from main query to avoid cartesian product)
+            count_query = select(func.count(func.distinct(User.id)))
 
-        # Filter deleted users unless explicitly included
-        if not include_deleted:
-            count_query = count_query.where(User.deleted_at.is_(None))
+            # Filter deleted users unless explicitly included
+            if not include_deleted:
+                count_query = count_query.where(User.deleted_at.is_(None))
 
-        # Apply search if provided
-        if search:
-            # Search in UUID (cast to text for partial matching), external_id, email, or phone
-            search_term = f"%{search}%"
-            count_query = (
-                count_query.outerjoin(User.email_addresses)
-                .outerjoin(User.phone_numbers)
-                .where(
-                    or_(
-                        func.cast(User.id, String).ilike(search_term),
-                        User.external_id.ilike(search_term),
-                        EmailAddress.email.ilike(search_term),
-                        PhoneNumber.phone.ilike(search_term),
+            # Apply search if provided
+            if search:
+                # Search in UUID (cast to text for partial matching), external_id, email, or phone
+                search_term = f"%{search}%"
+                count_query = (
+                    count_query.outerjoin(User.email_addresses)
+                    .outerjoin(User.phone_numbers)
+                    .where(
+                        or_(
+                            func.cast(User.id, String).ilike(search_term),
+                            User.external_id.ilike(search_term),
+                            EmailAddress.email.ilike(search_term),
+                            PhoneNumber.phone.ilike(search_term),
+                        )
                     )
                 )
+
+            # Get total count
+            result = await self.db.execute(count_query)
+            total = result.scalar() or 0
+
+            # Build main query with relationships loaded
+            query = select(User).options(
+                selectinload(User.email_addresses),
+                selectinload(User.phone_numbers),
             )
 
-        # Get total count
-        result = await self.db.execute(count_query)
-        total = result.scalar() or 0
+            # Apply same filters as count query
+            if not include_deleted:
+                query = query.where(User.deleted_at.is_(None))
 
-        # Build main query with relationships loaded
-        query = select(User).options(
-            selectinload(User.email_addresses),
-            selectinload(User.phone_numbers),
-        )
-
-        # Apply same filters as count query
-        if not include_deleted:
-            query = query.where(User.deleted_at.is_(None))
-
-        if search:
-            search_term = f"%{search}%"
-            query = (
-                query.outerjoin(User.email_addresses)
-                .outerjoin(User.phone_numbers)
-                .where(
-                    or_(
-                        func.cast(User.id, String).ilike(search_term),
-                        User.external_id.ilike(search_term),
-                        EmailAddress.email.ilike(search_term),
-                        PhoneNumber.phone.ilike(search_term),
+            if search:
+                search_term = f"%{search}%"
+                query = (
+                    query.outerjoin(User.email_addresses)
+                    .outerjoin(User.phone_numbers)
+                    .where(
+                        or_(
+                            func.cast(User.id, String).ilike(search_term),
+                            User.external_id.ilike(search_term),
+                            EmailAddress.email.ilike(search_term),
+                            PhoneNumber.phone.ilike(search_term),
+                        )
                     )
+                    .distinct()
                 )
-                .distinct()
-            )
 
-        # Get paginated results
-        query = query.order_by(User.created_at.desc()).limit(limit).offset(offset)
-        result = await self.db.execute(query)
-        users_list: list[User] = list(result.unique().scalars().all())  # type: ignore[arg-type]
+            # Get paginated results
+            query = query.order_by(User.created_at.desc()).limit(limit).offset(offset)
+            result = await self.db.execute(query)
+            users_list: list[User] = list(result.unique().scalars().all())  # type: ignore[arg-type]
 
-        return users_list, total
+            # Set result counts as span attributes
+            span.set_attribute("admin.result_count", len(users_list))
+            span.set_attribute("admin.total_count", total)
+
+            return users_list, total
 
     async def get_user_details(self, user_id: uuid.UUID) -> User:
         """
@@ -430,55 +443,60 @@ class AdminService:
             - notification_stats: Sent, failed, success rate, by method
             - growth_metrics: New users by time period
         """
-        # Calculate datetime thresholds once
-        now = datetime.now(UTC)
-        seven_days_ago = now - timedelta(days=7)
-        thirty_days_ago = now - timedelta(days=30)
+        with service_span(
+            "admin.get_engagement_metrics",
+            "admin-service",
+        ) as span:
+            span.set_attribute("admin.operation", "get_engagement_metrics")
+            # Calculate datetime thresholds once
+            now = datetime.now(UTC)
+            seven_days_ago = now - timedelta(days=7)
+            thirty_days_ago = now - timedelta(days=30)
 
-        # Gather user count metrics
-        user_counts = UserCountMetrics(
-            total_users=await self._count_total_users(),
-            active_users=await self._count_active_users(),
-            users_with_verified_email=await self._count_users_with_verified_email(),
-            users_with_verified_phone=await self._count_users_with_verified_phone(),
-            admin_users=await self._count_admin_users(),
-        )
+            # Gather user count metrics
+            user_counts = UserCountMetrics(
+                total_users=await self._count_total_users(),
+                active_users=await self._count_active_users(),
+                users_with_verified_email=await self._count_users_with_verified_email(),
+                users_with_verified_phone=await self._count_users_with_verified_phone(),
+                admin_users=await self._count_admin_users(),
+            )
 
-        # Gather route statistics
-        total_routes = await self._count_total_routes()
-        active_routes = await self._count_active_routes()
-        route_count, user_count = await self._get_routes_user_count()
+            # Gather route statistics
+            total_routes = await self._count_total_routes()
+            active_routes = await self._count_active_routes()
+            route_count, user_count = await self._get_routes_user_count()
 
-        route_stats = RouteStatMetrics(
-            total_routes=total_routes,
-            active_routes=active_routes,
-            avg_routes_per_user=calculate_avg_routes(route_count, user_count),
-        )
+            route_stats = RouteStatMetrics(
+                total_routes=total_routes,
+                active_routes=active_routes,
+                avg_routes_per_user=calculate_avg_routes(route_count, user_count),
+            )
 
-        # Gather notification statistics
-        total_sent = await self._count_total_notifications()
-        successful = await self._count_successful_notifications()
-        failed = await self._count_failed_notifications()
-        by_method = await self._get_notifications_by_method(thirty_days_ago)
+            # Gather notification statistics
+            total_sent = await self._count_total_notifications()
+            successful = await self._count_successful_notifications()
+            failed = await self._count_failed_notifications()
+            by_method = await self._get_notifications_by_method(thirty_days_ago)
 
-        notification_stats = NotificationStatMetrics(
-            total_sent=total_sent,
-            successful=successful,
-            failed=failed,
-            success_rate=calculate_success_rate(successful, total_sent),
-            by_method_last_30_days=by_method,
-        )
+            notification_stats = NotificationStatMetrics(
+                total_sent=total_sent,
+                successful=successful,
+                failed=failed,
+                success_rate=calculate_success_rate(successful, total_sent),
+                by_method_last_30_days=by_method,
+            )
 
-        # Gather growth metrics
-        growth_metrics = GrowthMetrics(
-            new_users_last_7_days=await self._count_new_users_since(seven_days_ago),
-            new_users_last_30_days=await self._count_new_users_since(thirty_days_ago),
-            daily_signups_last_7_days=await self._get_daily_signups_since(seven_days_ago),
-        )
+            # Gather growth metrics
+            growth_metrics = GrowthMetrics(
+                new_users_last_7_days=await self._count_new_users_since(seven_days_ago),
+                new_users_last_30_days=await self._count_new_users_since(thirty_days_ago),
+                daily_signups_last_7_days=await self._get_daily_signups_since(seven_days_ago),
+            )
 
-        return EngagementMetrics(
-            user_counts=user_counts,
-            route_stats=route_stats,
-            notification_stats=notification_stats,
-            growth_metrics=growth_metrics,
-        )
+            return EngagementMetrics(
+                user_counts=user_counts,
+                route_stats=route_stats,
+                notification_stats=notification_stats,
+                growth_metrics=growth_metrics,
+            )
