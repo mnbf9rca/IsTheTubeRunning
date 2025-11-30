@@ -592,9 +592,13 @@ class TestWarmUpLineStateCacheOtelSpans:
         assert span.name == "alert.warm_up_cache"
         assert_span_status(span, StatusCode.OK)
 
-        # Verify attributes show failure
+        # Verify attributes show failure with error details
         assert span.attributes is not None
         assert span.attributes["cache.success"] is False
+        assert span.attributes["cache.lines_hydrated"] == 0
+        assert span.attributes["cache.total_log_entries"] == 0
+        assert span.attributes["cache.error"] is True
+        assert span.attributes["cache.error_type"] == "Exception"
 
 
 class TestAlertServiceShouldSendAlertOtelSpans:
@@ -703,9 +707,13 @@ class TestAlertServiceShouldSendAlertOtelSpans:
         assert span.name == "alert.should_send_check"
         assert_span_status(span, StatusCode.OK)
 
-        # Verify attributes show result=True (send on error)
+        # Verify attributes show result=True (send on error) with error details
         assert span.attributes is not None
+        assert span.attributes["alert.has_previous_state"] is False  # Unknown due to error
+        assert span.attributes["alert.state_changed"] is True  # Conservative fallback
         assert span.attributes["alert.result"] is True
+        assert span.attributes["alert.error"] is True
+        assert span.attributes["alert.error_type"] == "Exception"
 
 
 class TestAlertServiceStoreAlertStateOtelSpans:

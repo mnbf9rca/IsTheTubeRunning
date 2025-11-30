@@ -42,7 +42,15 @@ class TestSmsServiceOtelSpans:
         # Verify span attributes
         assert span.attributes is not None
         assert span.attributes["peer.service"] == "sms"
-        assert "sms.recipient_hash" in span.attributes
+
+        # Verify recipient_hash format and non-reversibility
+        recipient_hash = span.attributes["sms.recipient_hash"]
+        assert isinstance(recipient_hash, str)
+        assert len(recipient_hash) == 12  # First 12 chars of hash
+        assert recipient_hash.isalnum()  # Hex characters
+        assert recipient_hash != test_phone  # Not raw PII
+        assert recipient_hash != test_phone.replace("+", "")  # Not raw PII without prefix
+
         assert span.attributes["sms.message_length"] == len(test_message)
         assert span.attributes["sms.stub"] is True
 

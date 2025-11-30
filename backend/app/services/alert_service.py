@@ -334,6 +334,10 @@ async def warm_up_line_state_cache(db: AsyncSession, redis_client: RedisClientPr
         except Exception as e:
             # Log error but don't block application startup
             span.set_attribute("cache.success", False)
+            span.set_attribute("cache.lines_hydrated", 0)
+            span.set_attribute("cache.total_log_entries", 0)
+            span.set_attribute("cache.error", True)
+            span.set_attribute("cache.error_type", type(e).__name__)
             logger.error(
                 "line_state_cache_warmup_failed",
                 error=str(e),
@@ -991,7 +995,12 @@ class AlertService:
                     error=str(e),
                     exc_info=e,
                 )
-                span.set_attribute("alert.result", True)  # Default to sending on error
+                # Set consistent attributes for telemetry even in error case
+                span.set_attribute("alert.has_previous_state", False)  # Unknown due to error
+                span.set_attribute("alert.state_changed", True)  # Treating as changed (conservative)
+                span.set_attribute("alert.result", True)
+                span.set_attribute("alert.error", True)
+                span.set_attribute("alert.error_type", type(e).__name__)
                 # On error, default to sending alert (better to over-notify than under-notify)
                 return True
 
