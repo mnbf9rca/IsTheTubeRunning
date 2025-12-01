@@ -1,5 +1,8 @@
 """Tests for PII hashing utilities."""
 
+from unittest.mock import patch
+
+import pytest
 from app.utils.pii import hash_pii
 
 # note: hash result is an opaque 64-character hex string (HMAC-SHA256)
@@ -77,3 +80,27 @@ def test_hash_pii_whitespace_sensitivity() -> None:
     assert base_hash != padded_hash
     assert len(base_hash) == 64
     assert len(padded_hash) == 64
+
+
+def test_hash_pii_raises_on_empty_secret() -> None:
+    """Test that hash_pii raises ValueError when PII_HASH_SECRET is empty."""
+    with patch("app.utils.pii.settings") as mock_settings:
+        mock_settings.PII_HASH_SECRET = ""
+        with pytest.raises(ValueError, match="PII_HASH_SECRET must be configured and non-empty"):
+            hash_pii("test@example.com")
+
+
+def test_hash_pii_raises_on_none_secret() -> None:
+    """Test that hash_pii raises ValueError when PII_HASH_SECRET is None."""
+    with patch("app.utils.pii.settings") as mock_settings:
+        mock_settings.PII_HASH_SECRET = None
+        with pytest.raises(ValueError, match="PII_HASH_SECRET must be configured and non-empty"):
+            hash_pii("test@example.com")
+
+
+def test_hash_pii_raises_on_placeholder_secret() -> None:
+    """Test that hash_pii raises ValueError when PII_HASH_SECRET is the placeholder value."""
+    with patch("app.utils.pii.settings") as mock_settings:
+        mock_settings.PII_HASH_SECRET = "REPLACE_ME_WITH_RANDOM_SECRET"
+        with pytest.raises(ValueError, match="PII_HASH_SECRET is set to placeholder value"):
+            hash_pii("test@example.com")

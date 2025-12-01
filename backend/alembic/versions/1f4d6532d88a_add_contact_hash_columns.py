@@ -12,7 +12,7 @@ Create Date: 2025-12-01 13:25:14.769254
 from collections.abc import Sequence
 
 from alembic import op
-from app.utils.pii import hash_pii
+from app.utils.pii import hash_pii  # WARNING: Migration depends on current hash_pii implementation
 from sqlalchemy import Column, String, text
 
 # revision identifiers, used by Alembic.

@@ -70,7 +70,7 @@ class EmailAddress(BaseModel):
         String(64),
         nullable=False,
         index=True,
-        comment="SHA256 hash of email for PII-safe logging",
+        comment="HMAC-SHA256 hash of email for PII-safe logging",
     )
     verified: Mapped[bool] = mapped_column(
         default=False,
@@ -118,7 +118,7 @@ class PhoneNumber(BaseModel):
         String(64),
         nullable=False,
         index=True,
-        comment="SHA256 hash of phone for PII-safe logging",
+        comment="HMAC-SHA256 hash of phone for PII-safe logging",
     )
     verified: Mapped[bool] = mapped_column(
         default=False,

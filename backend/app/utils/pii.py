@@ -32,7 +32,16 @@ def hash_pii(value: str) -> str:
         64-character lowercase hexadecimal hash (full HMAC-SHA256 digest)
 
     Raises:
-        AttributeError: If PII_HASH_SECRET is not configured
+        ValueError: If PII_HASH_SECRET is not configured, empty, or set to placeholder
     """
+    if not settings.PII_HASH_SECRET:
+        msg = "PII_HASH_SECRET must be configured and non-empty"
+        raise ValueError(msg)
+    if settings.PII_HASH_SECRET == "REPLACE_ME_WITH_RANDOM_SECRET":
+        msg = (
+            "PII_HASH_SECRET is set to placeholder value. "
+            'Generate a secure secret using: python3 -c "import secrets; print(secrets.token_urlsafe(32))"'
+        )
+        raise ValueError(msg)
     secret = settings.PII_HASH_SECRET.encode()
     return hmac.new(secret, value.encode(), hashlib.sha256).hexdigest()
