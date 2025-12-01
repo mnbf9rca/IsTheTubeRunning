@@ -4275,6 +4275,331 @@ class TestPerLineCooldown:
         # Different severity/status should produce different hashes
         assert hash_severe != hash_minor
 
+    # ===== Unit tests for _check_line_alert_needed() =====
+
+    def test_check_line_alert_needed_new_line_no_stored_state(
+        self, db_session: AsyncSession, stateful_mock_redis: AsyncMock
+    ):
+        """Test that new line with no stored state returns True."""
+        service = AlertService(db=db_session, redis_client=stateful_mock_redis)
+
+        disruptions = [
+            DisruptionResponse(
+                line_id="victoria",
+                line_name="Victoria",
+                mode="tube",
+                status_severity=4,
+                status_severity_description="Severe Delays",
+                reason="Signal failure",
+            ),
+        ]
+
+        result = service._check_line_alert_needed(
+            line_id="victoria",
+            line_disruptions=disruptions,
+            stored_line=None,  # No previous state
+            now_utc=datetime.now(UTC),
+            cooldown=timedelta(minutes=5),
+            route_id="test-route",
+        )
+
+        assert result is True
+
+    def test_check_line_alert_needed_no_change_same_hash(
+        self, db_session: AsyncSession, stateful_mock_redis: AsyncMock
+    ):
+        """Test that unchanged disruption (same hash) returns False."""
+        service = AlertService(db=db_session, redis_client=stateful_mock_redis)
+
+        disruptions = [
+            DisruptionResponse(
+                line_id="victoria",
+                line_name="Victoria",
+                mode="tube",
+                status_severity=4,
+                status_severity_description="Severe Delays",
+                reason="Signal failure",
+            ),
+        ]
+
+        # Create stored state with matching hash
+        full_hash = service._create_line_full_hash(disruptions)
+        status_hash = service._create_line_status_hash(disruptions)
+        stored_line = {
+            "full_hash": full_hash,
+            "status_hash": status_hash,
+            "severity": 4,
+            "status": "Severe Delays",
+            "last_sent_at": datetime.now(UTC).isoformat(),
+        }
+
+        result = service._check_line_alert_needed(
+            line_id="victoria",
+            line_disruptions=disruptions,
+            stored_line=stored_line,
+            now_utc=datetime.now(UTC),
+            cooldown=timedelta(minutes=5),
+            route_id="test-route",
+        )
+
+        assert result is False
+
+    def test_check_line_alert_needed_severity_changed_bypasses_cooldown(
+        self, db_session: AsyncSession, stateful_mock_redis: AsyncMock
+    ):
+        """Test that severity/status change bypasses cooldown (returns True immediately)."""
+        service = AlertService(db=db_session, redis_client=stateful_mock_redis)
+
+        # Old state: Minor Delays
+        old_disruptions = [
+            DisruptionResponse(
+                line_id="victoria",
+                line_name="Victoria",
+                mode="tube",
+                status_severity=10,
+                status_severity_description="Minor Delays",
+                reason="Signal failure",
+            ),
+        ]
+
+        # New state: Severe Delays (escalated)
+        new_disruptions = [
+            DisruptionResponse(
+                line_id="victoria",
+                line_name="Victoria",
+                mode="tube",
+                status_severity=4,
+                status_severity_description="Severe Delays",
+                reason="Signal failure",  # Same reason
+            ),
+        ]
+
+        # Stored state with old disruption, sent just now
+        stored_line = {
+            "full_hash": service._create_line_full_hash(old_disruptions),
+            "status_hash": service._create_line_status_hash(old_disruptions),
+            "severity": 10,
+            "status": "Minor Delays",
+            "last_sent_at": datetime.now(UTC).isoformat(),  # Just sent
+        }
+
+        result = service._check_line_alert_needed(
+            line_id="victoria",
+            line_disruptions=new_disruptions,
+            stored_line=stored_line,
+            now_utc=datetime.now(UTC),
+            cooldown=timedelta(minutes=5),
+            route_id="test-route",
+        )
+
+        # Should return True despite being within cooldown
+        assert result is True
+
+    def test_check_line_alert_needed_status_description_changed(
+        self, db_session: AsyncSession, stateful_mock_redis: AsyncMock
+    ):
+        """Test that status description change bypasses cooldown."""
+        service = AlertService(db=db_session, redis_client=stateful_mock_redis)
+
+        # Old state: Severe Delays
+        old_disruptions = [
+            DisruptionResponse(
+                line_id="victoria",
+                line_name="Victoria",
+                mode="tube",
+                status_severity=4,
+                status_severity_description="Severe Delays",
+                reason="Signal failure",
+            ),
+        ]
+
+        # New state: Part Closure (different status, same severity for this test)
+        new_disruptions = [
+            DisruptionResponse(
+                line_id="victoria",
+                line_name="Victoria",
+                mode="tube",
+                status_severity=4,
+                status_severity_description="Part Closure",
+                reason="Signal failure",
+            ),
+        ]
+
+        stored_line = {
+            "full_hash": service._create_line_full_hash(old_disruptions),
+            "status_hash": service._create_line_status_hash(old_disruptions),
+            "severity": 4,
+            "status": "Severe Delays",
+            "last_sent_at": datetime.now(UTC).isoformat(),
+        }
+
+        result = service._check_line_alert_needed(
+            line_id="victoria",
+            line_disruptions=new_disruptions,
+            stored_line=stored_line,
+            now_utc=datetime.now(UTC),
+            cooldown=timedelta(minutes=5),
+            route_id="test-route",
+        )
+
+        assert result is True
+
+    def test_check_line_alert_needed_reason_only_cooldown_expired(
+        self, db_session: AsyncSession, stateful_mock_redis: AsyncMock
+    ):
+        """Test that reason-only change after cooldown returns True."""
+        service = AlertService(db=db_session, redis_client=stateful_mock_redis)
+
+        # Same severity/status, different reason
+        old_disruptions = [
+            DisruptionResponse(
+                line_id="victoria",
+                line_name="Victoria",
+                mode="tube",
+                status_severity=4,
+                status_severity_description="Severe Delays",
+                reason="Signal failure at Oxford Circus",
+            ),
+        ]
+
+        new_disruptions = [
+            DisruptionResponse(
+                line_id="victoria",
+                line_name="Victoria",
+                mode="tube",
+                status_severity=4,
+                status_severity_description="Severe Delays",
+                reason="Signal failure at Victoria",  # Different reason
+            ),
+        ]
+
+        # Sent 6 minutes ago (cooldown is 5 minutes)
+        six_minutes_ago = datetime.now(UTC) - timedelta(minutes=6)
+        stored_line = {
+            "full_hash": service._create_line_full_hash(old_disruptions),
+            "status_hash": service._create_line_status_hash(old_disruptions),
+            "severity": 4,
+            "status": "Severe Delays",
+            "last_sent_at": six_minutes_ago.isoformat(),
+        }
+
+        result = service._check_line_alert_needed(
+            line_id="victoria",
+            line_disruptions=new_disruptions,
+            stored_line=stored_line,
+            now_utc=datetime.now(UTC),
+            cooldown=timedelta(minutes=5),
+            route_id="test-route",
+        )
+
+        # Should return True (cooldown expired)
+        assert result is True
+
+    def test_check_line_alert_needed_reason_only_within_cooldown(
+        self, db_session: AsyncSession, stateful_mock_redis: AsyncMock
+    ):
+        """Test that reason-only change within cooldown returns False."""
+        service = AlertService(db=db_session, redis_client=stateful_mock_redis)
+
+        # Same severity/status, different reason
+        old_disruptions = [
+            DisruptionResponse(
+                line_id="victoria",
+                line_name="Victoria",
+                mode="tube",
+                status_severity=4,
+                status_severity_description="Severe Delays",
+                reason="Signal failure at Oxford Circus",
+            ),
+        ]
+
+        new_disruptions = [
+            DisruptionResponse(
+                line_id="victoria",
+                line_name="Victoria",
+                mode="tube",
+                status_severity=4,
+                status_severity_description="Severe Delays",
+                reason="Signal failure at Victoria",  # Different reason
+            ),
+        ]
+
+        # Sent 1 minute ago (cooldown is 5 minutes)
+        one_minute_ago = datetime.now(UTC) - timedelta(minutes=1)
+        stored_line = {
+            "full_hash": service._create_line_full_hash(old_disruptions),
+            "status_hash": service._create_line_status_hash(old_disruptions),
+            "severity": 4,
+            "status": "Severe Delays",
+            "last_sent_at": one_minute_ago.isoformat(),
+        }
+
+        result = service._check_line_alert_needed(
+            line_id="victoria",
+            line_disruptions=new_disruptions,
+            stored_line=stored_line,
+            now_utc=datetime.now(UTC),
+            cooldown=timedelta(minutes=5),
+            route_id="test-route",
+        )
+
+        # Should return False (within cooldown)
+        assert result is False
+
+    def test_check_line_alert_needed_reason_only_at_cooldown_boundary(
+        self, db_session: AsyncSession, stateful_mock_redis: AsyncMock
+    ):
+        """Test that reason-only change exactly at cooldown boundary returns True."""
+        service = AlertService(db=db_session, redis_client=stateful_mock_redis)
+
+        # Same severity/status, different reason
+        old_disruptions = [
+            DisruptionResponse(
+                line_id="victoria",
+                line_name="Victoria",
+                mode="tube",
+                status_severity=4,
+                status_severity_description="Severe Delays",
+                reason="Signal failure v1",
+            ),
+        ]
+
+        new_disruptions = [
+            DisruptionResponse(
+                line_id="victoria",
+                line_name="Victoria",
+                mode="tube",
+                status_severity=4,
+                status_severity_description="Severe Delays",
+                reason="Signal failure v2",  # Different reason
+            ),
+        ]
+
+        # Sent exactly 5 minutes ago (at cooldown boundary)
+        cooldown_duration = timedelta(minutes=5)
+        exactly_at_cooldown = datetime.now(UTC) - cooldown_duration
+        stored_line = {
+            "full_hash": service._create_line_full_hash(old_disruptions),
+            "status_hash": service._create_line_status_hash(old_disruptions),
+            "severity": 4,
+            "status": "Severe Delays",
+            "last_sent_at": exactly_at_cooldown.isoformat(),
+        }
+
+        result = service._check_line_alert_needed(
+            line_id="victoria",
+            line_disruptions=new_disruptions,
+            stored_line=stored_line,
+            now_utc=datetime.now(UTC),
+            cooldown=cooldown_duration,
+            route_id="test-route",
+        )
+
+        # Should return True (boundary is inclusive: now_utc >= last_sent + cooldown)
+        assert result is True
+
+    # ===== Integration tests for _should_send_alert() =====
+
     async def test_should_send_alert_no_previous_state(
         self,
         db_session: AsyncSession,
