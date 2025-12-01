@@ -15,6 +15,7 @@ from app.models.user import VerificationCode, VerificationType
 from app.services.contact_service import get_contact_by_id
 from app.services.email_service import EmailService
 from app.services.sms_service import SmsService
+from app.utils.pii import hash_pii
 
 logger = structlog.get_logger(__name__)
 
@@ -153,7 +154,7 @@ class VerificationService:
         log_entry = RateLimitLog(
             user_id=user_id,
             action_type=RateLimitAction.ADD_CONTACT_FAILURE,
-            resource_id=contact_value,
+            resource_id=hash_pii(contact_value),
             timestamp=datetime.now(UTC),
         )
         self.db.add(log_entry)

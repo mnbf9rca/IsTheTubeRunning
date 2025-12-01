@@ -36,6 +36,7 @@ from app.models.user_route_index import UserRouteStationIndex
 from app.schemas.tfl import DisruptionResponse
 from app.services.notification_service import NotificationService
 from app.services.tfl_service import TfLService
+from app.utils.pii import hash_pii
 
 logger = structlog.get_logger(__name__)
 
@@ -1200,7 +1201,7 @@ class AlertService:
             logger.info(
                 "alert_sent_successfully",
                 method=pref.method.value,
-                target=contact_info,
+                target_hash=hash_pii(contact_info),
                 route_id=str(route.id),
                 route_name=route.name,
                 disruption_count=len(disruptions),

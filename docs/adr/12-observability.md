@@ -458,6 +458,91 @@ with tracer.start_as_current_span(...) as span:
 
 ---
 
+## PII Hashing in Logs and Telemetry
+
+### Status
+Active (Issue #311)
+
+### Context
+Application logs and OpenTelemetry traces originally contained plaintext PII (Personally Identifiable Information) such as email addresses and phone numbers. This created privacy and security concerns:
+- Logs stored in Grafana Cloud contain user contact information
+- Telemetry spans exposed PII in distributed tracing systems
+- Difficult to link telemetry/logs back to specific users for debugging
+- Compliance risk (GDPR, data minimization principles)
+
+Examples of PII exposure:
+- `logger.info("email_sent", recipient="user@example.com")`
+- `span.set_attribute("email.recipient", "user@example.com")`
+
+Need a consistent approach to protect PII while maintaining debuggability and user correlation.
+
+### Decision
+Hash all PII (email addresses, phone numbers) before logging or adding to telemetry spans using HMAC-SHA256 with a secret key.
+
+**Implementation**:
+1. **Centralized hash function** (`app.utils.pii.hash_pii()`):
+   - Pure function using HMAC-SHA256, full 64-character hex digest
+   - Deterministic: same input → same output given the same secret (enables correlation)
+   - Keyed hash: uses `PII_HASH_SECRET` from configuration
+   - Dictionary attack resistance: HMAC prevents precomputed rainbow tables
+   - Fast: microseconds per hash
+   - No collision risk: full 256-bit hash eliminates collisions
+
+2. **Configuration**:
+   - `PII_HASH_SECRET` setting in `backend/app/core/config.py` (required)
+   - Secret stored in `.env` file (development) or environment variables (production)
+   - Generate strong secret: `python3 -c "import secrets; print(secrets.token_urlsafe(32))"`
+
+3. **Database storage**:
+   - Added `contact_hash` column to `email_addresses` and `phone_numbers` tables
+   - Indexed for fast lookups
+   - Auto-computed on record creation via model `__init__`
+
+4. **Logging pattern**:
+   - Replace `recipient=value` with `recipient_hash=hash_pii(value)`
+   - Replace `target=value` with `target_hash=hash_pii(value)`
+
+5. **Telemetry pattern**:
+   - Replace `email.recipient` with `email.recipient_hash`
+   - Replace `sms.recipient` with `sms.recipient_hash`
+
+**Changed services**:
+- `email_service.py` - Logs and span attributes
+- `sms_service.py` - Logs and span attributes (replaced inline hash)
+- `notification_service.py` - Logs and span attributes (removed duplicate helper)
+- `alert_service.py` - Logs
+- `verification_service.py` - Rate limit storage
+
+### Consequences
+
+**Easier:**
+- **Privacy Protection**: PII no longer stored in cleartext in logs/traces
+- **Dictionary Attack Resistance**: HMAC with secret key prevents rainbow table attacks
+- **User Correlation**: Can link logs/traces to users via hash lookup in database
+- **Compliance**: Meets data minimization requirements
+- **Consistency**: Single `hash_pii()` function used across all services
+- **Debuggability**: Hash is deterministic - same user always produces same hash (given same secret)
+- **Performance**: Indexed hash column enables fast reverse lookups
+
+**More Difficult:**
+- **Not Human-Readable**: Cannot immediately identify user from hash in logs
+- **Requires Lookup**: Must query database to correlate hash → user
+- **Secret Management**: Must securely manage `PII_HASH_SECRET` (rotation requires rehashing)
+- **Migration**: Existing logs contain plaintext PII (cannot retroactively fix)
+
+### Testing
+- `backend/tests/utils/test_pii.py` - 8 tests for hash function (determinism, length, Unicode, case/whitespace sensitivity)
+- Existing service tests updated to assert on `*_hash` attributes instead of raw values
+- 100% coverage on new utility code
+
+### Files Modified
+- `backend/app/utils/pii.py` - Hash function
+- `backend/app/models/user.py` - EmailAddress and PhoneNumber with contact_hash
+- `backend/alembic/versions/xxx_add_contact_hash_columns.py` - Migration
+- 5 service files updated (email, sms, notification, alert, verification)
+
+---
+
 ### Related ADRs
 - **ADR 08**: Worker Pool Fork Safety (Celery worker lazy initialization)
 - **ADR 10**: Testing Strategy (test coverage and mocking approach)

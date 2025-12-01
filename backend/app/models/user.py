@@ -9,6 +9,7 @@ from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.models.base import BaseModel
+from app.utils.pii import hash_pii
 
 
 class User(BaseModel):
@@ -65,6 +66,12 @@ class EmailAddress(BaseModel):
         unique=True,
         nullable=False,
     )
+    contact_hash: Mapped[str] = mapped_column(
+        String(64),
+        nullable=False,
+        index=True,
+        comment="HMAC-SHA256 hash of email for PII-safe logging",
+    )
     verified: Mapped[bool] = mapped_column(
         default=False,
         nullable=False,
@@ -79,6 +86,12 @@ class EmailAddress(BaseModel):
 
     # Ensure only one primary email per user
     __table_args__ = (Index("ix_email_addresses_user_id_primary", "user_id", "is_primary"),)
+
+    def __init__(self, **kwargs: object) -> None:
+        """Initialize email address with auto-computed hash."""
+        if "email" in kwargs and "contact_hash" not in kwargs:
+            kwargs["contact_hash"] = hash_pii(str(kwargs["email"]))
+        super().__init__(**kwargs)
 
     def __repr__(self) -> str:
         """String representation of the email address."""
@@ -101,6 +114,12 @@ class PhoneNumber(BaseModel):
         unique=True,
         nullable=False,
     )
+    contact_hash: Mapped[str] = mapped_column(
+        String(64),
+        nullable=False,
+        index=True,
+        comment="HMAC-SHA256 hash of phone for PII-safe logging",
+    )
     verified: Mapped[bool] = mapped_column(
         default=False,
         nullable=False,
@@ -115,6 +134,12 @@ class PhoneNumber(BaseModel):
 
     # Ensure only one primary phone per user
     __table_args__ = (Index("ix_phone_numbers_user_id_primary", "user_id", "is_primary"),)
+
+    def __init__(self, **kwargs: object) -> None:
+        """Initialize phone number with auto-computed hash."""
+        if "phone" in kwargs and "contact_hash" not in kwargs:
+            kwargs["contact_hash"] = hash_pii(str(kwargs["phone"]))
+        super().__init__(**kwargs)
 
     def __repr__(self) -> str:
         """String representation of the phone number."""
