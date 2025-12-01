@@ -4629,6 +4629,128 @@ class TestPerLineCooldown:
         # Should return True (boundary is inclusive: now_utc >= last_sent + cooldown)
         assert result is True
 
+    def test_check_line_alert_needed_missing_last_sent_at(
+        self, db_session: AsyncSession, stateful_mock_redis: AsyncMock
+    ):
+        """Test that missing last_sent_at in stored line triggers immediate alert."""
+        service = AlertService(db=db_session, redis_client=stateful_mock_redis)
+
+        disruptions = [
+            DisruptionResponse(
+                line_id="victoria",
+                line_name="Victoria",
+                mode="tube",
+                status_severity=4,
+                status_severity_description="Severe Delays",
+                reason="Signal failure",
+            ),
+        ]
+
+        # Stored state missing last_sent_at
+        stored_line = {
+            "full_hash": "some_hash",
+            "status_hash": "some_status_hash",
+            "severity": 4,
+            "status": "Severe Delays",
+            # "last_sent_at" is missing
+        }
+
+        result = service._check_line_alert_needed(
+            line_id="victoria",
+            line_disruptions=disruptions,
+            stored_line=stored_line,
+            now_utc=datetime.now(UTC),
+            cooldown=timedelta(minutes=5),
+            route_id="test-route",
+        )
+
+        assert result is True  # Should alert immediately due to missing field
+
+    def test_check_line_alert_needed_invalid_last_sent_at_format(
+        self, db_session: AsyncSession, stateful_mock_redis: AsyncMock
+    ):
+        """Test that invalid last_sent_at format triggers immediate alert."""
+        service = AlertService(db=db_session, redis_client=stateful_mock_redis)
+
+        # Old disruption with different reason
+        old_disruptions = [
+            DisruptionResponse(
+                line_id="victoria",
+                line_name="Victoria",
+                mode="tube",
+                status_severity=4,
+                status_severity_description="Severe Delays",
+                reason="Signal failure v1",
+            ),
+        ]
+
+        # New disruption with different reason
+        new_disruptions = [
+            DisruptionResponse(
+                line_id="victoria",
+                line_name="Victoria",
+                mode="tube",
+                status_severity=4,
+                status_severity_description="Severe Delays",
+                reason="Signal failure v2",  # Different reason
+            ),
+        ]
+
+        # Stored state with invalid last_sent_at format
+        stored_line = {
+            "full_hash": service._create_line_full_hash(old_disruptions),
+            "status_hash": service._create_line_status_hash(old_disruptions),
+            "severity": 4,
+            "status": "Severe Delays",
+            "last_sent_at": "not-a-valid-date",  # Invalid format
+        }
+
+        result = service._check_line_alert_needed(
+            line_id="victoria",
+            line_disruptions=new_disruptions,
+            stored_line=stored_line,
+            now_utc=datetime.now(UTC),
+            cooldown=timedelta(minutes=5),
+            route_id="test-route",
+        )
+
+        assert result is True  # Should alert immediately due to invalid format
+
+    def test_check_line_alert_needed_missing_required_fields(
+        self, db_session: AsyncSession, stateful_mock_redis: AsyncMock
+    ):
+        """Test that missing required v2 fields trigger immediate alert."""
+        service = AlertService(db=db_session, redis_client=stateful_mock_redis)
+
+        disruptions = [
+            DisruptionResponse(
+                line_id="victoria",
+                line_name="Victoria",
+                mode="tube",
+                status_severity=4,
+                status_severity_description="Severe Delays",
+                reason="Signal failure",
+            ),
+        ]
+
+        # Stored state missing required v2 fields
+        stored_line = {
+            "severity": 4,
+            "status": "Severe Delays",
+            # Missing full_hash, status_hash, last_sent_at
+        }
+
+        result = service._check_line_alert_needed(
+            line_id="victoria",
+            line_disruptions=disruptions,
+            stored_line=stored_line,
+            now_utc=datetime.now(UTC),
+            cooldown=timedelta(minutes=5),
+            route_id="test-route",
+        )
+
+        assert result is True  # Should alert immediately due to corrupted state
+
     # ===== Integration tests for _should_send_alert() =====
     # (Redundant tests removed - covered by unit tests for _check_line_alert_needed())
 
