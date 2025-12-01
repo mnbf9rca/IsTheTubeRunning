@@ -8,6 +8,7 @@ import pytest
 from app.core.config import settings
 from app.services import sms_service
 from app.services.sms_service import SMS_LOG_FILE, SmsService
+from app.utils.pii import hash_pii
 
 
 class TestSmsService:
@@ -36,7 +37,7 @@ class TestSmsService:
 
     @pytest.mark.asyncio
     async def test_send_verification_sms_logs_correct_format(self) -> None:
-        """Test that SMS is logged with correct format."""
+        """Test that SMS is logged with correct format and PII is hashed."""
         service = SmsService()
         phone = "+14155552671"
         code = "123456"
@@ -46,30 +47,42 @@ class TestSmsService:
         assert SMS_LOG_FILE is not None
         content = SMS_LOG_FILE.read_text()
 
-        assert phone in content
+        # Verify phone is hashed, not logged in plain text
+        phone_hash = hash_pii(phone)
+        assert phone_hash in content
+        assert phone not in content
+
+        # Verify message content is present
         assert code in content
         assert "IsTheTubeRunning verification code" in content
         assert "expires in 15 minutes" in content
 
     @pytest.mark.asyncio
     async def test_send_verification_sms_appends_to_existing_file(self) -> None:
-        """Test that multiple SMS sends append to the same file."""
+        """Test that multiple SMS sends append to the same file with hashed phones."""
         service = SmsService()
+        phone1 = "+14155552671"
+        phone2 = "+14155552672"
 
-        await service.send_verification_sms("+14155552671", "111111")
-        await service.send_verification_sms("+14155552672", "222222")
+        await service.send_verification_sms(phone1, "111111")
+        await service.send_verification_sms(phone2, "222222")
 
         assert SMS_LOG_FILE is not None
         content = SMS_LOG_FILE.read_text()
 
-        assert "+14155552671" in content
+        # Verify phones are hashed, not logged in plain text
+        assert hash_pii(phone1) in content
+        assert hash_pii(phone2) in content
+        assert phone1 not in content
+        assert phone2 not in content
+
+        # Verify message content is present
         assert "111111" in content
-        assert "+14155552672" in content
         assert "222222" in content
 
     @pytest.mark.asyncio
     async def test_send_verification_sms_handles_special_characters(self) -> None:
-        """Test that SMS service handles phone numbers with special characters."""
+        """Test that SMS service handles phone numbers with special characters and hashes them."""
         service = SmsService()
         phone = "+1 (415) 555-2671"
         code = "999999"
@@ -79,7 +92,9 @@ class TestSmsService:
         assert SMS_LOG_FILE is not None
         content = SMS_LOG_FILE.read_text()
 
-        assert phone in content
+        # Verify phone is hashed, not logged in plain text (even with special chars)
+        assert hash_pii(phone) in content
+        assert phone not in content
         assert code in content
 
     @pytest.mark.asyncio

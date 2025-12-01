@@ -96,7 +96,7 @@ class SmsService:
                 loop = asyncio.get_running_loop()
                 await loop.run_in_executor(
                     None,
-                    functools.partial(self._write_to_file_sync, phone, message, timestamp, phone_hash),
+                    functools.partial(self._write_to_file_sync, message, timestamp, phone_hash),
                 )
 
     async def send_verification_sms(self, phone: str, code: str) -> None:
@@ -119,21 +119,20 @@ class SmsService:
         await self.send_sms(phone, message)
         logger.info("verification_sms_sent", recipient_hash=phone_hash, code=code)
 
-    def _write_to_file_sync(self, phone: str, message: str, timestamp: str, phone_hash: str) -> None:
+    def _write_to_file_sync(self, message: str, timestamp: str, phone_hash: str) -> None:
         """
         Synchronously write SMS log entry to file (runs in thread pool).
 
         Args:
-            phone: Recipient phone number
             message: Full SMS message
             timestamp: ISO format timestamp
-            phone_hash: Pre-computed hash of phone number for error logging
+            phone_hash: Pre-computed hash of phone number for logging
         """
         if not SMS_LOG_FILE:
             return
 
         try:
-            log_entry = f"[{timestamp}] TO: {phone} | MESSAGE: {message}\n"
+            log_entry = f"[{timestamp}] TO: {phone_hash} | MESSAGE: {message}\n"
             with SMS_LOG_FILE.open("a") as f:
                 f.write(log_entry)
         except OSError as e:
