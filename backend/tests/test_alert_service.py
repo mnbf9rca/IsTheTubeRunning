@@ -36,6 +36,7 @@ from app.services.alert_service import (
 )
 from freezegun import freeze_time
 from sqlalchemy import select
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -488,8 +489,8 @@ class TestFetchGlobalDisruptionData:
         empty set. This is a critical error - filtering won't work properly, but
         alert processing continues.
         """
-        # Mock DB to raise exception on first execute call
-        alert_service.db.execute = AsyncMock(side_effect=Exception("DB connection error"))
+        # Mock DB to raise SQLAlchemyError on first execute call
+        alert_service.db.execute = AsyncMock(side_effect=SQLAlchemyError("DB connection error"))
 
         # Execute
         disabled_pairs = await alert_service._fetch_global_disruption_data()
@@ -2161,7 +2162,7 @@ async def test_alert_service_get_active_routes_error(
     with patch.object(
         alert_service.db,
         "execute",
-        side_effect=RuntimeError("Database connection error"),
+        side_effect=SQLAlchemyError("Database connection error"),
     ):
         routes = await alert_service._get_active_routes()
 

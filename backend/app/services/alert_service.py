@@ -13,6 +13,7 @@ import structlog
 if TYPE_CHECKING:
     from opentelemetry.trace import Span
 from sqlalchemy import and_, func, inspect, or_, select
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -567,7 +568,7 @@ class AlertService:
             )
             return list(result.scalars().all())
 
-        except Exception as e:
+        except SQLAlchemyError as e:
             logger.error("fetch_active_routes_failed", error=str(e), exc_info=e)
             return []
 
@@ -594,11 +595,12 @@ class AlertService:
         try:
             disabled_result = await self.db.execute(select(AlertDisabledSeverity))
             disabled_severity_pairs = {(d.mode_id, d.severity_level) for d in disabled_result.scalars().all()}
-        except Exception as e:
+        except SQLAlchemyError as e:
             logger.error(
                 "fetch_disabled_severities_failed",
                 error=str(e),
                 exc_info=e,
+                critical=True,
             )
             # Return empty set on DB failure - this is a critical error
             # Per-route processing will still work but won't filter properly
