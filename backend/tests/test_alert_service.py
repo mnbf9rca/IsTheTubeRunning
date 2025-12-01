@@ -565,7 +565,9 @@ class TestProcessSingleRoute:
                 new_callable=AsyncMock,
                 return_value=(sample_disruptions, False),
             ),
-            patch.object(alert_service, "_should_send_alert", new_callable=AsyncMock, return_value=True),
+            patch.object(
+                alert_service, "_should_send_alert", new_callable=AsyncMock, return_value=(True, sample_disruptions)
+            ),
             patch.object(alert_service, "_send_alerts_for_route", new_callable=AsyncMock, return_value=2),
         ):
             alerts_sent, error_occurred = await alert_service._process_single_route(
@@ -593,7 +595,9 @@ class TestProcessSingleRoute:
             patch.object(
                 alert_service, "_get_route_disruptions", new_callable=AsyncMock, return_value=(sample_disruptions, True)
             ),
-            patch.object(alert_service, "_should_send_alert", new_callable=AsyncMock, return_value=True),
+            patch.object(
+                alert_service, "_should_send_alert", new_callable=AsyncMock, return_value=(True, sample_disruptions)
+            ),
             patch.object(alert_service, "_send_alerts_for_route", new_callable=AsyncMock, return_value=1),
         ):
             alerts_sent, error_occurred = await alert_service._process_single_route(
@@ -624,7 +628,7 @@ class TestProcessSingleRoute:
                 new_callable=AsyncMock,
                 return_value=(sample_disruptions, False),
             ),
-            patch.object(alert_service, "_should_send_alert", new_callable=AsyncMock, return_value=False),
+            patch.object(alert_service, "_should_send_alert", new_callable=AsyncMock, return_value=(False, [])),
         ):
             alerts_sent, error_occurred = await alert_service._process_single_route(
                 route=test_route_with_schedule,
@@ -1138,7 +1142,7 @@ async def test_should_send_alert_no_previous_alert(
     schedule = test_route_with_schedule.schedules[0]
 
     # Redis returns None (no previous alert)
-    should_send = await alert_service._should_send_alert(
+    should_send, filtered = await alert_service._should_send_alert(
         route=test_route_with_schedule,
         user_id=test_route_with_schedule.user_id,
         schedule=schedule,
@@ -1146,6 +1150,7 @@ async def test_should_send_alert_no_previous_alert(
     )
 
     assert should_send is True
+    assert len(filtered) > 0
 
 
 @pytest.mark.asyncio
@@ -1157,27 +1162,29 @@ async def test_should_send_alert_same_disruption(
     """Test that alert should not be sent for same disruption content."""
     schedule = test_route_with_schedule.schedules[0]
 
-    # Create hash of current disruptions
-    current_hash = alert_service._create_disruption_hash(sample_disruptions)
+    # Group disruptions by line and create per-line hashes (v2 format)
+    disruptions_by_line = alert_service._group_disruptions_by_line(sample_disruptions)
+    lines_state = {}
+    for line_id, line_disruptions in disruptions_by_line.items():
+        lines_state[line_id] = {
+            "full_hash": alert_service._create_line_full_hash(line_disruptions),
+            "status_hash": alert_service._create_line_status_hash(line_disruptions),
+            "severity": line_disruptions[0].status_severity,
+            "status": line_disruptions[0].status_severity_description,
+            "last_sent_at": datetime.now(UTC).isoformat(),
+        }
 
-    # Mock Redis to return stored state with same hash
+    # Mock Redis to return stored state with same hashes (v2 format)
     stored_state = json.dumps(
         {
-            "hash": current_hash,
-            "disruptions": [
-                {
-                    "line_id": d.line_id,
-                    "status": d.status_severity_description,
-                    "reason": d.reason or "",
-                }
-                for d in sample_disruptions
-            ],
+            "version": 2,
+            "lines": lines_state,
             "stored_at": datetime.now(UTC).isoformat(),
         }
     )
     alert_service.redis_client.get = AsyncMock(return_value=stored_state)  # type: ignore[method-assign]
 
-    should_send = await alert_service._should_send_alert(
+    should_send, filtered = await alert_service._should_send_alert(
         route=test_route_with_schedule,
         user_id=test_route_with_schedule.user_id,
         schedule=schedule,
@@ -1185,6 +1192,7 @@ async def test_should_send_alert_same_disruption(
     )
 
     assert should_send is False
+    assert len(filtered) == 0
 
 
 @pytest.mark.asyncio
@@ -1196,7 +1204,7 @@ async def test_should_send_alert_changed_disruption(
     """Test that alert should be sent when disruption content changes."""
     schedule = test_route_with_schedule.schedules[0]
 
-    # Create different disruptions
+    # Create different disruptions for stored state
     different_disruptions = [
         DisruptionResponse(
             line_id="victoria",
@@ -1208,19 +1216,29 @@ async def test_should_send_alert_changed_disruption(
             created_at=datetime.now(UTC),
         ),
     ]
-    different_hash = alert_service._create_disruption_hash(different_disruptions)
 
-    # Mock Redis to return stored state with different hash
+    # Create stored state with different disruptions (v2 format)
+    disruptions_by_line = alert_service._group_disruptions_by_line(different_disruptions)
+    lines_state = {}
+    for line_id, line_disruptions in disruptions_by_line.items():
+        lines_state[line_id] = {
+            "full_hash": alert_service._create_line_full_hash(line_disruptions),
+            "status_hash": alert_service._create_line_status_hash(line_disruptions),
+            "severity": line_disruptions[0].status_severity,
+            "status": line_disruptions[0].status_severity_description,
+            "last_sent_at": datetime.now(UTC).isoformat(),
+        }
+
     stored_state = json.dumps(
         {
-            "hash": different_hash,
-            "disruptions": [],
+            "version": 2,
+            "lines": lines_state,
             "stored_at": datetime.now(UTC).isoformat(),
         }
     )
     alert_service.redis_client.get = AsyncMock(return_value=stored_state)  # type: ignore[method-assign]
 
-    should_send = await alert_service._should_send_alert(
+    should_send, filtered = await alert_service._should_send_alert(
         route=test_route_with_schedule,
         user_id=test_route_with_schedule.user_id,
         schedule=schedule,
@@ -1228,6 +1246,7 @@ async def test_should_send_alert_changed_disruption(
     )
 
     assert should_send is True
+    assert len(filtered) > 0
 
 
 @pytest.mark.asyncio
@@ -1242,7 +1261,7 @@ async def test_should_send_alert_redis_error(
     # Mock Redis to raise error
     alert_service.redis_client.get = AsyncMock(side_effect=Exception("Redis error"))  # type: ignore[method-assign]
 
-    should_send = await alert_service._should_send_alert(
+    should_send, filtered = await alert_service._should_send_alert(
         route=test_route_with_schedule,
         user_id=test_route_with_schedule.user_id,
         schedule=schedule,
@@ -1251,6 +1270,7 @@ async def test_should_send_alert_redis_error(
 
     # Should default to sending (better to over-notify than under-notify)
     assert should_send is True
+    assert len(filtered) > 0
 
 
 @pytest.mark.asyncio
@@ -1265,7 +1285,7 @@ async def test_should_send_alert_invalid_stored_data(
     # Mock Redis to return invalid JSON
     alert_service.redis_client.get = AsyncMock(return_value="invalid json")  # type: ignore[method-assign]
 
-    should_send = await alert_service._should_send_alert(
+    should_send, filtered = await alert_service._should_send_alert(
         route=test_route_with_schedule,
         user_id=test_route_with_schedule.user_id,
         schedule=schedule,
@@ -1273,6 +1293,7 @@ async def test_should_send_alert_invalid_stored_data(
     )
 
     assert should_send is True
+    assert len(filtered) > 0
 
 
 # ==================== _send_alerts_for_route Tests ====================
@@ -1675,9 +1696,19 @@ async def test_store_alert_state_stores_disruption_hash(
     stored_json = call_args[0][2]
     stored_data = json.loads(stored_json)
 
-    # Verify hash is present
-    assert "hash" in stored_data
-    assert len(stored_data["hash"]) == 64  # SHA256 hex digest
+    # Verify v2 format structure
+    assert stored_data["version"] == 2
+    assert "lines" in stored_data
+    assert "stored_at" in stored_data
+    # Verify per-line hashes are present
+    for _line_id, line_state in stored_data["lines"].items():
+        assert "full_hash" in line_state
+        assert "status_hash" in line_state
+        assert len(line_state["full_hash"]) == 64  # SHA256 hex digest
+        assert len(line_state["status_hash"]) == 64  # SHA256 hex digest
+        assert "severity" in line_state
+        assert "status" in line_state
+        assert "last_sent_at" in line_state
 
 
 # ==================== _create_disruption_hash Tests ====================
@@ -2076,7 +2107,7 @@ async def test_alert_service_skips_duplicate_alerts(
     ]
 
     with (
-        patch.object(alert_service, "_should_send_alert", return_value=False),
+        patch.object(alert_service, "_should_send_alert", return_value=(False, [])),
         patch.object(alert_service, "_get_verified_contact", return_value=None),
     ):
         alerts_sent = await alert_service._send_alerts_for_route(
