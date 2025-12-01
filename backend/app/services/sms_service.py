@@ -2,7 +2,6 @@
 
 import asyncio
 import functools
-import hashlib
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -11,6 +10,7 @@ from opentelemetry.trace import SpanKind
 
 from app.core.config import settings
 from app.core.telemetry import service_span
+from app.utils.pii import hash_pii
 
 logger = structlog.get_logger(__name__)
 
@@ -76,7 +76,7 @@ class SmsService:
         """
         with service_span("sms.send", "sms", kind=SpanKind.CLIENT) as span:
             # PII protection: hash the phone number
-            phone_hash = hashlib.sha256(phone.encode()).hexdigest()[:12]
+            phone_hash = hash_pii(phone)
             span.set_attribute("sms.recipient_hash", phone_hash)
             span.set_attribute("sms.message_length", len(message))
             span.set_attribute("sms.stub", True)
@@ -86,7 +86,7 @@ class SmsService:
             # Log to structured logger (console) - non-blocking
             logger.info(
                 "sms_sent",
-                recipient=phone,
+                recipient_hash=phone_hash,
                 message=message,
                 timestamp=timestamp,
             )
@@ -114,7 +114,7 @@ class SmsService:
 
         # Use generic send_sms method
         await self.send_sms(phone, message)
-        logger.info("verification_sms_sent", recipient=phone, code=code)
+        logger.info("verification_sms_sent", recipient_hash=hash_pii(phone), code=code)
 
     def _write_to_file_sync(self, phone: str, message: str, timestamp: str) -> None:
         """
@@ -136,5 +136,5 @@ class SmsService:
             logger.error(
                 "sms_file_logging_failed",
                 error=str(e),
-                recipient=phone,
+                recipient_hash=hash_pii(phone),
             )

@@ -458,6 +458,83 @@ with tracer.start_as_current_span(...) as span:
 
 ---
 
+## PII Hashing in Logs and Telemetry
+
+### Status
+Active (Issue #311)
+
+### Context
+Application logs and OpenTelemetry traces originally contained plaintext PII (Personally Identifiable Information) such as email addresses and phone numbers. This created privacy and security concerns:
+- Logs stored in Grafana Cloud contain user contact information
+- Telemetry spans exposed PII in distributed tracing systems
+- Difficult to link telemetry/logs back to specific users for debugging
+- Compliance risk (GDPR, data minimization principles)
+
+Examples of PII exposure:
+- `logger.info("email_sent", recipient="user@example.com")`
+- `span.set_attribute("email.recipient", "user@example.com")`
+
+Need a consistent approach to protect PII while maintaining debuggability and user correlation.
+
+### Decision
+Hash all PII (email addresses, phone numbers) before logging or adding to telemetry spans.
+
+**Implementation**:
+1. **Centralized hash function** (`app.utils.pii.hash_pii()`):
+   - Pure function using SHA256, first 12 characters of hex digest
+   - Deterministic: same input → same output (enables correlation)
+   - Fast: microseconds per hash
+   - Length: 12 characters provides sufficient uniqueness
+
+2. **Database storage**:
+   - Added `contact_hash` column to `email_addresses` and `phone_numbers` tables
+   - Indexed for fast lookups
+   - Auto-computed on record creation via model `__init__`
+
+3. **Logging pattern**:
+   - Replace `recipient=value` with `recipient_hash=hash_pii(value)`
+   - Replace `target=value` with `target_hash=hash_pii(value)`
+
+4. **Telemetry pattern**:
+   - Replace `email.recipient` with `email.recipient_hash`
+   - Replace `sms.recipient` with `sms.recipient_hash`
+
+**Changed services**:
+- `email_service.py` - Logs and span attributes
+- `sms_service.py` - Logs and span attributes (replaced inline hash)
+- `notification_service.py` - Logs and span attributes (removed duplicate helper)
+- `alert_service.py` - Logs
+- `verification_service.py` - Rate limit storage
+
+### Consequences
+
+**Easier:**
+- **Privacy Protection**: PII no longer stored in cleartext in logs/traces
+- **User Correlation**: Can link logs/traces to users via hash lookup in database
+- **Compliance**: Meets data minimization requirements
+- **Consistency**: Single `hash_pii()` function used across all services
+- **Debuggability**: Hash is deterministic - same user always produces same hash
+- **Performance**: Indexed hash column enables fast reverse lookups
+
+**More Difficult:**
+- **Not Human-Readable**: Cannot immediately identify user from hash in logs
+- **Requires Lookup**: Must query database to correlate hash → user
+- **Hash Collisions**: Theoretical risk (but SHA256 first 12 chars = ~68 bits entropy)
+- **Migration**: Existing logs contain plaintext PII (cannot retroactively fix)
+
+### Testing
+- `backend/tests/utils/test_pii.py` - 8 tests for hash function (determinism, length, Unicode)
+- Existing service tests updated to assert on `*_hash` attributes instead of raw values
+- 100% coverage on new utility code
+
+### Files Modified
+- `backend/app/utils/pii.py` - Hash function
+- `backend/app/models/user.py` - EmailAddress and PhoneNumber with contact_hash
+- `backend/alembic/versions/xxx_add_contact_hash_columns.py` - Migration
+- 5 service files updated (email, sms, notification, alert, verification)
+
+---
+
 ### Related ADRs
 - **ADR 08**: Worker Pool Fork Safety (Celery worker lazy initialization)
 - **ADR 10**: Testing Strategy (test coverage and mocking approach)

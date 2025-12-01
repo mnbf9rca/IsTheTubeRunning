@@ -5,6 +5,7 @@ from unittest.mock import AsyncMock, patch
 import aiosmtplib
 import pytest
 from app.services.email_service import EmailService
+from app.utils.pii import hash_pii
 from opentelemetry.sdk.trace import TracerProvider
 from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanExporter
 from opentelemetry.trace import SpanKind, StatusCode
@@ -56,7 +57,7 @@ class TestEmailServiceOtelSpans:
         assert span.attributes["peer.service"] == "smtp"
         assert span.attributes["smtp.host"] == email_svc.smtp_host
         assert span.attributes["smtp.port"] == email_svc.smtp_port
-        assert span.attributes["email.recipient"] == "test@example.com"
+        assert span.attributes["email.recipient_hash"] == hash_pii("test@example.com")
         assert span.attributes["email.subject"] == "Test Subject"
 
     @pytest.mark.asyncio

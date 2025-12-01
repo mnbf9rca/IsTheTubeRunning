@@ -10,6 +10,7 @@ from opentelemetry.trace import SpanKind
 
 from app.core.config import require_config, settings
 from app.core.telemetry import service_span
+from app.utils.pii import hash_pii
 
 # Validate required email configuration
 require_config("SMTP_HOST", "SMTP_PORT", "SMTP_USER", "SMTP_PASSWORD", "SMTP_FROM_EMAIL")
@@ -152,7 +153,11 @@ This is an automated message from IsTheTubeRunning.
 
         # Use generic send_email method
         await self.send_email(email, subject, html_content, text_content)
-        logger.info("verification_email_sent", recipient=email, code_length=len(code))
+        logger.info(
+            "verification_email_sent",
+            recipient_hash=hash_pii(email),
+            code_length=len(code),
+        )
 
     async def _send_email_async(
         self,
@@ -185,7 +190,7 @@ This is an automated message from IsTheTubeRunning.
             # Set SMTP span attributes
             span.set_attribute("smtp.host", self.smtp_host)
             span.set_attribute("smtp.port", self.smtp_port)
-            span.set_attribute("email.recipient", to)
+            span.set_attribute("email.recipient_hash", hash_pii(to))
             span.set_attribute("email.subject", subject)
             try:
                 # Create the email message
@@ -212,15 +217,30 @@ This is an automated message from IsTheTubeRunning.
                     await server.login(self.smtp_user, self.smtp_password)
                     await server.send_message(message)
 
-                logger.info("email_sent", recipient=to, subject=subject)
+                logger.info("email_sent", recipient_hash=hash_pii(to), subject=subject)
 
             except TimeoutError as e:
-                logger.error("email_send_timeout", recipient=to, subject=subject, error=str(e))
+                logger.error(
+                    "email_send_timeout",
+                    recipient_hash=hash_pii(to),
+                    subject=subject,
+                    error=str(e),
+                )
                 raise
             except OSError as e:
                 # Catches ConnectionRefusedError, ConnectionResetError, socket errors, etc.
-                logger.error("email_send_network_error", recipient=to, subject=subject, error=str(e))
+                logger.error(
+                    "email_send_network_error",
+                    recipient_hash=hash_pii(to),
+                    subject=subject,
+                    error=str(e),
+                )
                 raise
             except aiosmtplib.SMTPException as e:
-                logger.error("email_send_failed", recipient=to, subject=subject, error=str(e))
+                logger.error(
+                    "email_send_failed",
+                    recipient_hash=hash_pii(to),
+                    subject=subject,
+                    error=str(e),
+                )
                 raise
