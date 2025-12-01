@@ -36,6 +36,7 @@ from app.services.alert_service import (
 )
 from freezegun import freeze_time
 from sqlalchemy import select
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -446,12 +447,22 @@ class TestFetchGlobalDisruptionData:
 
     @pytest.mark.asyncio
     @patch("app.services.alert_service.TfLService")
-    async def test_tfl_service_error_returns_empty(
+    async def test_tfl_service_error_still_returns_disabled_pairs(
         self,
         mock_tfl_class: MagicMock,
         alert_service: AlertService,
+        db_session: AsyncSession,
     ) -> None:
-        """Test that TfL service errors return empty data gracefully."""
+        """Test that TfL service errors don't prevent disabled pairs from being fetched.
+
+        This is the fix for #307: even when TfL API fails, we should still get
+        disabled_severity_pairs from the database to ensure filtering works.
+        """
+        # Create disabled severity in DB (use unique values to avoid conflicts)
+        disabled = AlertDisabledSeverity(mode_id="test-mode-tfl-error", severity_level=98)
+        db_session.add(disabled)
+        await db_session.commit()
+
         # Mock TfL service to raise exception
         mock_tfl = AsyncMock()
         mock_tfl.fetch_line_disruptions = AsyncMock(side_effect=Exception("TfL API error"))
@@ -460,35 +471,34 @@ class TestFetchGlobalDisruptionData:
         # Execute
         disabled_pairs = await alert_service._fetch_global_disruption_data()
 
-        # Verify returns empty data, doesn't raise
-        assert disabled_pairs == set()
+        # Verify returns disabled pairs from DB, even though TfL failed
+        assert ("test-mode-tfl-error", 98) in disabled_pairs
+        assert disabled_pairs != set()  # Not empty!
 
     @pytest.mark.asyncio
     @patch("app.services.alert_service.TfLService")
-    async def test_db_error_returns_partial_data(
+    async def test_db_error_returns_empty(
         self,
         mock_tfl_class: MagicMock,
         alert_service: AlertService,
         sample_disruptions: list[DisruptionResponse],
     ) -> None:
-        """Test that DB errors return partial data (disruptions but no disabled pairs) gracefully."""
-        # Mock TfL service successfully
-        mock_tfl = AsyncMock()
-        mock_tfl.fetch_line_disruptions = AsyncMock(return_value=sample_disruptions)
-        mock_tfl_class.return_value = mock_tfl
+        """Test that DB errors return empty disabled pairs.
 
-        # Mock _log_line_disruption_state_changes
-        alert_service._log_line_disruption_state_changes = AsyncMock()
-
-        # Mock DB to raise exception
-        alert_service.db.execute = AsyncMock(side_effect=Exception("DB connection error"))
+        When the DB query fails, we can't get disabled_severity_pairs, so we return
+        empty set. This is a critical error - filtering won't work properly, but
+        alert processing continues.
+        """
+        # Mock DB to raise SQLAlchemyError on first execute call
+        alert_service.db.execute = AsyncMock(side_effect=SQLAlchemyError("DB connection error"))
 
         # Execute
         disabled_pairs = await alert_service._fetch_global_disruption_data()
 
         # Verify returns empty disabled pairs (DB failed)
-        # This allows alert processing to continue with some functionality
+        # TfL service should not be called since DB query happens first
         assert disabled_pairs == set()
+        mock_tfl_class.assert_not_called()
 
 
 class TestProcessSingleRoute:
@@ -2152,7 +2162,7 @@ async def test_alert_service_get_active_routes_error(
     with patch.object(
         alert_service.db,
         "execute",
-        side_effect=RuntimeError("Database connection error"),
+        side_effect=SQLAlchemyError("Database connection error"),
     ):
         routes = await alert_service._get_active_routes()
 

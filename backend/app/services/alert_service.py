@@ -13,6 +13,7 @@ import structlog
 if TYPE_CHECKING:
     from opentelemetry.trace import Span
 from sqlalchemy import and_, func, inspect, or_, select
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -567,7 +568,7 @@ class AlertService:
             )
             return list(result.scalars().all())
 
-        except Exception as e:
+        except SQLAlchemyError as e:
             logger.error("fetch_active_routes_failed", error=str(e), exc_info=e)
             return []
 
@@ -587,8 +588,26 @@ class AlertService:
         Returns:
             Set of (mode_id, severity_level) pairs that should not trigger alerts
         """
-        all_disruptions, disabled_severity_pairs = [], set()
+        disabled_severity_pairs: set[tuple[str, int]] = set()
 
+        # Step 1: ALWAYS fetch disabled severity pairs first (critical for filtering)
+        # This query must succeed regardless of TfL API status
+        try:
+            disabled_result = await self.db.execute(select(AlertDisabledSeverity))
+            disabled_severity_pairs = {(d.mode_id, d.severity_level) for d in disabled_result.scalars().all()}
+        except SQLAlchemyError as e:
+            logger.error(
+                "fetch_disabled_severities_failed",
+                error=str(e),
+                exc_info=e,
+                critical=True,
+            )
+            # Return empty set on DB failure - this is a critical error
+            # Per-route processing will still work but won't filter properly
+            return disabled_severity_pairs
+
+        # Step 2: Try to fetch disruptions for state logging (optional, for analytics)
+        # Failure here should not prevent alert processing
         try:
             tfl_service = TfLService(db=self.db)
             all_disruptions = await tfl_service.fetch_line_disruptions(use_cache=True)
@@ -597,13 +616,9 @@ class AlertService:
             # Log line disruption state changes (for troubleshooting and analytics)
             await self._log_line_disruption_state_changes(all_disruptions)
 
-            # Fetch disabled severity pairs once for all routes
-            disabled_result = await self.db.execute(select(AlertDisabledSeverity))
-            disabled_severity_pairs = {(d.mode_id, d.severity_level) for d in disabled_result.scalars().all()}
-
         except Exception as e:
             logger.error(
-                "disruption_logging_failed",
+                "disruption_state_logging_failed",
                 error=str(e),
                 exc_info=e,
             )
