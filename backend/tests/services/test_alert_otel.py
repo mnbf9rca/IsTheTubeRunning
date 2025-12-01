@@ -633,14 +633,14 @@ class TestAlertServiceShouldSendAlertOtelSpans:
         mock_schedule.id = schedule_id
 
         # Call the method
-        should_send = await alert_svc._should_send_alert(
+        should_send, _filtered = await alert_svc._should_send_alert(
             route=mock_route,
             user_id=user_id,
             schedule=mock_schedule,
             disruptions=[],
         )
 
-        assert should_send is True  # Should send when no previous state
+        assert should_send is False  # No disruptions = no alert
 
         # Verify span was created with OK status
         spans = exporter.get_finished_spans()
@@ -658,8 +658,8 @@ class TestAlertServiceShouldSendAlertOtelSpans:
         assert span.attributes["alert.user_id"] == str(user_id)
         assert span.attributes["alert.schedule_id"] == str(schedule_id)
         assert span.attributes["alert.has_previous_state"] is False
-        assert span.attributes["alert.state_changed"] is True
-        assert span.attributes["alert.result"] is True
+        assert span.attributes["alert.state_changed"] is False
+        assert span.attributes["alert.result"] is False
 
     @pytest.mark.asyncio
     async def test_should_send_alert_handles_error_gracefully(
@@ -689,15 +689,15 @@ class TestAlertServiceShouldSendAlertOtelSpans:
         mock_schedule = MagicMock()
         mock_schedule.id = schedule_id
 
-        # Method handles exception gracefully and returns True
-        should_send = await alert_svc._should_send_alert(
+        # Method handles exception gracefully
+        should_send, _filtered = await alert_svc._should_send_alert(
             route=mock_route,
             user_id=user_id,
             schedule=mock_schedule,
             disruptions=[],
         )
 
-        assert should_send is True  # Defaults to sending on error
+        assert should_send is True  # Failsafe: return True on Redis error
 
         # Verify span has OK status (exception was caught and handled)
         spans = exporter.get_finished_spans()

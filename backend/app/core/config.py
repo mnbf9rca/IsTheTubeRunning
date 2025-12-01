@@ -78,6 +78,9 @@ class Settings(BaseSettings):
     # Notification Settings (for Phase 7)
     MAX_NOTIFICATION_PREFERENCES_PER_ROUTE: int = 5
 
+    # Alert Settings (for Issue #309)
+    ALERT_COOLDOWN_MINUTES: int = 5  # Per-line cooldown to prevent spam from TfL API flickering
+
     # Alembic Settings
     ALEMBIC_INI_PATH: str = "alembic.ini"
 

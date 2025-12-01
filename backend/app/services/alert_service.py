@@ -1,8 +1,9 @@
 """Alert processing service for checking disruptions and sending notifications."""
 
+import contextlib
 import hashlib
 import json
-from datetime import UTC, datetime, time
+from datetime import UTC, datetime, time, timedelta
 from itertools import groupby
 from typing import TYPE_CHECKING, Any
 from uuid import UUID
@@ -17,6 +18,7 @@ from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
+from app.core.config import settings
 from app.core.redis import RedisClientProtocol
 from app.core.telemetry import service_span
 from app.helpers.disruption_helpers import disruption_affects_route, extract_line_station_pairs
@@ -36,6 +38,9 @@ from app.services.notification_service import NotificationService
 from app.services.tfl_service import TfLService
 
 logger = structlog.get_logger(__name__)
+
+# Alert state format version (for Redis state storage)
+ALERT_STATE_VERSION = 2
 
 
 # ==================== Pure Helper Functions ====================
@@ -860,17 +865,17 @@ class AlertService:
             route_index_pairs = await self._get_route_index_pairs(route.id)
 
             # Extract unique line IDs for fallback matching
+            route_line_ids: set[str]
             if route_index_pairs:
                 route_line_ids = {line_tfl_id for line_tfl_id, _ in route_index_pairs}
             else:
                 # Fallback: extract line IDs from segments if index is not populated
                 # This handles newly created routes before index is built
                 line_db_ids = {segment.line_id for segment in route.segments if segment.line_id}
+                route_line_ids = set()
                 if line_db_ids:
                     result = await self.db.execute(select(Line.tfl_id).where(Line.id.in_(line_db_ids)))
                     route_line_ids = {row[0] for row in result.all()}
-                else:
-                    route_line_ids = set()
 
             # Create TfL service instance
             tfl_service = TfLService(db=self.db)
@@ -921,12 +926,13 @@ class AlertService:
         user_id: UUID,
         schedule: UserRouteSchedule,
         disruptions: list[DisruptionResponse],
-    ) -> bool:
+    ) -> tuple[bool, list[DisruptionResponse]]:
         """
-        Check if we should send an alert based on deduplication logic.
+        Check if we should send an alert, with per-line cooldown logic.
 
-        Uses Redis to track disruption state within a schedule window.
-        Compares current disruptions with stored state to detect changes.
+        Uses Redis to track per-line disruption state within a schedule window.
+        Applies cooldown to prevent spam from TfL API flickering, but bypasses
+        cooldown if severity/status changes (important updates go through immediately).
 
         Args:
             route: UserRoute to check
@@ -935,7 +941,9 @@ class AlertService:
             disruptions: Current disruptions
 
         Returns:
-            True if alert should be sent, False if duplicate
+            Tuple of (should_send, filtered_disruptions):
+            - should_send: True if alert should be sent, False if all lines are within cooldown
+            - filtered_disruptions: Only disruptions for lines that passed cooldown check
         """
         with service_span("alert.should_send_check", "alert-service") as span:
             span.set_attribute("alert.route_id", str(route.id))
@@ -948,60 +956,71 @@ class AlertService:
 
                 # Check if key exists in Redis
                 stored_state = await self.redis_client.get(redis_key)
+                stored_lines: dict[str, dict[str, object]] = {}
 
-                if not stored_state:
-                    # No previous alert, should send
+                if stored_state:
+                    try:
+                        stored_data = json.loads(stored_state)
+                        # Ignore non-v2 state (will expire within schedule window anyway)
+                        if stored_data.get("version") == ALERT_STATE_VERSION:
+                            stored_lines = stored_data.get("lines", {})
+                    except (json.JSONDecodeError, AttributeError):
+                        logger.warning(
+                            "invalid_stored_alert_state",
+                            route_id=str(route.id),
+                            redis_key=redis_key,
+                        )
+
+                # Group current disruptions by line
+                disruptions_by_line = self._group_disruptions_by_line(disruptions)
+
+                now_utc = datetime.now(UTC)
+                cooldown = timedelta(minutes=settings.ALERT_COOLDOWN_MINUTES)
+
+                # Check each line against stored state and cooldown
+                lines_to_alert = [
+                    line_id
+                    for line_id, line_disruptions in disruptions_by_line.items()
+                    if self._check_line_alert_needed(
+                        line_id=line_id,
+                        line_disruptions=line_disruptions,
+                        stored_line=stored_lines.get(line_id),
+                        now_utc=now_utc,
+                        cooldown=cooldown,
+                        route_id=str(route.id),
+                    )
+                ]
+
+                if not lines_to_alert:
+                    # No lines passed the check
                     logger.debug(
-                        "no_previous_alert_state",
+                        "all_lines_within_cooldown",
                         route_id=str(route.id),
-                        redis_key=redis_key,
+                        total_lines=len(disruptions_by_line),
                     )
-                    span.set_attribute("alert.has_previous_state", False)
-                    span.set_attribute("alert.state_changed", True)
-                    span.set_attribute("alert.result", True)
-                    return True
-
-                span.set_attribute("alert.has_previous_state", True)
-
-                # Parse stored state and compare with current disruptions
-                try:
-                    stored_data = json.loads(stored_state)
-                    stored_hash = stored_data.get("hash", "")
-                except (json.JSONDecodeError, AttributeError):
-                    # Invalid stored data, send alert
-                    logger.warning(
-                        "invalid_stored_alert_state",
-                        route_id=str(route.id),
-                        redis_key=redis_key,
-                    )
-                    span.set_attribute("alert.state_changed", True)
-                    span.set_attribute("alert.result", True)
-                    return True
-
-                # Create hash of current disruptions
-                current_hash = self._create_disruption_hash(disruptions)
-
-                # Compare hashes
-                if current_hash == stored_hash:
-                    logger.debug(
-                        "disruption_state_unchanged",
-                        route_id=str(route.id),
-                        redis_key=redis_key,
-                    )
+                    span.set_attribute("alert.has_previous_state", bool(stored_lines))
                     span.set_attribute("alert.state_changed", False)
                     span.set_attribute("alert.result", False)
-                    return False
+                    span.set_attribute("alert.lines_checked", len(disruptions_by_line))
+                    span.set_attribute("alert.lines_to_alert", 0)
+                    return False, []
+
+                # Filter disruptions to only include lines that passed the check
+                filtered_disruptions = [d for d in disruptions if d.line_id in lines_to_alert]
 
                 logger.info(
-                    "disruption_state_changed",
+                    "alert_approved",
                     route_id=str(route.id),
-                    redis_key=redis_key,
-                    stored_hash=stored_hash,
-                    current_hash=current_hash,
+                    lines_to_alert=lines_to_alert,
+                    total_lines=len(disruptions_by_line),
                 )
+                span.set_attribute("alert.has_previous_state", bool(stored_lines))
                 span.set_attribute("alert.state_changed", True)
                 span.set_attribute("alert.result", True)
-                return True
+                span.set_attribute("alert.lines_checked", len(disruptions_by_line))
+                span.set_attribute("alert.lines_to_alert", len(lines_to_alert))
+
+                return True, filtered_disruptions
 
             except Exception as e:
                 logger.error(
@@ -1017,7 +1036,7 @@ class AlertService:
                 span.set_attribute("alert.error", True)
                 span.set_attribute("alert.error_type", type(e).__name__)
                 # On error, default to sending alert (better to over-notify than under-notify)
-                return True
+                return True, disruptions
 
     async def _get_verified_contact(  # noqa: PLR0911
         self,
@@ -1258,8 +1277,8 @@ class AlertService:
                 disruption_count=len(disruptions),
             )
 
-            # Check if we should send alert (deduplication)
-            should_send = await self._should_send_alert(
+            # Check if we should send alert (per-line cooldown deduplication)
+            should_send, filtered_disruptions = await self._should_send_alert(
                 route=route,
                 user_id=route.user_id,
                 schedule=active_schedule,
@@ -1268,17 +1287,17 @@ class AlertService:
 
             if not should_send:
                 logger.debug(
-                    "alert_skipped_duplicate",
+                    "alert_skipped_all_lines_within_cooldown",
                     route_id=str(route.id),
                     route_name=route.name,
                 )
                 return 0, error_occurred
 
-            # Send alerts
+            # Send alerts (only for lines that passed cooldown check)
             alerts_sent = await self._send_alerts_for_route(
                 route=route,
                 schedule=active_schedule,
-                disruptions=disruptions,
+                disruptions=filtered_disruptions,
             )
 
             return alerts_sent, error_occurred
@@ -1477,23 +1496,44 @@ class AlertService:
 
                 span.set_attribute("alert.ttl_seconds", ttl_seconds)
 
-                # Create disruption state
-                disruption_hash = self._create_disruption_hash(disruptions)
-                state_data = {
-                    "hash": disruption_hash,
-                    "disruptions": [
-                        {
-                            "line_id": d.line_id,
-                            "status": d.status_severity_description,
-                            "reason": d.reason or "",
-                        }
-                        for d in disruptions
-                    ],
-                    "stored_at": now_utc.isoformat(),
-                }
+                # Build per-line state with dual hashes
+                disruptions_by_line = self._group_disruptions_by_line(disruptions)
+                lines_state = {}
+
+                for line_id, line_disruptions in disruptions_by_line.items():
+                    # Get representative values (first disruption's severity/status)
+                    first = line_disruptions[0]
+                    lines_state[line_id] = {
+                        "full_hash": self._create_line_full_hash(line_disruptions),
+                        "status_hash": self._create_line_status_hash(line_disruptions),
+                        "severity": first.status_severity,
+                        "status": first.status_severity_description,
+                        "last_sent_at": now_utc.isoformat(),
+                    }
 
                 # Build Redis key
                 redis_key = f"alert:{route.id}:{user_id}:{schedule.id}"
+
+                # Merge with existing state (preserve lines we didn't alert about).
+                # Note: No freshness validation needed because:
+                # 1. TTL expires at schedule end time, so stale data doesn't persist across windows
+                # 2. Re-appearing disruptions will have different full_hash/status_hash, bypassing cooldown
+                existing_state = await self.redis_client.get(redis_key)
+                if existing_state:
+                    with contextlib.suppress(json.JSONDecodeError, AttributeError):
+                        data = json.loads(existing_state)
+                        if data.get("version") == ALERT_STATE_VERSION:
+                            # Preserve lines that weren't in this alert
+                            for line_id, line_data in data.get("lines", {}).items():
+                                if line_id not in lines_state:
+                                    lines_state[line_id] = line_data
+
+                # Create new state data in v2 format
+                state_data = {
+                    "version": ALERT_STATE_VERSION,
+                    "lines": lines_state,
+                    "stored_at": now_utc.isoformat(),
+                }
 
                 # Store in Redis with TTL
                 if ttl_seconds > 0:
@@ -1507,7 +1547,7 @@ class AlertService:
                         route_id=str(route.id),
                         redis_key=redis_key,
                         ttl_seconds=ttl_seconds,
-                        disruption_hash=disruption_hash,
+                        lines_count=len(lines_state),
                     )
                 else:
                     # TTL is 0 or negative, don't store (or store with minimal TTL)
@@ -1564,5 +1604,196 @@ class AlertService:
         ]
 
         # Create JSON string and hash it
+        hash_string = json.dumps(hash_input, sort_keys=True)
+        return hashlib.sha256(hash_string.encode()).hexdigest()
+
+    def _group_disruptions_by_line(
+        self,
+        disruptions: list[DisruptionResponse],
+    ) -> dict[str, list[DisruptionResponse]]:
+        """
+        Group disruptions by line_id for per-line cooldown logic.
+
+        Args:
+            disruptions: List of disruptions to group
+
+        Returns:
+            Dictionary mapping line_id to list of disruptions for that line
+        """
+        result: dict[str, list[DisruptionResponse]] = {}
+        for d in disruptions:
+            result.setdefault(d.line_id, []).append(d)
+        return result
+
+    def _validate_stored_line_timestamp(
+        self,
+        stored_line: dict[str, object],
+        route_id: str,
+        line_id: str,
+    ) -> datetime | None:
+        """
+        Validate and parse the last_sent_at timestamp from stored line state.
+
+        Args:
+            stored_line: Previously stored state for this line
+            route_id: Route ID for logging
+            line_id: TfL line ID for logging
+
+        Returns:
+            Parsed datetime if valid, None if invalid/missing
+        """
+        last_sent_str = stored_line.get("last_sent_at")
+        if not isinstance(last_sent_str, str):
+            logger.warning(
+                "invalid_last_sent_at_type",
+                route_id=route_id,
+                line_id=line_id,
+                value_type=type(last_sent_str).__name__,
+            )
+            return None
+        try:
+            return datetime.fromisoformat(last_sent_str)
+        except ValueError:
+            logger.warning(
+                "invalid_last_sent_at_format",
+                route_id=route_id,
+                line_id=line_id,
+                value=last_sent_str,
+            )
+            return None
+
+    def _check_line_alert_needed(
+        self,
+        line_id: str,
+        line_disruptions: list[DisruptionResponse],
+        stored_line: dict[str, object] | None,
+        now_utc: datetime,
+        cooldown: timedelta,
+        route_id: str,
+    ) -> bool:
+        """
+        Check if an alert is needed for a specific line.
+
+        Args:
+            line_id: TfL line ID
+            line_disruptions: Current disruptions for this line
+            stored_line: Previously stored state for this line (if any)
+            now_utc: Current UTC time
+            cooldown: Cooldown duration to apply for reason-only changes
+            route_id: Route ID for logging
+
+        Returns:
+            True if alert should be sent, False if within cooldown
+        """
+        current_full_hash = self._create_line_full_hash(line_disruptions)
+
+        # New line or corrupted state - always alert
+        if stored_line is None:
+            logger.info("alert_new_line_detected", route_id=route_id, line_id=line_id)
+            return True
+
+        required_fields = ["full_hash", "status_hash", "last_sent_at"]
+        if any(field not in stored_line for field in required_fields):
+            logger.warning(
+                "stored_line_missing_required_fields",
+                route_id=route_id,
+                line_id=line_id,
+                missing_fields=[f for f in required_fields if f not in stored_line],
+            )
+            return True
+
+        # No change - skip
+        if current_full_hash == stored_line.get("full_hash"):
+            return False
+
+        # Content changed - check if severity/status changed (bypass cooldown)
+        current_status_hash = self._create_line_status_hash(line_disruptions)
+        severity_changed = current_status_hash != stored_line.get("status_hash")
+        if severity_changed:
+            logger.info(
+                "line_severity_changed",
+                route_id=route_id,
+                line_id=line_id,
+                new_hash=current_status_hash,
+                old_hash=stored_line.get("status_hash"),
+            )
+            return True
+
+        # Only reason text changed - validate timestamp and apply cooldown
+        last_sent = self._validate_stored_line_timestamp(stored_line, route_id, line_id)
+        cooldown_expired = last_sent is None or now_utc >= last_sent + cooldown
+
+        if cooldown_expired and last_sent is not None:
+            logger.info(
+                "line_reason_changed_cooldown_expired",
+                route_id=route_id,
+                line_id=line_id,
+                cooldown_minutes=cooldown.total_seconds() / 60,
+            )
+
+        return cooldown_expired
+
+    def _create_line_full_hash(
+        self,
+        disruptions_for_line: list[DisruptionResponse],
+    ) -> str:
+        """
+        Create hash including reason text (current behavior, for "all changes" mode).
+
+        Sorts disruptions by (severity, status, reason) for deterministic ordering,
+        then hashes all fields including the full reason text.
+
+        Args:
+            disruptions_for_line: List of disruptions for a single line
+
+        Returns:
+            SHA256 hash (hex digest) of line state including reason
+        """
+        sorted_disruptions = sorted(
+            disruptions_for_line,
+            key=lambda d: (
+                d.status_severity,
+                d.status_severity_description,
+                d.reason or "",
+            ),
+        )
+
+        hash_input = [
+            {
+                "severity": d.status_severity,
+                "status": d.status_severity_description,
+                "reason": d.reason or "",
+            }
+            for d in sorted_disruptions
+        ]
+
+        hash_string = json.dumps(hash_input, sort_keys=True)
+        return hashlib.sha256(hash_string.encode()).hexdigest()
+
+    def _create_line_status_hash(
+        self,
+        disruptions_for_line: list[DisruptionResponse],
+    ) -> str:
+        """
+        Create hash excluding reason text (for "severity only" mode, future #308).
+
+        Sorts disruptions by (severity, status) only, then hashes without reason.
+        This enables future user preference to only alert on severity/status changes.
+
+        Args:
+            disruptions_for_line: List of disruptions for a single line
+
+        Returns:
+            SHA256 hash (hex digest) of line state excluding reason
+        """
+        sorted_disruptions = sorted(
+            disruptions_for_line,
+            key=lambda d: (d.status_severity, d.status_severity_description),
+        )
+
+        hash_input = [
+            {"severity": d.status_severity, "status": d.status_severity_description} for d in sorted_disruptions
+        ]
+
         hash_string = json.dumps(hash_input, sort_keys=True)
         return hashlib.sha256(hash_string.encode()).hexdigest()
