@@ -24,7 +24,7 @@ depends_on: str | Sequence[str] | None = None
 
 def _hash_pii(value: str) -> str:
     """Hash PII value (same as app.utils.pii.hash_pii)."""
-    return hashlib.sha256(value.encode()).hexdigest()[:12]
+    return hashlib.sha256(value.encode()).hexdigest()
 
 
 def upgrade() -> None:
@@ -32,11 +32,11 @@ def upgrade() -> None:
     # Step 1: Add contact_hash columns as nullable
     op.add_column(
         "email_addresses",
-        Column("contact_hash", String(length=12), nullable=True),
+        Column("contact_hash", String(length=64), nullable=True),
     )
     op.add_column(
         "phone_numbers",
-        Column("contact_hash", String(length=12), nullable=True),
+        Column("contact_hash", String(length=64), nullable=True),
     )
 
     # Step 2: Backfill existing records

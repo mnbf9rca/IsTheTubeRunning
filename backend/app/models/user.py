@@ -67,10 +67,10 @@ class EmailAddress(BaseModel):
         nullable=False,
     )
     contact_hash: Mapped[str] = mapped_column(
-        String(12),
+        String(64),
         nullable=False,
         index=True,
-        comment="SHA256 hash (first 12 chars) of email for PII-safe logging",
+        comment="SHA256 hash of email for PII-safe logging",
     )
     verified: Mapped[bool] = mapped_column(
         default=False,
@@ -115,10 +115,10 @@ class PhoneNumber(BaseModel):
         nullable=False,
     )
     contact_hash: Mapped[str] = mapped_column(
-        String(12),
+        String(64),
         nullable=False,
         index=True,
-        comment="SHA256 hash (first 12 chars) of phone for PII-safe logging",
+        comment="SHA256 hash of phone for PII-safe logging",
     )
     verified: Mapped[bool] = mapped_column(
         default=False,

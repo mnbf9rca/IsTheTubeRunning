@@ -481,10 +481,10 @@ Hash all PII (email addresses, phone numbers) before logging or adding to teleme
 
 **Implementation**:
 1. **Centralized hash function** (`app.utils.pii.hash_pii()`):
-   - Pure function using SHA256, first 12 characters of hex digest
+   - Pure function using SHA256, full 64-character hex digest
    - Deterministic: same input → same output (enables correlation)
    - Fast: microseconds per hash
-   - Length: 12 characters provides sufficient uniqueness
+   - No collision risk: full 256-bit hash eliminates collisions
 
 2. **Database storage**:
    - Added `contact_hash` column to `email_addresses` and `phone_numbers` tables
@@ -519,11 +519,10 @@ Hash all PII (email addresses, phone numbers) before logging or adding to teleme
 **More Difficult:**
 - **Not Human-Readable**: Cannot immediately identify user from hash in logs
 - **Requires Lookup**: Must query database to correlate hash → user
-- **Hash Collisions**: Theoretical risk (but SHA256 first 12 chars = ~68 bits entropy)
 - **Migration**: Existing logs contain plaintext PII (cannot retroactively fix)
 
 ### Testing
-- `backend/tests/utils/test_pii.py` - 8 tests for hash function (determinism, length, Unicode)
+- `backend/tests/utils/test_pii.py` - 6 tests for hash function (determinism, length, Unicode)
 - Existing service tests updated to assert on `*_hash` attributes instead of raw values
 - 100% coverage on new utility code
 
