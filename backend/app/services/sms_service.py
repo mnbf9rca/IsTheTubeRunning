@@ -112,11 +112,11 @@ class SmsService:
         """
         message = f"Your IsTheTubeRunning verification code is: {code}. This code expires in 15 minutes."
 
-        # Compute hash once for use in logs
-        phone_hash = hash_pii(phone)
-
         # Use generic send_sms method
         await self.send_sms(phone, message)
+
+        # Compute hash for verification-specific logging
+        phone_hash = hash_pii(phone)
         logger.info("verification_sms_sent", recipient_hash=phone_hash, code=code)
 
     def _write_to_file_sync(self, message: str, timestamp: str, phone_hash: str) -> None:
