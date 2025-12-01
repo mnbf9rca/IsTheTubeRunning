@@ -2,7 +2,7 @@
 
 from app.utils.pii import hash_pii
 
-# note: hash result is an opaque 12-character hex string
+# note: hash result is an opaque 64-character hex string (HMAC-SHA256)
 
 
 def test_hash_pii_deterministic() -> None:
@@ -47,8 +47,33 @@ def test_hash_pii_unicode() -> None:
     assert len(result) == 64
 
 
-def test_hash_pii_examples_from_docstring() -> None:
-    """Test the examples from the docstring."""
-    # Note: These are the actual hashes, verifying they match
-    assert hash_pii("user@example.com") == "b4c9a289323b21a01c3e940f150eb9b8c542587f1abfd8f0e1cc1ffc5e475514"
-    assert hash_pii("+447700900123") == "a8acc3a90a7b4e4dc65e93db9240ed26523050ef754d63b75b5161de76781436"
+def test_hash_pii_case_sensitivity() -> None:
+    """Test that hash_pii behavior for different input case is explicit and locked in."""
+    lower = "user@example.com"
+    mixed = "User@Example.com"
+
+    lower_hash = hash_pii(lower)
+    mixed_hash = hash_pii(mixed)
+
+    # Document current behavior: case differences SHOULD produce different hashes.
+    # If behavior changes in the future (e.g. normalization added), this test
+    # should be updated to reflect that new, intentional behavior.
+    assert lower_hash != mixed_hash
+    assert len(lower_hash) == 64
+    assert len(mixed_hash) == 64
+
+
+def test_hash_pii_whitespace_sensitivity() -> None:
+    """Test that hash_pii behavior for leading/trailing whitespace is explicit and locked in."""
+    base = "user@example.com"
+    padded = "  user@example.com  "
+
+    base_hash = hash_pii(base)
+    padded_hash = hash_pii(padded)
+
+    # Document current behavior: leading/trailing whitespace SHOULD produce different hashes.
+    # If hash_pii is later changed to normalize/strip inputs, this test should
+    # be updated accordingly to match that intentional behavior.
+    assert base_hash != padded_hash
+    assert len(base_hash) == 64
+    assert len(padded_hash) == 64

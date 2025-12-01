@@ -182,6 +182,9 @@ This is an automated message from IsTheTubeRunning.
             asyncio.TimeoutError: If SMTP operation times out
             OSError: If network/socket errors occur
         """
+        # Compute hash once for use in logs and telemetry
+        recipient_hash = hash_pii(to)
+
         with service_span(
             "email.send",
             "smtp",
@@ -190,7 +193,7 @@ This is an automated message from IsTheTubeRunning.
             # Set SMTP span attributes
             span.set_attribute("smtp.host", self.smtp_host)
             span.set_attribute("smtp.port", self.smtp_port)
-            span.set_attribute("email.recipient_hash", hash_pii(to))
+            span.set_attribute("email.recipient_hash", recipient_hash)
             span.set_attribute("email.subject", subject)
             try:
                 # Create the email message
@@ -217,12 +220,12 @@ This is an automated message from IsTheTubeRunning.
                     await server.login(self.smtp_user, self.smtp_password)
                     await server.send_message(message)
 
-                logger.info("email_sent", recipient_hash=hash_pii(to), subject=subject)
+                logger.info("email_sent", recipient_hash=recipient_hash, subject=subject)
 
             except TimeoutError as e:
                 logger.error(
                     "email_send_timeout",
-                    recipient_hash=hash_pii(to),
+                    recipient_hash=recipient_hash,
                     subject=subject,
                     error=str(e),
                 )
@@ -231,7 +234,7 @@ This is an automated message from IsTheTubeRunning.
                 # Catches ConnectionRefusedError, ConnectionResetError, socket errors, etc.
                 logger.error(
                     "email_send_network_error",
-                    recipient_hash=hash_pii(to),
+                    recipient_hash=recipient_hash,
                     subject=subject,
                     error=str(e),
                 )
@@ -239,7 +242,7 @@ This is an automated message from IsTheTubeRunning.
             except aiosmtplib.SMTPException as e:
                 logger.error(
                     "email_send_failed",
-                    recipient_hash=hash_pii(to),
+                    recipient_hash=recipient_hash,
                     subject=subject,
                     error=str(e),
                 )

@@ -9,10 +9,10 @@ Create Date: 2025-12-01 13:25:14.769254
 
 """
 
-import hashlib
 from collections.abc import Sequence
 
 from alembic import op
+from app.utils.pii import hash_pii
 from sqlalchemy import Column, String, text
 
 # revision identifiers, used by Alembic.
@@ -20,11 +20,6 @@ revision: str = "1f4d6532d88a"
 down_revision: str | Sequence[str] | None = "cea4031bd399"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
-
-
-def _hash_pii(value: str) -> str:
-    """Hash PII value (same as app.utils.pii.hash_pii)."""
-    return hashlib.sha256(value.encode()).hexdigest()
 
 
 def upgrade() -> None:
@@ -46,7 +41,7 @@ def upgrade() -> None:
     # Backfill email_addresses
     emails = conn.execute(text("SELECT id, email FROM email_addresses WHERE contact_hash IS NULL")).fetchall()
     for row in emails:
-        contact_hash = _hash_pii(row.email)
+        contact_hash = hash_pii(row.email)
         conn.execute(
             text("UPDATE email_addresses SET contact_hash = :hash WHERE id = :id"),
             {"hash": contact_hash, "id": row.id},
@@ -55,7 +50,7 @@ def upgrade() -> None:
     # Backfill phone_numbers
     phones = conn.execute(text("SELECT id, phone FROM phone_numbers WHERE contact_hash IS NULL")).fetchall()
     for row in phones:
-        contact_hash = _hash_pii(row.phone)
+        contact_hash = hash_pii(row.phone)
         conn.execute(
             text("UPDATE phone_numbers SET contact_hash = :hash WHERE id = :id"),
             {"hash": contact_hash, "id": row.id},

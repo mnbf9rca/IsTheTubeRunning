@@ -477,25 +477,32 @@ Examples of PII exposure:
 Need a consistent approach to protect PII while maintaining debuggability and user correlation.
 
 ### Decision
-Hash all PII (email addresses, phone numbers) before logging or adding to telemetry spans.
+Hash all PII (email addresses, phone numbers) before logging or adding to telemetry spans using HMAC-SHA256 with a secret key.
 
 **Implementation**:
 1. **Centralized hash function** (`app.utils.pii.hash_pii()`):
-   - Pure function using SHA256, full 64-character hex digest
-   - Deterministic: same input → same output (enables correlation)
+   - Pure function using HMAC-SHA256, full 64-character hex digest
+   - Deterministic: same input → same output given the same secret (enables correlation)
+   - Keyed hash: uses `PII_HASH_SECRET` from configuration
+   - Dictionary attack resistance: HMAC prevents precomputed rainbow tables
    - Fast: microseconds per hash
    - No collision risk: full 256-bit hash eliminates collisions
 
-2. **Database storage**:
+2. **Configuration**:
+   - `PII_HASH_SECRET` setting in `backend/app/core/config.py` (required)
+   - Secret stored in `.env` file (development) or environment variables (production)
+   - Generate strong secret: `python3 -c "import secrets; print(secrets.token_urlsafe(32))"`
+
+3. **Database storage**:
    - Added `contact_hash` column to `email_addresses` and `phone_numbers` tables
    - Indexed for fast lookups
    - Auto-computed on record creation via model `__init__`
 
-3. **Logging pattern**:
+4. **Logging pattern**:
    - Replace `recipient=value` with `recipient_hash=hash_pii(value)`
    - Replace `target=value` with `target_hash=hash_pii(value)`
 
-4. **Telemetry pattern**:
+5. **Telemetry pattern**:
    - Replace `email.recipient` with `email.recipient_hash`
    - Replace `sms.recipient` with `sms.recipient_hash`
 
@@ -510,19 +517,21 @@ Hash all PII (email addresses, phone numbers) before logging or adding to teleme
 
 **Easier:**
 - **Privacy Protection**: PII no longer stored in cleartext in logs/traces
+- **Dictionary Attack Resistance**: HMAC with secret key prevents rainbow table attacks
 - **User Correlation**: Can link logs/traces to users via hash lookup in database
 - **Compliance**: Meets data minimization requirements
 - **Consistency**: Single `hash_pii()` function used across all services
-- **Debuggability**: Hash is deterministic - same user always produces same hash
+- **Debuggability**: Hash is deterministic - same user always produces same hash (given same secret)
 - **Performance**: Indexed hash column enables fast reverse lookups
 
 **More Difficult:**
 - **Not Human-Readable**: Cannot immediately identify user from hash in logs
 - **Requires Lookup**: Must query database to correlate hash → user
+- **Secret Management**: Must securely manage `PII_HASH_SECRET` (rotation requires rehashing)
 - **Migration**: Existing logs contain plaintext PII (cannot retroactively fix)
 
 ### Testing
-- `backend/tests/utils/test_pii.py` - 6 tests for hash function (determinism, length, Unicode)
+- `backend/tests/utils/test_pii.py` - 8 tests for hash function (determinism, length, Unicode, case/whitespace sensitivity)
 - Existing service tests updated to assert on `*_hash` attributes instead of raw values
 - 100% coverage on new utility code
 

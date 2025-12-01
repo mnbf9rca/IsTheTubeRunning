@@ -58,12 +58,15 @@ class NotificationService:
         Raises:
             Exception: If email sending fails
         """
+        # Compute hash once for use in logs and telemetry
+        recipient_hash = hash_pii(email)
+
         with service_span(
             "notification.send_disruption_email",
             "notification-service",
         ) as span:
             span.set_attribute("notification.type", "email")
-            span.set_attribute("notification.recipient_hash", hash_pii(email))
+            span.set_attribute("notification.recipient_hash", recipient_hash)
             span.set_attribute("notification.route_name", route_name)
             span.set_attribute("notification.disruption_count", len(disruptions))
 
@@ -106,7 +109,7 @@ This is an automated alert from IsTheTubeRunning.
 
                 logger.info(
                     "disruption_email_sent",
-                    recipient_hash=hash_pii(email),
+                    recipient_hash=recipient_hash,
                     route_name=route_name,
                     disruption_count=len(disruptions),
                 )
@@ -114,7 +117,7 @@ This is an automated alert from IsTheTubeRunning.
             except Exception as e:
                 logger.error(
                     "disruption_email_failed",
-                    recipient_hash=hash_pii(email),
+                    recipient_hash=recipient_hash,
                     route_name=route_name,
                     error=str(e),
                     exc_info=e,
@@ -138,12 +141,15 @@ This is an automated alert from IsTheTubeRunning.
             route_name: Name of the route affected
             disruptions: List of disruptions affecting the route
         """
+        # Compute hash once for use in logs and telemetry
+        recipient_hash = hash_pii(phone)
+
         with service_span(
             "notification.send_disruption_sms",
             "notification-service",
         ) as span:
             span.set_attribute("notification.type", "sms")
-            span.set_attribute("notification.recipient_hash", hash_pii(phone))
+            span.set_attribute("notification.recipient_hash", recipient_hash)
             span.set_attribute("notification.route_name", route_name)
             span.set_attribute("notification.disruption_count", len(disruptions))
 
@@ -181,7 +187,7 @@ This is an automated alert from IsTheTubeRunning.
 
                 logger.info(
                     "disruption_sms_sent",
-                    recipient_hash=hash_pii(phone),
+                    recipient_hash=recipient_hash,
                     route_name=route_name,
                     disruption_count=len(disruptions),
                     message_length=len(message),
@@ -190,7 +196,7 @@ This is an automated alert from IsTheTubeRunning.
             except Exception as e:
                 logger.error(
                     "disruption_sms_failed",
-                    recipient_hash=hash_pii(phone),
+                    recipient_hash=recipient_hash,
                     route_name=route_name,
                     error=str(e),
                     exc_info=e,

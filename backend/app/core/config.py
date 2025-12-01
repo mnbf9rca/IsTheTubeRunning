@@ -81,6 +81,9 @@ class Settings(BaseSettings):
     # Alert Settings (for Issue #309)
     ALERT_COOLDOWN_MINUTES: int = 5  # Per-line cooldown to prevent spam from TfL API flickering
 
+    # PII Hashing Settings (for Issue #311)
+    PII_HASH_SECRET: str  # Secret key for HMAC-SHA256 hashing of PII in logs/telemetry
+
     # Alembic Settings
     ALEMBIC_INI_PATH: str = "alembic.ini"
 

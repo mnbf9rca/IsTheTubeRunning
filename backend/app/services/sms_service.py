@@ -96,7 +96,7 @@ class SmsService:
                 loop = asyncio.get_running_loop()
                 await loop.run_in_executor(
                     None,
-                    functools.partial(self._write_to_file_sync, phone, message, timestamp),
+                    functools.partial(self._write_to_file_sync, phone, message, timestamp, phone_hash),
                 )
 
     async def send_verification_sms(self, phone: str, code: str) -> None:
@@ -112,11 +112,14 @@ class SmsService:
         """
         message = f"Your IsTheTubeRunning verification code is: {code}. This code expires in 15 minutes."
 
+        # Compute hash once for use in logs
+        phone_hash = hash_pii(phone)
+
         # Use generic send_sms method
         await self.send_sms(phone, message)
-        logger.info("verification_sms_sent", recipient_hash=hash_pii(phone), code=code)
+        logger.info("verification_sms_sent", recipient_hash=phone_hash, code=code)
 
-    def _write_to_file_sync(self, phone: str, message: str, timestamp: str) -> None:
+    def _write_to_file_sync(self, phone: str, message: str, timestamp: str, phone_hash: str) -> None:
         """
         Synchronously write SMS log entry to file (runs in thread pool).
 
@@ -124,6 +127,7 @@ class SmsService:
             phone: Recipient phone number
             message: Full SMS message
             timestamp: ISO format timestamp
+            phone_hash: Pre-computed hash of phone number for error logging
         """
         if not SMS_LOG_FILE:
             return
@@ -136,5 +140,5 @@ class SmsService:
             logger.error(
                 "sms_file_logging_failed",
                 error=str(e),
-                recipient_hash=hash_pii(phone),
+                recipient_hash=phone_hash,
             )

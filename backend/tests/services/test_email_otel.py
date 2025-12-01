@@ -60,6 +60,9 @@ class TestEmailServiceOtelSpans:
         assert span.attributes["email.recipient_hash"] == hash_pii("test@example.com")
         assert span.attributes["email.subject"] == "Test Subject"
 
+        # Ensure raw PII is not present in any OTEL span attributes
+        assert "test@example.com" not in span.attributes.values()
+
     @pytest.mark.asyncio
     async def test_send_email_async_records_exception_on_timeout(
         self,
