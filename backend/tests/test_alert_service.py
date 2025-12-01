@@ -4,7 +4,7 @@ import json
 import os
 import time
 from collections.abc import Callable
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from datetime import time as time_class
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock, Mock, patch
@@ -26,6 +26,7 @@ from app.models.user_route import UserRoute, UserRouteSchedule, UserRouteSegment
 from app.models.user_route_index import UserRouteStationIndex
 from app.schemas.tfl import AffectedRouteInfo, DisruptionResponse
 from app.services.alert_service import (
+    ALERT_STATE_VERSION,
     AlertService,
     create_line_aggregate_hash,
     filter_alertable_disruptions,
@@ -4129,3 +4130,663 @@ class TestLineDisruptionStateLogging:
             # Should not raise, should return 0
             lines_hydrated = await warm_up_line_state_cache(db_session, stateful_mock_redis)
             assert lines_hydrated == 0
+
+
+class TestPerLineCooldown:
+    """Tests for per-line alert cooldown functionality (Issue #309)."""
+
+    def test_group_disruptions_by_line(self, db_session: AsyncSession, stateful_mock_redis: AsyncMock):
+        """Test that disruptions are correctly grouped by line_id."""
+        service = AlertService(db=db_session, redis_client=stateful_mock_redis)
+
+        disruptions = [
+            DisruptionResponse(
+                line_id="victoria",
+                line_name="Victoria",
+                mode="tube",
+                status_severity=4,
+                status_severity_description="Severe Delays",
+                reason="Signal failure",
+            ),
+            DisruptionResponse(
+                line_id="piccadilly",
+                line_name="Piccadilly",
+                mode="tube",
+                status_severity=6,
+                status_severity_description="Part Closure",
+                reason="Engineering works",
+            ),
+            DisruptionResponse(
+                line_id="victoria",
+                line_name="Victoria",
+                mode="tube",
+                status_severity=10,
+                status_severity_description="Minor Delays",
+                reason="Train cancellations",
+            ),
+        ]
+
+        grouped = service._group_disruptions_by_line(disruptions)
+
+        assert len(grouped) == 2
+        assert len(grouped["victoria"]) == 2
+        assert len(grouped["piccadilly"]) == 1
+        assert grouped["victoria"][0].reason == "Signal failure"
+        assert grouped["piccadilly"][0].line_id == "piccadilly"
+
+    def test_create_line_full_hash_includes_reason(self, db_session: AsyncSession, stateful_mock_redis: AsyncMock):
+        """Test that full hash includes reason text."""
+        service = AlertService(db=db_session, redis_client=stateful_mock_redis)
+
+        disruptions_v1 = [
+            DisruptionResponse(
+                line_id="victoria",
+                line_name="Victoria",
+                mode="tube",
+                status_severity=4,
+                status_severity_description="Severe Delays",
+                reason="Signal failure at Oxford Circus",
+            ),
+        ]
+
+        disruptions_v2 = [
+            DisruptionResponse(
+                line_id="victoria",
+                line_name="Victoria",
+                mode="tube",
+                status_severity=4,
+                status_severity_description="Severe Delays",
+                reason="Signal failure at Victoria",  # Different reason
+            ),
+        ]
+
+        hash1 = service._create_line_full_hash(disruptions_v1)
+        hash2 = service._create_line_full_hash(disruptions_v2)
+
+        # Different reasons should produce different hashes
+        assert hash1 != hash2
+        assert len(hash1) == 64  # SHA256 hex digest
+        assert len(hash2) == 64
+
+    def test_create_line_status_hash_excludes_reason(self, db_session: AsyncSession, stateful_mock_redis: AsyncMock):
+        """Test that status hash excludes reason text."""
+        service = AlertService(db=db_session, redis_client=stateful_mock_redis)
+
+        disruptions_v1 = [
+            DisruptionResponse(
+                line_id="victoria",
+                line_name="Victoria",
+                mode="tube",
+                status_severity=4,
+                status_severity_description="Severe Delays",
+                reason="Signal failure at Oxford Circus",
+            ),
+        ]
+
+        disruptions_v2 = [
+            DisruptionResponse(
+                line_id="victoria",
+                line_name="Victoria",
+                mode="tube",
+                status_severity=4,
+                status_severity_description="Severe Delays",
+                reason="Signal failure at Victoria",  # Different reason
+            ),
+        ]
+
+        hash1 = service._create_line_status_hash(disruptions_v1)
+        hash2 = service._create_line_status_hash(disruptions_v2)
+
+        # Same severity/status should produce same hash despite different reason
+        assert hash1 == hash2
+        assert len(hash1) == 64  # SHA256 hex digest
+
+    def test_create_line_status_hash_changes_with_severity(
+        self, db_session: AsyncSession, stateful_mock_redis: AsyncMock
+    ):
+        """Test that status hash changes when severity changes."""
+        service = AlertService(db=db_session, redis_client=stateful_mock_redis)
+
+        disruptions_severe = [
+            DisruptionResponse(
+                line_id="victoria",
+                line_name="Victoria",
+                mode="tube",
+                status_severity=4,
+                status_severity_description="Severe Delays",
+                reason="Signal failure",
+            ),
+        ]
+
+        disruptions_minor = [
+            DisruptionResponse(
+                line_id="victoria",
+                line_name="Victoria",
+                mode="tube",
+                status_severity=10,
+                status_severity_description="Minor Delays",  # Different status
+                reason="Signal failure",
+            ),
+        ]
+
+        hash_severe = service._create_line_status_hash(disruptions_severe)
+        hash_minor = service._create_line_status_hash(disruptions_minor)
+
+        # Different severity/status should produce different hashes
+        assert hash_severe != hash_minor
+
+    async def test_should_send_alert_no_previous_state(
+        self,
+        db_session: AsyncSession,
+        stateful_mock_redis: AsyncMock,
+        test_route_with_schedule: UserRoute,
+    ):
+        """Test that alert is sent when no previous state exists."""
+        service = AlertService(db=db_session, redis_client=stateful_mock_redis)
+        stateful_mock_redis.get = AsyncMock(return_value=None)  # No previous state
+
+        disruptions = [
+            DisruptionResponse(
+                line_id="victoria",
+                line_name="Victoria",
+                mode="tube",
+                status_severity=4,
+                status_severity_description="Severe Delays",
+                reason="Signal failure",
+            ),
+        ]
+
+        should_send, filtered = await service._should_send_alert(
+            route=test_route_with_schedule,
+            user_id=test_route_with_schedule.user_id,
+            schedule=test_route_with_schedule.schedules[0],
+            disruptions=disruptions,
+        )
+
+        assert should_send is True
+        assert len(filtered) == 1
+        assert filtered[0].line_id == "victoria"
+
+    async def test_should_send_alert_new_line_appears(
+        self,
+        db_session: AsyncSession,
+        stateful_mock_redis: AsyncMock,
+        test_route_with_schedule: UserRoute,
+    ):
+        """Test that alert is sent when a new line appears."""
+        service = AlertService(db=db_session, redis_client=stateful_mock_redis)
+
+        # Mock existing state with only Victoria
+        existing_state = {
+            "version": ALERT_STATE_VERSION,
+            "lines": {
+                "victoria": {
+                    "full_hash": "old_hash",
+                    "status_hash": "old_status_hash",
+                    "severity": 4,
+                    "status": "Severe Delays",
+                    "last_sent_at": datetime.now(UTC).isoformat(),
+                }
+            },
+            "stored_at": datetime.now(UTC).isoformat(),
+        }
+        stateful_mock_redis.get = AsyncMock(return_value=json.dumps(existing_state))
+
+        # New disruption on Piccadilly (new line)
+        disruptions = [
+            DisruptionResponse(
+                line_id="piccadilly",  # New line
+                line_name="Piccadilly",
+                mode="tube",
+                status_severity=6,
+                status_severity_description="Part Closure",
+                reason="Engineering works",
+            ),
+        ]
+
+        should_send, filtered = await service._should_send_alert(
+            route=test_route_with_schedule,
+            user_id=test_route_with_schedule.user_id,
+            schedule=test_route_with_schedule.schedules[0],
+            disruptions=disruptions,
+        )
+
+        assert should_send is True
+        assert len(filtered) == 1
+        assert filtered[0].line_id == "piccadilly"
+
+    async def test_should_send_alert_severity_changed_bypasses_cooldown(
+        self,
+        db_session: AsyncSession,
+        stateful_mock_redis: AsyncMock,
+        test_route_with_schedule: UserRoute,
+    ):
+        """Test that severity/status changes bypass cooldown."""
+        service = AlertService(db=db_session, redis_client=stateful_mock_redis)
+
+        # Mock existing state with Victoria having "Minor Delays"
+        disruptions_old = [
+            DisruptionResponse(
+                line_id="victoria",
+                line_name="Victoria",
+                mode="tube",
+                status_severity=10,
+                status_severity_description="Minor Delays",
+                reason="Signal failure",
+            ),
+        ]
+        existing_state = {
+            "version": ALERT_STATE_VERSION,
+            "lines": {
+                "victoria": {
+                    "full_hash": service._create_line_full_hash(disruptions_old),
+                    "status_hash": service._create_line_status_hash(disruptions_old),
+                    "severity": 10,
+                    "status": "Minor Delays",
+                    "last_sent_at": datetime.now(UTC).isoformat(),  # Just sent
+                }
+            },
+            "stored_at": datetime.now(UTC).isoformat(),
+        }
+        stateful_mock_redis.get = AsyncMock(return_value=json.dumps(existing_state))
+
+        # New disruption on Victoria with DIFFERENT severity (escalated to Severe)
+        disruptions_new = [
+            DisruptionResponse(
+                line_id="victoria",
+                line_name="Victoria",
+                mode="tube",
+                status_severity=4,  # Changed from 10
+                status_severity_description="Severe Delays",  # Changed
+                reason="Signal failure",  # Same reason
+            ),
+        ]
+
+        should_send, filtered = await service._should_send_alert(
+            route=test_route_with_schedule,
+            user_id=test_route_with_schedule.user_id,
+            schedule=test_route_with_schedule.schedules[0],
+            disruptions=disruptions_new,
+        )
+
+        # Should alert immediately despite just having sent an alert
+        assert should_send is True
+        assert len(filtered) == 1
+        assert filtered[0].status_severity_description == "Severe Delays"
+
+    async def test_should_send_alert_reason_only_within_cooldown_skips(
+        self,
+        db_session: AsyncSession,
+        stateful_mock_redis: AsyncMock,
+        test_route_with_schedule: UserRoute,
+    ):
+        """Test that reason-only changes within cooldown period are skipped."""
+        service = AlertService(db=db_session, redis_client=stateful_mock_redis)
+
+        # Mock existing state with Victoria sent 1 minute ago
+        disruptions_old = [
+            DisruptionResponse(
+                line_id="victoria",
+                line_name="Victoria",
+                mode="tube",
+                status_severity=4,
+                status_severity_description="Severe Delays",
+                reason="Signal failure at Oxford Circus",
+            ),
+        ]
+        one_minute_ago = datetime.now(UTC) - timedelta(minutes=1)
+        existing_state = {
+            "version": ALERT_STATE_VERSION,
+            "lines": {
+                "victoria": {
+                    "full_hash": service._create_line_full_hash(disruptions_old),
+                    "status_hash": service._create_line_status_hash(disruptions_old),
+                    "severity": 4,
+                    "status": "Severe Delays",
+                    "last_sent_at": one_minute_ago.isoformat(),  # 1 min ago
+                }
+            },
+            "stored_at": one_minute_ago.isoformat(),
+        }
+        stateful_mock_redis.get = AsyncMock(return_value=json.dumps(existing_state))
+
+        # New disruption with SAME severity but DIFFERENT reason
+        disruptions_new = [
+            DisruptionResponse(
+                line_id="victoria",
+                line_name="Victoria",
+                mode="tube",
+                status_severity=4,  # Same
+                status_severity_description="Severe Delays",  # Same
+                reason="Signal failure at Victoria",  # Different reason
+            ),
+        ]
+
+        with patch("app.services.alert_service.settings.ALERT_COOLDOWN_MINUTES", 5):
+            should_send, filtered = await service._should_send_alert(
+                route=test_route_with_schedule,
+                user_id=test_route_with_schedule.user_id,
+                schedule=test_route_with_schedule.schedules[0],
+                disruptions=disruptions_new,
+            )
+
+        # Should NOT alert (within 5-minute cooldown)
+        assert should_send is False
+        assert len(filtered) == 0
+
+    async def test_should_send_alert_reason_only_after_cooldown_sends(
+        self,
+        db_session: AsyncSession,
+        stateful_mock_redis: AsyncMock,
+        test_route_with_schedule: UserRoute,
+    ):
+        """Test that reason-only changes after cooldown period are sent."""
+        service = AlertService(db=db_session, redis_client=stateful_mock_redis)
+
+        # Mock existing state with Victoria sent 6 minutes ago
+        disruptions_old = [
+            DisruptionResponse(
+                line_id="victoria",
+                line_name="Victoria",
+                mode="tube",
+                status_severity=4,
+                status_severity_description="Severe Delays",
+                reason="Signal failure at Oxford Circus",
+            ),
+        ]
+        six_minutes_ago = datetime.now(UTC) - timedelta(minutes=6)
+        existing_state = {
+            "version": ALERT_STATE_VERSION,
+            "lines": {
+                "victoria": {
+                    "full_hash": service._create_line_full_hash(disruptions_old),
+                    "status_hash": service._create_line_status_hash(disruptions_old),
+                    "severity": 4,
+                    "status": "Severe Delays",
+                    "last_sent_at": six_minutes_ago.isoformat(),  # 6 min ago
+                }
+            },
+            "stored_at": six_minutes_ago.isoformat(),
+        }
+        stateful_mock_redis.get = AsyncMock(return_value=json.dumps(existing_state))
+
+        # New disruption with SAME severity but DIFFERENT reason
+        disruptions_new = [
+            DisruptionResponse(
+                line_id="victoria",
+                line_name="Victoria",
+                mode="tube",
+                status_severity=4,  # Same
+                status_severity_description="Severe Delays",  # Same
+                reason="Signal failure at Victoria",  # Different reason
+            ),
+        ]
+
+        with patch("app.services.alert_service.settings.ALERT_COOLDOWN_MINUTES", 5):
+            should_send, filtered = await service._should_send_alert(
+                route=test_route_with_schedule,
+                user_id=test_route_with_schedule.user_id,
+                schedule=test_route_with_schedule.schedules[0],
+                disruptions=disruptions_new,
+            )
+
+        # Should alert (cooldown expired)
+        assert should_send is True
+        assert len(filtered) == 1
+        assert filtered[0].line_id == "victoria"
+
+    async def test_should_send_alert_multiple_lines_one_flickers(
+        self,
+        db_session: AsyncSession,
+        stateful_mock_redis: AsyncMock,
+        test_route_with_schedule: UserRoute,
+    ):
+        """Test that only flickering lines are filtered out, others go through."""
+        service = AlertService(db=db_session, redis_client=stateful_mock_redis)
+
+        # Mock existing state: Victoria just alerted, Piccadilly has no state
+        disruptions_victoria_old = [
+            DisruptionResponse(
+                line_id="victoria",
+                line_name="Victoria",
+                mode="tube",
+                status_severity=4,
+                status_severity_description="Severe Delays",
+                reason="Signal failure v1",
+            ),
+        ]
+        one_minute_ago = datetime.now(UTC) - timedelta(minutes=1)
+        existing_state = {
+            "version": ALERT_STATE_VERSION,
+            "lines": {
+                "victoria": {
+                    "full_hash": service._create_line_full_hash(disruptions_victoria_old),
+                    "status_hash": service._create_line_status_hash(disruptions_victoria_old),
+                    "severity": 4,
+                    "status": "Severe Delays",
+                    "last_sent_at": one_minute_ago.isoformat(),
+                }
+            },
+            "stored_at": one_minute_ago.isoformat(),
+        }
+        stateful_mock_redis.get = AsyncMock(return_value=json.dumps(existing_state))
+
+        # New disruptions: Victoria reason changed (should skip), Piccadilly is new (should send)
+        disruptions_new = [
+            DisruptionResponse(
+                line_id="victoria",
+                line_name="Victoria",
+                mode="tube",
+                status_severity=4,
+                status_severity_description="Severe Delays",
+                reason="Signal failure v2",  # Reason changed
+            ),
+            DisruptionResponse(
+                line_id="piccadilly",  # New line
+                line_name="Piccadilly",
+                mode="tube",
+                status_severity=6,
+                status_severity_description="Part Closure",
+                reason="Engineering works",
+            ),
+        ]
+
+        with patch("app.services.alert_service.settings.ALERT_COOLDOWN_MINUTES", 5):
+            should_send, filtered = await service._should_send_alert(
+                route=test_route_with_schedule,
+                user_id=test_route_with_schedule.user_id,
+                schedule=test_route_with_schedule.schedules[0],
+                disruptions=disruptions_new,
+            )
+
+        # Should alert, but only for Piccadilly
+        assert should_send is True
+        assert len(filtered) == 1
+        assert filtered[0].line_id == "piccadilly"
+
+    async def test_should_send_alert_unrecognized_state_format(
+        self,
+        db_session: AsyncSession,
+        stateful_mock_redis: AsyncMock,
+        test_route_with_schedule: UserRoute,
+    ):
+        """Test that unrecognized state format (e.g. old v1) triggers alert (safe cache miss)."""
+        service = AlertService(db=db_session, redis_client=stateful_mock_redis)
+
+        # Mock existing state in OLD v1 format (no version field)
+        existing_state_v1 = {
+            "hash": "old_combined_hash",
+            "disruptions": [{"line_id": "victoria", "status": "Severe Delays", "reason": "Signal failure"}],
+            "stored_at": datetime.now(UTC).isoformat(),
+        }
+        stateful_mock_redis.get = AsyncMock(return_value=json.dumps(existing_state_v1))
+
+        disruptions = [
+            DisruptionResponse(
+                line_id="victoria",
+                line_name="Victoria",
+                mode="tube",
+                status_severity=4,
+                status_severity_description="Severe Delays",
+                reason="Signal failure",
+            ),
+        ]
+
+        should_send, filtered = await service._should_send_alert(
+            route=test_route_with_schedule,
+            user_id=test_route_with_schedule.user_id,
+            schedule=test_route_with_schedule.schedules[0],
+            disruptions=disruptions,
+        )
+
+        # Should alert (unrecognized state treated as cache miss)
+        assert should_send is True
+        assert len(filtered) == 1
+
+    async def test_store_alert_state_uses_v2_format(
+        self,
+        db_session: AsyncSession,
+        stateful_mock_redis: AsyncMock,
+        test_route_with_schedule: UserRoute,
+    ):
+        """Test that _store_alert_state stores data in v2 format."""
+        service = AlertService(db=db_session, redis_client=stateful_mock_redis)
+
+        # Mock no existing state
+        stateful_mock_redis.get = AsyncMock(return_value=None)
+        setex_calls = []
+
+        async def mock_setex(key: str, ttl: int, value: str) -> None:
+            setex_calls.append((key, ttl, value))
+
+        stateful_mock_redis.setex = AsyncMock(side_effect=mock_setex)
+
+        disruptions = [
+            DisruptionResponse(
+                line_id="victoria",
+                line_name="Victoria",
+                mode="tube",
+                status_severity=4,
+                status_severity_description="Severe Delays",
+                reason="Signal failure",
+            ),
+        ]
+
+        # Mock time to be within schedule window (8:00-10:00)
+        mock_time = datetime(2025, 12, 1, 9, 0, tzinfo=UTC)
+
+        # Create a custom datetime class that mocks now() but inherits all other behavior
+        class MockDatetime(datetime):
+            @classmethod
+            def now(cls, tz: None | type[UTC] = None) -> datetime:  # type: ignore[override]
+                return mock_time.replace(tzinfo=tz) if tz else mock_time
+
+        with patch("app.services.alert_service.datetime", MockDatetime):
+            await service._store_alert_state(
+                route=test_route_with_schedule,
+                user_id=test_route_with_schedule.user_id,
+                schedule=test_route_with_schedule.schedules[0],
+                disruptions=disruptions,
+            )
+
+        # Check that state was stored
+        assert len(setex_calls) == 1
+        _key, _ttl, value = setex_calls[0]
+        stored_data = json.loads(value)
+
+        # Verify v2 format
+        assert stored_data["version"] == ALERT_STATE_VERSION
+        assert "lines" in stored_data
+        assert "victoria" in stored_data["lines"]
+        victoria_state = stored_data["lines"]["victoria"]
+        assert "full_hash" in victoria_state
+        assert "status_hash" in victoria_state
+        assert "severity" in victoria_state
+        assert "status" in victoria_state
+        assert "last_sent_at" in victoria_state
+        assert victoria_state["severity"] == 4
+        assert victoria_state["status"] == "Severe Delays"
+
+    async def test_store_alert_state_merges_with_existing(
+        self,
+        db_session: AsyncSession,
+        stateful_mock_redis: AsyncMock,
+        test_route_with_schedule: UserRoute,
+    ):
+        """Test that _store_alert_state preserves lines not in current alert."""
+        service = AlertService(db=db_session, redis_client=stateful_mock_redis)
+
+        # Mock existing state with both Victoria and Piccadilly
+        existing_state = {
+            "version": ALERT_STATE_VERSION,
+            "lines": {
+                "victoria": {
+                    "full_hash": "victoria_old_hash",
+                    "status_hash": "victoria_old_status_hash",
+                    "severity": 4,
+                    "status": "Severe Delays",
+                    "last_sent_at": (datetime.now(UTC) - timedelta(minutes=10)).isoformat(),
+                },
+                "piccadilly": {
+                    "full_hash": "piccadilly_hash",
+                    "status_hash": "piccadilly_status_hash",
+                    "severity": 6,
+                    "status": "Part Closure",
+                    "last_sent_at": (datetime.now(UTC) - timedelta(minutes=5)).isoformat(),
+                },
+            },
+            "stored_at": (datetime.now(UTC) - timedelta(minutes=10)).isoformat(),
+        }
+
+        stateful_mock_redis.get = AsyncMock(return_value=json.dumps(existing_state))
+        setex_calls = []
+
+        async def mock_setex(key: str, ttl: int, value: str) -> None:
+            setex_calls.append((key, ttl, value))
+
+        stateful_mock_redis.setex = AsyncMock(side_effect=mock_setex)
+
+        # Only alerting for Victoria (not Piccadilly)
+        disruptions = [
+            DisruptionResponse(
+                line_id="victoria",
+                line_name="Victoria",
+                mode="tube",
+                status_severity=4,
+                status_severity_description="Severe Delays",
+                reason="Signal failure updated",
+            ),
+        ]
+
+        # Mock time to be within schedule window (8:00-10:00)
+        mock_time = datetime(2025, 12, 1, 9, 0, tzinfo=UTC)
+
+        # Create a custom datetime class that mocks now() but inherits all other behavior
+        class MockDatetime(datetime):
+            @classmethod
+            def now(cls, tz: None | type[UTC] = None) -> datetime:  # type: ignore[override]
+                return mock_time.replace(tzinfo=tz) if tz else mock_time
+
+        with patch("app.services.alert_service.datetime", MockDatetime):
+            await service._store_alert_state(
+                route=test_route_with_schedule,
+                user_id=test_route_with_schedule.user_id,
+                schedule=test_route_with_schedule.schedules[0],
+                disruptions=disruptions,
+            )
+
+        # Check that state was stored
+        assert len(setex_calls) == 1
+        _key, _ttl, value = setex_calls[0]
+        stored_data = json.loads(value)
+
+        # Verify both lines are preserved
+        assert "victoria" in stored_data["lines"]
+        assert "piccadilly" in stored_data["lines"]
+
+        # Victoria should be updated
+        assert stored_data["lines"]["victoria"]["full_hash"] != "victoria_old_hash"
+
+        # Piccadilly should be unchanged (preserved from existing state)
+        assert stored_data["lines"]["piccadilly"]["full_hash"] == "piccadilly_hash"
+        assert stored_data["lines"]["piccadilly"]["severity"] == 6
