@@ -26,7 +26,7 @@ Example bash usage:
     DB_PASSWORD=$(dotenvx run -- uv run python -m app.utils.extract_db_credentials password)
 
     # For simple values, use dotenvx get directly:
-    TUNNEL_TOKEN=$(dotenvx get CLOUDFLARE_TUNNEL_TOKEN)
+    TUNNEL_TOKEN=$(dotenvx get SECRET_CLOUDFLARE_TUNNEL_TOKEN)
 """
 
 import os
@@ -131,7 +131,7 @@ def extract_env_var(var_name: str) -> str:
     Environment variables must be pre-populated (e.g., via dotenvx run wrapper).
 
     Args:
-        var_name: Name of environment variable to extract (e.g., "CLOUDFLARE_TUNNEL_TOKEN")
+        var_name: Name of environment variable to extract (e.g., "SECRET_CLOUDFLARE_TUNNEL_TOKEN")
 
     Returns:
         Value of the environment variable
@@ -159,7 +159,7 @@ def main() -> None:
 
         # Special handling for tunnel_token mode - extract from environment directly
         if mode == "tunnel_token":
-            result = extract_env_var("CLOUDFLARE_TUNNEL_TOKEN")
+            result = extract_env_var("SECRET_CLOUDFLARE_TUNNEL_TOKEN")
         else:
             # Database credential extraction modes
             database_url = load_database_url()

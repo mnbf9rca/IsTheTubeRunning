@@ -48,9 +48,10 @@ services:
   #   command: dotenvx run -- uv run celery -A app.celery.app worker --loglevel=info
   #   env_file:
   #     - ./backend/.env
-  #   # Note: When uncommented, dotenvx will load SECRET_* values from .env
-  #   # No need to override DATABASE_URL, REDIS_URL, etc. here
+  #   environment:
   #     - OTEL_SERVICE_NAME=isthetuberunning-worker
+  #   # Note: dotenvx loads SECRET_* values from .env
+  #   # No need to override DATABASE_URL, REDIS_URL, etc. here
   #   depends_on:
   #     postgres:
   #       condition: service_healthy
@@ -71,9 +72,10 @@ services:
   #   command: dotenvx run -- uv run celery -A app.celery.app beat --loglevel=info
   #   env_file:
   #     - ./backend/.env
-  #   # Note: When uncommented, dotenvx will load SECRET_* values from .env
-  #   # No need to override DATABASE_URL, REDIS_URL, etc. here
+  #   environment:
   #     - OTEL_SERVICE_NAME=isthetuberunning-beat
+  #   # Note: dotenvx loads SECRET_* values from .env
+  #   # No need to override DATABASE_URL, REDIS_URL, etc. here
   #   depends_on:
   #     - redis
   #   volumes:
