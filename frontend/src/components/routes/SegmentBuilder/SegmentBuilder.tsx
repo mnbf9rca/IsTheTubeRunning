@@ -224,7 +224,9 @@ export function SegmentBuilder({
     })
     .map((seg) => ({
       id: `temp-${seg.sequence}`, // Temporary ID for display
-      ...seg,
+      sequence: seg.sequence,
+      station_tfl_id: seg.station_tfl_id,
+      line_tfl_id: seg.line_tfl_id ?? null,
     }))
 
   // Get all available stations (for first segment, all stations; otherwise, only reachable stations)

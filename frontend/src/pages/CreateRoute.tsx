@@ -280,7 +280,7 @@ export function CreateRoute() {
                 id: `temp-${index}`,
                 sequence: seg.sequence,
                 station_tfl_id: seg.station_tfl_id,
-                line_tfl_id: seg.line_tfl_id,
+                line_tfl_id: seg.line_tfl_id ?? null,
               }))}
               lines={tflData.lines || []}
               stations={tflData.stations || []}

@@ -167,9 +167,9 @@ export function UserTable({ users, loading, onViewDetails, onAnonymize }: UserTa
 
               {/* Emails with verified badges */}
               <TableCell>
-                {user.email_addresses.length > 0 ? (
+                {(user.email_addresses ?? []).length > 0 ? (
                   <div className="flex flex-col gap-1">
-                    {user.email_addresses.map((email) => (
+                    {(user.email_addresses ?? []).map((email) => (
                       <div key={email.id} className="flex items-center gap-1">
                         <span className="text-sm truncate max-w-[200px]" title={email.email}>
                           {email.email}
@@ -189,9 +189,9 @@ export function UserTable({ users, loading, onViewDetails, onAnonymize }: UserTa
 
               {/* Phones with verified badges */}
               <TableCell>
-                {user.phone_numbers.length > 0 ? (
+                {(user.phone_numbers ?? []).length > 0 ? (
                   <div className="flex flex-col gap-1">
-                    {user.phone_numbers.map((phone) => (
+                    {(user.phone_numbers ?? []).map((phone) => (
                       <div key={phone.id} className="flex items-center gap-1">
                         <span className="text-sm">{phone.phone}</span>
                         {phone.verified ? (
@@ -216,7 +216,7 @@ export function UserTable({ users, loading, onViewDetails, onAnonymize }: UserTa
 
               {/* Status badge */}
               <TableCell>
-                <UserStatusBadge deletedAt={user.deleted_at} />
+                <UserStatusBadge deletedAt={user.deleted_at ?? null} />
               </TableCell>
 
               {/* Actions */}

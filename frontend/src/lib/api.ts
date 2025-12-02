@@ -2,6 +2,107 @@
  * API client for backend communication
  */
 
+// Import generated API types for local use
+import type {
+  UserResponse,
+  EmailResponse,
+  PhoneResponse,
+  ContactsResponse,
+  AddEmailRequest,
+  AddPhoneRequest,
+  VerifyCodeRequest,
+  SendVerificationResponse,
+  VerifyCodeResponse,
+  SegmentResponse,
+  ScheduleResponse,
+  RouteResponse,
+  RouteListItemResponse,
+  CreateRouteRequest,
+  UpdateRouteRequest,
+  SegmentRequest,
+  UpdateSegmentRequest,
+  CreateScheduleRequest,
+  UpdateScheduleRequest,
+  NotificationPreferenceResponse,
+  CreateNotificationPreferenceRequest,
+  RouteVariant,
+  LineResponse,
+  StationResponse,
+  NetworkConnection,
+  RouteValidationSegment,
+  RouteValidationResponse,
+  RebuildIndexesResponse,
+  SyncMetadataResponse,
+  BuildGraphResponse,
+  TriggerCheckResponse,
+  WorkerStatusResponse,
+  NotificationLogItem,
+  RecentLogsResponse,
+  EmailAddressItem,
+  PhoneNumberItem,
+  UserListItem,
+  PaginatedUsersResponse,
+  UserDetailResponse,
+  AnonymiseUserResponse,
+  UserCountMetrics,
+  RouteStatMetrics,
+  NotificationStatMetrics,
+  DailySignup,
+  GrowthMetrics,
+  EngagementMetrics,
+} from '@/types'
+
+// Re-export types for backward compatibility
+// Files currently import from '@/lib/api', so we re-export types from '@/types'
+export type {
+  UserResponse,
+  EmailResponse,
+  PhoneResponse,
+  ContactsResponse,
+  AddEmailRequest,
+  AddPhoneRequest,
+  VerifyCodeRequest,
+  SendVerificationResponse,
+  VerifyCodeResponse,
+  SegmentResponse,
+  ScheduleResponse,
+  RouteResponse,
+  RouteListItemResponse,
+  CreateRouteRequest,
+  UpdateRouteRequest,
+  SegmentRequest,
+  UpdateSegmentRequest,
+  CreateScheduleRequest,
+  UpdateScheduleRequest,
+  NotificationPreferenceResponse,
+  CreateNotificationPreferenceRequest,
+  RouteVariant,
+  LineResponse,
+  StationResponse,
+  NetworkConnection,
+  RouteValidationSegment,
+  RouteValidationResponse,
+  RebuildIndexesResponse,
+  SyncMetadataResponse,
+  BuildGraphResponse,
+  TriggerCheckResponse,
+  WorkerStatusResponse,
+  NotificationLogItem,
+  RecentLogsResponse,
+  EmailAddressItem,
+  PhoneNumberItem,
+  UserListItem,
+  PaginatedUsersResponse,
+  UserDetailResponse,
+  AnonymiseUserResponse,
+  UserCountMetrics,
+  RouteStatMetrics,
+  NotificationStatMetrics,
+  DailySignup,
+  GrowthMetrics,
+  EngagementMetrics,
+}
+
 /**
  * Module-level API base URL
  * Set via setApiBaseUrl() after config loads
@@ -211,16 +312,6 @@ export async function getRoot(): Promise<RootResponse> {
 // ============================================================================
 
 /**
- * User information response from /auth/me
- */
-export interface UserResponse {
-  id: string
-  created_at: string
-  updated_at: string
-  is_admin: boolean
-}
-
-/**
  * Get current authenticated user information
  *
  * This endpoint validates the JWT token with the backend and returns user info.
@@ -242,77 +333,9 @@ export async function getCurrentUser(): Promise<UserResponse> {
 // ============================================================================
 
 /**
- * Email contact response
- */
-export interface EmailResponse {
-  id: string
-  email: string
-  verified: boolean
-  is_primary: boolean
-  created_at: string
-}
-
-/**
- * Phone contact response
- */
-export interface PhoneResponse {
-  id: string
-  phone: string
-  verified: boolean
-  is_primary: boolean
-  created_at: string
-}
-
-/**
  * Union type for any contact
  */
 export type Contact = EmailResponse | PhoneResponse
-
-/**
- * Response from GET /contacts endpoint
- */
-export interface ContactsResponse {
-  emails: EmailResponse[]
-  phones: PhoneResponse[]
-}
-
-/**
- * Request to add an email
- */
-export interface AddEmailRequest {
-  email: string
-}
-
-/**
- * Request to add a phone
- */
-export interface AddPhoneRequest {
-  phone: string
-}
-
-/**
- * Request to verify a contact code
- */
-export interface VerifyCodeRequest {
-  contact_id: string
-  code: string
-}
-
-/**
- * Response from verification code send
- */
-export interface SendVerificationResponse {
-  success: boolean
-  message: string
-}
-
-/**
- * Response from verification code verification
- */
-export interface VerifyCodeResponse {
-  success: boolean
-  message: string
-}
 
 /**
  * Get all contacts for the authenticated user
@@ -416,72 +439,6 @@ export async function deleteContact(contactId: string): Promise<void> {
 // ============================================================================
 
 /**
- * Segment information (part of a route)
- */
-export interface SegmentResponse {
-  id: string
-  sequence: number
-  station_tfl_id: string
-  line_tfl_id: string | null
-}
-
-/**
- * Schedule information (when a route is active)
- */
-export interface ScheduleResponse {
-  id: string
-  days_of_week: string[] // ['MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT', 'SUN']
-  start_time: string // HH:MM:SS format
-  end_time: string // HH:MM:SS format
-}
-
-/**
- * Full route response with segments and schedules
- */
-export interface RouteResponse {
-  id: string
-  name: string
-  description: string | null
-  active: boolean
-  timezone: string
-  segments: SegmentResponse[]
-  schedules: ScheduleResponse[]
-}
-
-/**
- * Route list item response (summary without segments/schedules)
- */
-export interface RouteListItemResponse {
-  id: string
-  name: string
-  description: string | null
-  active: boolean
-  timezone: string
-  segment_count: number
-  schedule_count: number
-}
-
-/**
- * Request to create a new route
- */
-export interface CreateRouteRequest {
-  name: string
-  description?: string
-  active?: boolean
-  timezone?: string
-}
-
-/**
- * Request to update an existing route
- */
-export interface UpdateRouteRequest {
-  name?: string
-  description?: string
-  active?: boolean
-  timezone?: string
-}
-
-/**
  * Get all routes for the authenticated user
  *
  * @returns Array of route summaries
@@ -565,23 +522,6 @@ export async function deleteRoute(routeId: string): Promise<void> {
 // ============================================================================
 
 /**
- * Request to create or update a segment
- */
-export interface SegmentRequest {
-  sequence: number
-  station_tfl_id: string
-  line_tfl_id: string | null
-}
-
-/**
- * Request to update a single segment
- */
-export interface UpdateSegmentRequest {
-  station_tfl_id?: string
-  line_tfl_id?: string
-}
-
-/**
  * Replace all segments for a route (batch upsert)
  *
  * @param routeId The route ID to update
@@ -644,24 +584,6 @@ export async function deleteSegment(routeId: string, sequence: number): Promise<
 // ============================================================================
 // Schedule Management Types & API
 // ============================================================================
-
-/**
- * Request to create a new schedule
- */
-export interface CreateScheduleRequest {
-  days_of_week: string[] // ['MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT', 'SUN']
-  start_time: string // HH:MM:SS format
-  end_time: string // HH:MM:SS format
-}
-
-/**
- * Request to update a schedule (all fields optional)
- */
-export interface UpdateScheduleRequest {
-  days_of_week?: string[]
-  start_time?: string
-  end_time?: string
-}
 
 /**
  * Create a new schedule for a route
@@ -730,28 +652,6 @@ export async function deleteSchedule(routeId: string, scheduleId: string): Promi
 export type NotificationMethod = 'email' | 'sms'
 
 /**
- * Notification preference response
- */
-export interface NotificationPreferenceResponse {
-  id: string
-  route_id: string
-  method: NotificationMethod
-  target_email_id: string | null
-  target_phone_id: string | null
-  created_at: string
-  updated_at: string
-}
-
-/**
- * Request to create a notification preference
- */
-export interface CreateNotificationPreferenceRequest {
-  method: NotificationMethod
-  target_email_id?: string
-  target_phone_id?: string
-}
-
-/**
  * Get all notification preferences for a route
  *
  * @param routeId The route ID
@@ -814,78 +714,10 @@ export async function deleteNotificationPreference(
 // ============================================================================
 
 /**
- * Route variant with ordered station sequence
- */
-export interface RouteVariant {
-  name: string // e.g., "Edgware → Morden via Bank"
-  service_type: string // e.g., "Regular", "Night"
-  direction: string // "inbound" or "outbound"
-  stations: string[] // Ordered list of TfL station IDs
-}
-
-/**
- * TfL line information
- */
-export interface LineResponse {
-  id: string
-  tfl_id: string
-  name: string
-  mode: string
-  routes?: {
-    routes: RouteVariant[]
-  } | null // Route sequences for branch-aware validation
-  last_updated: string
-}
-
-/**
- * TfL station information
- */
-export interface StationResponse {
-  id: string
-  tfl_id: string
-  name: string
-  latitude: number
-  longitude: number
-  lines: string[] // Array of line TfL IDs
-  last_updated: string
-  hub_naptan_code: string | null // Hub NaPTAN code for interchange stations (e.g., 'HUBSVS')
-  hub_common_name: string | null // Common name for the hub (e.g., 'Seven Sisters')
-}
-
-/**
- * Network connection information
- */
-export interface NetworkConnection {
-  station_id: string
-  station_tfl_id: string
-  station_name: string
-  line_id: string
-  line_tfl_id: string
-  line_name: string
-}
-
-/**
  * Network graph adjacency list
  * Maps station TfL ID to array of connected stations
  */
 export type NetworkGraph = Record<string, NetworkConnection[]>
-
-/**
- * Route validation segment request
- */
-export interface RouteValidationSegment {
-  station_tfl_id: string
-  line_tfl_id: string | null
-}
-
-/**
- * Route validation response
- */
-export interface RouteValidationResponse {
-  valid: boolean
-  message: string
-  invalid_segment_index?: number
-}
 
 /**
  * Get all TfL tube lines
@@ -974,169 +806,23 @@ export async function validateRoute(
 // Admin Route Index Management
 // ----------------------------------------------------------------------------
 
-export interface RebuildIndexesResponse {
-  success: boolean
-  rebuilt_count: number
-  failed_count: number
-  errors: string[]
-}
-
 // ----------------------------------------------------------------------------
 // Admin TfL Metadata Management
 // ----------------------------------------------------------------------------
-
-export interface SyncMetadataResponse {
-  success: boolean
-  message: string
-  severity_codes_count: number
-  disruption_categories_count: number
-  stop_types_count: number
-}
-
-export interface BuildGraphResponse {
-  success: boolean
-  message: string
-  lines_count: number
-  stations_count: number
-  connections_count: number
-  hubs_count: number
-}
 
 // ----------------------------------------------------------------------------
 // Admin Alert Management
 // ----------------------------------------------------------------------------
 
-export interface TriggerCheckResponse {
-  success: boolean
-  message: string
-  routes_checked: number
-  alerts_sent: number
-  errors: number
-}
-
-export interface WorkerStatusResponse {
-  worker_available: boolean
-  active_tasks: number
-  scheduled_tasks: number
-  last_heartbeat: string | null
-  message: string
-}
-
 export type NotificationStatus = 'sent' | 'failed' | 'pending'
-
-export interface NotificationLogItem {
-  id: string
-  user_id: string
-  route_id: string
-  sent_at: string
-  method: NotificationMethod
-  status: NotificationStatus
-  error_message: string | null
-}
-
-export interface RecentLogsResponse {
-  total: number
-  logs: NotificationLogItem[]
-  limit: number
-  offset: number
-}
 
 // ----------------------------------------------------------------------------
 // Admin User Management
 // ----------------------------------------------------------------------------
 
-export interface EmailAddressItem {
-  id: string
-  email: string
-  verified: boolean
-  is_primary: boolean
-}
-
-export interface PhoneNumberItem {
-  id: string
-  phone: string
-  verified: boolean
-  is_primary: boolean
-}
-
-export interface UserListItem {
-  id: string
-  external_id: string
-  auth_provider: string
-  created_at: string
-  updated_at: string
-  deleted_at: string | null
-  email_addresses: EmailAddressItem[]
-  phone_numbers: PhoneNumberItem[]
-}
-
-export interface PaginatedUsersResponse {
-  total: number
-  users: UserListItem[]
-  limit: number
-  offset: number
-}
-
-export interface UserDetailResponse {
-  id: string
-  external_id: string
-  auth_provider: string
-  created_at: string
-  updated_at: string
-  deleted_at: string | null
-  email_addresses: EmailAddressItem[]
-  phone_numbers: PhoneNumberItem[]
-}
-
-export interface AnonymiseUserResponse {
-  success: boolean
-  message: string
-  user_id: string
-}
-
 // ----------------------------------------------------------------------------
 // Admin Analytics
 // ----------------------------------------------------------------------------
-
-export interface UserCountMetrics {
-  total_users: number
-  active_users: number
-  users_with_verified_email: number
-  users_with_verified_phone: number
-  admin_users: number
-}
-
-export interface RouteStatMetrics {
-  total_routes: number
-  active_routes: number
-  avg_routes_per_user: number
-}
-
-export interface NotificationStatMetrics {
-  total_sent: number
-  successful: number
-  failed: number
-  success_rate: number
-  by_method_last_30_days: Record<string, number>
-}
-
-export interface DailySignup {
-  date: string
-  count: number
-}
-
-export interface GrowthMetrics {
-  new_users_last_7_days: number
-  new_users_last_30_days: number
-  daily_signups_last_7_days: DailySignup[]
-}
-
-export interface EngagementMetrics {
-  user_counts: UserCountMetrics
-  route_stats: RouteStatMetrics
-  notification_stats: NotificationStatMetrics
-  growth_metrics: GrowthMetrics
-}
 
 // ----------------------------------------------------------------------------
 // Admin API Functions

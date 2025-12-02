@@ -143,7 +143,7 @@ export function UserDetailDialog({
             {/* User Status */}
             <div className="flex items-center justify-between">
               <span className="text-sm font-medium">Status:</span>
-              <UserStatusBadge deletedAt={userDetails.deleted_at} />
+              <UserStatusBadge deletedAt={userDetails.deleted_at ?? null} />
             </div>
 
             {/* User ID */}
@@ -170,9 +170,9 @@ export function UserDetailDialog({
                 <Mail className="h-4 w-4" />
                 Email Addresses
               </h4>
-              {userDetails.email_addresses.length > 0 ? (
+              {(userDetails.email_addresses ?? []).length > 0 ? (
                 <div className="space-y-2">
-                  {userDetails.email_addresses.map((email) => (
+                  {(userDetails.email_addresses ?? []).map((email) => (
                     <div
                       key={email.id}
                       className="flex items-center justify-between p-3 bg-muted rounded-lg"
@@ -212,9 +212,9 @@ export function UserDetailDialog({
                 <Phone className="h-4 w-4" />
                 Phone Numbers
               </h4>
-              {userDetails.phone_numbers.length > 0 ? (
+              {(userDetails.phone_numbers ?? []).length > 0 ? (
                 <div className="space-y-2">
-                  {userDetails.phone_numbers.map((phone) => (
+                  {(userDetails.phone_numbers ?? []).map((phone) => (
                     <div
                       key={phone.id}
                       className="flex items-center justify-between p-3 bg-muted rounded-lg"
