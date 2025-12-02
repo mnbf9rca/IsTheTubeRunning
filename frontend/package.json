@@ -16,7 +16,7 @@
     "test:ui": "vitest --ui",
     "test:run": "vitest run",
     "test:coverage": "vitest run --coverage",
-    "generate-types": "openapi-typescript ../backend/openapi.json -o src/types/api-generated.ts",
+    "generate-types": "openapi-typescript ../backend/openapi.json -o src/types/api-generated.ts && prettier --write src/types/api-generated.ts",
     "check-types-sync": "npm run generate-types && git diff --exit-code src/types/api-generated.ts"
   },
   "dependencies": {
