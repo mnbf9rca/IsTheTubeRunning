@@ -15,7 +15,7 @@ jobs:
       contents: read
 
     env:
-      DOTENV_PRIVATE_KEY_CI: ${{ secrets.DOTENV_PRIVATE_KEY_CI }}
+      DOTENV_PRIVATE_KEY_CI: ${{ secrets.DOTENV_PRIVATE_KEY_CI }}  # For decrypting .env.ci
 
     services:
       postgres:
@@ -58,6 +58,9 @@ jobs:
         working-directory: backend
         run: uv sync
 
+      - name: Install dotenvx
+        run: curl -sfS https://dotenvx.sh | sh
+
       - name: Run ruff format check
         working-directory: backend
         run: uv run ruff format --check .
@@ -74,7 +77,7 @@ jobs:
         working-directory: backend
         env:
           DEBUG: "true"  # Required for self-signed JWT authentication in tests
-        run: uv run pytest -v
+        run: dotenvx run -f .env.ci -- uv run pytest -v
 
   frontend:
     name: Frontend CI
