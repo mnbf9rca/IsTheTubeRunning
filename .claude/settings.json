@@ -87,7 +87,12 @@
       "Bash(./scripts/gh_pr_comment_action.sh:*)",
       "Bash(./scripts/gh_pr_comments_fetch.sh:*)",
       "WebFetch",
-      "WebSearch"
+      "WebSearch",
+      "Bash(ruff check:*)",
+      "Bash(dotenvx encrypt --help:*)",
+      "Bash(dotenvx run:*)",
+      "Bash(dotenvx encrypt:*)",
+      "Bash(timeout 30 dotenvx run:*)"
     ],
     "ask": [
       "Bash(git push:*)",

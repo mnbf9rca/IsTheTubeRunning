@@ -25,12 +25,14 @@ tfl_responses/
 *.swo
 
 # Environment files
-.env
-.env*
-.env.*
+.env.local*
+.env.keys
+.env.me
 .flaskenv*
-!.env.project
-!.env.vault
+!.env
+!.env.ci
+!.env.production
+!.env.x
 !.env.example
 
 # Build artifacts
