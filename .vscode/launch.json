@@ -5,13 +5,8 @@
       "name": "Backend: FastAPI",
       "type": "debugpy",
       "request": "launch",
-      "program": "dotenvx",
+      "module": "uvicorn",
       "args": [
-        "run",
-        "--",
-        "python",
-        "-m",
-        "uvicorn",
         "app.main:app",
         "--reload",
         "--host",
@@ -22,6 +17,9 @@
       "cwd": "${workspaceFolder}/backend",
       "console": "integratedTerminal",
       "justMyCode": true,
+      "envFile": "${workspaceFolder}/backend/.env.decrypted",
+      "preLaunchTask": "decrypt-env",
+      "postDebugTask": "cleanup-env",
       "env": {
         "PYTHONPATH": "${workspaceFolder}/backend",
         "OTEL_SERVICE_NAME": "isthetuberunning-api"
@@ -32,19 +30,17 @@
       "name": "Backend: Run Tests",
       "type": "debugpy",
       "request": "launch",
-      "program": "dotenvx",
+      "module": "pytest",
       "args": [
-        "run",
-        "--",
-        "python",
-        "-m",
-        "pytest",
         "-v",
         "--tb=short"
       ],
       "cwd": "${workspaceFolder}/backend",
       "console": "integratedTerminal",
-      "justMyCode": false
+      "justMyCode": false,
+      "envFile": "${workspaceFolder}/backend/.env.decrypted",
+      "preLaunchTask": "decrypt-env",
+      "postDebugTask": "cleanup-env"
     },
     {
       "name": "Frontend: Vite Dev Server",
@@ -77,13 +73,8 @@
       "name": "Backend: Celery Worker",
       "type": "debugpy",
       "request": "launch",
-      "program": "dotenvx",
+      "module": "celery",
       "args": [
-        "run",
-        "--",
-        "python",
-        "-m",
-        "celery",
         "-A",
         "app.celery.app",
         "worker",
@@ -93,6 +84,9 @@
       "cwd": "${workspaceFolder}/backend",
       "console": "integratedTerminal",
       "justMyCode": false,
+      "envFile": "${workspaceFolder}/backend/.env.decrypted",
+      "preLaunchTask": "decrypt-env",
+      "postDebugTask": "cleanup-env",
       "env": {
         "PYTHONPATH": "${workspaceFolder}/backend",
         "OTEL_SERVICE_NAME": "isthetuberunning-worker"
@@ -103,13 +97,8 @@
       "name": "Backend: Celery Beat",
       "type": "debugpy",
       "request": "launch",
-      "program": "dotenvx",
+      "module": "celery",
       "args": [
-        "run",
-        "--",
-        "python",
-        "-m",
-        "celery",
         "-A",
         "app.celery.app",
         "beat",
@@ -118,6 +107,9 @@
       "cwd": "${workspaceFolder}/backend",
       "console": "integratedTerminal",
       "justMyCode": false,
+      "envFile": "${workspaceFolder}/backend/.env.decrypted",
+      "preLaunchTask": "decrypt-env",
+      "postDebugTask": "cleanup-env",
       "env": {
         "PYTHONPATH": "${workspaceFolder}/backend",
         "OTEL_SERVICE_NAME": "isthetuberunning-beat"
