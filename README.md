@@ -377,23 +377,26 @@ npx dotenv-vault@latest build
 
 **Viewing decryption keys:**
 ```bash
-npx dotenv-vault@latest keys
+dotenvx get
 ```
 
-This displays the `DOTENV_KEY_CI` and `DOTENV_KEY_PRODUCTION` values needed for decryption.
+This retrieves decrypted values from `.env` files (requires corresponding private key in `.env.keys`).
 
 ### CI/CD Configuration
 
 **GitHub Actions:**
-1. Run `npx dotenv-vault@latest keys` to get the CI decryption key
+1. Get the CI private key from `.env.keys`:
+   ```bash
+   grep DOTENV_PRIVATE_KEY_CI backend/.env.keys
+   ```
 2. Go to GitHub repo → Settings → Secrets and variables → Actions
-3. Add secret: `DOTENV_KEY_CI` with the full key string from `.env.keys`
-4. CI workflow automatically decrypts `.env.vault` using this key
+3. Add secret: `DOTENV_PRIVATE_KEY_CI` with the full key string
+4. CI workflow automatically decrypts `.env.ci` using this key via `dotenvx run` wrapper
 
 **Production Deployment:**
-1. Set `DOTENV_KEY_PRODUCTION` as an environment variable on your production server
-2. Set `CLOUDFLARE_TUNNEL_TOKEN` as an environment variable (get from Cloudflare Zero Trust dashboard)
-3. The application automatically decrypts `.env.vault` at startup and connects to Cloudflare Tunnel for ingress
+1. Set `DOTENV_PRIVATE_KEY_PRODUCTION` as an environment variable on your production server (from `.env.keys`)
+2. Encrypted secrets (including `SECRET_CLOUDFLARE_TUNNEL_TOKEN`) are automatically decrypted at runtime via `dotenvx run` wrapper
+3. The application decrypts `.env.production` at startup and connects to Cloudflare Tunnel for ingress
 
 **Note:** HTTP/HTTPS traffic uses Cloudflare Tunnel (no published ports). SSH remains on port 22 (UFW + fail2ban protected). See `docs/adr/01-infrastructure.md` for architecture details.
 
@@ -449,19 +452,24 @@ See `frontend/README.md` for frontend configuration architecture details.
 
 ### How It Works
 
-1. **Config Loading** (`backend/app/core/config.py`):
-   - `load_dotenv()` is called BEFORE any configuration is read
-   - Local: loads plain `.env` file
-   - CI/Production: decrypts `.env.vault` using `DOTENV_KEY` environment variable
+1. **Selective Encryption**:
+   - Variables prefixed with `SECRET_*` are encrypted inline (e.g., `SECRET_DATABASE_URL=encrypted:...`)
+   - Non-secret config remains plaintext (e.g., `DEBUG=false`, `OTEL_ENABLED=true`)
+   - Visible in git diffs: can see which secrets changed without seeing values
 
-2. **Pre-commit Hooks**:
-   - Automatically rebuild `.env.vault` when `.env.ci` or `.env.production` changes
-   - Ensures encrypted vault is always up-to-date
+2. **Config Loading** (`backend/app/core/config.py`):
+   - All entry points wrapped with `dotenvx run --` to decrypt environment variables
+   - Pydantic validates and loads config from decrypted environment
+   - Uses `validation_alias` to map `SECRET_*` vars to internal field names
 
-3. **Security**:
-   - `.env`, `.env.ci`, `.env.production` - gitignored (never committed)
-   - `.env.vault` - encrypted, safe to commit
-   - `.env.keys` - gitignored, store in password manager (DO NOT COMMIT)
+3. **Pre-commit Hooks**:
+   - Automatically encrypt `SECRET_*` values when `.env*` files change
+   - Ensures secrets remain encrypted in git (never committed plaintext)
+
+4. **Security**:
+   - `.env` - gitignored (local development only)
+   - `.env.ci`, `.env.production` - committed with encrypted `SECRET_*` values (safe to commit)
+   - `.env.keys` - gitignored, contains private keys (store in password manager, DO NOT COMMIT)
 
 ### Updating Secrets
 

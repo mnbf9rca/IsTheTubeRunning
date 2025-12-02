@@ -49,13 +49,19 @@ repos:
         pass_filenames: false
       - id: encrypt-dotenv
         name: Encrypt SECRET_* values with dotenvx
-        entry: bash -c 'cd backend && for f in .env .env.ci .env.production; do [ -f "$f" ] && dotenvx encrypt -f "$f" -k "SECRET_*" || true; done'
+        entry: bash -c 'cd backend && for f in .env .env.ci .env.production; do [ -f "$f" ] && dotenvx encrypt -f "$f" -k "SECRET_*"; done'
         language: system
         always_run: true
         pass_filenames: false
       - id: dotenvx-precommit
         name: Verify .env files are protected (encrypted or gitignored)
         entry: bash -c 'cd backend && dotenvx ext precommit'
+        language: system
+        always_run: true
+        pass_filenames: false
+      - id: dotenvx-ops-sync
+        name: Sync encrypted .env files and private keys to dotenvx cloud
+        entry: bash -c 'cd backend && dotenvx ops sync'
         language: system
         always_run: true
         pass_filenames: false

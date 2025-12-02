@@ -4,19 +4,18 @@
 
 set -e
 
-# Check for required .env.key file
-if [[ ! -f "backend/.env.key" ]]; then
-  echo "❌ ERROR: backend/.env.key file not found"
+# Check for required .env.keys file
+if [[ ! -f "backend/.env.keys" ]]; then
+  echo "❌ ERROR: backend/.env.keys file not found"
   echo ""
-  echo "To create this file:"
-  echo "  1. Retrieve your dev or CI DOTENV_KEY:"
-  echo "     npx dotenv-vault@latest keys development"
-  echo "     npx dotenv-vault@latest keys ci"
+  echo "This file contains private keys for decrypting .env files."
+  echo "It should already exist in your backend directory (gitignored)."
   echo ""
-  echo "  2. Create backend/.env.key with the key:"
-  echo "     echo 'DOTENV_KEY=dotenv://:key_...' > backend/.env.key"
+  echo "If you need to regenerate it, you'll need access to the encrypted"
+  echo ".env.ci or .env.production files and run:"
+  echo "  dotenvx encrypt -k \"SECRET_*\" -f backend/.env.ci"
   echo ""
-  echo "  Note: This file is gitignored and should never be committed"
+  echo "Note: .env.keys is gitignored and should never be committed"
   exit 1
 fi
 
@@ -35,18 +34,20 @@ timeout 400 docker buildx build --platform linux/amd64 -t isthetube-frontend:tes
 echo "✅ Frontend build successful"
 echo ""
 
-# Runtime test - backend (will fail without database, but verifies .env.vault decryption)
+# Runtime test - backend (will fail without database, but verifies dotenvx decryption)
 echo "🔥 Runtime test - backend..."
 echo "   (Expected: Will start but exit due to no database connection)"
+# Extract DOTENV_PRIVATE_KEY_CI from .env.keys for testing
+DOTENV_PRIVATE_KEY_CI=$(grep "DOTENV_PRIVATE_KEY_CI" backend/.env.keys | cut -d'=' -f2-)
 docker run -d --name backend-test --platform linux/amd64 -p 8000:8000 \
-  --env-file backend/.env.key \
+  -e DOTENV_PRIVATE_KEY_CI="$DOTENV_PRIVATE_KEY_CI" \
   isthetube-backend:test
 
 sleep 10
 if docker logs backend-test 2>&1 | grep -q "Starting gunicorn"; then
   echo "✅ Backend container started (gunicorn running)"
   if docker logs backend-test 2>&1 | grep -q "Connection refused"; then
-    echo "✅ .env.vault decryption works (failed at DB connection as expected)"
+    echo "✅ dotenvx decryption works (failed at DB connection as expected)"
   else
     echo "⚠️  Backend running but unexpected state"
   fi
@@ -80,7 +81,7 @@ echo ""
 echo "📋 Summary:"
 echo "  ✅ Backend builds successfully"
 echo "  ✅ Frontend builds successfully"
-echo "  ✅ Backend .env.vault decryption works"
+echo "  ✅ Backend dotenvx decryption works"
 echo "  ✅ Backend gunicorn starts with 4 workers"
 echo "  ✅ Frontend serves static assets"
 echo ""
