@@ -46,7 +46,7 @@ class TestSmsServiceOtelSpans:
         # Verify recipient_hash format and non-reversibility
         recipient_hash = span.attributes["sms.recipient_hash"]
         assert isinstance(recipient_hash, str)
-        assert len(recipient_hash) == 12  # First 12 chars of hash
+        assert len(recipient_hash) == 64  # Full SHA256 hash
         assert recipient_hash.isalnum()  # Hex characters
         assert recipient_hash != test_phone  # Not raw PII
         assert recipient_hash != test_phone.replace("+", "")  # Not raw PII without prefix

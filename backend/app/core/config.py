@@ -78,6 +78,28 @@ class Settings(BaseSettings):
     # Notification Settings (for Phase 7)
     MAX_NOTIFICATION_PREFERENCES_PER_ROUTE: int = 5
 
+    # Alert Settings (for Issue #309)
+    ALERT_COOLDOWN_MINUTES: int = 5  # Per-line cooldown to prevent spam from TfL API flickering
+
+    # PII Hashing Settings (for Issue #311)
+    PII_HASH_SECRET: str  # Secret key for HMAC-SHA256 hashing of PII in logs/telemetry
+
+    @field_validator("PII_HASH_SECRET", mode="after")
+    @classmethod
+    def validate_pii_hash_secret(cls, v: str) -> str:
+        """Ensure PII_HASH_SECRET meets minimum security requirements."""
+        min_length = 32  # Minimum characters for cryptographic security
+        if len(v) < min_length:
+            msg = f"PII_HASH_SECRET must be at least {min_length} characters long for security"
+            raise ValueError(msg)
+        if v == "REPLACE_ME_WITH_RANDOM_SECRET":
+            msg = (
+                "PII_HASH_SECRET is set to placeholder value. "
+                'Generate a secure secret using: python3 -c "import secrets; print(secrets.token_urlsafe(32))"'
+            )
+            raise ValueError(msg)
+        return v
+
     # Alembic Settings
     ALEMBIC_INI_PATH: str = "alembic.ini"
 

@@ -374,3 +374,64 @@ Implement two scheduled Celery Beat tasks:
 - Daily graph rebuild is expensive (~50 API calls) even if nothing changed
 - Fixed schedule doesn't adapt to actual TfL data change frequency
 - Must ensure tasks complete before next execution (1-hour expiry set as safeguard)
+
+---
+
+## Per-Line Alert Cooldown
+
+### Status
+Active (Issue #309)
+
+### Context
+TfL API returns "flickering" disruption data where:
+1. **API flickering**: Disruptions briefly disappear and reappear (e.g., Good Service → Severe Delays → Good Service → Severe Delays within minutes)
+2. **Reason text changes**: Same severity/status but minor wording variations between API polls
+
+This caused users to receive multiple similar alerts within minutes for the same fundamental disruption.
+
+**Evidence from production** (Nov 30, 13:00-13:22):
+- Piccadilly line state changed 5 times in 15 minutes, each triggering a new alert
+- Each variation had slightly different `reason` text despite same severity
+
+### Decision
+Implement per-line cooldown (default 5 minutes, configurable via `ALERT_COOLDOWN_MINUTES`):
+- **Track state per line** within each route/user/schedule combination
+- **Bypass cooldown** if severity/status changes → alert immediately (important updates go through)
+- **Apply cooldown** if only reason text changes → wait before re-alerting (prevents spam)
+- **New lines always alert** immediately (different lines have independent cooldowns)
+
+**State format (Redis v2)**:
+```json
+{
+  "version": 2,
+  "lines": {
+    "piccadilly": {
+      "full_hash": "sha256_with_reason",
+      "status_hash": "sha256_without_reason",
+      "severity": 4,
+      "status": "Severe Delays",
+      "last_sent_at": "2025-11-30T13:07:00Z"
+    }
+  },
+  "stored_at": "2025-11-30T13:07:00Z"
+}
+```
+
+**Dual hash approach**:
+- `full_hash`: Includes reason text (detects any change)
+- `status_hash`: Excludes reason text (detects severity/status change only)
+
+This enables forward compatibility with #308 (user preference for "all changes" vs "severity only" mode).
+
+### Consequences
+**Easier:**
+- Prevents alert spam from TfL API flickering and minor text changes
+- Per-line granularity means unrelated disruptions don't block each other
+- Important updates (severity/status changes) bypass cooldown for immediate notification
+- Forward-compatible with user preference feature (#308)
+- Backwards compatible with v1 state format (migrates automatically)
+
+**More Difficult:**
+- More complex state management (per-line vs per-route)
+- Slightly increased Redis storage (dual hashes per line)
+- Must handle both v1 and v2 state formats during migration period

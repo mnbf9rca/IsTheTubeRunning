@@ -311,7 +311,14 @@ def service_span(
         Span: The active span for setting additional attributes
 
     Example:
-        with service_span("send_email", "smtp", kind=SpanKind.CLIENT, recipient=email) as span:
+        from app.utils.pii import hash_pii
+
+        with service_span(
+            "send_email",
+            "smtp",
+            kind=SpanKind.CLIENT,
+            recipient_hash=hash_pii(email),
+        ) as span:
             await send_email(...)
             span.set_attribute("smtp.message_id", message_id)
     """

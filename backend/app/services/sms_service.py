@@ -2,7 +2,6 @@
 
 import asyncio
 import functools
-import hashlib
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -11,6 +10,7 @@ from opentelemetry.trace import SpanKind
 
 from app.core.config import settings
 from app.core.telemetry import service_span
+from app.utils.pii import hash_pii
 
 logger = structlog.get_logger(__name__)
 
@@ -76,7 +76,7 @@ class SmsService:
         """
         with service_span("sms.send", "sms", kind=SpanKind.CLIENT) as span:
             # PII protection: hash the phone number
-            phone_hash = hashlib.sha256(phone.encode()).hexdigest()[:12]
+            phone_hash = hash_pii(phone)
             span.set_attribute("sms.recipient_hash", phone_hash)
             span.set_attribute("sms.message_length", len(message))
             span.set_attribute("sms.stub", True)
@@ -86,7 +86,7 @@ class SmsService:
             # Log to structured logger (console) - non-blocking
             logger.info(
                 "sms_sent",
-                recipient=phone,
+                recipient_hash=phone_hash,
                 message=message,
                 timestamp=timestamp,
             )
@@ -96,7 +96,7 @@ class SmsService:
                 loop = asyncio.get_running_loop()
                 await loop.run_in_executor(
                     None,
-                    functools.partial(self._write_to_file_sync, phone, message, timestamp),
+                    functools.partial(self._write_to_file_sync, message, timestamp, phone_hash),
                 )
 
     async def send_verification_sms(self, phone: str, code: str) -> None:
@@ -114,27 +114,30 @@ class SmsService:
 
         # Use generic send_sms method
         await self.send_sms(phone, message)
-        logger.info("verification_sms_sent", recipient=phone, code=code)
 
-    def _write_to_file_sync(self, phone: str, message: str, timestamp: str) -> None:
+        # Compute hash for verification-specific logging
+        phone_hash = hash_pii(phone)
+        logger.info("verification_sms_sent", recipient_hash=phone_hash, code=code)
+
+    def _write_to_file_sync(self, message: str, timestamp: str, phone_hash: str) -> None:
         """
         Synchronously write SMS log entry to file (runs in thread pool).
 
         Args:
-            phone: Recipient phone number
             message: Full SMS message
             timestamp: ISO format timestamp
+            phone_hash: Pre-computed hash of phone number for logging
         """
         if not SMS_LOG_FILE:
             return
 
         try:
-            log_entry = f"[{timestamp}] TO: {phone} | MESSAGE: {message}\n"
+            log_entry = f"[{timestamp}] TO: {phone_hash} | MESSAGE: {message}\n"
             with SMS_LOG_FILE.open("a") as f:
                 f.write(log_entry)
         except OSError as e:
             logger.error(
                 "sms_file_logging_failed",
                 error=str(e),
-                recipient=phone,
+                recipient_hash=phone_hash,
             )

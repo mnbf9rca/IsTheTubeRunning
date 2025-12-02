@@ -230,3 +230,29 @@ Use `InMemorySpanExporter` in the `otel_enabled_provider` test fixture. All OTEL
 **More Difficult:**
 - **Tuple Unpacking**: Tests must unpack `(provider, exporter)` tuple (minor syntax change)
 - **Not Testing OTLP Export**: Tests don't verify actual network export (acceptable tradeoff)
+
+---
+
+## Fail-Safe TfL Service Fixture
+
+### Status
+Active (Issue #303)
+
+### Context
+TfLService creates real TfL API clients in its constructor. Tests that forget to mock internal method dependencies can accidentally make real API calls, causing rate limit errors and test failures. Manual mocking requires developers to remember all method dependencies, leading to brittle tests.
+
+### Decision
+Use fail-safe pre-mocking in the `tfl_service` fixture: automatically mock ALL TfL API client methods to raise errors by default. Tests must explicitly configure the methods they need. Use introspection to discover methods automatically, avoiding manual maintenance. Note current implementation covers `line_client` and `stoppoint_client` - other clients must be added later if needed.
+
+### Consequences
+**Easier:**
+- Tests cannot accidentally call real TfL API (prevents rate limit errors and test pollution)
+- Clear error messages when forgetting to mock a dependency
+- No `patch.object` context managers needed (simpler test code)
+- Automatic support for new pydantic-tfl-api versions
+- Forces explicit documentation of test dependencies
+
+**More Difficult:**
+- Tests must explicitly configure ALL methods they call (including transitive dependencies)
+- Slightly more verbose setup for complex method call chains
+- Must remember to clear `side_effect` when setting `return_value`
