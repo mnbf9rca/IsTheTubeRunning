@@ -55,7 +55,6 @@ class TestLoadDatabaseUrl:
         """Test that ValueError is raised when DATABASE_URL is not set."""
         with (
             patch.dict(os.environ, {}, clear=True),
-            patch("app.utils.extract_db_credentials.load_dotenv"),
             pytest.raises(ValueError, match="DATABASE_URL not found in environment"),
         ):
             load_database_url()
@@ -169,10 +168,7 @@ class TestExtractEnvVar:
     def test_extracts_environment_variable_when_present(self) -> None:
         """Test that environment variable is extracted when present."""
         test_token = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.test.token"
-        with (
-            patch.dict(os.environ, {"CLOUDFLARE_TUNNEL_TOKEN": test_token}),
-            patch("app.utils.extract_db_credentials.load_dotenv"),
-        ):
+        with patch.dict(os.environ, {"CLOUDFLARE_TUNNEL_TOKEN": test_token}):
             result = extract_env_var("CLOUDFLARE_TUNNEL_TOKEN")
             assert result == test_token
 
@@ -180,7 +176,6 @@ class TestExtractEnvVar:
         """Test that ValueError is raised when environment variable is missing."""
         with (
             patch.dict(os.environ, {}, clear=True),
-            patch("app.utils.extract_db_credentials.load_dotenv"),
             pytest.raises(ValueError, match="CLOUDFLARE_TUNNEL_TOKEN not found in environment"),
         ):
             extract_env_var("CLOUDFLARE_TUNNEL_TOKEN")
@@ -189,7 +184,6 @@ class TestExtractEnvVar:
         """Test that ValueError is raised when environment variable is empty."""
         with (
             patch.dict(os.environ, {"CLOUDFLARE_TUNNEL_TOKEN": ""}),
-            patch("app.utils.extract_db_credentials.load_dotenv"),
             pytest.raises(ValueError, match="CLOUDFLARE_TUNNEL_TOKEN not found in environment"),
         ):
             extract_env_var("CLOUDFLARE_TUNNEL_TOKEN")
@@ -197,10 +191,7 @@ class TestExtractEnvVar:
     def test_works_with_different_variable_names(self) -> None:
         """Test that function works with any environment variable name."""
         test_value = "test_value_123"
-        with (
-            patch.dict(os.environ, {"SOME_OTHER_VAR": test_value}),
-            patch("app.utils.extract_db_credentials.load_dotenv"),
-        ):
+        with patch.dict(os.environ, {"SOME_OTHER_VAR": test_value}):
             result = extract_env_var("SOME_OTHER_VAR")
             assert result == test_value
 
@@ -215,7 +206,6 @@ class TestMainFunction:
         with (
             patch.dict(os.environ, {"CLOUDFLARE_TUNNEL_TOKEN": test_token}),
             patch("sys.argv", ["script.py", "tunnel_token"]),
-            patch("app.utils.extract_db_credentials.load_dotenv"),
             patch("sys.stdout", new=StringIO()) as mock_stdout,
         ):
             main()
@@ -240,7 +230,6 @@ class TestMainFunction:
         with (
             patch.dict(os.environ, {}, clear=True),
             patch("sys.argv", ["script.py", "tunnel_token"]),
-            patch("app.utils.extract_db_credentials.load_dotenv"),
             patch("sys.stderr", new=StringIO()) as mock_stderr,
             pytest.raises(SystemExit) as exc_info,
         ):

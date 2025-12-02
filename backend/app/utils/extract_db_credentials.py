@@ -1,39 +1,38 @@
 """Extract database credentials from DATABASE_URL and environment variables for use in shell scripts.
 
-This utility decrypts .env.vault using DOTENV_KEY and can extract:
-1. Database connection parameters from DATABASE_URL (user, password, host, port, database)
-2. Environment variables directly (e.g., CLOUDFLARE_TUNNEL_TOKEN)
+This utility extracts database connection parameters and environment variables.
+Environment variables must be available (injected via `dotenvx run --` wrapper).
 
 Usage:
     # Get all credentials as export statements (for eval in bash)
-    uv run python -m app.utils.extract_db_credentials export
+    dotenvx run -- uv run python -m app.utils.extract_db_credentials export
 
     # Get individual credential field from DATABASE_URL
-    uv run python -m app.utils.extract_db_credentials password
-    uv run python -m app.utils.extract_db_credentials user
-    uv run python -m app.utils.extract_db_credentials host
-    uv run python -m app.utils.extract_db_credentials port
-    uv run python -m app.utils.extract_db_credentials database
+    dotenvx run -- uv run python -m app.utils.extract_db_credentials password
+    dotenvx run -- uv run python -m app.utils.extract_db_credentials user
+    dotenvx run -- uv run python -m app.utils.extract_db_credentials host
+    dotenvx run -- uv run python -m app.utils.extract_db_credentials port
+    dotenvx run -- uv run python -m app.utils.extract_db_credentials database
 
     # Extract environment variable directly
-    uv run python -m app.utils.extract_db_credentials tunnel_token
+    dotenvx run -- uv run python -m app.utils.extract_db_credentials tunnel_token
 
 Example bash usage:
     # Extract all credentials
-    eval $(uv run python -m app.utils.extract_db_credentials export)
+    eval $(dotenvx run -- uv run python -m app.utils.extract_db_credentials export)
     echo "Connecting to $PGHOST as $PGUSER"
 
     # Extract single value
-    DB_PASSWORD=$(uv run python -m app.utils.extract_db_credentials password)
-    TUNNEL_TOKEN=$(uv run python -m app.utils.extract_db_credentials tunnel_token)
+    DB_PASSWORD=$(dotenvx run -- uv run python -m app.utils.extract_db_credentials password)
+
+    # For simple values, use dotenvx get directly:
+    TUNNEL_TOKEN=$(dotenvx get CLOUDFLARE_TUNNEL_TOKEN)
 """
 
 import os
 import shlex
 import sys
 from urllib.parse import urlparse
-
-from dotenv_vault import load_dotenv
 
 
 def extract_credentials(database_url: str, mode: str = "password") -> str:
@@ -110,10 +109,9 @@ def get_mode_from_args(args: list[str]) -> str:
 
 
 def load_database_url() -> str:
-    """Load DATABASE_URL from environment, optionally decrypting vault.
+    """Load DATABASE_URL from environment.
 
-    Loads environment variables from .env.vault using DOTENV_KEY if DATABASE_URL
-    is not already set in the environment.
+    Environment variables must be pre-populated (e.g., via dotenvx run wrapper).
 
     Returns:
         DATABASE_URL value
@@ -121,11 +119,6 @@ def load_database_url() -> str:
     Raises:
         ValueError: If DATABASE_URL is not found or empty
     """
-    # Load environment variables from .env.vault using DOTENV_KEY
-    # (Only if DATABASE_URL is not already set - allows testing without vault)
-    if "DATABASE_URL" not in os.environ:
-        load_dotenv()
-
     if database_url := os.getenv("DATABASE_URL", ""):
         return database_url
     msg = "DATABASE_URL not found in environment"
@@ -133,9 +126,9 @@ def load_database_url() -> str:
 
 
 def extract_env_var(var_name: str) -> str:
-    """Extract any environment variable from .env.vault.
+    """Extract any environment variable.
 
-    Loads .env.vault using DOTENV_KEY and extracts the requested environment variable.
+    Environment variables must be pre-populated (e.g., via dotenvx run wrapper).
 
     Args:
         var_name: Name of environment variable to extract (e.g., "CLOUDFLARE_TUNNEL_TOKEN")
@@ -146,9 +139,6 @@ def extract_env_var(var_name: str) -> str:
     Raises:
         ValueError: If variable not found in environment or is empty
     """
-    # Load environment variables from .env.vault using DOTENV_KEY
-    load_dotenv()
-
     if value := os.getenv(var_name, ""):
         return value
     msg = f"{var_name} not found in environment"

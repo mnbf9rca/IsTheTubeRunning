@@ -1,17 +1,9 @@
 """Application configuration."""
 
-from dotenv_vault import load_dotenv
+import logging
 
-# Load environment variables FIRST - before any other imports or config
-# Local: loads .env file
-# CI/Production: loads from .env.vault using DOTENV_KEY environment variable
-# override=False ensures existing environment variables take precedence (important for tests)
-load_dotenv(override=False)
-
-import logging  # noqa: E402
-
-from pydantic import field_validator  # noqa: E402
-from pydantic_settings import BaseSettings, SettingsConfigDict  # noqa: E402
+from pydantic import field_validator
+from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):

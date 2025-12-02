@@ -1,9 +1,44 @@
 # Security & Secrets Management
 
-## python-dotenv-vault for Secrets
+## dotenvx for Secrets
 
 ### Status
-Active (Superseded SOPS/age)
+Active (Superseded python-dotenv-vault)
+
+### Context
+Originally used `python-dotenv-vault` for encrypted secret management. While functional, the `.env.vault` approach had limitations: single encrypted blob made it impossible to see which configuration keys changed in git diffs, and cloud sync workflow was complex. Needed a solution with better transparency and simpler team synchronization.
+
+### Decision
+Migrated to `dotenvx` for encrypted secret management. Uses per-value inline encryption (format: `KEY=encrypted:...`) instead of single blob. Encrypted .env files committed to git with visible key names but encrypted values. Private keys stored in `.env.keys` (gitignored), project ID in `.env.x` (committed). Team sync via `dotenvx ops sync`. Runtime decryption via `dotenvx run -- command` wrapper or `dotenvx get KEY`.
+
+### Consequences
+**Easier:**
+- **Improved transparency**: Git diffs show which config keys changed, even though values remain encrypted
+- **Local security**: Secrets remain encrypted on developer machines (not just in git)
+- **Simpler team sync**: `dotenvx ops sync` replaces complex push/build workflow
+- **Better visibility**: Can see which secrets exist without decrypting
+- **No cloud dependency**: Works offline (cloud sync is optional)
+- **Standard .env format**: Familiar to developers, just with encrypted values
+
+**More Difficult:**
+- Private keys must be managed separately (can't commit .env.keys to git)
+- If private keys are lost, secrets must be regenerated
+- Requires dotenvx CLI installed (not just Python package)
+- Runtime wrapper needed (`dotenvx run --`) for environment injection
+
+### Migration Notes
+- Replaced `python-dotenv-vault` Python library with `dotenvx` CLI
+- Updated deployment scripts to use `DOTENV_PRIVATE_KEY_PRODUCTION` instead of `DOTENV_KEY`
+- Modified CI to use `DOTENV_PRIVATE_KEY_CI` GitHub secret
+- Pre-commit hooks updated to run `dotenvx encrypt` instead of `dotenv-vault build`
+- Dockerfile updated to install dotenvx and wrap CMD with `dotenvx run --`
+
+---
+
+## python-dotenv-vault for Secrets (SUPERSEDED)
+
+### Status
+Superseded by dotenvx (see above)
 
 ### Context
 Originally chose SOPS/age for encrypted secret management, but configuration was complex and required managing age keys separately. Needed a simpler solution that integrates with the Python ecosystem and supports local encryption without cloud services.

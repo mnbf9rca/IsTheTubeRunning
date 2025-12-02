@@ -3,10 +3,10 @@
 # Creates compressed PostgreSQL backup and uploads to Azure Blob Storage
 #
 # Prerequisites:
-#   - DOTENV_KEY environment variable set (for decrypting .env.vault)
+#   - DOTENV_PRIVATE_KEY_PRODUCTION environment variable set (for decrypting .env.production)
 #   - Azure CLI installed (az command)
 #   - VM managed identity with Storage Blob Data Contributor role
-#   - uv installed (for running Python scripts)
+#   - uv and dotenvx installed (for running Python scripts)
 #
 # Usage:
 #   ./backup-db.sh [--local-only]
@@ -36,20 +36,20 @@ echo "Timestamp: $TIMESTAMP"
 echo "Local only: $LOCAL_ONLY"
 echo ""
 
-# Extract database credentials from .env.vault using dotenv-vault
-echo "Extracting database credentials from .env.vault..."
-if [[ -z "${DOTENV_KEY:-}" ]]; then
-    echo "ERROR: DOTENV_KEY environment variable not set"
-    echo "Cannot decrypt .env.vault without DOTENV_KEY"
+# Extract database credentials from encrypted .env.production using dotenvx
+echo "Extracting database credentials from encrypted .env.production..."
+if [[ -z "${DOTENV_PRIVATE_KEY_PRODUCTION:-}" ]]; then
+    echo "ERROR: DOTENV_PRIVATE_KEY_PRODUCTION environment variable not set"
+    echo "Cannot decrypt .env.production without DOTENV_PRIVATE_KEY_PRODUCTION"
     exit 1
 fi
 
 # Navigate to backend directory to access Python utility
 cd "$SCRIPT_DIR/../../backend" || exit 1
 
-# Extract credentials using Python utility (with proper error handling)
+# Extract credentials using Python utility wrapped with dotenvx (with proper error handling)
 TMP_CRED_FILE="$(mktemp)"
-if ! uv run python -m app.utils.extract_db_credentials export > "$TMP_CRED_FILE"; then
+if ! dotenvx run -- uv run python -m app.utils.extract_db_credentials export > "$TMP_CRED_FILE"; then
     echo "ERROR: Failed to extract database credentials"
     rm -f "$TMP_CRED_FILE"
     exit 1

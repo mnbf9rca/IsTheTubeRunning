@@ -39,12 +39,13 @@ FROM python:3.14-slim
 
 WORKDIR /app
 
-# Install runtime dependencies
+# Install runtime dependencies and dotenvx
 RUN apt-get update && \
     DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
     ca-certificates \
     curl \
     postgresql-client \
+    && curl -sfS https://dotenvx.sh/install.sh | sh \
     && rm -rf /var/lib/apt/lists/*
 
 # Create non-root user with home directory
@@ -73,7 +74,8 @@ EXPOSE 8000
 ENV GUNICORN_WORKERS=4
 
 # Production command with gunicorn + uvicorn workers
-CMD ["/bin/sh", "-c", "/app/.venv/bin/python -m gunicorn -k uvicorn.workers.UvicornWorker -w ${GUNICORN_WORKERS} -b 0.0.0.0:8000 app.main:app"]
+# Wrapped with dotenvx to inject decrypted environment variables
+CMD ["dotenvx", "run", "--", "/bin/sh", "-c", "/app/.venv/bin/python -m gunicorn -k uvicorn.workers.UvicornWorker -w ${GUNICORN_WORKERS} -b 0.0.0.0:8000 app.main:app"]
 
 # Security labels
 LABEL security.no_new_privileges="true" \
