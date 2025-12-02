@@ -256,3 +256,32 @@ Use fail-safe pre-mocking in the `tfl_service` fixture: automatically mock ALL T
 - Tests must explicitly configure ALL methods they call (including transitive dependencies)
 - Slightly more verbose setup for complex method call chains
 - Must remember to clear `side_effect` when setting `return_value`
+
+---
+
+## Test Coverage Exclusions for Build Scripts
+
+### Status
+Active (Issue #160)
+
+### Context
+Some scripts exist purely to wrap existing well-tested functionality for build/deployment purposes. Testing these thin wrappers provides minimal value compared to the maintenance burden. The OpenAPI generation script (`backend/scripts/generate_openapi.py`) is a 15-line wrapper around FastAPI's built-in `app.openapi()` method.
+
+### Decision
+Build/deployment scripts that are thin wrappers around well-tested libraries do not require test coverage. This applies to:
+- OpenAPI generation script (`backend/scripts/generate_openapi.py`) - wraps FastAPI's `app.openapi()`
+- Similar build/deployment utilities that primarily call library functions
+
+The 95% backend test coverage target applies to application code (models, services, routes, middleware), not build scripts.
+
+### Consequences
+**Easier:**
+- Avoid writing tests for code that's essentially `library.method()` calls
+- Focus testing effort on business logic and application code
+- Build scripts remain simple and readable (no test-specific modifications)
+- FastAPI's openapi() is already tested by FastAPI maintainers
+
+**More Difficult:**
+- Must document which scripts are excluded and why
+- Could miss bugs in edge cases (e.g., file path handling)
+- Manual verification needed when running scripts
