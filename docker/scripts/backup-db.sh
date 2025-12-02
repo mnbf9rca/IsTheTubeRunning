@@ -49,7 +49,7 @@ cd "$SCRIPT_DIR/../../backend" || exit 1
 
 # Extract credentials using Python utility wrapped with dotenvx (with proper error handling)
 TMP_CRED_FILE="$(mktemp)"
-if ! dotenvx run -- uv run python -m app.utils.extract_db_credentials export > "$TMP_CRED_FILE"; then
+if ! dotenvx run -f .env.production -- uv run python -m app.utils.extract_db_credentials export > "$TMP_CRED_FILE"; then
     echo "ERROR: Failed to extract database credentials"
     rm -f "$TMP_CRED_FILE"
     exit 1

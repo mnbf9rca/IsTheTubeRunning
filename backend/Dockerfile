@@ -73,9 +73,12 @@ EXPOSE 8000
 # Environment variable for configurable worker count
 ENV GUNICORN_WORKERS=4
 
+# Environment variable for which .env file to use (default .env for local dev)
+ENV DOTENVX_ENV_FILE=.env
+
 # Production command with gunicorn + uvicorn workers
 # Wrapped with dotenvx to inject decrypted environment variables
-CMD ["dotenvx", "run", "--", "/bin/sh", "-c", "/app/.venv/bin/python -m gunicorn -k uvicorn.workers.UvicornWorker -w ${GUNICORN_WORKERS} -b 0.0.0.0:8000 app.main:app"]
+CMD ["/bin/sh", "-c", "exec dotenvx run -f ${DOTENVX_ENV_FILE} -- /app/.venv/bin/python -m gunicorn -k uvicorn.workers.UvicornWorker -w ${GUNICORN_WORKERS} -b 0.0.0.0:8000 app.main:app"]
 
 # Security labels
 LABEL security.no_new_privileges="true" \

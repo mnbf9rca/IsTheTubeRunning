@@ -64,7 +64,7 @@ extract_credential() {
         fi
 
         # Run extraction via dotenvx, capturing all output
-        EXTRACTION_OUTPUT=$(sudo -u "$DEPLOYMENT_USER" bash -c "cd '$APP_DIR/backend' && export DOTENV_PRIVATE_KEY_PRODUCTION='$DOTENV_PRIVATE_KEY_PRODUCTION' && dotenvx run -- ~/.local/bin/uv run python -m app.utils.extract_db_credentials $CREDENTIAL_NAME" 2>&1)
+        EXTRACTION_OUTPUT=$(sudo -u "$DEPLOYMENT_USER" bash -c "cd '$APP_DIR/backend' && export DOTENV_PRIVATE_KEY_PRODUCTION='$DOTENV_PRIVATE_KEY_PRODUCTION' && dotenvx run -f .env.production -- ~/.local/bin/uv run python -m app.utils.extract_db_credentials '$CREDENTIAL_NAME'" 2>&1)
         EXTRACTION_STATUS=$?
 
         # Count output lines - should be exactly 1 (the credential)

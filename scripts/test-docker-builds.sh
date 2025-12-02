@@ -11,9 +11,11 @@ if [[ ! -f "backend/.env.keys" ]]; then
   echo "This file contains private keys for decrypting .env files."
   echo "It should already exist in your backend directory (gitignored)."
   echo ""
-  echo "If you need to regenerate it, you'll need access to the encrypted"
-  echo ".env.ci or .env.production files and run:"
-  echo "  dotenvx encrypt -k \"SECRET_*\" -f backend/.env.ci"
+  echo "If you need to regenerate it, you must have backed it up previously."
+  echo "To start fresh with new keys (requires re-encrypting all secrets):"
+  echo "  1. Delete existing encrypted values in .env files"
+  echo "  2. Run: dotenvx set SECRET_DATABASE_URL \"value\" -f backend/.env.ci"
+  echo "  (This generates new keys in .env.keys)"
   echo ""
   echo "Note: .env.keys is gitignored and should never be committed"
   exit 1
@@ -38,9 +40,10 @@ echo ""
 echo "🔥 Runtime test - backend..."
 echo "   (Expected: Will start but exit due to no database connection)"
 # Extract DOTENV_PRIVATE_KEY_CI from .env.keys for testing
-DOTENV_PRIVATE_KEY_CI=$(grep "DOTENV_PRIVATE_KEY_CI" backend/.env.keys | cut -d'=' -f2-)
+DOTENV_PRIVATE_KEY_CI=$(cd backend && dotenvx get DOTENV_PRIVATE_KEY_CI -f .env.keys 2>/dev/null)
 docker run -d --name backend-test --platform linux/amd64 -p 8000:8000 \
   -e DOTENV_PRIVATE_KEY_CI="$DOTENV_PRIVATE_KEY_CI" \
+  -e DOTENVX_ENV_FILE=.env.ci \
   isthetube-backend:test
 
 sleep 10
