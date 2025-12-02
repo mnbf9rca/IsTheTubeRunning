@@ -123,11 +123,8 @@ export function useSegmentBuilderState({
 
   // Local state for segments being built
   const [localSegments, setLocalSegments] = useState<SegmentRequest[]>(
-    initialSegments.map((seg) => ({
-      sequence: seg.sequence,
-      station_tfl_id: seg.station_tfl_id,
-      line_tfl_id: seg.line_tfl_id,
-    }))
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    initialSegments.map(({ id: _id, ...rest }) => rest)
   )
 
   // State for building current segment
@@ -505,11 +502,8 @@ export function useSegmentBuilderState({
   const handleCancel = useCallback(
     (onCancel: () => void) => {
       setLocalSegments(
-        initialSegments.map((seg) => ({
-          sequence: seg.sequence,
-          station_tfl_id: seg.station_tfl_id,
-          line_tfl_id: seg.line_tfl_id,
-        }))
+        // eslint-disable-next-line @typescript-eslint/no-unused-vars
+        initialSegments.map(({ id: _id, ...rest }) => rest)
       )
 
       // Reset state using transition function

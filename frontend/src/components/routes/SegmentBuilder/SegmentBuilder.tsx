@@ -224,8 +224,7 @@ export function SegmentBuilder({
     })
     .map((seg) => ({
       id: `temp-${seg.sequence}`, // Temporary ID for display
-      sequence: seg.sequence,
-      station_tfl_id: seg.station_tfl_id,
+      ...seg,
       line_tfl_id: seg.line_tfl_id ?? null,
     }))
 
