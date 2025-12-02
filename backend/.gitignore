@@ -1,6 +1,16 @@
 
+# Environment files (ignore all except specific ones)
 .env*
 .flaskenv*
-!.env.project
-!.env.vault
+
+# Allow encrypted environment files (dotenvx - values are encrypted)
+!.env
+!.env.ci
+!.env.production
+!.env.x
+
+# Allow example file
 !.env.example
+
+# Ensure private keys are never committed
+.env.keys

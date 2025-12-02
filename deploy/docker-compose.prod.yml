@@ -6,14 +6,14 @@
 #   - SSH access via traditional networking (port 22, UFW + fail2ban protected)
 #
 # Prerequisites:
-#   - DOTENV_KEY environment variable set on host
+#   - DOTENV_PRIVATE_KEY_PRODUCTION environment variable set on host
 #   - CLOUDFLARE_TUNNEL_TOKEN environment variable set on host
-#   - .env.vault file present in backend/ directory
+#   - .env.production file present in backend/ directory
 #   - nginx.conf mounted from docker/nginx/
 #   - Cloudflare Tunnel configured in Cloudflare Zero Trust dashboard
 #
 # Usage:
-#   DOTENV_KEY="dotenv://..." CLOUDFLARE_TUNNEL_TOKEN="eyJ..." docker-compose -f docker-compose.prod.yml up -d
+#   DOTENV_PRIVATE_KEY_PRODUCTION="..." CLOUDFLARE_TUNNEL_TOKEN="eyJ..." docker-compose -f docker-compose.prod.yml up -d
 #
 # Health checks:
 #   docker-compose -f docker-compose.prod.yml ps
@@ -28,7 +28,7 @@ services:
     env_file:
       - /home/deployuser/.env.secrets
     # POSTGRES_DB, POSTGRES_USER, and POSTGRES_PASSWORD all loaded from env_file
-    # All three are extracted from DATABASE_URL in .env.vault for consistency
+    # All three are extracted from SECRET_DATABASE_URL in encrypted .env.production for consistency
     volumes:
       - postgres_data:/var/lib/postgresql  # Match PostgreSQL 18+ pattern (same as dev)
     healthcheck:
@@ -79,11 +79,11 @@ services:
     container_name: isthetube-migrations-prod
     env_file:
       - /home/deployuser/.env.secrets
-    # DOTENV_KEY loaded from env_file above - no need to override here
+    # DOTENV_PRIVATE_KEY_PRODUCTION loaded from env_file above - no need to override here
     depends_on:
       postgres:
         condition: service_healthy
-    command: alembic upgrade head
+    command: dotenvx run -f /app/.env.production -- alembic upgrade head
     restart: "no"  # Only run once, don't restart on failure
     networks:
       - app-network
@@ -101,7 +101,8 @@ services:
     env_file:
       - /home/deployuser/.env.secrets
     environment:
-      # DOTENV_KEY loaded from env_file above
+      # DOTENV_PRIVATE_KEY_PRODUCTION loaded from env_file above
+      DOTENVX_ENV_FILE: .env.production
       OTEL_SERVICE_NAME: isthetuberunning-api
     depends_on:
       postgres:
@@ -132,11 +133,11 @@ services:
     image: ghcr.io/mnbf9rca/isthetuberunning/backend:latest
     container_name: isthetube-celery-worker-prod
     restart: unless-stopped
-    command: /app/.venv/bin/celery -A app.celery.app worker --loglevel=info --concurrency=2
+    command: dotenvx run -f /app/.env.production -- /app/.venv/bin/celery -A app.celery.app worker --loglevel=info --concurrency=2
     env_file:
       - /home/deployuser/.env.secrets
     environment:
-      # DOTENV_KEY loaded from env_file above
+      # DOTENV_PRIVATE_KEY_PRODUCTION loaded from env_file above
       OTEL_SERVICE_NAME: isthetuberunning-worker
     depends_on:
       postgres:
@@ -161,11 +162,11 @@ services:
     image: ghcr.io/mnbf9rca/isthetuberunning/backend:latest
     container_name: isthetube-celery-beat-prod
     restart: unless-stopped
-    command: /app/.venv/bin/celery -A app.celery.app beat --loglevel=info
+    command: dotenvx run -f /app/.env.production -- /app/.venv/bin/celery -A app.celery.app beat --loglevel=info
     env_file:
       - /home/deployuser/.env.secrets
     environment:
-      # DOTENV_KEY loaded from env_file above
+      # DOTENV_PRIVATE_KEY_PRODUCTION loaded from env_file above
       OTEL_SERVICE_NAME: isthetuberunning-beat
     depends_on:
       redis:

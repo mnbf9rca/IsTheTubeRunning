@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Extract secrets from .env.vault and configure for application startup
+# Extract secrets from encrypted .env files and configure for application startup
 
 set -euo pipefail
 
@@ -18,9 +18,9 @@ require_root
 echo "=== Extract Secrets and Configure Application ==="
 echo ""
 
-# Verify DOTENV_KEY is set (validated by setup-vm.sh)
-if [ -z "${DOTENV_KEY:-}" ]; then
-    print_error "DOTENV_KEY environment variable not set"
+# Verify DOTENV_PRIVATE_KEY_PRODUCTION is set (validated by setup-vm.sh)
+if [ -z "${DOTENV_PRIVATE_KEY_PRODUCTION:-}" ]; then
+    print_error "DOTENV_PRIVATE_KEY_PRODUCTION environment variable not set"
     print_info "This should have been validated by setup-vm.sh"
     exit 1
 fi
@@ -58,13 +58,13 @@ extract_credential() {
         ATTEMPT=$((ATTEMPT + 1))
 
         if [ $ATTEMPT -eq 1 ]; then
-            print_info "Extracting $CREDENTIAL_NAME from .env.vault..." >&2
+            print_info "Extracting $CREDENTIAL_NAME from encrypted .env files..." >&2
         else
             print_warning "Retry $ATTEMPT/$MAX_ATTEMPTS for $CREDENTIAL_NAME..." >&2
         fi
 
-        # Run extraction, capturing all output
-        EXTRACTION_OUTPUT=$(sudo -u "$DEPLOYMENT_USER" bash -c "cd '$APP_DIR/backend' && export DOTENV_KEY='$DOTENV_KEY' && ~/.local/bin/uv run python -m app.utils.extract_db_credentials $CREDENTIAL_NAME" 2>&1)
+        # Run extraction via dotenvx, capturing all output
+        EXTRACTION_OUTPUT=$(sudo -u "$DEPLOYMENT_USER" bash -c "cd '$APP_DIR/backend' && export DOTENV_PRIVATE_KEY_PRODUCTION='$DOTENV_PRIVATE_KEY_PRODUCTION' && dotenvx run -f .env.production -- ~/.local/bin/uv run python -m app.utils.extract_db_credentials '$CREDENTIAL_NAME'" 2>&1)
         EXTRACTION_STATUS=$?
 
         # Count output lines - should be exactly 1 (the credential)
@@ -125,25 +125,25 @@ if ! CLOUDFLARE_TUNNEL_TOKEN=$(extract_credential "tunnel_token" "^ey"); then
     exit 1
 fi
 
-# Extract PostgreSQL configuration from DATABASE_URL in .env.vault
+# Extract PostgreSQL configuration from SECRET_DATABASE_URL in encrypted .env.production
 # Regex: ^[^\n]+$ (non-empty, no newlines)
 if ! POSTGRES_PASSWORD=$(extract_credential "password" "^[^\n]+$"); then
     exit 1
 fi
 
-# Extract database name from DATABASE_URL path component
+# Extract database name from SECRET_DATABASE_URL path component
 if ! POSTGRES_DB=$(extract_credential "database" "^[^\n]+$"); then
     exit 1
 fi
 
-# Extract username from DATABASE_URL user component
+# Extract username from SECRET_DATABASE_URL user component
 if ! POSTGRES_USER=$(extract_credential "user" "^[^\n]+$"); then
     exit 1
 fi
 
-# DOTENV_KEY is validated by setup-vm.sh, so it's guaranteed to be set here
+# DOTENV_PRIVATE_KEY_PRODUCTION is validated by setup-vm.sh, so it's guaranteed to be set here
 print_info "Configuring application secrets..."
-print_info "All credentials extracted from .env.vault (single source of truth)"
+print_info "All credentials extracted from encrypted .env files (single source of truth)"
 
 # Check if secrets file already exists
 if [ -f "$SECRETS_FILE" ]; then
@@ -162,15 +162,15 @@ cat > "$SECRETS_FILE" <<EOF
 # Location: $SECRETS_FILE (outside git clone for security)
 # Loaded by: docker-compose.prod.yml env_file directive
 
-# DOTENV_KEY: Decrypts .env.vault containing application configuration
-DOTENV_KEY=${DOTENV_KEY}
+# DOTENV_PRIVATE_KEY_PRODUCTION: Decrypts encrypted .env.production file (dotenvx)
+DOTENV_PRIVATE_KEY_PRODUCTION=${DOTENV_PRIVATE_KEY_PRODUCTION}
 
 # CLOUDFLARE_TUNNEL_TOKEN: Authenticates to Cloudflare Tunnel for ingress
 CLOUDFLARE_TUNNEL_TOKEN=${CLOUDFLARE_TUNNEL_TOKEN}
 # TUNNEL_TOKEN: Alias for cloudflared container (expects this exact variable name)
 TUNNEL_TOKEN=${CLOUDFLARE_TUNNEL_TOKEN}
 
-# PostgreSQL configuration (all extracted from DATABASE_URL in .env.vault)
+# PostgreSQL configuration (all extracted from SECRET_DATABASE_URL in encrypted .env.production)
 POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
 POSTGRES_DB=${POSTGRES_DB}
 POSTGRES_USER=${POSTGRES_USER}
@@ -183,16 +183,16 @@ chmod 600 "$SECRETS_FILE"
 chown "$DEPLOYMENT_USER:$DEPLOYMENT_USER" "$SECRETS_FILE"
 
 print_status "Secrets written to $SECRETS_FILE"
-print_status "  - DOTENV_KEY: configured ✓"
-print_status "  - CLOUDFLARE_TUNNEL_TOKEN: configured ✓ (extracted from .env.vault)"
-print_status "  - POSTGRES_PASSWORD: configured ✓ (extracted from DATABASE_URL)"
-print_status "  - POSTGRES_DB: configured ✓ (extracted from DATABASE_URL)"
-print_status "  - POSTGRES_USER: configured ✓ (extracted from DATABASE_URL)"
+print_status "  - DOTENV_PRIVATE_KEY_PRODUCTION: configured ✓"
+print_status "  - CLOUDFLARE_TUNNEL_TOKEN: configured ✓ (extracted from encrypted .env)"
+print_status "  - POSTGRES_PASSWORD: configured ✓ (extracted from SECRET_DATABASE_URL)"
+print_status "  - POSTGRES_DB: configured ✓ (extracted from SECRET_DATABASE_URL)"
+print_status "  - POSTGRES_USER: configured ✓ (extracted from SECRET_DATABASE_URL)"
 print_status "Permissions: 600 (owner read/write only)"
 print_status "Owner: $DEPLOYMENT_USER:$DEPLOYMENT_USER"
 echo ""
-print_status "All credentials synchronized with .env.vault (single source of truth)"
-print_info "No manual sync required - credentials extracted deterministically"
+print_status "All credentials synchronized with encrypted .env files (single source of truth)"
+print_info "No manual sync required - credentials extracted deterministically via dotenvx"
 
 # Reload systemd to pick up new environment variable
 systemctl daemon-reload

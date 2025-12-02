@@ -24,7 +24,6 @@ dependencies = [
     "email-validator>=2.2.0",
     "phonenumbers>=8.13.0", # Phone number validation and normalization
     "structlog>=24.4.0", # Structured logging
-    "python-dotenv-vault>=0.7.0", # Encrypted .env file management
     "jinja2>=3.1.6", # Email template rendering
     "aiosmtplib>=3.0.0", # Async SMTP library for email sending
     # OpenTelemetry: Distributed tracing and observability (Grafana Cloud integration)
@@ -168,7 +167,7 @@ follow_imports = "normal"
 plugins = ["pydantic.mypy"]
 
 # Strict mode ONLY for our own code
-# Allow importing partially typed libraries (aiocache, dotenv_vault) without py.typed markers
+# Allow importing partially typed libraries (aiocache) without py.typed markers
 [[tool.mypy.overrides]]
 module = "app.*"
 strict = true

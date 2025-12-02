@@ -45,15 +45,13 @@ services:
   #   platform: linux/amd64  # For Colima with Rosetta support
   #   container_name: isthetube-celery-worker
   #   restart: unless-stopped
-  #   command: uv run celery -A app.celery.app worker --loglevel=info
+  #   command: dotenvx run -- uv run celery -A app.celery.app worker --loglevel=info
   #   env_file:
   #     - ./backend/.env
   #   environment:
-  #     - DATABASE_URL=postgresql+asyncpg://postgres:postgres@postgres:5432/isthetube
-  #     - REDIS_URL=redis://redis:6379/0
-  #     - CELERY_BROKER_URL=redis://redis:6379/1
-  #     - CELERY_RESULT_BACKEND=redis://redis:6379/2
   #     - OTEL_SERVICE_NAME=isthetuberunning-worker
+  #   # Note: dotenvx loads SECRET_* values from .env
+  #   # No need to override DATABASE_URL, REDIS_URL, etc. here
   #   depends_on:
   #     postgres:
   #       condition: service_healthy
@@ -71,15 +69,13 @@ services:
   #   platform: linux/amd64  # For Colima with Rosetta support
   #   container_name: isthetube-celery-beat
   #   restart: unless-stopped
-  #   command: uv run celery -A app.celery.app beat --loglevel=info
+  #   command: dotenvx run -- uv run celery -A app.celery.app beat --loglevel=info
   #   env_file:
   #     - ./backend/.env
   #   environment:
-  #     - DATABASE_URL=postgresql+asyncpg://postgres:postgres@postgres:5432/isthetube
-  #     - REDIS_URL=redis://redis:6379/0
-  #     - CELERY_BROKER_URL=redis://redis:6379/1
-  #     - CELERY_RESULT_BACKEND=redis://redis:6379/2
   #     - OTEL_SERVICE_NAME=isthetuberunning-beat
+  #   # Note: dotenvx loads SECRET_* values from .env
+  #   # No need to override DATABASE_URL, REDIS_URL, etc. here
   #   depends_on:
   #     - redis
   #   volumes:

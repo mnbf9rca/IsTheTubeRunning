@@ -11,7 +11,7 @@
 # Prerequisites:
 # - deployuser must be in docker group (already configured)
 # - /opt/isthetube directory with git repository
-# - .env.secrets configured with DOTENV_KEY, CLOUDFLARE_TUNNEL_TOKEN, etc.
+# - .env.secrets configured with DOTENV_PRIVATE_KEY_PRODUCTION, CLOUDFLARE_TUNNEL_TOKEN, etc.
 
 set -euo pipefail
 

@@ -165,7 +165,7 @@ Use GitHub Actions with direct SSH deployment to Azure VM. Deployment process:
 Configuration managed through:
 - `scripts/azure-config.sh`: Centralized Azure configuration
 - `docker-compose.prod.yml`: Production service definitions
-- `.env.vault`: Encrypted secrets (decrypted via DOTENV_KEY)
+- `.env.production`: Encrypted secrets (selective encryption with `SECRET_*` prefix, decrypted via dotenvx)
 - `docker/scripts/`: Operational scripts (backup, health check, UFW)
 
 ### Consequences
@@ -176,7 +176,7 @@ Configuration managed through:
 - Easy to test deployment locally (same Docker Compose config)
 - Transparent process (can see exactly what happens during deployment)
 - Infrastructure as code (all scripts in repository)
-- Secrets managed with dotenv-vault (single DOTENV_KEY in GitHub Secrets)
+- Secrets managed with dotenvx (selective encryption, DOTENV_PRIVATE_KEY_* in GitHub Secrets)
 
 **More Difficult:**
 - Manual responsibility for deployment script maintenance

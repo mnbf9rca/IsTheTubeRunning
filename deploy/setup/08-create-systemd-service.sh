@@ -38,7 +38,7 @@ WorkingDirectory=$APP_DIR/deploy
 User=$DEPLOYMENT_USER
 Group=$DEPLOYMENT_USER
 EnvironmentFile=/home/$DEPLOYMENT_USER/.env.secrets
-# Note: EnvironmentFile is required for docker-compose variable substitution (e.g., \${DOTENV_KEY}, \${POSTGRES_PASSWORD}, etc.)
+# Note: EnvironmentFile is required for docker-compose variable substitution (e.g., \${DOTENV_PRIVATE_KEY_PRODUCTION}, \${POSTGRES_PASSWORD}, etc.)
 # These variables must be present in the systemd environment for docker-compose to substitute them.
 # The env_file directive in docker-compose.prod.yml makes these variables available inside the containers.
 
@@ -73,16 +73,16 @@ systemctl enable docker-compose@isthetube
 
 print_status "Service enabled (will start on boot)"
 
-# Check DOTENV_KEY configuration (warning only)
+# Check DOTENV_PRIVATE_KEY_PRODUCTION configuration (warning only)
 echo ""
-print_info "Checking DOTENV_KEY configuration..."
+print_info "Checking DOTENV_PRIVATE_KEY_PRODUCTION configuration..."
 SECRETS_FILE="/home/$DEPLOYMENT_USER/.env.secrets"
-if [[ ! -f "$SECRETS_FILE" ]] || ! grep -q "^DOTENV_KEY=" "$SECRETS_FILE" 2>/dev/null; then
-    print_warning "DOTENV_KEY not found in $SECRETS_FILE"
+if [[ ! -f "$SECRETS_FILE" ]] || ! grep -q "^DOTENV_PRIVATE_KEY_PRODUCTION=" "$SECRETS_FILE" 2>/dev/null; then
+    print_warning "DOTENV_PRIVATE_KEY_PRODUCTION not found in $SECRETS_FILE"
     print_warning "The systemd service will not start until this is configured"
     print_info "This will be configured automatically by script 11-configure-dotenv-key.sh"
 else
-    print_status "DOTENV_KEY is configured"
+    print_status "DOTENV_PRIVATE_KEY_PRODUCTION is configured"
 fi
 
 echo ""
