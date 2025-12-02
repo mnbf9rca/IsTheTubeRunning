@@ -38,24 +38,24 @@ class TestLoadDatabaseUrl:
     """Tests for load_database_url function."""
 
     def test_returns_database_url_from_environment(self) -> None:
-        """Test that DATABASE_URL is returned when present in environment."""
+        """Test that SECRET_DATABASE_URL is returned when present in environment."""
         test_url = "postgresql+asyncpg://test:test@localhost:5432/test"
-        with patch.dict(os.environ, {"DATABASE_URL": test_url}):
+        with patch.dict(os.environ, {"SECRET_DATABASE_URL": test_url}):
             assert load_database_url() == test_url
 
     def test_raises_value_error_when_database_url_empty(self) -> None:
-        """Test that ValueError is raised when DATABASE_URL is empty."""
+        """Test that ValueError is raised when SECRET_DATABASE_URL is empty."""
         with (
-            patch.dict(os.environ, {"DATABASE_URL": ""}, clear=True),
-            pytest.raises(ValueError, match="DATABASE_URL not found in environment"),
+            patch.dict(os.environ, {"SECRET_DATABASE_URL": ""}, clear=True),
+            pytest.raises(ValueError, match="SECRET_DATABASE_URL not found in environment"),
         ):
             load_database_url()
 
     def test_raises_value_error_when_database_url_missing(self) -> None:
-        """Test that ValueError is raised when DATABASE_URL is not set."""
+        """Test that ValueError is raised when SECRET_DATABASE_URL is not set."""
         with (
             patch.dict(os.environ, {}, clear=True),
-            pytest.raises(ValueError, match="DATABASE_URL not found in environment"),
+            pytest.raises(ValueError, match="SECRET_DATABASE_URL not found in environment"),
         ):
             load_database_url()
 
@@ -120,8 +120,8 @@ class TestExtractDbCredentials:
         assert result == "testpass123"
 
     def test_missing_database_url_exits_with_error(self) -> None:
-        """Test that missing DATABASE_URL raises ValueError."""
-        with pytest.raises(ValueError, match="DATABASE_URL cannot be empty"):
+        """Test that missing SECRET_DATABASE_URL raises ValueError."""
+        with pytest.raises(ValueError, match="SECRET_DATABASE_URL cannot be empty"):
             extract_credentials("", "export")
 
     def test_invalid_mode_exits_with_error(self, sample_database_url: str) -> None:
@@ -217,7 +217,7 @@ class TestMainFunction:
         test_db_url = "postgresql+asyncpg://user:testpass@localhost:5432/db"
 
         with (
-            patch.dict(os.environ, {"DATABASE_URL": test_db_url}),
+            patch.dict(os.environ, {"SECRET_DATABASE_URL": test_db_url}),
             patch("sys.argv", ["script.py", "password"]),
             patch("sys.stdout", new=StringIO()) as mock_stdout,
         ):

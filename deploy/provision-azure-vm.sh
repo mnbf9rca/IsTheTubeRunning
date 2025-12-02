@@ -449,9 +449,9 @@ if [ "$DRY_RUN" = false ]; then
     echo "1. Configure the VM with setup scripts:"
     echo "   scp -i ${SSH_PRIVATE_KEY} -r deploy/ ${AZURE_ADMIN_USERNAME}@${VM_PUBLIC_IP}:~ && \\"
     # shellcheck disable=SC2016
-    printf '   ssh -i %s -t %s@%s "cd deploy && DOTENV_KEY=\\"$DOTENV_KEY_PRODUCTION\\" sudo -E ./setup-vm.sh --branch %s --yes"\n' "${SSH_PRIVATE_KEY}" "${AZURE_ADMIN_USERNAME}" "${VM_PUBLIC_IP}" "${CURRENT_BRANCH}"
+    printf '   ssh -i %s -t %s@%s "cd deploy && DOTENV_PRIVATE_KEY_PRODUCTION=\\"$DOTENV_PRIVATE_KEY_PRODUCTION\\" sudo -E ./setup-vm.sh --branch %s --yes"\n' "${SSH_PRIVATE_KEY}" "${AZURE_ADMIN_USERNAME}" "${VM_PUBLIC_IP}" "${CURRENT_BRANCH}"
     echo ""
-    echo "   Note: Ensure DOTENV_KEY_PRODUCTION is set in your environment before running"
+    echo "   Note: Ensure DOTENV_PRIVATE_KEY_PRODUCTION is set in your environment before running"
     echo "   Detected git branch: ${CURRENT_BRANCH}"
     echo ""
     echo "2. Generate and deploy SSH keys for CI/CD (run locally, after VM setup completes):"

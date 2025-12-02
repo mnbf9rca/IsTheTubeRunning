@@ -1,37 +1,49 @@
 # Security & Secrets Management
 
-## dotenvx for Secrets
+## dotenvx for Secrets (Selective Encryption)
 
 ### Status
 Active (Superseded python-dotenv-vault)
 
 ### Context
-Originally used `python-dotenv-vault` for encrypted secret management. While functional, the `.env.vault` approach had limitations: single encrypted blob made it impossible to see which configuration keys changed in git diffs, and cloud sync workflow was complex. Needed a solution with better transparency and simpler team synchronization.
+Originally used `python-dotenv-vault` for encrypted secret management. While functional, the `.env.vault` approach had limitations: single encrypted blob made it impossible to see which configuration keys changed in git diffs, and cloud sync workflow was complex. Additionally, encrypting all config values (including non-sensitive flags like `DEBUG=false`) reduced readability in git diffs.
 
 ### Decision
-Migrated to `dotenvx` for encrypted secret management. Uses per-value inline encryption (format: `KEY=encrypted:...`) instead of single blob. Encrypted .env files committed to git with visible key names but encrypted values. Private keys stored in `.env.keys` (gitignored), project ID in `.env.x` (committed). Team sync via `dotenvx ops sync`. Runtime decryption via `dotenvx run -- command` wrapper or `dotenvx get KEY`.
+Migrated to `dotenvx` with **selective encryption** using the `SECRET_*` prefix pattern:
+- Variables prefixed with `SECRET_*` are encrypted (database URLs, API keys, passwords)
+- Non-secret config remains plaintext (DEBUG, OTEL_ENABLED, feature flags, etc.)
+- Uses per-value inline encryption (format: `SECRET_KEY=encrypted:...`)
+- Encrypted via `dotenvx encrypt -k "SECRET_*"` or `dotenvx set SECRET_KEY "value"`
+- Pre-commit hook automatically encrypts SECRET_* values on commit
+- Private keys stored in `.env.keys` (gitignored)
+- Runtime decryption via `dotenvx run -- command` wrapper
 
 ### Consequences
 **Easier:**
-- **Improved transparency**: Git diffs show which config keys changed, even though values remain encrypted
+- **Selective encryption**: Non-secret config (DEBUG, OTEL_ENABLED) readable in git diffs
+- **Improved transparency**: Can see which SECRET_* keys changed without decrypting values
+- **Easier code review**: Reviewers can see config changes without needing to decrypt
 - **Local security**: Secrets remain encrypted on developer machines (not just in git)
-- **Simpler team sync**: `dotenvx ops sync` replaces complex push/build workflow
+- **Flexible workflow**: Edit directly (pre-commit encrypts) OR use `dotenvx set` command
 - **Better visibility**: Can see which secrets exist without decrypting
-- **No cloud dependency**: Works offline (cloud sync is optional)
-- **Standard .env format**: Familiar to developers, just with encrypted values
+- **No Python dependency**: No `python-dotenv-vault` package needed (CLI handles everything)
 
 **More Difficult:**
 - Private keys must be managed separately (can't commit .env.keys to git)
 - If private keys are lost, secrets must be regenerated
 - Requires dotenvx CLI installed (not just Python package)
 - Runtime wrapper needed (`dotenvx run --`) for environment injection
+- Naming convention required (must prefix secrets with `SECRET_`)
 
 ### Migration Notes
 - Replaced `python-dotenv-vault` Python library with `dotenvx` CLI
+- Renamed secret environment variables to use `SECRET_*` prefix (e.g., `DATABASE_URL` → `SECRET_DATABASE_URL`)
+- Updated `config.py` to use Pydantic `validation_alias` (field names unchanged, only env var source changed)
 - Updated deployment scripts to use `DOTENV_PRIVATE_KEY_PRODUCTION` instead of `DOTENV_KEY`
 - Modified CI to use `DOTENV_PRIVATE_KEY_CI` GitHub secret
-- Pre-commit hooks updated to run `dotenvx encrypt` instead of `dotenv-vault build`
+- Pre-commit hooks updated to run `dotenvx encrypt -k "SECRET_*"` (selective encryption)
 - Dockerfile updated to install dotenvx and wrap CMD with `dotenvx run --`
+- Test files updated to use new `SECRET_DATABASE_URL` variable name
 
 ---
 

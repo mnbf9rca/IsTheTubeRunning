@@ -125,18 +125,18 @@ if ! CLOUDFLARE_TUNNEL_TOKEN=$(extract_credential "tunnel_token" "^ey"); then
     exit 1
 fi
 
-# Extract PostgreSQL configuration from DATABASE_URL in .env.vault
+# Extract PostgreSQL configuration from SECRET_DATABASE_URL in encrypted .env.production
 # Regex: ^[^\n]+$ (non-empty, no newlines)
 if ! POSTGRES_PASSWORD=$(extract_credential "password" "^[^\n]+$"); then
     exit 1
 fi
 
-# Extract database name from DATABASE_URL path component
+# Extract database name from SECRET_DATABASE_URL path component
 if ! POSTGRES_DB=$(extract_credential "database" "^[^\n]+$"); then
     exit 1
 fi
 
-# Extract username from DATABASE_URL user component
+# Extract username from SECRET_DATABASE_URL user component
 if ! POSTGRES_USER=$(extract_credential "user" "^[^\n]+$"); then
     exit 1
 fi
@@ -170,7 +170,7 @@ CLOUDFLARE_TUNNEL_TOKEN=${CLOUDFLARE_TUNNEL_TOKEN}
 # TUNNEL_TOKEN: Alias for cloudflared container (expects this exact variable name)
 TUNNEL_TOKEN=${CLOUDFLARE_TUNNEL_TOKEN}
 
-# PostgreSQL configuration (all extracted from DATABASE_URL in encrypted .env.production)
+# PostgreSQL configuration (all extracted from SECRET_DATABASE_URL in encrypted .env.production)
 POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
 POSTGRES_DB=${POSTGRES_DB}
 POSTGRES_USER=${POSTGRES_USER}
@@ -185,9 +185,9 @@ chown "$DEPLOYMENT_USER:$DEPLOYMENT_USER" "$SECRETS_FILE"
 print_status "Secrets written to $SECRETS_FILE"
 print_status "  - DOTENV_PRIVATE_KEY_PRODUCTION: configured ✓"
 print_status "  - CLOUDFLARE_TUNNEL_TOKEN: configured ✓ (extracted from encrypted .env)"
-print_status "  - POSTGRES_PASSWORD: configured ✓ (extracted from DATABASE_URL)"
-print_status "  - POSTGRES_DB: configured ✓ (extracted from DATABASE_URL)"
-print_status "  - POSTGRES_USER: configured ✓ (extracted from DATABASE_URL)"
+print_status "  - POSTGRES_PASSWORD: configured ✓ (extracted from SECRET_DATABASE_URL)"
+print_status "  - POSTGRES_DB: configured ✓ (extracted from SECRET_DATABASE_URL)"
+print_status "  - POSTGRES_USER: configured ✓ (extracted from SECRET_DATABASE_URL)"
 print_status "Permissions: 600 (owner read/write only)"
 print_status "Owner: $DEPLOYMENT_USER:$DEPLOYMENT_USER"
 echo ""

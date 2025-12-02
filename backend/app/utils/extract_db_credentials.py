@@ -1,4 +1,4 @@
-"""Extract database credentials from DATABASE_URL and environment variables for use in shell scripts.
+"""Extract database credentials from SECRET_DATABASE_URL and environment variables for use in shell scripts.
 
 This utility extracts database connection parameters and environment variables.
 Environment variables must be available (injected via `dotenvx run --` wrapper).
@@ -7,7 +7,7 @@ Usage:
     # Get all credentials as export statements (for eval in bash)
     dotenvx run -- uv run python -m app.utils.extract_db_credentials export
 
-    # Get individual credential field from DATABASE_URL
+    # Get individual credential field from SECRET_DATABASE_URL
     dotenvx run -- uv run python -m app.utils.extract_db_credentials password
     dotenvx run -- uv run python -m app.utils.extract_db_credentials user
     dotenvx run -- uv run python -m app.utils.extract_db_credentials host
@@ -36,7 +36,7 @@ from urllib.parse import urlparse
 
 
 def extract_credentials(database_url: str, mode: str = "password") -> str:
-    """Extract database credentials from DATABASE_URL.
+    """Extract database credentials from SECRET_DATABASE_URL.
 
     Args:
         database_url: PostgreSQL connection URL (e.g., postgresql+asyncpg://user:pass@host:5432/db)
@@ -50,7 +50,7 @@ def extract_credentials(database_url: str, mode: str = "password") -> str:
         ValueError: If database_url is empty or mode is invalid
     """
     if not database_url:
-        msg = "DATABASE_URL cannot be empty"
+        msg = "SECRET_DATABASE_URL cannot be empty"
         raise ValueError(msg)
 
     # Parse the URL
@@ -109,19 +109,19 @@ def get_mode_from_args(args: list[str]) -> str:
 
 
 def load_database_url() -> str:
-    """Load DATABASE_URL from environment.
+    """Load SECRET_DATABASE_URL from environment.
 
     Environment variables must be pre-populated (e.g., via dotenvx run wrapper).
 
     Returns:
-        DATABASE_URL value
+        SECRET_DATABASE_URL value
 
     Raises:
-        ValueError: If DATABASE_URL is not found or empty
+        ValueError: If SECRET_DATABASE_URL is not found or empty
     """
-    if database_url := os.getenv("DATABASE_URL", ""):
+    if database_url := os.getenv("SECRET_DATABASE_URL", ""):
         return database_url
-    msg = "DATABASE_URL not found in environment"
+    msg = "SECRET_DATABASE_URL not found in environment"
     raise ValueError(msg)
 
 

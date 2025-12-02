@@ -48,8 +48,8 @@ repos:
         files: ^backend/app/.*\.py$
         pass_filenames: false
       - id: encrypt-dotenv
-        name: Re-encrypt .env files with dotenvx
-        entry: bash -c 'cd backend && dotenvx encrypt'
+        name: Encrypt SECRET_* values with dotenvx
+        entry: bash -c 'cd backend && for f in .env .env.ci .env.production; do [ -f "$f" ] && dotenvx encrypt -f "$f" -k "SECRET_*" || true; done'
         language: system
         always_run: true
         pass_filenames: false

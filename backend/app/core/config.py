@@ -2,7 +2,7 @@
 
 import logging
 
-from pydantic import field_validator
+from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -29,13 +29,13 @@ class Settings(BaseSettings):
         return v if isinstance(v, list) else [origin.strip() for origin in v.split(",")]
 
     # Database Settings
-    DATABASE_URL: str
+    DATABASE_URL: str = Field(validation_alias="SECRET_DATABASE_URL")
     DATABASE_ECHO: bool = False
     DATABASE_POOL_SIZE: int = 5  # Connection pool size for worker engine
     DATABASE_MAX_OVERFLOW: int = 10  # Max overflow connections for worker engine
 
     # Redis Settings
-    REDIS_URL: str
+    REDIS_URL: str = Field(validation_alias="SECRET_REDIS_URL")
 
     # Auth0 Settings (for Phase 3)
     AUTH0_DOMAIN: str
@@ -49,14 +49,14 @@ class Settings(BaseSettings):
         return v if isinstance(v, list) else [algo.strip() for algo in v.split(",")]
 
     # TfL API Settings (for Phase 5)
-    TFL_API_KEY: str | None = None
+    TFL_API_KEY: str | None = Field(default=None, validation_alias="SECRET_TFL_API_KEY")
 
     # Email Settings (for Phase 4)
     SMTP_HOST: str | None = None
     SMTP_PORT: int = 587
-    SMTP_USER: str | None = None
-    SMTP_PASSWORD: str | None = None
-    SMTP_FROM_EMAIL: str | None = None
+    SMTP_USER: str | None = Field(default=None, validation_alias="SECRET_SMTP_USER")
+    SMTP_PASSWORD: str | None = Field(default=None, validation_alias="SECRET_SMTP_PASSWORD")
+    SMTP_FROM_EMAIL: str | None = Field(default=None, validation_alias="SECRET_SMTP_FROM_EMAIL")
     SMTP_TIMEOUT: int = 10  # Connection timeout in seconds (prevents indefinite hangs)
     SMTP_REQUIRE_TLS: bool = False  # If True, require STARTTLS upgrade on ports 25/587
 
@@ -64,8 +64,8 @@ class Settings(BaseSettings):
     SMS_LOG_DIR: str | None = None  # Directory for SMS stub logging (optional)
 
     # Celery Settings (for Phase 8)
-    CELERY_BROKER_URL: str
-    CELERY_RESULT_BACKEND: str
+    CELERY_BROKER_URL: str = Field(validation_alias="SECRET_CELERY_BROKER_URL")
+    CELERY_RESULT_BACKEND: str = Field(validation_alias="SECRET_CELERY_RESULT_BACKEND")
 
     # Notification Settings (for Phase 7)
     MAX_NOTIFICATION_PREFERENCES_PER_ROUTE: int = 5
@@ -74,19 +74,21 @@ class Settings(BaseSettings):
     ALERT_COOLDOWN_MINUTES: int = 5  # Per-line cooldown to prevent spam from TfL API flickering
 
     # PII Hashing Settings (for Issue #311)
-    PII_HASH_SECRET: str  # Secret key for HMAC-SHA256 hashing of PII in logs/telemetry
+    PII_HASH_SECRET: str = Field(
+        validation_alias="SECRET_PII_HASH"
+    )  # Secret key for HMAC-SHA256 hashing of PII in logs/telemetry
 
     @field_validator("PII_HASH_SECRET", mode="after")
     @classmethod
     def validate_pii_hash_secret(cls, v: str) -> str:
-        """Ensure PII_HASH_SECRET meets minimum security requirements."""
+        """Ensure SECRET_PII_HASH meets minimum security requirements."""
         min_length = 32  # Minimum characters for cryptographic security
         if len(v) < min_length:
-            msg = f"PII_HASH_SECRET must be at least {min_length} characters long for security"
+            msg = f"SECRET_PII_HASH must be at least {min_length} characters long for security"
             raise ValueError(msg)
         if v == "REPLACE_ME_WITH_RANDOM_SECRET":
             msg = (
-                "PII_HASH_SECRET is set to placeholder value. "
+                "SECRET_PII_HASH is set to placeholder value. "
                 'Generate a secure secret using: python3 -c "import secrets; print(secrets.token_urlsafe(32))"'
             )
             raise ValueError(msg)
@@ -103,7 +105,7 @@ class Settings(BaseSettings):
     # OTLP Exporter Endpoints (separate for traces and logs)
     OTEL_EXPORTER_OTLP_TRACES_ENDPOINT: str | None = None
     OTEL_EXPORTER_OTLP_LOGS_ENDPOINT: str | None = None
-    OTEL_EXPORTER_OTLP_HEADERS: str | None = None
+    OTEL_EXPORTER_OTLP_HEADERS: str | None = Field(default=None, validation_alias="SECRET_OTEL_HEADERS")
     OTEL_EXPORTER_OTLP_PROTOCOL: str = "http/protobuf"
     OTEL_TRACES_SAMPLER: str = "parentbased_always_on"
     OTEL_TRACES_SAMPLER_ARG: float = 1.0  # 100% sampling

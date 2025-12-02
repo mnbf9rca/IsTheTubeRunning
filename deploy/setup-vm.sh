@@ -27,7 +27,7 @@ while [[ $# -gt 0 ]]; do
             echo "  -h, --help           Show this help message"
             echo ""
             echo "Example:"
-            echo "  DOTENV_KEY=\"\$DOTENV_KEY_PRODUCTION\" sudo -E ./setup-vm.sh --branch main"
+            echo "  DOTENV_PRIVATE_KEY_PRODUCTION=\"\$DOTENV_PRIVATE_KEY_PRODUCTION\" sudo -E ./setup-vm.sh --branch main"
             exit 0
             ;;
         *)
@@ -51,7 +51,7 @@ if [ -z "$GIT_BRANCH" ]; then
     echo "Usage: $0 --branch BRANCH [OPTIONS]"
     echo ""
     echo "Example:"
-    echo "  DOTENV_KEY=\"\$DOTENV_KEY_PRODUCTION\" sudo -E ./setup-vm.sh --branch main"
+    echo "  DOTENV_PRIVATE_KEY_PRODUCTION=\"\$DOTENV_PRIVATE_KEY_PRODUCTION\" sudo -E ./setup-vm.sh --branch main"
     exit 1
 fi
 
@@ -64,29 +64,29 @@ echo ""
 echo "Checking prerequisites..."
 echo ""
 
-# Validate DOTENV_KEY is provided
-if [ -z "${DOTENV_KEY:-}" ]; then
-    print_error "DOTENV_KEY environment variable is required"
+# Validate DOTENV_PRIVATE_KEY_PRODUCTION is provided
+if [ -z "${DOTENV_PRIVATE_KEY_PRODUCTION:-}" ]; then
+    print_error "DOTENV_PRIVATE_KEY_PRODUCTION environment variable is required"
     echo ""
-    echo "The application cannot run without DOTENV_KEY."
-    echo "CLOUDFLARE_TUNNEL_TOKEN and POSTGRES_PASSWORD will be extracted from .env.vault."
+    echo "The application cannot run without DOTENV_PRIVATE_KEY_PRODUCTION."
+    echo "CLOUDFLARE_TUNNEL_TOKEN and POSTGRES_PASSWORD will be extracted from encrypted .env.production."
     echo ""
     echo "Run setup with:"
-    echo "  DOTENV_KEY=\"\$DOTENV_KEY_PRODUCTION\" sudo -E ./setup-vm.sh --branch main"
+    echo "  DOTENV_PRIVATE_KEY_PRODUCTION=\"\$DOTENV_PRIVATE_KEY_PRODUCTION\" sudo -E ./setup-vm.sh --branch main"
     exit 1
 fi
 
-# Validate DOTENV_KEY format
-if [[ ! "$DOTENV_KEY" =~ ^dotenv:// ]]; then
-    print_error "DOTENV_KEY must start with 'dotenv://'"
+# Validate DOTENV_PRIVATE_KEY_PRODUCTION format (hex string)
+if [[ ! "$DOTENV_PRIVATE_KEY_PRODUCTION" =~ ^[0-9a-fA-F]{64,}$ ]]; then
+    print_error "DOTENV_PRIVATE_KEY_PRODUCTION must be a hex string (64+ characters)"
     echo ""
-    echo "Expected format: dotenv://:key_...@dotenvx.com/vault/.env.vault?environment=production"
-    echo "Received: ${DOTENV_KEY:0:20}..."
+    echo "Expected format: Hexadecimal string (e.g., 0332e154c228f2b38184bb285d099380...)"
+    echo "Received: ${DOTENV_PRIVATE_KEY_PRODUCTION:0:20}..."
     exit 1
 fi
 
-print_status "DOTENV_KEY validated"
-print_info "CLOUDFLARE_TUNNEL_TOKEN and POSTGRES_PASSWORD will be extracted from .env.vault during setup"
+print_status "DOTENV_PRIVATE_KEY_PRODUCTION validated"
+print_info "CLOUDFLARE_TUNNEL_TOKEN and POSTGRES_PASSWORD will be extracted from encrypted .env.production during setup"
 echo ""
 
 # Check internet connectivity (skip if ping not available on minimal image)
@@ -126,7 +126,7 @@ echo "  7. Deployment user"
 echo "  8. Systemd service for auto-start"
 echo "  9. Docker log rotation"
 echo "  10. UFW/SSH firewall configuration"
-echo "  11. DOTENV_KEY and CLOUDFLARE_TUNNEL_TOKEN configuration"
+echo "  11. DOTENV_PRIVATE_KEY_PRODUCTION and CLOUDFLARE_TUNNEL_TOKEN configuration"
 echo "  12. Automatic security updates (unattended-upgrades)"
 echo ""
 print_warning "This will modify system configuration!"
