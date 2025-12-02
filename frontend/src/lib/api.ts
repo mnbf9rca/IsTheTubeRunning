@@ -25,6 +25,10 @@ import type {
   UpdateScheduleRequest,
   NotificationPreferenceResponse,
   CreateNotificationPreferenceRequest,
+  NotificationMethod,
+  NotificationStatus,
+  Contact,
+  NetworkGraph,
   RouteVariant,
   LineResponse,
   StationResponse,
@@ -76,6 +80,10 @@ export type {
   UpdateScheduleRequest,
   NotificationPreferenceResponse,
   CreateNotificationPreferenceRequest,
+  NotificationMethod,
+  NotificationStatus,
+  Contact,
+  NetworkGraph,
   RouteVariant,
   LineResponse,
   StationResponse,
@@ -329,13 +337,8 @@ export async function getCurrentUser(): Promise<UserResponse> {
 }
 
 // ============================================================================
-// Contact Management Types & API
+// Contact Management API
 // ============================================================================
-
-/**
- * Union type for any contact
- */
-export type Contact = EmailResponse | PhoneResponse
 
 /**
  * Get all contacts for the authenticated user
@@ -643,13 +646,8 @@ export async function deleteSchedule(routeId: string, scheduleId: string): Promi
 }
 
 // ============================================================================
-// Notification Preference Types & API
+// Notification Preference API
 // ============================================================================
-
-/**
- * Notification method enum
- */
-export type NotificationMethod = 'email' | 'sms'
 
 /**
  * Get all notification preferences for a route
@@ -710,14 +708,8 @@ export async function deleteNotificationPreference(
 }
 
 // ============================================================================
-// TfL Data Types & API
+// TfL Data API
 // ============================================================================
-
-/**
- * Network graph adjacency list
- * Maps station TfL ID to array of connected stations
- */
-export type NetworkGraph = Record<string, NetworkConnection[]>
 
 /**
  * Get all TfL tube lines
@@ -813,8 +805,6 @@ export async function validateRoute(
 // ----------------------------------------------------------------------------
 // Admin Alert Management
 // ----------------------------------------------------------------------------
-
-export type NotificationStatus = 'sent' | 'failed' | 'pending'
 
 // ----------------------------------------------------------------------------
 // Admin User Management

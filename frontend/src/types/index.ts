@@ -52,7 +52,7 @@ export type CreateScheduleRequest = components['schemas']['CreateUserRouteSchedu
 export type UpdateScheduleRequest = components['schemas']['UpdateUserRouteScheduleRequest']
 
 // Notification preferences
-export type NotificationMethod = 'email' | 'sms'
+export type NotificationMethod = components['schemas']['NotificationMethod']
 export type NotificationPreferenceResponse = components['schemas']['NotificationPreferenceResponse']
 export type CreateNotificationPreferenceRequest =
   components['schemas']['CreateNotificationPreferenceRequest']
@@ -76,7 +76,7 @@ export type BuildGraphResponse = components['schemas']['BuildGraphResponse']
 // Admin - alerts
 export type TriggerCheckResponse = components['schemas']['TriggerCheckResponse']
 export type WorkerStatusResponse = components['schemas']['WorkerStatusResponse']
-export type NotificationStatus = 'sent' | 'failed' | 'pending'
+export type NotificationStatus = components['schemas']['NotificationStatus']
 export type NotificationLogItem = components['schemas']['NotificationLogItem']
 export type RecentLogsResponse = components['schemas']['RecentLogsResponse']
 // Note: RecentLogsParams is a frontend-only query parameter helper, defined in api.ts
