@@ -19,7 +19,6 @@
       "justMyCode": true,
       "envFile": "${workspaceFolder}/backend/.env.decrypted",
       "preLaunchTask": "decrypt-env",
-      "postDebugTask": "cleanup-env",
       "env": {
         "PYTHONPATH": "${workspaceFolder}/backend",
         "OTEL_SERVICE_NAME": "isthetuberunning-api"
@@ -39,8 +38,7 @@
       "console": "integratedTerminal",
       "justMyCode": false,
       "envFile": "${workspaceFolder}/backend/.env.decrypted",
-      "preLaunchTask": "decrypt-env",
-      "postDebugTask": "cleanup-env"
+      "preLaunchTask": "decrypt-env"
     },
     {
       "name": "Frontend: Vite Dev Server",
@@ -86,7 +84,6 @@
       "justMyCode": false,
       "envFile": "${workspaceFolder}/backend/.env.decrypted",
       "preLaunchTask": "decrypt-env",
-      "postDebugTask": "cleanup-env",
       "env": {
         "PYTHONPATH": "${workspaceFolder}/backend",
         "OTEL_SERVICE_NAME": "isthetuberunning-worker"
@@ -109,7 +106,6 @@
       "justMyCode": false,
       "envFile": "${workspaceFolder}/backend/.env.decrypted",
       "preLaunchTask": "decrypt-env",
-      "postDebugTask": "cleanup-env",
       "env": {
         "PYTHONPATH": "${workspaceFolder}/backend",
         "OTEL_SERVICE_NAME": "isthetuberunning-beat"

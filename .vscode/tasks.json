@@ -4,7 +4,7 @@
     {
       "label": "decrypt-env",
       "type": "shell",
-      "command": "dotenvx decrypt --stdout > .env.decrypted",
+      "command": "[ -f .env.decrypted ] || (dotenvx decrypt --stdout > .env.decrypted || (rm -f .env.decrypted && exit 1))",
       "options": {
         "cwd": "${workspaceFolder}/backend"
       },
