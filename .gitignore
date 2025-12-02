@@ -153,7 +153,6 @@ activemq-data/
 # Environments
 .env
 !.env.example
-!.env.vault
 .env.keys
 .envrc
 .venv
@@ -330,7 +329,6 @@ web_modules/
 .env
 .env.*
 !.env.example
-!.env.vault
 .env.keys
 
 # parcel-bundler cache (https://parceljs.org/)
@@ -412,6 +410,7 @@ coverage.*
 # OpenTelemetry Collector binary
 otelcol
 
-.env*
-.flaskenv*
-!.env.project
+# Frontend-only env files (backend uses encrypted dotenvx files)
+frontend/.env*
+frontend/.flaskenv*
+!frontend/.env.example

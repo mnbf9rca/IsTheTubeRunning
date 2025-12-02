@@ -25,6 +25,4 @@ dist-ssr
 
 .env*
 .flaskenv*
-!.env.project
-!.env.vault
 !.env.example
