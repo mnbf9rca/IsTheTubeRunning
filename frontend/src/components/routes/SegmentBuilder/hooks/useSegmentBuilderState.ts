@@ -16,6 +16,7 @@ import type {
   StationResponse,
   SegmentRequest,
 } from '../../../../lib/api'
+import { segmentResponseToRequest } from '../../../../lib/segment-utils'
 import type { Step, CoreSegmentBuilderState } from '../types'
 import {
   MAX_ROUTE_SEGMENTS,
@@ -123,8 +124,7 @@ export function useSegmentBuilderState({
 
   // Local state for segments being built
   const [localSegments, setLocalSegments] = useState<SegmentRequest[]>(
-    // eslint-disable-next-line @typescript-eslint/no-unused-vars
-    initialSegments.map(({ id: _id, ...rest }) => rest)
+    initialSegments.map(segmentResponseToRequest)
   )
 
   // State for building current segment
@@ -501,10 +501,7 @@ export function useSegmentBuilderState({
    */
   const handleCancel = useCallback(
     (onCancel: () => void) => {
-      setLocalSegments(
-        // eslint-disable-next-line @typescript-eslint/no-unused-vars
-        initialSegments.map(({ id: _id, ...rest }) => rest)
-      )
+      setLocalSegments(initialSegments.map(segmentResponseToRequest))
 
       // Reset state using transition function
       const newState = transitionToSelectStation()
