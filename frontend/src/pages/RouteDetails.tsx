@@ -104,11 +104,8 @@ export function RouteDetails() {
     setEditName(route.name)
     setEditDescription(route.description || '')
     setEditSegments(
-      route.segments.map((seg) => ({
-        sequence: seg.sequence,
-        station_tfl_id: seg.station_tfl_id,
-        line_tfl_id: seg.line_tfl_id,
-      }))
+      // eslint-disable-next-line @typescript-eslint/no-unused-vars
+      route.segments.map(({ id: _id, ...rest }) => rest)
     )
     setEditSchedules([...route.schedules])
     setEditNotifications([...notifications])
