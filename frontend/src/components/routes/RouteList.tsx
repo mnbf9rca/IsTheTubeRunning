@@ -1,6 +1,6 @@
 import { MapPin } from 'lucide-react'
 import { RouteCard } from './RouteCard'
-import type { RouteListItemResponse } from '../../lib/api'
+import type { RouteListItemResponse } from '@/types'
 
 export interface RouteListProps {
   routes: RouteListItemResponse[]

@@ -2,7 +2,7 @@ import { Mail, Phone, Trash2, CheckCircle2, AlertCircle } from 'lucide-react'
 import { Card, CardContent } from '../ui/card'
 import { Button } from '../ui/button'
 import { Badge } from '../ui/badge'
-import type { EmailResponse, PhoneResponse } from '../../lib/api'
+import type { EmailResponse, PhoneResponse } from '@/types'
 
 export interface ContactCardProps {
   contact: EmailResponse | PhoneResponse

@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { type UserListItem } from '@/lib/api'
+import { type UserListItem } from '@/types'
 import {
   Table,
   TableBody,

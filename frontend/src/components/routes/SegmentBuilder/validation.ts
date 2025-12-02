@@ -12,8 +12,8 @@
  * @see Issue #95: Extract Validation & Types Module from SegmentBuilder
  */
 
-import type { StationResponse, LineResponse } from '../../../lib/api'
-import type { SegmentRequest, ValidationResult } from './types'
+import type { StationResponse, LineResponse, SegmentRequest } from '@/types'
+import type { ValidationResult } from './types'
 
 /**
  * Maximum number of segments allowed per route

@@ -15,15 +15,17 @@ import { NotificationDisplay } from '../components/routes/NotificationDisplay'
 import { useTflData } from '../hooks/useTflData'
 import { useContacts } from '../hooks/useContacts'
 import { segmentResponseToRequest } from '../lib/segment-utils'
+import type {
+  RouteResponse,
+  SegmentRequest,
+  ScheduleResponse,
+  CreateScheduleRequest,
+  UpdateScheduleRequest,
+  NotificationPreferenceResponse,
+  CreateNotificationPreferenceRequest,
+  NotificationMethod,
+} from '@/types'
 import {
-  type RouteResponse,
-  type SegmentRequest,
-  type ScheduleResponse,
-  type CreateScheduleRequest,
-  type UpdateScheduleRequest,
-  type NotificationPreferenceResponse,
-  type CreateNotificationPreferenceRequest,
-  type NotificationMethod,
   ApiError,
   getRoute,
   updateRoute,

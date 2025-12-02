@@ -1,7 +1,7 @@
 import { Bell, Mail, Smartphone } from 'lucide-react'
 import { Badge } from '../ui/badge'
 import { Card } from '../ui/card'
-import type { NotificationPreferenceResponse, EmailResponse, PhoneResponse } from '../../lib/api'
+import type { NotificationPreferenceResponse, EmailResponse, PhoneResponse } from '@/types'
 
 export interface NotificationDisplayProps {
   /**

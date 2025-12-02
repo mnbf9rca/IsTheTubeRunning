@@ -1,6 +1,6 @@
 import { Calendar } from 'lucide-react'
 import { ScheduleCard } from './ScheduleCard'
-import type { ScheduleResponse } from '../../lib/api'
+import type { ScheduleResponse } from '@/types'
 
 export interface ScheduleListProps {
   /**

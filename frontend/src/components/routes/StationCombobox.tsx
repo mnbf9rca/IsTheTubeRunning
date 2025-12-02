@@ -11,7 +11,7 @@ import {
 } from '../ui/command'
 import { Popover, PopoverContent, PopoverTrigger } from '../ui/popover'
 import { cn } from '../../lib/utils'
-import type { StationResponse } from '../../lib/api'
+import type { StationResponse } from '@/types'
 
 export interface StationComboboxProps {
   /**

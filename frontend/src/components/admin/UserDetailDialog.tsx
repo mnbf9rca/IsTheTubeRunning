@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react'
-import { type UserDetailResponse, ApiError } from '@/lib/api'
+import type { UserDetailResponse } from '@/types'
+import { ApiError } from '@/lib/api'
 import {
   Dialog,
   DialogContent,

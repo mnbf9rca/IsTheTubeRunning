@@ -2,7 +2,8 @@ import { render, screen, waitFor } from '@testing-library/react'
 import { userEvent } from '@testing-library/user-event'
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { UserDetailDialog } from './UserDetailDialog'
-import { ApiError, type UserDetailResponse } from '@/lib/api'
+import type { UserDetailResponse } from '@/types'
+import { ApiError } from '@/lib/api'
 
 describe('UserDetailDialog', () => {
   const mockUserDetails: UserDetailResponse = {

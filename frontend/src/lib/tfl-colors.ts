@@ -11,7 +11,7 @@
  * https://tfl.gov.uk/corporate/about-tfl/how-we-work/corporate-and-social-responsibility/corporate-responsibility-and-sustainability-report
  */
 
-import type { LineResponse } from './api'
+import type { LineResponse } from '@/types'
 
 /**
  * Lines that use Corporate Blue text instead of white

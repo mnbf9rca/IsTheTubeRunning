@@ -22,7 +22,7 @@
  * @see Issue #97: Extract State Machine Logic from SegmentBuilder
  */
 
-import type { StationResponse, LineResponse } from '@/lib/api'
+import type { StationResponse, LineResponse } from '@/types'
 import type { CoreSegmentBuilderState, Step } from './types'
 
 /**
