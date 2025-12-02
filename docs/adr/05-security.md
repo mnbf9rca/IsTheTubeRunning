@@ -3,7 +3,7 @@
 ## dotenvx for Secrets (Selective Encryption)
 
 ### Status
-Active (Superseded python-dotenv-vault)
+Active (supersedes python-dotenv-vault)
 
 ### Context
 Originally used `python-dotenv-vault` for encrypted secret management. While functional, the `.env.vault` approach had limitations: single encrypted blob made it impossible to see which configuration keys changed in git diffs, and cloud sync workflow was complex. Additionally, encrypting all config values (including non-sensitive flags like `DEBUG=false`) reduced readability in git diffs.

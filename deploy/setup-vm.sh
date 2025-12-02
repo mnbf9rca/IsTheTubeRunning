@@ -81,7 +81,7 @@ if [[ ! "$DOTENV_PRIVATE_KEY_PRODUCTION" =~ ^[0-9a-fA-F]{64,}$ ]]; then
     print_error "DOTENV_PRIVATE_KEY_PRODUCTION must be a hex string (64+ characters)"
     echo ""
     echo "Expected format: Hexadecimal string (e.g., 0332e154c228f2b38184bb285d099380...)"
-    echo "Received: ${DOTENV_PRIVATE_KEY_PRODUCTION:0:20}..."
+    echo "Received value has length: ${#DOTENV_PRIVATE_KEY_PRODUCTION}"
     exit 1
 fi
 

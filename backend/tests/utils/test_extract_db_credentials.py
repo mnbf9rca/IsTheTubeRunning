@@ -168,25 +168,25 @@ class TestExtractEnvVar:
     def test_extracts_environment_variable_when_present(self) -> None:
         """Test that environment variable is extracted when present."""
         test_token = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.test.token"
-        with patch.dict(os.environ, {"CLOUDFLARE_TUNNEL_TOKEN": test_token}):
-            result = extract_env_var("CLOUDFLARE_TUNNEL_TOKEN")
+        with patch.dict(os.environ, {"SECRET_CLOUDFLARE_TUNNEL_TOKEN": test_token}):
+            result = extract_env_var("SECRET_CLOUDFLARE_TUNNEL_TOKEN")
             assert result == test_token
 
     def test_raises_value_error_when_variable_missing(self) -> None:
         """Test that ValueError is raised when environment variable is missing."""
         with (
             patch.dict(os.environ, {}, clear=True),
-            pytest.raises(ValueError, match="CLOUDFLARE_TUNNEL_TOKEN not found in environment"),
+            pytest.raises(ValueError, match="SECRET_CLOUDFLARE_TUNNEL_TOKEN not found in environment"),
         ):
-            extract_env_var("CLOUDFLARE_TUNNEL_TOKEN")
+            extract_env_var("SECRET_CLOUDFLARE_TUNNEL_TOKEN")
 
     def test_raises_value_error_when_variable_empty(self) -> None:
         """Test that ValueError is raised when environment variable is empty."""
         with (
-            patch.dict(os.environ, {"CLOUDFLARE_TUNNEL_TOKEN": ""}),
-            pytest.raises(ValueError, match="CLOUDFLARE_TUNNEL_TOKEN not found in environment"),
+            patch.dict(os.environ, {"SECRET_CLOUDFLARE_TUNNEL_TOKEN": ""}),
+            pytest.raises(ValueError, match="SECRET_CLOUDFLARE_TUNNEL_TOKEN not found in environment"),
         ):
-            extract_env_var("CLOUDFLARE_TUNNEL_TOKEN")
+            extract_env_var("SECRET_CLOUDFLARE_TUNNEL_TOKEN")
 
     def test_works_with_different_variable_names(self) -> None:
         """Test that function works with any environment variable name."""
@@ -200,11 +200,11 @@ class TestMainFunction:
     """Tests for main CLI function with tunnel_token mode."""
 
     def test_main_extracts_tunnel_token_successfully(self) -> None:
-        """Test that main() extracts CLOUDFLARE_TUNNEL_TOKEN when tunnel_token mode is used."""
+        """Test that main() extracts SECRET_CLOUDFLARE_TUNNEL_TOKEN when tunnel_token mode is used."""
         test_token = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.test.token"
 
         with (
-            patch.dict(os.environ, {"CLOUDFLARE_TUNNEL_TOKEN": test_token}),
+            patch.dict(os.environ, {"SECRET_CLOUDFLARE_TUNNEL_TOKEN": test_token}),
             patch("sys.argv", ["script.py", "tunnel_token"]),
             patch("sys.stdout", new=StringIO()) as mock_stdout,
         ):
@@ -226,7 +226,7 @@ class TestMainFunction:
             assert output.strip() == "testpass"
 
     def test_main_exits_with_error_for_missing_tunnel_token(self) -> None:
-        """Test that main() exits with error when CLOUDFLARE_TUNNEL_TOKEN is missing."""
+        """Test that main() exits with error when SECRET_CLOUDFLARE_TUNNEL_TOKEN is missing."""
         with (
             patch.dict(os.environ, {}, clear=True),
             patch("sys.argv", ["script.py", "tunnel_token"]),
@@ -237,4 +237,4 @@ class TestMainFunction:
 
         assert exc_info.value.code == 1
         error_output = mock_stderr.getvalue()
-        assert "CLOUDFLARE_TUNNEL_TOKEN not found in environment" in error_output
+        assert "SECRET_CLOUDFLARE_TUNNEL_TOKEN not found in environment" in error_output
