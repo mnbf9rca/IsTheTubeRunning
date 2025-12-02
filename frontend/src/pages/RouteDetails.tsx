@@ -14,6 +14,7 @@ import { ScheduleCard } from '../components/routes/ScheduleCard'
 import { NotificationDisplay } from '../components/routes/NotificationDisplay'
 import { useTflData } from '../hooks/useTflData'
 import { useContacts } from '../hooks/useContacts'
+import { segmentResponseToRequest } from '../lib/segment-utils'
 import {
   type RouteResponse,
   type SegmentRequest,
@@ -103,10 +104,7 @@ export function RouteDetails() {
     if (!route) return
     setEditName(route.name)
     setEditDescription(route.description || '')
-    setEditSegments(
-      // eslint-disable-next-line @typescript-eslint/no-unused-vars
-      route.segments.map(({ id: _id, ...rest }) => rest)
-    )
+    setEditSegments(route.segments.map(segmentResponseToRequest))
     setEditSchedules([...route.schedules])
     setEditNotifications([...notifications])
     setIsEditing(true)
