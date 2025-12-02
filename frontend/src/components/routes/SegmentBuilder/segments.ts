@@ -15,7 +15,7 @@
  * @see Issue #96: Extract Segment Building Logic from SegmentBuilder
  */
 
-import type { StationResponse, LineResponse } from '@/lib/api'
+import type { StationResponse, LineResponse } from '@/types'
 import type { SegmentRequest } from './types'
 import { isStationLastInRoute } from './validation'
 import { isSameLine } from './utils'

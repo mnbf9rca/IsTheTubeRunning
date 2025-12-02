@@ -14,7 +14,7 @@ import type {
   StationResponse,
   SegmentRequest,
   RouteValidationResponse,
-} from '../../../lib/api'
+} from '@/types'
 import { MAX_ROUTE_SEGMENTS } from './validation'
 import { useSegmentBuilderState } from './hooks/useSegmentBuilderState'
 

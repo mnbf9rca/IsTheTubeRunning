@@ -7,7 +7,7 @@
 import { describe, it, expect, vi } from 'vitest'
 import { renderHook, act } from '@testing-library/react'
 import { useSegmentBuilderState } from './useSegmentBuilderState'
-import type { StationResponse, LineResponse, SegmentResponse } from '@/lib/api'
+import type { StationResponse, LineResponse, SegmentResponse } from '@/types'
 
 describe('useSegmentBuilderState', () => {
   // ===== Mock Data =====

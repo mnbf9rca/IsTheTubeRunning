@@ -10,12 +10,7 @@
  */
 
 import { useState, useEffect, useCallback, useMemo } from 'react'
-import type {
-  SegmentResponse,
-  LineResponse,
-  StationResponse,
-  SegmentRequest,
-} from '../../../../lib/api'
+import type { SegmentResponse, LineResponse, StationResponse, SegmentRequest } from '@/types'
 import { segmentResponseToRequest } from '../../../../lib/segment-utils'
 import type { Step, CoreSegmentBuilderState } from '../types'
 import {

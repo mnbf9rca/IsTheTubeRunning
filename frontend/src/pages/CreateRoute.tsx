@@ -12,12 +12,14 @@ import { ScheduleForm } from '../components/routes/ScheduleForm'
 import { ScheduleCard } from '../components/routes/ScheduleCard'
 import { useTflData } from '../hooks/useTflData'
 import { useContacts } from '../hooks/useContacts'
+import type {
+  SegmentRequest,
+  CreateScheduleRequest,
+  ScheduleResponse,
+  CreateNotificationPreferenceRequest,
+  NotificationMethod,
+} from '@/types'
 import {
-  type SegmentRequest,
-  type CreateScheduleRequest,
-  type ScheduleResponse,
-  type CreateNotificationPreferenceRequest,
-  type NotificationMethod,
   ApiError,
   createRoute,
   upsertSegments,

@@ -1,7 +1,7 @@
 import { TrainFront, ArrowRight } from 'lucide-react'
 import { Badge } from '../ui/badge'
 import { Card } from '../ui/card'
-import type { SegmentResponse, LineResponse, StationResponse } from '../../lib/api'
+import type { SegmentResponse, LineResponse, StationResponse } from '@/types'
 import { getLineColor } from '@/lib/tfl-colors'
 
 export interface SegmentDisplayProps {

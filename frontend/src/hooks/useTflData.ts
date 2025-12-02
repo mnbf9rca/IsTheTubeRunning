@@ -1,8 +1,6 @@
 import { useState, useEffect, useCallback } from 'react'
+import type { LineResponse, StationResponse, NetworkGraph } from '@/types'
 import {
-  type LineResponse,
-  type StationResponse,
-  type NetworkGraph,
   ApiError,
   getLines as apiGetLines,
   getStations as apiGetStations,

@@ -5,7 +5,7 @@
  * for working with TfL stations and lines.
  */
 
-import type { StationResponse, LineResponse } from '@/lib/api'
+import type { StationResponse, LineResponse } from '@/types'
 
 /**
  * Finds a station by its TfL ID
