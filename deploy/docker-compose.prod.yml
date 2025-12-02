@@ -83,7 +83,7 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
-    command: alembic upgrade head
+    command: dotenvx run -- alembic upgrade head
     restart: "no"  # Only run once, don't restart on failure
     networks:
       - app-network
@@ -132,7 +132,7 @@ services:
     image: ghcr.io/mnbf9rca/isthetuberunning/backend:latest
     container_name: isthetube-celery-worker-prod
     restart: unless-stopped
-    command: /app/.venv/bin/celery -A app.celery.app worker --loglevel=info --concurrency=2
+    command: dotenvx run -- /app/.venv/bin/celery -A app.celery.app worker --loglevel=info --concurrency=2
     env_file:
       - /home/deployuser/.env.secrets
     environment:
@@ -161,7 +161,7 @@ services:
     image: ghcr.io/mnbf9rca/isthetuberunning/backend:latest
     container_name: isthetube-celery-beat-prod
     restart: unless-stopped
-    command: /app/.venv/bin/celery -A app.celery.app beat --loglevel=info
+    command: dotenvx run -- /app/.venv/bin/celery -A app.celery.app beat --loglevel=info
     env_file:
       - /home/deployuser/.env.secrets
     environment:
