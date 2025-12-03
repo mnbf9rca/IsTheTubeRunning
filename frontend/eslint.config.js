@@ -25,6 +25,21 @@ export default defineConfig([
         'warn',
         { allowConstantExport: true },
       ],
+      // Enforce importing types from @/types, not @/lib/api
+      // See api.ts header comment for details
+      'no-restricted-imports': [
+        'error',
+        {
+          patterns: [
+            {
+              group: ['@/lib/api'],
+              importNamePattern: '^(?!ApiError$)[A-Z]',
+              message:
+                "Import types from '@/types' instead of '@/lib/api'. Only functions and ApiError should be imported from here.",
+            },
+          ],
+        },
+      ],
     },
     languageOptions: {
       ecmaVersion: 2020,
