@@ -3,6 +3,8 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { useDisruptions } from './useDisruptions'
 import { ApiError } from '../lib/api'
 import type { DisruptionResponse } from '@/types'
+import type { ReactNode } from 'react'
+import { PollingProvider } from '@/contexts/PollingContext'
 
 // Mock the API module
 vi.mock('../lib/api', async () => {
@@ -13,10 +15,19 @@ vi.mock('../lib/api', async () => {
   }
 })
 
+// Mock the backend hooks
+vi.mock('@/hooks/useBackendAvailability')
+vi.mock('@/hooks/useBackendAuth')
+
 // Import mocked functions
 import * as api from '../lib/api'
+import * as BackendAvailabilityHook from '@/hooks/useBackendAvailability'
+import * as BackendAuthHook from '@/hooks/useBackendAuth'
 
 describe('useDisruptions', () => {
+  const mockUseBackendAvailability = vi.mocked(BackendAvailabilityHook.useBackendAvailability)
+  const mockUseBackendAuth = vi.mocked(BackendAuthHook.useBackendAuth)
+
   const mockDisruptionsResponse: DisruptionResponse[] = [
     {
       line_id: 'piccadilly',
@@ -62,10 +73,28 @@ describe('useDisruptions', () => {
     },
   ]
 
+  const wrapper = ({ children }: { children: ReactNode }) => (
+    <PollingProvider>{children}</PollingProvider>
+  )
+
   beforeEach(() => {
     vi.clearAllMocks()
+
     // Default mock implementation
     vi.mocked(api.getDisruptions).mockResolvedValue(mockDisruptionsResponse)
+
+    // Mock backend hooks
+    mockUseBackendAvailability.mockReturnValue({
+      isAvailable: true,
+      isChecking: false,
+      lastChecked: new Date(),
+      checkAvailability: vi.fn(),
+    })
+
+    mockUseBackendAuth.mockReturnValue({
+      isBackendAuthenticated: true,
+      loading: false,
+    })
   })
 
   afterEach(() => {
@@ -74,7 +103,7 @@ describe('useDisruptions', () => {
 
   describe('initialization', () => {
     it('should fetch disruptions on mount', async () => {
-      const { result, unmount } = renderHook(() => useDisruptions())
+      const { result, unmount } = renderHook(() => useDisruptions(), { wrapper })
 
       // Initially loading
       expect(result.current.loading).toBe(true)
@@ -92,7 +121,7 @@ describe('useDisruptions', () => {
     })
 
     it('should filter out good service by default', async () => {
-      const { result, unmount } = renderHook(() => useDisruptions())
+      const { result, unmount } = renderHook(() => useDisruptions(), { wrapper })
 
       await waitFor(() => {
         expect(result.current.loading).toBe(false)
@@ -106,7 +135,9 @@ describe('useDisruptions', () => {
     })
 
     it('should include good service when filterGoodService is false', async () => {
-      const { result, unmount } = renderHook(() => useDisruptions({ filterGoodService: false }))
+      const { result, unmount } = renderHook(() => useDisruptions({ filterGoodService: false }), {
+        wrapper,
+      })
 
       await waitFor(() => {
         expect(result.current.loading).toBe(false)
@@ -127,7 +158,7 @@ describe('useDisruptions', () => {
       const mockError = new ApiError(500, 'Internal Server Error')
       vi.mocked(api.getDisruptions).mockRejectedValue(mockError)
 
-      const { result, unmount } = renderHook(() => useDisruptions())
+      const { result, unmount } = renderHook(() => useDisruptions(), { wrapper })
 
       await waitFor(() => {
         expect(result.current.loading).toBe(false)
@@ -139,8 +170,11 @@ describe('useDisruptions', () => {
       unmount()
     })
 
-    it('should not fetch when disabled', () => {
-      const { unmount } = renderHook(() => useDisruptions({ enabled: false }))
+    it('should not fetch when disabled', async () => {
+      const { unmount } = renderHook(() => useDisruptions({ enabled: false }), { wrapper })
+
+      // Wait a bit to ensure no fetch happens
+      await new Promise((resolve) => setTimeout(resolve, 50))
 
       expect(api.getDisruptions).not.toHaveBeenCalled()
 
@@ -150,7 +184,7 @@ describe('useDisruptions', () => {
 
   describe('refresh', () => {
     it('should manually refresh disruptions', async () => {
-      const { result, unmount } = renderHook(() => useDisruptions())
+      const { result, unmount } = renderHook(() => useDisruptions(), { wrapper })
 
       // Wait for initial fetch
       await waitFor(() => {
@@ -170,7 +204,7 @@ describe('useDisruptions', () => {
     })
 
     it('should handle refresh error', async () => {
-      const { result, unmount } = renderHook(() => useDisruptions())
+      const { result, unmount } = renderHook(() => useDisruptions(), { wrapper })
 
       await waitFor(() => {
         expect(result.current.loading).toBe(false)

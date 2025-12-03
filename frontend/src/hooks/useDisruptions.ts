@@ -1,6 +1,6 @@
-import { useState, useEffect, useCallback } from 'react'
 import type { DisruptionResponse } from '@/types'
 import { ApiError, getDisruptions as apiGetDisruptions } from '../lib/api'
+import { usePolling } from './usePolling'
 
 export interface UseDisruptionsOptions {
   /** Polling interval in milliseconds (default: 30000 = 30 seconds) */
@@ -28,7 +28,7 @@ const DEFAULT_POLL_INTERVAL = 30000 // 30 seconds
  * - Optional filtering of "Good Service" status
  * - Enable/disable polling
  * - Manual refresh
- * - Re-check on window focus
+ * - Re-check on window focus (via PollingCoordinator)
  *
  * @param options Configuration options
  * @returns Disruption data, loading state, error, and refresh function
@@ -42,68 +42,30 @@ const DEFAULT_POLL_INTERVAL = 30000 // 30 seconds
 export function useDisruptions(options: UseDisruptionsOptions = {}): UseDisruptionsReturn {
   const { pollInterval = DEFAULT_POLL_INTERVAL, enabled = true, filterGoodService = true } = options
 
-  const [disruptions, setDisruptions] = useState<DisruptionResponse[] | null>(null)
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState<ApiError | null>(null)
+  const {
+    data: disruptions,
+    loading,
+    isRefreshing,
+    error,
+    refresh,
+  } = usePolling<DisruptionResponse[]>({
+    key: 'disruptions',
+    fetchFn: apiGetDisruptions,
+    interval: pollInterval,
+    enabled,
+    requiresAuth: false,
+    pauseWhenBackendDown: true,
+    transform: filterGoodService
+      ? (data) => data.filter((disruption) => disruption.status_severity !== 10)
+      : undefined,
+  })
 
-  const refresh = useCallback(async () => {
-    setLoading(true)
-    setError(null)
-
-    try {
-      const data = await apiGetDisruptions()
-
-      // Filter out "Good Service" if requested
-      const filteredData = filterGoodService
-        ? data.filter((disruption) => disruption.status_severity !== 10)
-        : data
-
-      setDisruptions(filteredData)
-    } catch (err) {
-      setError(err as ApiError)
-    } finally {
-      setLoading(false)
-    }
-  }, [filterGoodService])
-
-  // Initial fetch on mount
-  useEffect(() => {
-    if (!enabled) {
-      setLoading(false)
-      return
-    }
-
-    refresh().catch(() => {
-      // Error already set in state
-    })
-  }, [enabled, refresh])
-
-  // Periodic polling
-  useEffect(() => {
-    if (!enabled) return
-
-    const interval = setInterval(refresh, pollInterval)
-    return () => clearInterval(interval)
-  }, [enabled, pollInterval, refresh])
-
-  // Re-check when window regains focus
-  useEffect(() => {
-    if (!enabled) return
-
-    const handleFocus = () => {
-      refresh().catch(() => {
-        // Error already set in state
-      })
-    }
-
-    window.addEventListener('focus', handleFocus)
-    return () => window.removeEventListener('focus', handleFocus)
-  }, [enabled, refresh])
-
+  // Return loading OR isRefreshing as loading for backwards compatibility
+  // This ensures UI shows loading state during both initial and background refreshes
   return {
     disruptions,
-    loading,
-    error,
+    loading: loading || isRefreshing,
+    error: error as ApiError | null,
     refresh,
   }
 }
