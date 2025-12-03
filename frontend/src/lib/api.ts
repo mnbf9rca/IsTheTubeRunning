@@ -1,5 +1,15 @@
 /**
  * API client for backend communication
+ *
+ * ⚠️  IMPORTANT: Do NOT import types from this module!
+ * All types should be imported from '@/types' instead.
+ *
+ * Although TypeScript allows importing types from this module (because they
+ * appear in function signatures), the convention is to import from @/types
+ * for consistency and to maintain a single source of truth for type definitions.
+ *
+ * ❌ BAD:  import type { DisruptionResponse } from '@/lib/api'
+ * ✅ GOOD: import type { DisruptionResponse } from '@/types'
  */
 
 import type {
