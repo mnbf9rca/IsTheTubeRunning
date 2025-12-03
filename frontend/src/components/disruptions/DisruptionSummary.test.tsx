@@ -59,11 +59,12 @@ describe('DisruptionSummary', () => {
       expect(container.firstChild).toHaveClass('custom-class')
     })
 
-    it('should preserve default classes with custom className', () => {
+    it('should preserve Card component structure with custom className', () => {
       const { container } = render(<DisruptionSummary disruptions={[]} className="custom-class" />)
 
-      expect(container.firstChild).toHaveClass('text-sm')
-      expect(container.firstChild).toHaveClass('text-muted-foreground')
+      // Should be a Card component with custom class
+      expect(container.firstChild).toHaveClass('rounded-xl')
+      expect(container.firstChild).toHaveClass('border')
       expect(container.firstChild).toHaveClass('custom-class')
     })
   })

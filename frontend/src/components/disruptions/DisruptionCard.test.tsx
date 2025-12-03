@@ -210,7 +210,7 @@ describe('DisruptionCard', () => {
     const article = screen.getByRole('article')
     expect(article).toHaveAttribute(
       'aria-label',
-      'Northern: Severe Delays: Signal failure, Part Closure: Engineering works'
+      'Northern: Severe Delays: Signal failure; Part Closure: Engineering works'
     )
   })
 

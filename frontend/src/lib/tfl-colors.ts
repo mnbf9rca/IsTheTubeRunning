@@ -44,10 +44,17 @@ const LINE_COLORS: Record<string, string> = {
   piccadilly: '#003688',
   victoria: '#0098D4',
   'waterloo-city': '#95CDBA',
-  // Elizabeth line (future)
+  // Elizabeth line
   elizabeth: '#7156A5',
+  // Overground lines (rebranded 2024) - official TfL colors
+  overground: '#EE7C0E', // Generic overground (legacy)
+  liberty: '#5D6061', // Liberty line (grey)
+  lioness: '#FAA61A', // Lioness line (orange)
+  mildmay: '#0077AD', // Mildmay line (blue)
+  suffragette: '#5BBD72', // Suffragette line (green)
+  weaver: '#823A62', // Weaver line (maroon)
+  windrush: '#ED1B00', // Windrush line (red)
   // Other modes
-  overground: '#EE7C0E',
   dlr: '#00A4A7',
   tram: '#84B817',
 }
