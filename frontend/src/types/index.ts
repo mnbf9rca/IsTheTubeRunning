@@ -95,3 +95,10 @@ export type NotificationStatMetrics = components['schemas']['NotificationStatMet
 export type DailySignup = components['schemas']['DailySignup']
 export type GrowthMetrics = components['schemas']['GrowthMetrics']
 export type EngagementMetrics = components['schemas']['EngagementMetrics']
+
+// TfL Disruptions
+export type DisruptionResponse = components['schemas']['DisruptionResponse']
+export type RouteDisruptionResponse = components['schemas']['RouteDisruptionResponse']
+export type StationDisruptionResponse = components['schemas']['StationDisruptionResponse']
+export type AffectedRouteInfo = components['schemas']['AffectedRouteInfo']
+export type DisruptionCategoryResponse = components['schemas']['DisruptionCategoryResponse']
