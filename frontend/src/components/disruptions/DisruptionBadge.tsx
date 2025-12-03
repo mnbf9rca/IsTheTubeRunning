@@ -16,7 +16,7 @@ export interface DisruptionBadgeProps {
  * Map TfL severity code to badge variant
  *
  * TfL Severity codes:
- * - 1-4: Severe disruption (closures, suspensions)
+ * - 1-4: Severe disruptions (closures, suspensions)
  * - 5-9: Minor/moderate delays
  * - 10: Good Service
  * - 11-20: Severe delays, reduced service, etc.

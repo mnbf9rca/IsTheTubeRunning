@@ -2,7 +2,7 @@ import { renderHook, waitFor, act } from '@testing-library/react'
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { useUserRouteDisruptions } from './useUserRouteDisruptions'
 import { ApiError } from '../lib/api'
-import type { RouteDisruptionResponse } from '../lib/api'
+import type { RouteDisruptionResponse } from '@/types'
 
 // Mock the API module
 vi.mock('../lib/api', async () => {
