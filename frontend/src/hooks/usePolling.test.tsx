@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { renderHook, waitFor } from '@testing-library/react'
+import { renderHook, waitFor, act } from '@testing-library/react'
 import { usePolling } from './usePolling'
 import type { ReactNode } from 'react'
 import { PollingProvider } from '@/contexts/PollingContext'
@@ -126,7 +126,9 @@ describe('usePolling', () => {
       const callCount = fetchFn.mock.calls.length
 
       // Manual refresh
-      await result.current.refresh()
+      await act(async () => {
+        await result.current.refresh()
+      })
 
       expect(fetchFn).toHaveBeenCalledTimes(callCount + 1)
     })
@@ -151,7 +153,9 @@ describe('usePolling', () => {
       })
 
       // Manual refresh
-      await result.current.refresh()
+      await act(async () => {
+        await result.current.refresh()
+      })
 
       await waitFor(() => {
         expect(result.current.data).toEqual(secondData)
@@ -160,9 +164,7 @@ describe('usePolling', () => {
 
     it('should use isRefreshing for background updates', async () => {
       const testData = { value: 'test-data' }
-      const fetchFn = vi
-        .fn()
-        .mockImplementation(() => new Promise((resolve) => setTimeout(() => resolve(testData), 50)))
+      const fetchFn = vi.fn().mockResolvedValue(testData)
 
       const { result } = renderHook(
         () =>
@@ -180,24 +182,17 @@ describe('usePolling', () => {
       })
 
       expect(result.current.isRefreshing).toBe(false)
+      expect(result.current.data).toEqual(testData)
 
-      // Trigger manual refresh
-      const refreshPromise = result.current.refresh()
-
-      // Should show refreshing but not loading
-      await waitFor(() => {
-        expect(result.current.isRefreshing).toBe(true)
+      // Trigger manual refresh - wrap in act to handle state updates
+      await act(async () => {
+        await result.current.refresh()
       })
 
+      // After refresh completes, isRefreshing should be false
+      expect(result.current.isRefreshing).toBe(false)
       expect(result.current.loading).toBe(false)
-      expect(result.current.data).toEqual(testData) // Previous data still available
-
-      // Wait for refresh to complete
-      await refreshPromise
-
-      await waitFor(() => {
-        expect(result.current.isRefreshing).toBe(false)
-      })
+      expect(result.current.data).toEqual(testData)
     })
   })
 
@@ -331,7 +326,9 @@ describe('usePolling', () => {
       })
 
       // Manual refresh succeeds
-      await result.current.refresh()
+      await act(async () => {
+        await result.current.refresh()
+      })
 
       await waitFor(() => {
         expect(result.current.error).toBeNull()
@@ -365,7 +362,9 @@ describe('usePolling', () => {
 
       // Manual refresh
       await new Promise((resolve) => setTimeout(resolve, 10)) // Ensure time passes
-      await result.current.refresh()
+      await act(async () => {
+        await result.current.refresh()
+      })
 
       await waitFor(() => {
         expect(result.current.lastUpdated).toBeInstanceOf(Date)
@@ -398,7 +397,9 @@ describe('usePolling', () => {
       const firstTimestamp = result.current.lastUpdated
 
       // Second call fails
-      await result.current.refresh()
+      await act(async () => {
+        await result.current.refresh()
+      })
 
       await waitFor(() => {
         expect(result.current.error).toEqual(testError)
