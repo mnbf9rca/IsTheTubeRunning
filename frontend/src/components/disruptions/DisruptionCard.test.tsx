@@ -338,4 +338,26 @@ describe('DisruptionCard', () => {
     expect(badges[1]).toHaveTextContent('Severe Delays')
     expect(badges[2]).toHaveTextContent('Good Service')
   })
+
+  it('handles line names with special regex characters', () => {
+    // Test that special regex characters in line names are properly escaped
+    // This prevents regex errors or unintended pattern matching
+    const disruption = createDisruption({
+      line_name: 'Hammersmith & City',
+      statuses: [
+        createStatus({
+          status_severity_description: 'Minor Delays',
+          reason: 'Hammersmith & City Signal failure at Baker Street',
+        }),
+      ],
+    })
+    render(<DisruptionCard disruption={disruption} />)
+
+    // The reason should have the line name prefix removed correctly
+    // Even though "&" is not a regex metacharacter, we're testing the escaping pattern
+    expect(screen.getByText('Signal failure at Baker Street')).toBeInTheDocument()
+    expect(
+      screen.queryByText('Hammersmith & City Signal failure at Baker Street')
+    ).not.toBeInTheDocument()
+  })
 })

@@ -9,6 +9,14 @@ interface DisruptionCardProps {
 }
 
 /**
+ * Escape special regex characters in a string
+ * Prevents regex metacharacters like (, ), ., +, etc. from being interpreted as regex syntax
+ */
+function escapeRegExp(string: string): string {
+  return string.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+}
+
+/**
  * Remove redundant line name prefix from reason text
  * e.g., "Lioness Line: No service..." -> "No service..."
  */
@@ -20,7 +28,7 @@ function cleanReason(reason: string | null | undefined, lineName: string): strin
     `${lineName}:`,
     `${lineName} Line:`,
     `${lineName} line:`,
-    new RegExp(`^${lineName}\\s+`, 'i'), // Match line name followed by space(s)
+    new RegExp(`^${escapeRegExp(lineName)}\\s+`, 'i'), // Match line name followed by space(s)
   ]
 
   let cleaned = reason.trim()
@@ -130,7 +138,7 @@ export function DisruptionCard({ disruption, className = '' }: DisruptionCardPro
               <div className="flex flex-wrap gap-2">
                 {group.statuses.map((status, statusIndex) => (
                   <DisruptionBadge
-                    key={statusIndex}
+                    key={`${groupIndex}-${statusIndex}`}
                     severity={status.status_severity}
                     severityDescription={status.status_severity_description}
                   />
