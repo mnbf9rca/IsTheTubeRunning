@@ -14,15 +14,18 @@ import { ScheduleCard } from '../components/routes/ScheduleCard'
 import { NotificationDisplay } from '../components/routes/NotificationDisplay'
 import { useTflData } from '../hooks/useTflData'
 import { useContacts } from '../hooks/useContacts'
+import { segmentResponseToRequest } from '../lib/segment-utils'
+import type {
+  RouteResponse,
+  SegmentRequest,
+  ScheduleResponse,
+  CreateScheduleRequest,
+  UpdateScheduleRequest,
+  NotificationPreferenceResponse,
+  CreateNotificationPreferenceRequest,
+  NotificationMethod,
+} from '@/types'
 import {
-  type RouteResponse,
-  type SegmentRequest,
-  type ScheduleResponse,
-  type CreateScheduleRequest,
-  type UpdateScheduleRequest,
-  type NotificationPreferenceResponse,
-  type CreateNotificationPreferenceRequest,
-  type NotificationMethod,
   ApiError,
   getRoute,
   updateRoute,
@@ -103,13 +106,7 @@ export function RouteDetails() {
     if (!route) return
     setEditName(route.name)
     setEditDescription(route.description || '')
-    setEditSegments(
-      route.segments.map((seg) => ({
-        sequence: seg.sequence,
-        station_tfl_id: seg.station_tfl_id,
-        line_tfl_id: seg.line_tfl_id,
-      }))
-    )
+    setEditSegments(route.segments.map(segmentResponseToRequest))
     setEditSchedules([...route.schedules])
     setEditNotifications([...notifications])
     setIsEditing(true)

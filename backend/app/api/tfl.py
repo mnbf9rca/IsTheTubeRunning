@@ -13,7 +13,7 @@ from app.models.user import User
 from app.schemas.tfl import (
     AlertConfigResponse,
     DisruptionCategoryResponse,
-    DisruptionResponse,
+    GroupedLineDisruptionResponse,
     LineResponse,
     LineRoutesResponse,
     LineStateResponse,
@@ -126,15 +126,16 @@ async def get_stations(
     return [StationResponse.model_validate(station) for station in stations]
 
 
-@router.get("/disruptions", response_model=list[DisruptionResponse])
+@router.get("/disruptions", response_model=list[GroupedLineDisruptionResponse])
 async def get_disruptions(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
-) -> list[DisruptionResponse]:
+) -> list[GroupedLineDisruptionResponse]:
     """
-    Get current line-level disruptions across the tube network.
+    Get current line-level disruptions across the tube network (grouped by line).
 
-    Returns disruptions affecting tube lines.
+    Returns disruptions grouped by line, with multiple statuses per line combined.
+    Each line appears once with all its statuses sorted by severity (lower = more severe).
     Data is cached for 2 minutes (or TTL specified by TfL API).
 
     Args:
@@ -142,13 +143,13 @@ async def get_disruptions(
         db: Database session
 
     Returns:
-        List of current line disruptions with severity and details
+        List of grouped line disruptions (one per line) with all statuses and details
 
     Raises:
         HTTPException: 503 if TfL API is unavailable
     """
     tfl_service = TfLService(db)
-    return await tfl_service.fetch_line_disruptions()
+    return await tfl_service.fetch_grouped_line_disruptions()
 
 
 @router.post("/validate-route", response_model=RouteValidationResponse)

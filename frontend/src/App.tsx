@@ -8,6 +8,7 @@ import {
   BackendAvailabilityProvider,
   useBackendAvailability,
 } from './contexts/BackendAvailabilityContext'
+import { PollingProvider } from './contexts/PollingContext'
 import { useAuth } from './hooks/useAuth'
 import { setAccessTokenGetter } from './lib/api'
 import Login from './pages/Login'
@@ -37,113 +38,115 @@ function AppRoutes() {
   return (
     <BrowserRouter>
       <BackendAuthProvider>
-        <AppLayout>
-          <Routes>
-            {/* Public routes */}
-            <Route path="/" element={<Navigate to="/dashboard" replace />} />
-            <Route path="/login" element={<Login />} />
-            <Route path="/callback" element={<Callback />} />
+        <PollingProvider>
+          <AppLayout>
+            <Routes>
+              {/* Public routes */}
+              <Route path="/" element={<Navigate to="/dashboard" replace />} />
+              <Route path="/login" element={<Login />} />
+              <Route path="/callback" element={<Callback />} />
 
-            {/* Protected routes */}
-            <Route
-              path="/dashboard"
-              element={
-                <ProtectedRoute>
-                  <Dashboard />
-                </ProtectedRoute>
-              }
-            />
-            <Route
-              path="/dashboard/contacts"
-              element={
-                <ProtectedRoute>
-                  <Contacts />
-                </ProtectedRoute>
-              }
-            />
-            <Route
-              path="/routes"
-              element={
-                <ProtectedRoute>
-                  <RoutesPage />
-                </ProtectedRoute>
-              }
-            />
-            <Route
-              path="/routes/new"
-              element={
-                <ProtectedRoute>
-                  <CreateRoute />
-                </ProtectedRoute>
-              }
-            />
-            <Route
-              path="/routes/:id"
-              element={
-                <ProtectedRoute>
-                  <RouteDetails />
-                </ProtectedRoute>
-              }
-            />
+              {/* Protected routes */}
+              <Route
+                path="/dashboard"
+                element={
+                  <ProtectedRoute>
+                    <Dashboard />
+                  </ProtectedRoute>
+                }
+              />
+              <Route
+                path="/dashboard/contacts"
+                element={
+                  <ProtectedRoute>
+                    <Contacts />
+                  </ProtectedRoute>
+                }
+              />
+              <Route
+                path="/routes"
+                element={
+                  <ProtectedRoute>
+                    <RoutesPage />
+                  </ProtectedRoute>
+                }
+              />
+              <Route
+                path="/routes/new"
+                element={
+                  <ProtectedRoute>
+                    <CreateRoute />
+                  </ProtectedRoute>
+                }
+              />
+              <Route
+                path="/routes/:id"
+                element={
+                  <ProtectedRoute>
+                    <RouteDetails />
+                  </ProtectedRoute>
+                }
+              />
 
-            {/* Admin routes */}
-            <Route path="/admin" element={<Navigate to="/admin/users" replace />} />
-            <Route
-              path="/admin/users"
-              element={
-                <AdminRoute>
-                  <AdminUsers />
-                </AdminRoute>
-              }
-            />
-            <Route
-              path="/admin/analytics"
-              element={
-                <AdminRoute>
-                  <div className="flex min-h-screen items-center justify-center">
-                    <div className="text-center">
-                      <h1 className="text-2xl font-bold">Admin Analytics</h1>
-                      <p className="text-muted-foreground">Analytics dashboard (placeholder)</p>
+              {/* Admin routes */}
+              <Route path="/admin" element={<Navigate to="/admin/users" replace />} />
+              <Route
+                path="/admin/users"
+                element={
+                  <AdminRoute>
+                    <AdminUsers />
+                  </AdminRoute>
+                }
+              />
+              <Route
+                path="/admin/analytics"
+                element={
+                  <AdminRoute>
+                    <div className="flex min-h-screen items-center justify-center">
+                      <div className="text-center">
+                        <h1 className="text-2xl font-bold">Admin Analytics</h1>
+                        <p className="text-muted-foreground">Analytics dashboard (placeholder)</p>
+                      </div>
                     </div>
-                  </div>
-                </AdminRoute>
-              }
-            />
-            <Route
-              path="/admin/logs"
-              element={
-                <AdminRoute>
-                  <div className="flex min-h-screen items-center justify-center">
-                    <div className="text-center">
-                      <h1 className="text-2xl font-bold">Admin Logs</h1>
-                      <p className="text-muted-foreground">
-                        Notification logs viewer (placeholder)
-                      </p>
+                  </AdminRoute>
+                }
+              />
+              <Route
+                path="/admin/logs"
+                element={
+                  <AdminRoute>
+                    <div className="flex min-h-screen items-center justify-center">
+                      <div className="text-center">
+                        <h1 className="text-2xl font-bold">Admin Logs</h1>
+                        <p className="text-muted-foreground">
+                          Notification logs viewer (placeholder)
+                        </p>
+                      </div>
                     </div>
-                  </div>
-                </AdminRoute>
-              }
-            />
-            <Route
-              path="/admin/actions"
-              element={
-                <AdminRoute>
-                  <div className="flex min-h-screen items-center justify-center">
-                    <div className="text-center">
-                      <h1 className="text-2xl font-bold">Admin Actions</h1>
-                      <p className="text-muted-foreground">
-                        Administrative actions page (placeholder)
-                      </p>
+                  </AdminRoute>
+                }
+              />
+              <Route
+                path="/admin/actions"
+                element={
+                  <AdminRoute>
+                    <div className="flex min-h-screen items-center justify-center">
+                      <div className="text-center">
+                        <h1 className="text-2xl font-bold">Admin Actions</h1>
+                        <p className="text-muted-foreground">
+                          Administrative actions page (placeholder)
+                        </p>
+                      </div>
                     </div>
-                  </div>
-                </AdminRoute>
-              }
-            />
+                  </AdminRoute>
+                }
+              />
 
-            {/* Catch-all redirect */}
-            <Route path="*" element={<Navigate to="/dashboard" replace />} />
-          </Routes>
-        </AppLayout>
+              {/* Catch-all redirect */}
+              <Route path="*" element={<Navigate to="/dashboard" replace />} />
+            </Routes>
+          </AppLayout>
+        </PollingProvider>
       </BackendAuthProvider>
     </BrowserRouter>
   )

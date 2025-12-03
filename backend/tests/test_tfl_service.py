@@ -7117,6 +7117,191 @@ async def test_fetch_line_disruptions_generic_exception(
     assert "Failed to fetch line disruptions from TfL API for modes: ['tube', 'dlr']" in exc_info.value.detail
 
 
+async def test_fetch_grouped_line_disruptions_single_line_single_status(
+    tfl_service: TfLService,
+) -> None:
+    """Test fetch_grouped_line_disruptions with single line and single status."""
+    # Mock fetch_line_disruptions to return a single disruption
+    mock_disruptions = [
+        DisruptionResponse(
+            line_id="victoria",
+            line_name="Victoria",
+            mode="tube",
+            status_severity=9,
+            status_severity_description="Minor Delays",
+            reason="Signal failure",
+            created_at=datetime(2024, 1, 1, 12, 0, tzinfo=UTC),
+            affected_routes=None,
+        )
+    ]
+    tfl_service.fetch_line_disruptions = AsyncMock(return_value=mock_disruptions)
+
+    result = await tfl_service.fetch_grouped_line_disruptions()
+
+    assert len(result) == 1
+    assert result[0].line_id == "victoria"
+    assert result[0].line_name == "Victoria"
+    assert result[0].mode == "tube"
+    assert len(result[0].statuses) == 1
+    assert result[0].statuses[0].status_severity == 9
+    assert result[0].statuses[0].status_severity_description == "Minor Delays"
+    assert result[0].statuses[0].reason == "Signal failure"
+
+
+async def test_fetch_grouped_line_disruptions_single_line_multiple_statuses(
+    tfl_service: TfLService,
+) -> None:
+    """Test fetch_grouped_line_disruptions groups multiple statuses for same line."""
+    # Mock fetch_line_disruptions to return multiple disruptions for same line
+    mock_disruptions = [
+        DisruptionResponse(
+            line_id="northern",
+            line_name="Northern",
+            mode="tube",
+            status_severity=9,
+            status_severity_description="Minor Delays",
+            reason="Signal failure",
+            created_at=datetime(2024, 1, 1, 12, 0, tzinfo=UTC),
+            affected_routes=None,
+        ),
+        DisruptionResponse(
+            line_id="northern",
+            line_name="Northern",
+            mode="tube",
+            status_severity=5,
+            status_severity_description="Part Closure",
+            reason="Planned engineering works",
+            created_at=datetime(2024, 1, 1, 10, 0, tzinfo=UTC),
+            affected_routes=None,
+        ),
+    ]
+    tfl_service.fetch_line_disruptions = AsyncMock(return_value=mock_disruptions)
+
+    result = await tfl_service.fetch_grouped_line_disruptions()
+
+    # Should have one grouped response with two statuses
+    assert len(result) == 1
+    assert result[0].line_id == "northern"
+    assert len(result[0].statuses) == 2
+    # Should be sorted by severity (ascending - lower = more severe)
+    assert result[0].statuses[0].status_severity == 5  # Part Closure (more severe)
+    assert result[0].statuses[0].status_severity_description == "Part Closure"
+    assert result[0].statuses[1].status_severity == 9  # Minor Delays (less severe)
+    assert result[0].statuses[1].status_severity_description == "Minor Delays"
+
+
+async def test_fetch_grouped_line_disruptions_multiple_lines(
+    tfl_service: TfLService,
+) -> None:
+    """Test fetch_grouped_line_disruptions with multiple lines."""
+    # Mock fetch_line_disruptions to return disruptions for multiple lines
+    mock_disruptions = [
+        DisruptionResponse(
+            line_id="victoria",
+            line_name="Victoria",
+            mode="tube",
+            status_severity=6,
+            status_severity_description="Severe Delays",
+            reason="Track fire",
+            created_at=None,
+            affected_routes=None,
+        ),
+        DisruptionResponse(
+            line_id="dlr",
+            line_name="DLR",
+            mode="dlr",
+            status_severity=9,
+            status_severity_description="Minor Delays",
+            reason="Earlier incident",
+            created_at=None,
+            affected_routes=None,
+        ),
+        DisruptionResponse(
+            line_id="central",
+            line_name="Central",
+            mode="tube",
+            status_severity=2,
+            status_severity_description="Suspended",
+            reason="Emergency services incident",
+            created_at=None,
+            affected_routes=None,
+        ),
+    ]
+    tfl_service.fetch_line_disruptions = AsyncMock(return_value=mock_disruptions)
+
+    result = await tfl_service.fetch_grouped_line_disruptions()
+
+    # Should have three grouped responses
+    assert len(result) == 3
+    # Should be sorted alphabetically by line name
+    assert result[0].line_name == "Central"
+    assert result[1].line_name == "DLR"
+    assert result[2].line_name == "Victoria"
+
+
+async def test_fetch_grouped_line_disruptions_deduplicates_statuses(
+    tfl_service: TfLService,
+) -> None:
+    """Test fetch_grouped_line_disruptions deduplicates identical statuses."""
+    # Mock fetch_line_disruptions to return duplicate statuses
+    mock_disruptions = [
+        DisruptionResponse(
+            line_id="jubilee",
+            line_name="Jubilee",
+            mode="tube",
+            status_severity=9,
+            status_severity_description="Minor Delays",
+            reason="Signal failure",
+            created_at=datetime(2024, 1, 1, 12, 0, tzinfo=UTC),
+            affected_routes=None,
+        ),
+        DisruptionResponse(
+            line_id="jubilee",
+            line_name="Jubilee",
+            mode="tube",
+            status_severity=9,
+            status_severity_description="Minor Delays",
+            reason="Signal failure",
+            created_at=datetime(2024, 1, 1, 12, 0, tzinfo=UTC),
+            affected_routes=None,
+        ),
+    ]
+    tfl_service.fetch_line_disruptions = AsyncMock(return_value=mock_disruptions)
+
+    result = await tfl_service.fetch_grouped_line_disruptions()
+
+    # Should deduplicate to single status
+    assert len(result) == 1
+    assert len(result[0].statuses) == 1
+    assert result[0].statuses[0].status_severity == 9
+
+
+async def test_fetch_grouped_line_disruptions_empty_response(
+    tfl_service: TfLService,
+) -> None:
+    """Test fetch_grouped_line_disruptions with no disruptions."""
+    # Mock fetch_line_disruptions to return empty list
+    tfl_service.fetch_line_disruptions = AsyncMock(return_value=[])
+
+    result = await tfl_service.fetch_grouped_line_disruptions()
+
+    assert len(result) == 0
+
+
+async def test_fetch_grouped_line_disruptions_passes_parameters(
+    tfl_service: TfLService,
+) -> None:
+    """Test fetch_grouped_line_disruptions passes modes and cache parameters."""
+    # Mock fetch_line_disruptions
+    tfl_service.fetch_line_disruptions = AsyncMock(return_value=[])
+
+    # Call with specific parameters
+    await tfl_service.fetch_grouped_line_disruptions(modes=["tube", "dlr"], use_cache=False)
+
+    # Verify parameters were passed through
+    tfl_service.fetch_line_disruptions.assert_called_once_with(modes=["tube", "dlr"], use_cache=False)
+
+
 async def test_fetch_station_disruptions_http_exception_reraise(
     tfl_service: TfLService,
 ) -> None:

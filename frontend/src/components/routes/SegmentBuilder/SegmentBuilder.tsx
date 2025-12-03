@@ -14,7 +14,7 @@ import type {
   StationResponse,
   SegmentRequest,
   RouteValidationResponse,
-} from '../../../lib/api'
+} from '@/types'
 import { MAX_ROUTE_SEGMENTS } from './validation'
 import { useSegmentBuilderState } from './hooks/useSegmentBuilderState'
 
@@ -225,6 +225,7 @@ export function SegmentBuilder({
     .map((seg) => ({
       id: `temp-${seg.sequence}`, // Temporary ID for display
       ...seg,
+      line_tfl_id: seg.line_tfl_id ?? null,
     }))
 
   // Get all available stations (for first segment, all stations; otherwise, only reachable stations)

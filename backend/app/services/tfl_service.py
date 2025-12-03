@@ -81,7 +81,9 @@ from app.models.tfl import (
 from app.schemas.tfl import (
     AffectedRouteInfo,
     DisruptionResponse,
+    GroupedLineDisruptionResponse,
     LineRoutesResponse,
+    LineStatusInfo,
     RouteSegmentRequest,
     RouteVariant,
     StationDisruptionResponse,
@@ -826,7 +828,9 @@ class TfLService:
 
                 # Batch fetch existing lines for this mode (optimize N+1 queries)
                 line_tfl_ids = [line_data.id for line_data in line_data_list if line_data.id is not None]
-                existing_result = await self.db.execute(select(Line).where(Line.tfl_id.in_(line_tfl_ids)))
+                existing_result = await self.db.execute(
+                    select(Line).where(Line.tfl_id.in_(line_tfl_ids)).execution_options(populate_existing=True)
+                )
                 existing_lines = {line.tfl_id: line for line in existing_result.scalars().all()}
 
                 now = datetime.now(UTC)
@@ -2100,6 +2104,84 @@ class TfLService:
                 status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
                 detail=f"Failed to fetch line disruptions from TfL API for modes: {modes}",
             ) from e
+
+    async def fetch_grouped_line_disruptions(
+        self,
+        modes: list[str] | None = None,
+        use_cache: bool = True,
+    ) -> list[GroupedLineDisruptionResponse]:
+        """Fetch line disruptions grouped by line (for frontend display).
+
+        Groups multiple statuses for the same line into a single response,
+        with statuses deduplicated and sorted by severity (ascending, lower = more severe).
+        Lines are sorted alphabetically for consistent display.
+
+        This method wraps fetch_line_disruptions() to reuse caching and TfL API logic,
+        then performs grouping transformation. Internal services should continue using
+        fetch_line_disruptions() for per-status granularity.
+
+        Args:
+            modes: List of transport modes to fetch statuses for.
+                   If None, defaults to ["tube", "overground", "dlr", "elizabeth-line"].
+            use_cache: Whether to use Redis cache (default: True)
+
+        Returns:
+            List of grouped line disruption responses (one per line)
+
+        Raises:
+            HTTPException: If TfL API request fails
+        """
+        # Get raw disruptions (uses existing caching)
+        raw_disruptions = await self.fetch_line_disruptions(modes=modes, use_cache=use_cache)
+
+        # Group by line_id
+        lines: dict[str, list[DisruptionResponse]] = {}
+        for disruption in raw_disruptions:
+            if disruption.line_id not in lines:
+                lines[disruption.line_id] = []
+            lines[disruption.line_id].append(disruption)
+
+        # Build grouped responses
+        result: list[GroupedLineDisruptionResponse] = []
+        for line_id, disruptions in lines.items():
+            # Use first disruption for line metadata (all have same line_id, line_name, mode)
+            first = disruptions[0]
+
+            # Deduplicate statuses by (severity, description, reason)
+            seen: set[tuple[int, str, str]] = set()
+            statuses: list[LineStatusInfo] = []
+            for d in disruptions:
+                # Create deduplication key
+                key = (d.status_severity, d.status_severity_description, d.reason or "")
+                if key not in seen:
+                    seen.add(key)
+                    statuses.append(
+                        LineStatusInfo(
+                            status_severity=d.status_severity,
+                            status_severity_description=d.status_severity_description,
+                            reason=d.reason,
+                            created_at=d.created_at,
+                            affected_routes=d.affected_routes,
+                        )
+                    )
+
+            # Sort statuses by severity (ascending - lower numbers = more severe)
+            statuses.sort(key=lambda s: s.status_severity)
+
+            result.append(
+                GroupedLineDisruptionResponse(
+                    line_id=line_id,
+                    line_name=first.line_name,
+                    mode=first.mode,
+                    statuses=statuses,
+                )
+            )
+
+        # Sort result by line_name for consistent ordering
+        result.sort(key=lambda r: r.line_name)
+
+        logger.debug("line_disruptions_grouped", line_count=len(result), total_statuses=len(raw_disruptions))
+        return result
 
     async def _create_station_disruption_from_point(
         self,

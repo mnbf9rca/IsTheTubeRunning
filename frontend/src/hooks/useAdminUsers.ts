@@ -1,8 +1,6 @@
 import { useState, useEffect, useCallback } from 'react'
+import type { PaginatedUsersResponse, UserDetailResponse, AnonymiseUserResponse } from '@/types'
 import {
-  type PaginatedUsersResponse,
-  type UserDetailResponse,
-  type AnonymiseUserResponse,
   ApiError,
   getAdminUsers as apiGetAdminUsers,
   getAdminUser as apiGetAdminUser,

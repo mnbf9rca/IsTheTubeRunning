@@ -13,7 +13,7 @@ import {
   isValidTransition,
   logTransition,
 } from './transitions'
-import type { StationResponse, LineResponse } from '@/lib/api'
+import type { StationResponse, LineResponse } from '@/types'
 import type { CoreSegmentBuilderState } from './types'
 
 describe('SegmentBuilder transitions', () => {

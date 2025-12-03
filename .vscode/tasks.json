@@ -1,0 +1,31 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "decrypt-env",
+      "type": "shell",
+      "command": "[ -f .env.decrypted ] || (dotenvx decrypt --stdout > .env.decrypted || (rm -f .env.decrypted && exit 1))",
+      "options": {
+        "cwd": "${workspaceFolder}/backend"
+      },
+      "problemMatcher": [],
+      "presentation": {
+        "reveal": "silent",
+        "close": true
+      }
+    },
+    {
+      "label": "cleanup-env",
+      "type": "shell",
+      "command": "shred -u .env.decrypted 2>/dev/null || rm -f .env.decrypted",
+      "options": {
+        "cwd": "${workspaceFolder}/backend"
+      },
+      "problemMatcher": [],
+      "presentation": {
+        "reveal": "silent",
+        "close": true
+      }
+    }
+  ]
+}

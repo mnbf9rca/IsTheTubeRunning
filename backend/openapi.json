@@ -1,0 +1,4776 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "IsTheTubeRunning API",
+    "description": "TfL Disruption Alert System Backend",
+    "version": "0.1.0"
+  },
+  "paths": {
+    "/api/v1/auth/ready": {
+      "get": {
+        "tags": [
+          "auth"
+        ],
+        "summary": "Auth Readiness Check",
+        "description": "Check if the authentication system is ready to accept logins.\n\nThis endpoint checks:\n- Database connectivity\n- Basic auth system health\n\nReturns:\n    Readiness status with optional message explaining any issues.\n\nNote: This endpoint does NOT require authentication, as it's used by\nthe frontend before the login flow begins.",
+        "operationId": "auth_readiness_check_api_v1_auth_ready_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AuthReadinessResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/auth/me": {
+      "get": {
+        "tags": [
+          "auth"
+        ],
+        "summary": "Get Current User Info",
+        "description": "Get current authenticated user information.\n\nThis endpoint automatically creates a new user record on first\nauthenticated request if the user doesn't exist in the database.\n\nReturns:\n    Current user information including internal ID, timestamps,\n    and admin status. Does NOT include external_id or auth_provider\n    for security.",
+        "operationId": "get_current_user_info_api_v1_auth_me_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UserResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      }
+    },
+    "/api/v1/contacts/email": {
+      "post": {
+        "tags": [
+          "contacts"
+        ],
+        "summary": "Add Email",
+        "description": "Add a new email address to the user's account.\n\nThe email will be added as unverified. Use the send-verification\nendpoint to send a verification code.\n\nArgs:\n    request: Email address to add\n    current_user: Authenticated user\n    db: Database session\n\nReturns:\n    Created email address\n\nRaises:\n    HTTPException: 409 if email already exists, 429 if rate limit exceeded",
+        "operationId": "add_email_api_v1_contacts_email_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AddEmailRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EmailResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      }
+    },
+    "/api/v1/contacts/phone": {
+      "post": {
+        "tags": [
+          "contacts"
+        ],
+        "summary": "Add Phone",
+        "description": "Add a new phone number to the user's account.\n\nThe phone will be added as unverified. Use the send-verification\nendpoint to send a verification code.\n\nArgs:\n    request: Phone number to add (E.164 format recommended)\n    current_user: Authenticated user\n    db: Database session\n\nReturns:\n    Created phone number\n\nRaises:\n    HTTPException: 409 if phone already exists, 429 if rate limit exceeded",
+        "operationId": "add_phone_api_v1_contacts_phone_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AddPhoneRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PhoneResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      }
+    },
+    "/api/v1/contacts/{contact_id}/send-verification": {
+      "post": {
+        "tags": [
+          "contacts"
+        ],
+        "summary": "Send Verification",
+        "description": "Send a verification code to an email or phone.\n\nRate limited to 3 requests per hour per contact.\n\nArgs:\n    contact_id: UUID of the email or phone to verify\n    current_user: Authenticated user\n    db: Database session\n\nReturns:\n    Success response\n\nRaises:\n    HTTPException: 404 if contact not found, 429 if rate limit exceeded",
+        "operationId": "send_verification_api_v1_contacts__contact_id__send_verification_post",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "contact_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Contact Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SendVerificationResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/contacts/verify": {
+      "post": {
+        "tags": [
+          "contacts"
+        ],
+        "summary": "Verify Code",
+        "description": "Verify a contact using a verification code.\n\nArgs:\n    request: Verification code and contact ID\n    current_user: Authenticated user\n    db: Database session\n\nReturns:\n    Success response\n\nRaises:\n    HTTPException: 400 if code is invalid/expired, 404 if contact not found",
+        "operationId": "verify_code_api_v1_contacts_verify_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/VerifyCodeRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/VerifyCodeResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      }
+    },
+    "/api/v1/contacts": {
+      "get": {
+        "tags": [
+          "contacts"
+        ],
+        "summary": "List Contacts",
+        "description": "List all contacts (emails and phones) for the current user.\n\nArgs:\n    current_user: Authenticated user\n    db: Database session\n\nReturns:\n    All user contacts with verification status",
+        "operationId": "list_contacts_api_v1_contacts_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ContactsResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      }
+    },
+    "/api/v1/contacts/{contact_id}": {
+      "delete": {
+        "tags": [
+          "contacts"
+        ],
+        "summary": "Delete Contact",
+        "description": "Delete an email or phone contact.\n\nArgs:\n    contact_id: UUID of the contact to delete\n    current_user: Authenticated user\n    db: Database session\n\nRaises:\n    HTTPException: 404 if contact not found or doesn't belong to user",
+        "operationId": "delete_contact_api_v1_contacts__contact_id__delete",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "contact_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Contact Id"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/contacts/{contact_id}/primary": {
+      "patch": {
+        "tags": [
+          "contacts"
+        ],
+        "summary": "Set Primary Contact",
+        "description": "Set a contact as the primary contact.\n\nOnly verified contacts can be set as primary.\nOnly one email and one phone can be primary at a time.\n\nArgs:\n    contact_id: UUID of the contact to set as primary\n    current_user: Authenticated user\n    db: Database session\n\nReturns:\n    Updated contact\n\nRaises:\n    HTTPException: 404 if contact not found or doesn't belong to user,\n                  400 if contact is not verified",
+        "operationId": "set_primary_contact_api_v1_contacts__contact_id__primary_patch",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "contact_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Contact Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/EmailResponse"
+                    },
+                    {
+                      "$ref": "#/components/schemas/PhoneResponse"
+                    }
+                  ],
+                  "title": "Response Set Primary Contact Api V1 Contacts  Contact Id  Primary Patch"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/routes": {
+      "get": {
+        "tags": [
+          "routes"
+        ],
+        "summary": "List Routes",
+        "description": "List all routes for the authenticated user.\n\nReturns all routes (both active and inactive) with segment and schedule counts.\nThe frontend can filter by active status if needed.\n\nArgs:\n    current_user: Authenticated user\n    db: Database session\n\nReturns:\n    List of routes with counts",
+        "operationId": "list_routes_api_v1_routes_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/UserRouteListItemResponse"
+                  },
+                  "type": "array",
+                  "title": "Response List Routes Api V1 Routes Get"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      },
+      "post": {
+        "tags": [
+          "routes"
+        ],
+        "summary": "Create Route",
+        "description": "Create a new route.\n\nCreates a route with no segments or schedules initially.\nUse the segments and schedules endpoints to add them after creation.\n\nArgs:\n    request: UserRoute creation request\n    current_user: Authenticated user\n    db: Database session\n\nReturns:\n    Created route",
+        "operationId": "create_route_api_v1_routes_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateUserRouteRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UserRouteResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      }
+    },
+    "/api/v1/routes/disruptions": {
+      "get": {
+        "tags": [
+          "routes"
+        ],
+        "summary": "Get Route Disruptions",
+        "description": "Get current disruptions affecting user's routes.\n\nReturns only disruptions affecting the authenticated user's routes.\nUses cached TfL data (2-minute TTL) and station-level matching via\nUserRouteStationIndex for precision.\n\nArgs:\n    active_only: If True, only check active routes. If False, check all routes.\n        Defaults to True.\n    current_user: Authenticated user (from JWT token)\n    db: Database session\n\nReturns:\n    List of route disruptions with affected segments and stations.\n    One entry per route-disruption pair (a route may appear multiple times\n    if affected by multiple disruptions).\n\nRaises:\n    HTTPException: 503 if TfL API is unavailable",
+        "operationId": "get_route_disruptions_api_v1_routes_disruptions_get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "active_only",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "boolean",
+              "default": true,
+              "title": "Active Only"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/RouteDisruptionResponse"
+                  },
+                  "title": "Response Get Route Disruptions Api V1 Routes Disruptions Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/routes/{route_id}": {
+      "get": {
+        "tags": [
+          "routes"
+        ],
+        "summary": "Get Route",
+        "description": "Get a route by ID with all segments and schedules.\n\nArgs:\n    route_id: UserRoute UUID\n    current_user: Authenticated user\n    db: Database session\n\nReturns:\n    Route with segments and schedules\n\nRaises:\n    HTTPException: 404 if route not found or doesn't belong to user",
+        "operationId": "get_route_api_v1_routes__route_id__get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "route_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Route Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UserRouteResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "patch": {
+        "tags": [
+          "routes"
+        ],
+        "summary": "Update Route",
+        "description": "Update route metadata (name, description, active status).\n\nOnly updates fields that are provided in the request.\n\nArgs:\n    route_id: UserRoute UUID\n    request: Update request\n    current_user: Authenticated user\n    db: Database session\n\nReturns:\n    Updated route\n\nRaises:\n    HTTPException: 404 if route not found or doesn't belong to user",
+        "operationId": "update_route_api_v1_routes__route_id__patch",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "route_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Route Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateUserRouteRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UserRouteResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "routes"
+        ],
+        "summary": "Delete Route",
+        "description": "Delete a route.\n\nThis also deletes all associated segments and schedules (CASCADE).\n\nArgs:\n    route_id: UserRoute UUID\n    current_user: Authenticated user\n    db: Database session\n\nRaises:\n    HTTPException: 404 if route not found or doesn't belong to user",
+        "operationId": "delete_route_api_v1_routes__route_id__delete",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "route_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Route Id"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/routes/{route_id}/segments": {
+      "put": {
+        "tags": [
+          "routes"
+        ],
+        "summary": "Upsert Segments",
+        "description": "Replace all segments for a route.\n\nThis validates the route before saving. If validation fails, no changes are made.\nSegments must be ordered with consecutive sequences starting from 0.\n\nArgs:\n    route_id: UserRoute UUID\n    request: Segments to set\n    current_user: Authenticated user\n    db: Database session\n\nReturns:\n    Created segments\n\nRaises:\n    HTTPException: 404 if route not found, 400 if validation fails",
+        "operationId": "upsert_segments_api_v1_routes__route_id__segments_put",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "route_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Route Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpsertUserRouteSegmentsRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/UserRouteSegmentResponse"
+                  },
+                  "title": "Response Upsert Segments Api V1 Routes  Route Id  Segments Put"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/routes/{route_id}/segments/{sequence}": {
+      "patch": {
+        "tags": [
+          "routes"
+        ],
+        "summary": "Update Segment",
+        "description": "Update a single segment.\n\nThis validates the entire route after the update. If validation fails,\nthe update is rolled back.\n\nArgs:\n    route_id: UserRoute UUID\n    sequence: Segment sequence number (0-based)\n    request: Update request\n    current_user: Authenticated user\n    db: Database session\n\nReturns:\n    Updated segment\n\nRaises:\n    HTTPException: 404 if route or segment not found, 400 if validation fails",
+        "operationId": "update_segment_api_v1_routes__route_id__segments__sequence__patch",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "route_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Route Id"
+            }
+          },
+          {
+            "name": "sequence",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Sequence"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateUserRouteSegmentRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UserRouteSegmentResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "routes"
+        ],
+        "summary": "Delete Segment",
+        "description": "Delete a segment and resequence remaining segments.\n\nCannot delete if it would leave fewer than 2 segments.\n\nArgs:\n    route_id: UserRoute UUID\n    sequence: Segment sequence number (0-based)\n    current_user: Authenticated user\n    db: Database session\n\nRaises:\n    HTTPException: 404 if route or segment not found, 400 if would leave <2 segments",
+        "operationId": "delete_segment_api_v1_routes__route_id__segments__sequence__delete",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "route_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Route Id"
+            }
+          },
+          {
+            "name": "sequence",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Sequence"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/routes/{route_id}/schedules": {
+      "post": {
+        "tags": [
+          "routes"
+        ],
+        "summary": "Create Schedule",
+        "description": "Create a schedule for a route.\n\nA route can have multiple schedules (e.g., different times for weekdays vs weekends).\n\nArgs:\n    route_id: UserRoute UUID\n    request: Schedule creation request\n    current_user: Authenticated user\n    db: Database session\n\nReturns:\n    Created schedule\n\nRaises:\n    HTTPException: 404 if route not found",
+        "operationId": "create_schedule_api_v1_routes__route_id__schedules_post",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "route_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Route Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateUserRouteScheduleRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UserRouteScheduleResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/routes/{route_id}/schedules/{schedule_id}": {
+      "patch": {
+        "tags": [
+          "routes"
+        ],
+        "summary": "Update Schedule",
+        "description": "Update a schedule.\n\nOnly updates fields that are provided in the request.\n\nArgs:\n    route_id: UserRoute UUID\n    schedule_id: Schedule UUID\n    request: Update request\n    current_user: Authenticated user\n    db: Database session\n\nReturns:\n    Updated schedule\n\nRaises:\n    HTTPException: 404 if route or schedule not found, 400 if time validation fails",
+        "operationId": "update_schedule_api_v1_routes__route_id__schedules__schedule_id__patch",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "route_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Route Id"
+            }
+          },
+          {
+            "name": "schedule_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Schedule Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateUserRouteScheduleRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UserRouteScheduleResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "routes"
+        ],
+        "summary": "Delete Schedule",
+        "description": "Delete a schedule.\n\nArgs:\n    route_id: UserRoute UUID\n    schedule_id: Schedule UUID\n    current_user: Authenticated user\n    db: Database session\n\nRaises:\n    HTTPException: 404 if route or schedule not found",
+        "operationId": "delete_schedule_api_v1_routes__route_id__schedules__schedule_id__delete",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "route_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Route Id"
+            }
+          },
+          {
+            "name": "schedule_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Schedule Id"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/routes/{route_id}/notifications": {
+      "get": {
+        "tags": [
+          "notification-preferences"
+        ],
+        "summary": "List Notification Preferences",
+        "description": "List all notification preferences for a route.\n\nArgs:\n    route_id: Route UUID\n    current_user: Authenticated user\n    db: Database session\n\nReturns:\n    List of notification preferences\n\nRaises:\n    HTTPException: 404 if route not found or doesn't belong to user",
+        "operationId": "list_notification_preferences_api_v1_routes__route_id__notifications_get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "route_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Route Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/NotificationPreferenceResponse"
+                  },
+                  "title": "Response List Notification Preferences Api V1 Routes  Route Id  Notifications Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "notification-preferences"
+        ],
+        "summary": "Create Notification Preference",
+        "description": "Create a new notification preference for a route.\n\nArgs:\n    route_id: Route UUID\n    request: Notification preference creation request\n    current_user: Authenticated user\n    db: Database session\n\nReturns:\n    Created notification preference\n\nRaises:\n    HTTPException: 400 (validation errors), 404 (route/contact not found),\n                  409 (duplicate), 429 (rate limit)",
+        "operationId": "create_notification_preference_api_v1_routes__route_id__notifications_post",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "route_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Route Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateNotificationPreferenceRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NotificationPreferenceResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/routes/{route_id}/notifications/{preference_id}": {
+      "patch": {
+        "tags": [
+          "notification-preferences"
+        ],
+        "summary": "Update Notification Preference",
+        "description": "Update a notification preference.\n\nArgs:\n    route_id: Route UUID (validated against preference's route)\n    preference_id: Preference UUID\n    request: Update request\n    current_user: Authenticated user\n    db: Database session\n\nReturns:\n    Updated notification preference\n\nRaises:\n    HTTPException: 400 (validation errors, route mismatch), 404 (preference/contact not found),\n                  409 (duplicate)",
+        "operationId": "update_notification_preference_api_v1_routes__route_id__notifications__preference_id__patch",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "route_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Route Id"
+            }
+          },
+          {
+            "name": "preference_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Preference Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateNotificationPreferenceRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NotificationPreferenceResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "notification-preferences"
+        ],
+        "summary": "Delete Notification Preference",
+        "description": "Delete a notification preference.\n\nArgs:\n    route_id: Route UUID (validated against preference's route)\n    preference_id: Preference UUID\n    current_user: Authenticated user\n    db: Database session\n\nRaises:\n    HTTPException: 400 (route mismatch), 404 (preference not found or doesn't belong to user)",
+        "operationId": "delete_notification_preference_api_v1_routes__route_id__notifications__preference_id__delete",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "route_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Route Id"
+            }
+          },
+          {
+            "name": "preference_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Preference Id"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/tfl/lines": {
+      "get": {
+        "tags": [
+          "tfl"
+        ],
+        "summary": "Get Lines",
+        "description": "Get all tube lines.\n\nReturns cached data from Redis or fetches from TfL API if cache expired.\nData is cached for 24 hours (or TTL specified by TfL API).\n\nArgs:\n    current_user: Authenticated user\n    db: Database session\n\nReturns:\n    List of tube lines with metadata\n\nRaises:\n    HTTPException: 503 if TfL API is unavailable",
+        "operationId": "get_lines_api_v1_tfl_lines_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/LineResponse"
+                  },
+                  "type": "array",
+                  "title": "Response Get Lines Api V1 Tfl Lines Get"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      }
+    },
+    "/api/v1/tfl/stations": {
+      "get": {
+        "tags": [
+          "tfl"
+        ],
+        "summary": "Get Stations",
+        "description": "Get tube stations, optionally filtered by line and/or deduplicated by hub.\n\nReturns cached data from Redis or database. Data is cached for 24 hours.\nStations are populated by the admin-controlled /admin/tfl/build-graph endpoint.\n\nWhen deduplicated=true, stations that share a hub_naptan_code are grouped into\na single representative station with:\n- tfl_id: hub NaPTAN code (e.g., 'HUBSVS' instead of '940GZZLUSVS')\n- name: hub common name (e.g., 'Seven Sisters')\n- lines: aggregated from all hub child stations\n\nArgs:\n    line_id: Optional TfL line ID to filter stations\n    deduplicated: Whether to group hub stations into single entries (default: False)\n    current_user: Authenticated user\n    db: Database session\n\nReturns:\n    List of stations with location and line information\n\nRaises:\n    HTTPException: 503 if TfL data not initialized (run /admin/tfl/build-graph)\n    HTTPException: 404 if line_id provided but line doesn't exist\n    HTTPException: 404 if line exists but no stations found\n\nExamples:\n    GET /tfl/stations  # All stations including hub children\n    GET /tfl/stations?line_id=victoria  # Victoria line stations only\n    GET /tfl/stations?deduplicated=true  # Hub-grouped stations\n    GET /tfl/stations?line_id=victoria&deduplicated=true  # Victoria line, hub-grouped",
+        "operationId": "get_stations_api_v1_tfl_stations_get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "line_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Filter stations by TfL line ID (e.g., 'victoria')",
+              "title": "Line Id"
+            },
+            "description": "Filter stations by TfL line ID (e.g., 'victoria')"
+          },
+          {
+            "name": "deduplicated",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "boolean",
+              "description": "Group hub stations into single entries with aggregated lines (e.g., 'Seven Sisters' instead of separate Rail and Tube stations)",
+              "default": false,
+              "title": "Deduplicated"
+            },
+            "description": "Group hub stations into single entries with aggregated lines (e.g., 'Seven Sisters' instead of separate Rail and Tube stations)"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/StationResponse"
+                  },
+                  "title": "Response Get Stations Api V1 Tfl Stations Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/tfl/disruptions": {
+      "get": {
+        "tags": [
+          "tfl"
+        ],
+        "summary": "Get Disruptions",
+        "description": "Get current line-level disruptions across the tube network (grouped by line).\n\nReturns disruptions grouped by line, with multiple statuses per line combined.\nEach line appears once with all its statuses sorted by severity (lower = more severe).\nData is cached for 2 minutes (or TTL specified by TfL API).\n\nArgs:\n    current_user: Authenticated user\n    db: Database session\n\nReturns:\n    List of grouped line disruptions (one per line) with all statuses and details\n\nRaises:\n    HTTPException: 503 if TfL API is unavailable",
+        "operationId": "get_disruptions_api_v1_tfl_disruptions_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/GroupedLineDisruptionResponse"
+                  },
+                  "type": "array",
+                  "title": "Response Get Disruptions Api V1 Tfl Disruptions Get"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      }
+    },
+    "/api/v1/tfl/validate-route": {
+      "post": {
+        "tags": [
+          "tfl"
+        ],
+        "summary": "Validate Route",
+        "description": "Validate a multi-segment route.\n\nChecks if valid connections exist between consecutive stations on the\nspecified lines using the station connection graph. Uses BFS for pathfinding.\n\n**Note**: Station connection graph must be built first using the admin\nendpoint POST /admin/tfl/build-graph.\n\nArgs:\n    request: Route segments (ordered list of station + line pairs)\n    current_user: Authenticated user\n    db: Database session\n\nReturns:\n    Validation result with success status and helpful error messages\n\nRaises:\n    HTTPException: 500 if validation fails",
+        "operationId": "validate_route_api_v1_tfl_validate_route_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RouteValidationRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RouteValidationResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      }
+    },
+    "/api/v1/tfl/network-graph": {
+      "get": {
+        "tags": [
+          "tfl"
+        ],
+        "summary": "Get Network Graph",
+        "description": "Get the station network graph as an adjacency list.\n\nThis returns a mapping of station TfL IDs to their connected stations,\nwhich helps the frontend constrain user choices to valid next stations\nwhen building routes.\n\n**Note**: Station connection graph must be built first using the admin\nendpoint POST /admin/tfl/build-graph.\n\nReturns:\n    Dictionary mapping station_tfl_id to list of connected stations with line info:\n    ```json\n    {\n        \"940GZZLUOXC\": [\n            {\n                \"station_id\": \"uuid\",\n                \"station_tfl_id\": \"940GZZLUBND\",\n                \"station_name\": \"Bond Street\",\n                \"line_id\": \"uuid\",\n                \"line_tfl_id\": \"central\",\n                \"line_name\": \"Central\"\n            },\n            ...\n        ]\n    }\n    ```\n\nArgs:\n    current_user: Authenticated user\n    db: Database session\n\nRaises:\n    HTTPException: 503 if graph hasn't been built yet, 500 if fetch fails",
+        "operationId": "get_network_graph_api_v1_tfl_network_graph_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": {
+                    "items": {
+                      "$ref": "#/components/schemas/NetworkConnection"
+                    },
+                    "type": "array"
+                  },
+                  "type": "object",
+                  "title": "Response Get Network Graph Api V1 Tfl Network Graph Get"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      }
+    },
+    "/api/v1/tfl/station-disruptions": {
+      "get": {
+        "tags": [
+          "tfl"
+        ],
+        "summary": "Get Station Disruptions",
+        "description": "Get current station-level disruptions across the tube network.\n\nReturns disruptions affecting specific stations (e.g., station closures,\nlift outages, etc.) as opposed to line-wide disruptions.\nData is cached for 2 minutes (or TTL specified by TfL API).\n\nArgs:\n    current_user: Authenticated user\n    db: Database session\n\nReturns:\n    List of current station disruptions with details\n\nRaises:\n    HTTPException: 503 if TfL API is unavailable",
+        "operationId": "get_station_disruptions_api_v1_tfl_station_disruptions_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/StationDisruptionResponse"
+                  },
+                  "type": "array",
+                  "title": "Response Get Station Disruptions Api V1 Tfl Station Disruptions Get"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      }
+    },
+    "/api/v1/tfl/metadata/severity-codes": {
+      "get": {
+        "tags": [
+          "tfl"
+        ],
+        "summary": "Get Severity Codes",
+        "description": "Get TfL severity code reference data.\n\nReturns the list of severity codes and their descriptions from TfL API.\nData is cached for 7 days (or TTL specified by TfL API).\n\nArgs:\n    current_user: Authenticated user\n    db: Database session\n\nReturns:\n    List of severity codes with levels and descriptions:\n    ```json\n    [\n        {\n            \"severity_level\": 10,\n            \"description\": \"Good Service\",\n            \"last_updated\": \"2025-01-01T00:00:00\"\n        },\n        ...\n    ]\n    ```\n\nRaises:\n    HTTPException: 503 if TfL API is unavailable",
+        "operationId": "get_severity_codes_api_v1_tfl_metadata_severity_codes_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/SeverityCodeResponse"
+                  },
+                  "type": "array",
+                  "title": "Response Get Severity Codes Api V1 Tfl Metadata Severity Codes Get"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      }
+    },
+    "/api/v1/tfl/metadata/disruption-categories": {
+      "get": {
+        "tags": [
+          "tfl"
+        ],
+        "summary": "Get Disruption Categories",
+        "description": "Get TfL disruption category reference data.\n\nReturns the list of disruption categories from TfL API.\nData is cached for 7 days (or TTL specified by TfL API).\n\nArgs:\n    current_user: Authenticated user\n    db: Database session\n\nReturns:\n    List of disruption categories with names and descriptions:\n    ```json\n    [\n        {\n            \"category_name\": \"PlannedWork\",\n            \"description\": \"Planned engineering work\",\n            \"last_updated\": \"2025-01-01T00:00:00\"\n        },\n        ...\n    ]\n    ```\n\nRaises:\n    HTTPException: 503 if TfL API is unavailable",
+        "operationId": "get_disruption_categories_api_v1_tfl_metadata_disruption_categories_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/DisruptionCategoryResponse"
+                  },
+                  "type": "array",
+                  "title": "Response Get Disruption Categories Api V1 Tfl Metadata Disruption Categories Get"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      }
+    },
+    "/api/v1/tfl/metadata/stop-types": {
+      "get": {
+        "tags": [
+          "tfl"
+        ],
+        "summary": "Get Stop Types",
+        "description": "Get TfL stop point type reference data.\n\nReturns the list of relevant stop point types (filtered to\nNaptanMetroStation, NaptanRailStation, NaptanBusCoachStation).\nData is cached for 7 days (or TTL specified by TfL API).\n\nArgs:\n    current_user: Authenticated user\n    db: Database session\n\nReturns:\n    List of stop types with names and descriptions:\n    ```json\n    [\n        {\n            \"type_name\": \"NaptanMetroStation\",\n            \"description\": \"London Underground station\",\n            \"last_updated\": \"2025-01-01T00:00:00\"\n        },\n        ...\n    ]\n    ```\n\nRaises:\n    HTTPException: 503 if TfL API is unavailable",
+        "operationId": "get_stop_types_api_v1_tfl_metadata_stop_types_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/StopTypeResponse"
+                  },
+                  "type": "array",
+                  "title": "Response Get Stop Types Api V1 Tfl Metadata Stop Types Get"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      }
+    },
+    "/api/v1/tfl/lines/{line_id}/routes": {
+      "get": {
+        "tags": [
+          "tfl"
+        ],
+        "summary": "Get Line Routes",
+        "description": "Get route variants for a specific line.\n\nReturns ordered station sequences for each route variant on the line.\nThis enables the frontend to show users only reachable stations on specific routes.\n\n**Example**: For the Northern line, this returns separate routes for:\n- Edgware \u2192 Morden via Bank\n- High Barnet \u2192 Morden via Bank\n- Edgware \u2192 Morden via Charing Cross\n- etc.\n\n**Note**: Route data must be built first using POST /admin/tfl/build-graph.\nOnly \"Regular\" service routes are returned (Night services excluded for MVP).\n\nArgs:\n    line_id: TfL line ID (e.g., \"victoria\", \"northern\", \"elizabeth-line\")\n    current_user: Authenticated user\n    db: Database session\n\nReturns:\n    Line route variants with ordered station lists\n\nRaises:\n    HTTPException: 404 if line not found, 503 if routes not built yet",
+        "operationId": "get_line_routes_api_v1_tfl_lines__line_id__routes_get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "line_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Line Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LineRoutesResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/tfl/stations/{station_tfl_id}/routes": {
+      "get": {
+        "tags": [
+          "tfl"
+        ],
+        "summary": "Get Station Routes",
+        "description": "Get all routes passing through a specific station.\n\nReturns information about which line route variants serve this station.\n\n**Example**: For Camden Town station, this returns routes from both:\n- Northern line (Edgware branch and High Barnet branch)\n- Including which direction each route travels\n\n**Note**: Route data must be built first using POST /admin/tfl/build-graph.\nOnly \"Regular\" service routes are returned (Night services excluded for MVP).\n\nArgs:\n    station_tfl_id: TfL station ID (e.g., \"940GZZLUCTN\" for Camden Town)\n    current_user: Authenticated user\n    db: Database session\n\nReturns:\n    Station route information showing all routes passing through this station\n\nRaises:\n    HTTPException: 404 if station not found, 503 if routes not built yet",
+        "operationId": "get_station_routes_api_v1_tfl_stations__station_tfl_id__routes_get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "station_tfl_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Station Tfl Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StationRoutesResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/tfl/line-states": {
+      "get": {
+        "tags": [
+          "tfl"
+        ],
+        "summary": "Get Line States",
+        "description": "Get current status of all lines.\n\nReturns the current disruption/status information for all TfL lines.\nUseful for debugging and understanding which lines have alerts.\n\nArgs:\n    current_user: Authenticated user\n    db: Database session\n\nReturns:\n    List of line states with current severity information",
+        "operationId": "get_line_states_api_v1_tfl_line_states_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/LineStateResponse"
+                  },
+                  "type": "array",
+                  "title": "Response Get Line States Api V1 Tfl Line States Get"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      }
+    },
+    "/api/v1/tfl/alert-config": {
+      "get": {
+        "tags": [
+          "tfl"
+        ],
+        "summary": "Get Alert Config",
+        "description": "Get alert configuration showing which severities trigger alerts.\n\nReturns a list of all severity codes with their alert enabled/disabled status.\nSeverity codes are populated by syncing with the TfL API via POST /admin/tfl/sync-metadata.\n\nArgs:\n    current_user: Authenticated user\n    db: Database session\n\nReturns:\n    List of severity codes with their alert configuration",
+        "operationId": "get_alert_config_api_v1_tfl_alert_config_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/AlertConfigResponse"
+                  },
+                  "type": "array",
+                  "title": "Response Get Alert Config Api V1 Tfl Alert Config Get"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      }
+    },
+    "/api/v1/admin/tfl/build-graph": {
+      "post": {
+        "tags": [
+          "admin"
+        ],
+        "summary": "Build Tfl Graph",
+        "description": "Build the station connection graph from TfL API data and trigger background index staleness detection.\n\nThis endpoint fetches station sequences for all tube lines and populates\nthe StationConnection table with bidirectional connections. This is required\nfor route validation.\n\nAfter successfully building the graph, this endpoint queues a background task\nto detect and rebuild any route indexes that are now stale due to the TfL data update.\nThe staleness detection runs asynchronously in a Celery worker and does not block this response.\n\n**Requires admin privileges.**\n\nArgs:\n    admin_user: Authenticated admin user\n    db: Database session\n\nReturns:\n    Build statistics (lines, stations, connections count)\n\nRaises:\n    HTTPException: 403 if not admin, 503 if TfL API is unavailable, 500 if build fails",
+        "operationId": "build_tfl_graph_api_v1_admin_tfl_build_graph_post",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BuildGraphResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      }
+    },
+    "/api/v1/admin/tfl/sync-metadata": {
+      "post": {
+        "tags": [
+          "admin"
+        ],
+        "summary": "Sync Tfl Metadata",
+        "description": "Sync TfL metadata (severity codes, disruption categories, stop types) from TfL API.\n\nThis endpoint fetches reference data from TfL API and stores it in the database\nfor use in disruption descriptions and frontend display. This should be run\nperiodically to keep reference data up to date.\n\n**Requires admin privileges.**\n\nArgs:\n    admin_user: Authenticated admin user\n    db: Database session\n\nReturns:\n    Sync statistics (counts of severity codes, disruption categories, stop types)\n\nRaises:\n    HTTPException: 403 if not admin, 503 if TfL API is unavailable, 500 if sync fails",
+        "operationId": "sync_tfl_metadata_api_v1_admin_tfl_sync_metadata_post",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SyncMetadataResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      }
+    },
+    "/api/v1/admin/alerts/trigger-check": {
+      "post": {
+        "tags": [
+          "admin"
+        ],
+        "summary": "Trigger Alert Check",
+        "description": "Manually trigger an immediate disruption check for all active routes.\n\nThis endpoint bypasses the normal Celery schedule and runs the alert\nprocessing immediately. Useful for testing or forcing an update after\nknown TfL issues.\n\n**Requires admin privileges.**\n\nArgs:\n    admin_user: Authenticated admin user\n    db: Database session\n\nReturns:\n    Statistics about the alert check (routes checked, alerts sent, errors)\n\nRaises:\n    HTTPException: 403 if not admin, 500 if check fails",
+        "operationId": "trigger_alert_check_api_v1_admin_alerts_trigger_check_post",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TriggerCheckResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      }
+    },
+    "/api/v1/admin/alerts/worker-status": {
+      "get": {
+        "tags": [
+          "admin"
+        ],
+        "summary": "Get Worker Status",
+        "description": "Check Celery worker health and status.\n\nThis endpoint inspects the Celery worker(s) to determine if they are\nrunning and processing tasks correctly. It tracks the worker's logical\nclock to detect if the worker is frozen (responding but not processing).\n\n**Requires admin privileges.**\n\nArgs:\n    admin_user: Authenticated admin user\n\nReturns:\n    Worker status information (availability, active tasks, scheduled tasks)\n\nRaises:\n    HTTPException: 403 if not admin",
+        "operationId": "get_worker_status_api_v1_admin_alerts_worker_status_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WorkerStatusResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      }
+    },
+    "/api/v1/admin/alerts/recent-logs": {
+      "get": {
+        "tags": [
+          "admin"
+        ],
+        "summary": "Get Recent Notification Logs",
+        "description": "Retrieve recent notification logs with pagination and filtering.\n\nThis endpoint returns notification logs in reverse chronological order\n(most recent first) with optional status filtering.\n\n**Requires admin privileges.**\n\nArgs:\n    admin_user: Authenticated admin user\n    db: Database session\n    limit: Number of logs per page (1-1000, default 50)\n    offset: Starting offset for pagination (default 0)\n    status: Optional filter by notification status (sent/failed/pending)\n\nReturns:\n    Paginated list of notification logs with total count\n\nRaises:\n    HTTPException: 403 if not admin",
+        "operationId": "get_recent_notification_logs_api_v1_admin_alerts_recent_logs_get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 1000,
+              "minimum": 1,
+              "description": "Number of logs to return",
+              "default": 50,
+              "title": "Limit"
+            },
+            "description": "Number of logs to return"
+          },
+          {
+            "name": "offset",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 0,
+              "description": "Starting offset for pagination",
+              "default": 0,
+              "title": "Offset"
+            },
+            "description": "Starting offset for pagination"
+          },
+          {
+            "name": "status",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "$ref": "#/components/schemas/NotificationStatus"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Filter by notification status",
+              "title": "Status"
+            },
+            "description": "Filter by notification status"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RecentLogsResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/admin/users": {
+      "get": {
+        "tags": [
+          "admin"
+        ],
+        "summary": "List Users",
+        "description": "List all users with pagination and optional search/filters.\n\nThis endpoint returns a paginated list of users, optionally filtered by\nsearch term (searches email and external_id) and deleted status.\n\n**Requires admin privileges.**\n\nArgs:\n    admin_user: Authenticated admin user\n    db: Database session\n    limit: Number of users per page (1-1000, default 50)\n    offset: Starting offset for pagination (default 0)\n    search: Optional search term for email or external_id\n    include_deleted: Whether to include soft-deleted users (default False)\n\nReturns:\n    Paginated list of users with email/phone contacts\n\nRaises:\n    HTTPException: 403 if not admin",
+        "operationId": "list_users_api_v1_admin_users_get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 1000,
+              "minimum": 1,
+              "description": "Number of users to return",
+              "default": 50,
+              "title": "Limit"
+            },
+            "description": "Number of users to return"
+          },
+          {
+            "name": "offset",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 0,
+              "description": "Starting offset for pagination",
+              "default": 0,
+              "title": "Offset"
+            },
+            "description": "Starting offset for pagination"
+          },
+          {
+            "name": "search",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Search term (email or external_id)",
+              "title": "Search"
+            },
+            "description": "Search term (email or external_id)"
+          },
+          {
+            "name": "include_deleted",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "boolean",
+              "description": "Include soft-deleted users",
+              "default": false,
+              "title": "Include Deleted"
+            },
+            "description": "Include soft-deleted users"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PaginatedUsersResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/admin/users/{user_id}": {
+      "get": {
+        "tags": [
+          "admin"
+        ],
+        "summary": "Get User Details",
+        "description": "Get detailed information about a specific user.\n\nThis endpoint returns comprehensive user information including\nemail addresses, phone numbers, and other profile details.\n\n**Requires admin privileges.**\n\nArgs:\n    user_id: UUID of the user to retrieve\n    admin_user: Authenticated admin user\n    db: Database session\n\nReturns:\n    Detailed user information\n\nRaises:\n    HTTPException: 403 if not admin, 404 if user not found",
+        "operationId": "get_user_details_api_v1_admin_users__user_id__get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "user_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "User Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UserDetailResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "admin"
+        ],
+        "summary": "Anonymise User",
+        "description": "Anonymise a user by deleting PII and deactivating routes.\n\nThis is a privacy-focused deletion that implements data minimisation:\n- Deletes email addresses, phone numbers, verification codes (PII)\n- Anonymises external_id to \"deleted_{user_id}\"\n- Clears auth_provider\n- Deactivates all user routes (stops alerts)\n- Sets deleted_at timestamp\n- Preserves notification logs and route structure for analytics\n\n**Requires admin privileges.**\n\nArgs:\n    user_id: UUID of the user to anonymise\n    admin_user: Authenticated admin user\n    db: Database session\n\nReturns:\n    Confirmation of anonymisation\n\nRaises:\n    HTTPException: 403 if not admin, 404 if user not found, 400 if already deleted",
+        "operationId": "anonymise_user_api_v1_admin_users__user_id__delete",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "user_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "User Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AnonymiseUserResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/admin/analytics/engagement": {
+      "get": {
+        "tags": [
+          "admin"
+        ],
+        "summary": "Get Engagement Metrics",
+        "description": "Get comprehensive engagement metrics for the admin dashboard.\n\nThis endpoint provides four categories of metrics:\n- **User Counts**: Total users, active users, verified contacts, admin users\n- **Route Statistics**: Total routes, active routes, average per user\n- **Notification Statistics**: Sent, failed, success rate, by method (last 30 days)\n- **Growth Metrics**: New users (7/30 days), daily signups (last 7 days)\n\n**Requires admin privileges.**\n\nArgs:\n    admin_user: Authenticated admin user\n    db: Database session\n\nReturns:\n    Comprehensive engagement metrics\n\nRaises:\n    HTTPException: 403 if not admin",
+        "operationId": "get_engagement_metrics_api_v1_admin_analytics_engagement_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EngagementMetrics"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      }
+    },
+    "/api/v1/admin/routes/rebuild-indexes": {
+      "post": {
+        "tags": [
+          "admin"
+        ],
+        "summary": "Rebuild Route Indexes",
+        "description": "Rebuild route station indexes for single route or all routes.\n\nRebuilds the inverted index that maps (line_tfl_id, station_naptan) \u2192 route_id.\nThis is useful after Line.route_variants data updates or for manual maintenance.\n\n**Requires admin privileges.**\n\nArgs:\n    route_id: Optional route UUID. If provided, rebuilds only that route. If None, rebuilds all routes.\n    admin_user: Authenticated admin user\n    db: Database session\n\nReturns:\n    Statistics about the rebuild operation. Individual route failures are reported\n    in the errors list rather than raising exceptions.\n\nRaises:\n    HTTPException: 403 if not admin",
+        "operationId": "rebuild_route_indexes_api_v1_admin_routes_rebuild_indexes_post",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "route_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Route Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RebuildIndexesResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/": {
+      "get": {
+        "summary": "Root",
+        "description": "Root endpoint.",
+        "operationId": "root__get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": {
+                    "type": "string"
+                  },
+                  "type": "object",
+                  "title": "Response Root  Get"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/health": {
+      "get": {
+        "summary": "Health Check",
+        "description": "Health check endpoint.",
+        "operationId": "health_check_health_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": {
+                    "type": "string"
+                  },
+                  "type": "object",
+                  "title": "Response Health Check Health Get"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/ready": {
+      "get": {
+        "summary": "Readiness Check",
+        "description": "Readiness check endpoint - verify dependencies.",
+        "operationId": "readiness_check_ready_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": {
+                    "type": "string"
+                  },
+                  "type": "object",
+                  "title": "Response Readiness Check Ready Get"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "AddEmailRequest": {
+        "properties": {
+          "email": {
+            "type": "string",
+            "format": "email",
+            "title": "Email"
+          }
+        },
+        "type": "object",
+        "required": [
+          "email"
+        ],
+        "title": "AddEmailRequest",
+        "description": "Request to add a new email address."
+      },
+      "AddPhoneRequest": {
+        "properties": {
+          "phone": {
+            "type": "string",
+            "title": "Phone"
+          }
+        },
+        "type": "object",
+        "required": [
+          "phone"
+        ],
+        "title": "AddPhoneRequest",
+        "description": "Request to add a new phone number."
+      },
+      "AffectedRouteInfo": {
+        "properties": {
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "direction": {
+            "type": "string",
+            "title": "Direction"
+          },
+          "affected_stations": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Affected Stations"
+          }
+        },
+        "type": "object",
+        "required": [
+          "name",
+          "direction",
+          "affected_stations"
+        ],
+        "title": "AffectedRouteInfo",
+        "description": "Route segment affected by disruption.\n\nContains affected stations for matching against user routes.\nDoes NOT include route variant IDs (not available in Line.route_variants data)."
+      },
+      "AlertConfigResponse": {
+        "properties": {
+          "mode_id": {
+            "type": "string",
+            "title": "Mode Id",
+            "description": "Transport mode (e.g., 'tube', 'dlr')"
+          },
+          "severity_level": {
+            "type": "integer",
+            "title": "Severity Level",
+            "description": "Severity level (0-20)"
+          },
+          "description": {
+            "type": "string",
+            "title": "Description",
+            "description": "Description of severity level"
+          },
+          "alerts_enabled": {
+            "type": "boolean",
+            "title": "Alerts Enabled",
+            "description": "Whether alerts are enabled for this severity"
+          }
+        },
+        "type": "object",
+        "required": [
+          "mode_id",
+          "severity_level",
+          "description",
+          "alerts_enabled"
+        ],
+        "title": "AlertConfigResponse",
+        "description": "Response schema for alert configuration per severity code."
+      },
+      "AnonymiseUserResponse": {
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "title": "Success",
+            "description": "Whether anonymisation succeeded"
+          },
+          "message": {
+            "type": "string",
+            "title": "Message",
+            "description": "Human-readable result message"
+          },
+          "user_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "User Id",
+            "description": "ID of anonymised user"
+          }
+        },
+        "type": "object",
+        "required": [
+          "success",
+          "message",
+          "user_id"
+        ],
+        "title": "AnonymiseUserResponse",
+        "description": "Response from user anonymisation."
+      },
+      "AuthReadinessResponse": {
+        "properties": {
+          "ready": {
+            "type": "boolean",
+            "title": "Ready"
+          },
+          "message": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Message"
+          }
+        },
+        "type": "object",
+        "required": [
+          "ready"
+        ],
+        "title": "AuthReadinessResponse",
+        "description": "Auth system readiness check response."
+      },
+      "BuildGraphResponse": {
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "title": "Success"
+          },
+          "message": {
+            "type": "string",
+            "title": "Message"
+          },
+          "lines_count": {
+            "type": "integer",
+            "title": "Lines Count",
+            "description": "Number of lines processed"
+          },
+          "stations_count": {
+            "type": "integer",
+            "title": "Stations Count",
+            "description": "Number of stations processed"
+          },
+          "connections_count": {
+            "type": "integer",
+            "title": "Connections Count",
+            "description": "Number of connections created"
+          },
+          "hubs_count": {
+            "type": "integer",
+            "title": "Hubs Count",
+            "description": "Number of hub interchange stations"
+          }
+        },
+        "type": "object",
+        "required": [
+          "success",
+          "message",
+          "lines_count",
+          "stations_count",
+          "connections_count",
+          "hubs_count"
+        ],
+        "title": "BuildGraphResponse",
+        "description": "Response from building the station connection graph."
+      },
+      "ContactsResponse": {
+        "properties": {
+          "emails": {
+            "items": {
+              "$ref": "#/components/schemas/EmailResponse"
+            },
+            "type": "array",
+            "title": "Emails"
+          },
+          "phones": {
+            "items": {
+              "$ref": "#/components/schemas/PhoneResponse"
+            },
+            "type": "array",
+            "title": "Phones"
+          }
+        },
+        "type": "object",
+        "required": [
+          "emails",
+          "phones"
+        ],
+        "title": "ContactsResponse",
+        "description": "Response containing all user contacts."
+      },
+      "CreateNotificationPreferenceRequest": {
+        "properties": {
+          "method": {
+            "$ref": "#/components/schemas/NotificationMethod"
+          },
+          "target_email_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Target Email Id"
+          },
+          "target_phone_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Target Phone Id"
+          }
+        },
+        "type": "object",
+        "required": [
+          "method"
+        ],
+        "title": "CreateNotificationPreferenceRequest",
+        "description": "Request to create a new notification preference."
+      },
+      "CreateUserRouteRequest": {
+        "properties": {
+          "name": {
+            "type": "string",
+            "maxLength": 255,
+            "minLength": 1,
+            "title": "Name",
+            "description": "Route name"
+          },
+          "description": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Description",
+            "description": "Optional route description"
+          },
+          "active": {
+            "type": "boolean",
+            "title": "Active",
+            "description": "Whether the route is active",
+            "default": true
+          },
+          "timezone": {
+            "type": "string",
+            "title": "Timezone",
+            "description": "IANA timezone for schedule times (e.g., 'Europe/London', 'America/New_York')",
+            "default": "Europe/London"
+          }
+        },
+        "type": "object",
+        "required": [
+          "name"
+        ],
+        "title": "CreateUserRouteRequest",
+        "description": "Request to create a new route."
+      },
+      "CreateUserRouteScheduleRequest": {
+        "properties": {
+          "days_of_week": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "minItems": 1,
+            "title": "Days Of Week",
+            "description": "Days when route is active (e.g., ['MON', 'TUE', 'WED'])"
+          },
+          "start_time": {
+            "type": "string",
+            "format": "time",
+            "title": "Start Time",
+            "description": "Start time for monitoring in route's local timezone (naive time)"
+          },
+          "end_time": {
+            "type": "string",
+            "format": "time",
+            "title": "End Time",
+            "description": "End time for monitoring in route's local timezone (naive time)"
+          }
+        },
+        "type": "object",
+        "required": [
+          "days_of_week",
+          "start_time",
+          "end_time"
+        ],
+        "title": "CreateUserRouteScheduleRequest",
+        "description": "Request to create a schedule for a route."
+      },
+      "DailySignup": {
+        "properties": {
+          "date": {
+            "type": "string",
+            "title": "Date",
+            "description": "Date in ISO format"
+          },
+          "count": {
+            "type": "integer",
+            "title": "Count",
+            "description": "Number of signups on that day"
+          }
+        },
+        "type": "object",
+        "required": [
+          "date",
+          "count"
+        ],
+        "title": "DailySignup",
+        "description": "Daily signup count."
+      },
+      "DisruptionCategoryResponse": {
+        "properties": {
+          "category_name": {
+            "type": "string",
+            "title": "Category Name",
+            "description": "Category name"
+          },
+          "description": {
+            "type": "string",
+            "title": "Description",
+            "description": "Category description"
+          },
+          "last_updated": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Last Updated",
+            "description": "When this category was last updated"
+          }
+        },
+        "type": "object",
+        "required": [
+          "category_name",
+          "description",
+          "last_updated"
+        ],
+        "title": "DisruptionCategoryResponse",
+        "description": "Response schema for TfL disruption category metadata."
+      },
+      "DisruptionResponse": {
+        "properties": {
+          "line_id": {
+            "type": "string",
+            "title": "Line Id"
+          },
+          "line_name": {
+            "type": "string",
+            "title": "Line Name"
+          },
+          "mode": {
+            "type": "string",
+            "title": "Mode"
+          },
+          "status_severity": {
+            "type": "integer",
+            "title": "Status Severity"
+          },
+          "status_severity_description": {
+            "type": "string",
+            "title": "Status Severity Description"
+          },
+          "reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reason"
+          },
+          "created_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Created At"
+          },
+          "affected_routes": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/components/schemas/AffectedRouteInfo"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Affected Routes"
+          }
+        },
+        "type": "object",
+        "required": [
+          "line_id",
+          "line_name",
+          "mode",
+          "status_severity",
+          "status_severity_description"
+        ],
+        "title": "DisruptionResponse",
+        "description": "Response schema for TfL disruption data."
+      },
+      "EmailAddressItem": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Id"
+          },
+          "email": {
+            "type": "string",
+            "title": "Email"
+          },
+          "verified": {
+            "type": "boolean",
+            "title": "Verified"
+          },
+          "is_primary": {
+            "type": "boolean",
+            "title": "Is Primary"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "email",
+          "verified",
+          "is_primary"
+        ],
+        "title": "EmailAddressItem",
+        "description": "Email address information."
+      },
+      "EmailResponse": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Id"
+          },
+          "email": {
+            "type": "string",
+            "title": "Email"
+          },
+          "verified": {
+            "type": "boolean",
+            "title": "Verified"
+          },
+          "is_primary": {
+            "type": "boolean",
+            "title": "Is Primary"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "email",
+          "verified",
+          "is_primary",
+          "created_at"
+        ],
+        "title": "EmailResponse",
+        "description": "Email address response."
+      },
+      "EngagementMetrics": {
+        "properties": {
+          "user_counts": {
+            "$ref": "#/components/schemas/UserCountMetrics"
+          },
+          "route_stats": {
+            "$ref": "#/components/schemas/RouteStatMetrics"
+          },
+          "notification_stats": {
+            "$ref": "#/components/schemas/NotificationStatMetrics"
+          },
+          "growth_metrics": {
+            "$ref": "#/components/schemas/GrowthMetrics"
+          }
+        },
+        "type": "object",
+        "required": [
+          "user_counts",
+          "route_stats",
+          "notification_stats",
+          "growth_metrics"
+        ],
+        "title": "EngagementMetrics",
+        "description": "Comprehensive engagement metrics for admin dashboard."
+      },
+      "GroupedLineDisruptionResponse": {
+        "properties": {
+          "line_id": {
+            "type": "string",
+            "title": "Line Id"
+          },
+          "line_name": {
+            "type": "string",
+            "title": "Line Name"
+          },
+          "mode": {
+            "type": "string",
+            "title": "Mode"
+          },
+          "statuses": {
+            "items": {
+              "$ref": "#/components/schemas/LineStatusInfo"
+            },
+            "type": "array",
+            "title": "Statuses"
+          }
+        },
+        "type": "object",
+        "required": [
+          "line_id",
+          "line_name",
+          "mode",
+          "statuses"
+        ],
+        "title": "GroupedLineDisruptionResponse",
+        "description": "API response for TfL line disruption data (grouped by line).\n\nUsed by /tfl/disruptions endpoint for frontend display.\nGroups all statuses for a single line together, with statuses sorted by severity.\nInternal services continue to use DisruptionResponse for per-status granularity."
+      },
+      "GrowthMetrics": {
+        "properties": {
+          "new_users_last_7_days": {
+            "type": "integer",
+            "title": "New Users Last 7 Days",
+            "description": "New users in last 7 days"
+          },
+          "new_users_last_30_days": {
+            "type": "integer",
+            "title": "New Users Last 30 Days",
+            "description": "New users in last 30 days"
+          },
+          "daily_signups_last_7_days": {
+            "items": {
+              "$ref": "#/components/schemas/DailySignup"
+            },
+            "type": "array",
+            "title": "Daily Signups Last 7 Days",
+            "description": "Daily signup counts for last 7 days"
+          }
+        },
+        "type": "object",
+        "required": [
+          "new_users_last_7_days",
+          "new_users_last_30_days",
+          "daily_signups_last_7_days"
+        ],
+        "title": "GrowthMetrics",
+        "description": "User growth and retention metrics."
+      },
+      "HTTPValidationError": {
+        "properties": {
+          "detail": {
+            "items": {
+              "$ref": "#/components/schemas/ValidationError"
+            },
+            "type": "array",
+            "title": "Detail"
+          }
+        },
+        "type": "object",
+        "title": "HTTPValidationError"
+      },
+      "LineResponse": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Id"
+          },
+          "tfl_id": {
+            "type": "string",
+            "title": "Tfl Id"
+          },
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "mode": {
+            "type": "string",
+            "title": "Mode"
+          },
+          "route_variants": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/RoutesData"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "last_updated": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Last Updated"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "tfl_id",
+          "name",
+          "mode",
+          "last_updated"
+        ],
+        "title": "LineResponse",
+        "description": "Response schema for TfL line data."
+      },
+      "LineRoutesResponse": {
+        "properties": {
+          "line_tfl_id": {
+            "type": "string",
+            "title": "Line Tfl Id",
+            "description": "TfL line ID (e.g., 'victoria')"
+          },
+          "routes": {
+            "items": {
+              "$ref": "#/components/schemas/RouteVariant"
+            },
+            "type": "array",
+            "title": "Routes",
+            "description": "List of route variants for this line"
+          }
+        },
+        "type": "object",
+        "required": [
+          "line_tfl_id",
+          "routes"
+        ],
+        "title": "LineRoutesResponse",
+        "description": "Response schema for line route variants."
+      },
+      "LineStateResponse": {
+        "properties": {
+          "line_id": {
+            "type": "string",
+            "title": "Line Id",
+            "description": "TfL line ID"
+          },
+          "line_name": {
+            "type": "string",
+            "title": "Line Name",
+            "description": "Line name"
+          },
+          "mode": {
+            "type": "string",
+            "title": "Mode",
+            "description": "Transport mode"
+          },
+          "status_severity": {
+            "type": "integer",
+            "title": "Status Severity",
+            "description": "Current severity level"
+          },
+          "status_severity_description": {
+            "type": "string",
+            "title": "Status Severity Description",
+            "description": "Current status description"
+          },
+          "reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reason",
+            "description": "Disruption reason if any"
+          }
+        },
+        "type": "object",
+        "required": [
+          "line_id",
+          "line_name",
+          "mode",
+          "status_severity",
+          "status_severity_description"
+        ],
+        "title": "LineStateResponse",
+        "description": "Response schema for current line status."
+      },
+      "LineStatusInfo": {
+        "properties": {
+          "status_severity": {
+            "type": "integer",
+            "title": "Status Severity"
+          },
+          "status_severity_description": {
+            "type": "string",
+            "title": "Status Severity Description"
+          },
+          "reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reason"
+          },
+          "created_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Created At"
+          },
+          "affected_routes": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/components/schemas/AffectedRouteInfo"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Affected Routes"
+          }
+        },
+        "type": "object",
+        "required": [
+          "status_severity",
+          "status_severity_description"
+        ],
+        "title": "LineStatusInfo",
+        "description": "Individual status for a line (used in grouped API response).\n\nRepresents a single status that may be combined with others for the same line."
+      },
+      "NetworkConnection": {
+        "properties": {
+          "station_id": {
+            "type": "string",
+            "title": "Station Id"
+          },
+          "station_tfl_id": {
+            "type": "string",
+            "title": "Station Tfl Id"
+          },
+          "station_name": {
+            "type": "string",
+            "title": "Station Name"
+          },
+          "line_id": {
+            "type": "string",
+            "title": "Line Id"
+          },
+          "line_tfl_id": {
+            "type": "string",
+            "title": "Line Tfl Id"
+          },
+          "line_name": {
+            "type": "string",
+            "title": "Line Name"
+          }
+        },
+        "type": "object",
+        "required": [
+          "station_id",
+          "station_tfl_id",
+          "station_name",
+          "line_id",
+          "line_tfl_id",
+          "line_name"
+        ],
+        "title": "NetworkConnection",
+        "description": "Connection information in the station network graph.\n\nRepresents a connection between two stations on a specific line,\nused for route validation and network visualization."
+      },
+      "NotificationLogItem": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Id"
+          },
+          "user_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "User Id"
+          },
+          "route_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Route Id"
+          },
+          "sent_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Sent At"
+          },
+          "method": {
+            "$ref": "#/components/schemas/NotificationMethod"
+          },
+          "status": {
+            "$ref": "#/components/schemas/NotificationStatus"
+          },
+          "error_message": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error Message"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "user_id",
+          "route_id",
+          "sent_at",
+          "method",
+          "status"
+        ],
+        "title": "NotificationLogItem",
+        "description": "Individual notification log entry."
+      },
+      "NotificationMethod": {
+        "type": "string",
+        "enum": [
+          "email",
+          "sms"
+        ],
+        "title": "NotificationMethod",
+        "description": "Notification delivery method."
+      },
+      "NotificationPreferenceResponse": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Id"
+          },
+          "route_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Route Id"
+          },
+          "method": {
+            "$ref": "#/components/schemas/NotificationMethod"
+          },
+          "target_email_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Target Email Id"
+          },
+          "target_phone_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Target Phone Id"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Updated At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "route_id",
+          "method",
+          "target_email_id",
+          "target_phone_id",
+          "created_at",
+          "updated_at"
+        ],
+        "title": "NotificationPreferenceResponse",
+        "description": "Notification preference response."
+      },
+      "NotificationStatMetrics": {
+        "properties": {
+          "total_sent": {
+            "type": "integer",
+            "title": "Total Sent",
+            "description": "Total notifications sent"
+          },
+          "successful": {
+            "type": "integer",
+            "title": "Successful",
+            "description": "Successfully sent notifications"
+          },
+          "failed": {
+            "type": "integer",
+            "title": "Failed",
+            "description": "Failed notifications"
+          },
+          "success_rate": {
+            "type": "number",
+            "title": "Success Rate",
+            "description": "Success rate percentage"
+          },
+          "by_method_last_30_days": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "type": "object",
+            "title": "By Method Last 30 Days",
+            "description": "Notification counts by method (last 30 days)"
+          }
+        },
+        "type": "object",
+        "required": [
+          "total_sent",
+          "successful",
+          "failed",
+          "success_rate",
+          "by_method_last_30_days"
+        ],
+        "title": "NotificationStatMetrics",
+        "description": "Notification statistics metrics."
+      },
+      "NotificationStatus": {
+        "type": "string",
+        "enum": [
+          "sent",
+          "failed",
+          "pending"
+        ],
+        "title": "NotificationStatus",
+        "description": "Notification delivery status."
+      },
+      "PaginatedUsersResponse": {
+        "properties": {
+          "total": {
+            "type": "integer",
+            "title": "Total",
+            "description": "Total number of users matching filter"
+          },
+          "users": {
+            "items": {
+              "$ref": "#/components/schemas/UserListItem"
+            },
+            "type": "array",
+            "title": "Users",
+            "description": "List of users"
+          },
+          "limit": {
+            "type": "integer",
+            "title": "Limit",
+            "description": "Number of users per page"
+          },
+          "offset": {
+            "type": "integer",
+            "title": "Offset",
+            "description": "Starting offset for pagination"
+          }
+        },
+        "type": "object",
+        "required": [
+          "total",
+          "users",
+          "limit",
+          "offset"
+        ],
+        "title": "PaginatedUsersResponse",
+        "description": "Response from paginated user listing."
+      },
+      "PhoneNumberItem": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Id"
+          },
+          "phone": {
+            "type": "string",
+            "title": "Phone"
+          },
+          "verified": {
+            "type": "boolean",
+            "title": "Verified"
+          },
+          "is_primary": {
+            "type": "boolean",
+            "title": "Is Primary"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "phone",
+          "verified",
+          "is_primary"
+        ],
+        "title": "PhoneNumberItem",
+        "description": "Phone number information."
+      },
+      "PhoneResponse": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Id"
+          },
+          "phone": {
+            "type": "string",
+            "title": "Phone"
+          },
+          "verified": {
+            "type": "boolean",
+            "title": "Verified"
+          },
+          "is_primary": {
+            "type": "boolean",
+            "title": "Is Primary"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "phone",
+          "verified",
+          "is_primary",
+          "created_at"
+        ],
+        "title": "PhoneResponse",
+        "description": "Phone number response."
+      },
+      "RebuildIndexesResponse": {
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "title": "Success",
+            "description": "Whether the rebuild completed successfully"
+          },
+          "rebuilt_count": {
+            "type": "integer",
+            "title": "Rebuilt Count",
+            "description": "Number of routes rebuilt"
+          },
+          "failed_count": {
+            "type": "integer",
+            "title": "Failed Count",
+            "description": "Number of routes that failed to rebuild"
+          },
+          "errors": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Errors",
+            "description": "Error messages for failed routes"
+          }
+        },
+        "type": "object",
+        "required": [
+          "success",
+          "rebuilt_count",
+          "failed_count"
+        ],
+        "title": "RebuildIndexesResponse",
+        "description": "Response from rebuilding route station indexes."
+      },
+      "RecentLogsResponse": {
+        "properties": {
+          "total": {
+            "type": "integer",
+            "title": "Total",
+            "description": "Total number of logs matching filter"
+          },
+          "logs": {
+            "items": {
+              "$ref": "#/components/schemas/NotificationLogItem"
+            },
+            "type": "array",
+            "title": "Logs",
+            "description": "List of notification logs"
+          },
+          "limit": {
+            "type": "integer",
+            "title": "Limit",
+            "description": "Number of logs per page"
+          },
+          "offset": {
+            "type": "integer",
+            "title": "Offset",
+            "description": "Starting offset for pagination"
+          }
+        },
+        "type": "object",
+        "required": [
+          "total",
+          "logs",
+          "limit",
+          "offset"
+        ],
+        "title": "RecentLogsResponse",
+        "description": "Response from querying recent notification logs."
+      },
+      "RouteDisruptionResponse": {
+        "properties": {
+          "route_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Route Id",
+            "description": "ID of the affected route"
+          },
+          "route_name": {
+            "type": "string",
+            "title": "Route Name",
+            "description": "Name of the affected route"
+          },
+          "disruption": {
+            "$ref": "#/components/schemas/DisruptionResponse",
+            "description": "Details of the TfL disruption"
+          },
+          "affected_segments": {
+            "items": {
+              "type": "integer"
+            },
+            "type": "array",
+            "title": "Affected Segments",
+            "description": "Segment sequence numbers affected by this disruption (e.g., [0, 1, 2])"
+          },
+          "affected_stations": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Affected Stations",
+            "description": "Station NaPTAN codes from this route that are affected"
+          }
+        },
+        "type": "object",
+        "required": [
+          "route_id",
+          "route_name",
+          "disruption",
+          "affected_segments",
+          "affected_stations"
+        ],
+        "title": "RouteDisruptionResponse",
+        "description": "Response schema for route-specific disruptions.\n\nRepresents a disruption affecting a specific user route, with context\nabout which segments and stations are affected."
+      },
+      "RouteSegmentRequest": {
+        "properties": {
+          "station_tfl_id": {
+            "type": "string",
+            "title": "Station Tfl Id",
+            "description": "TfL station ID (e.g., '940GZZLUOXC')"
+          },
+          "line_tfl_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Line Tfl Id",
+            "description": "TfL line ID (e.g., 'victoria', 'northern'). NULL means destination segment (no onward travel)."
+          }
+        },
+        "type": "object",
+        "required": [
+          "station_tfl_id"
+        ],
+        "title": "RouteSegmentRequest",
+        "description": "Single segment in a route (station + line)."
+      },
+      "RouteStatMetrics": {
+        "properties": {
+          "total_routes": {
+            "type": "integer",
+            "title": "Total Routes",
+            "description": "Total non-deleted routes"
+          },
+          "active_routes": {
+            "type": "integer",
+            "title": "Active Routes",
+            "description": "Active routes"
+          },
+          "avg_routes_per_user": {
+            "type": "number",
+            "title": "Avg Routes Per User",
+            "description": "Average routes per user"
+          }
+        },
+        "type": "object",
+        "required": [
+          "total_routes",
+          "active_routes",
+          "avg_routes_per_user"
+        ],
+        "title": "RouteStatMetrics",
+        "description": "Route statistics metrics."
+      },
+      "RouteValidationRequest": {
+        "properties": {
+          "segments": {
+            "items": {
+              "$ref": "#/components/schemas/RouteSegmentRequest"
+            },
+            "type": "array",
+            "minItems": 2,
+            "title": "Segments",
+            "description": "Ordered list of stations and lines forming the route. Must have at least 2 segments (start and end stations)."
+          }
+        },
+        "type": "object",
+        "required": [
+          "segments"
+        ],
+        "title": "RouteValidationRequest",
+        "description": "Request to validate a multi-segment route."
+      },
+      "RouteValidationResponse": {
+        "properties": {
+          "valid": {
+            "type": "boolean",
+            "title": "Valid",
+            "description": "Whether the route is valid"
+          },
+          "message": {
+            "type": "string",
+            "title": "Message",
+            "description": "Human-readable validation result"
+          },
+          "invalid_segment_index": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Invalid Segment Index",
+            "description": "Index of the first invalid segment (0-based), if any"
+          }
+        },
+        "type": "object",
+        "required": [
+          "valid",
+          "message"
+        ],
+        "title": "RouteValidationResponse",
+        "description": "Response from route validation."
+      },
+      "RouteVariant": {
+        "properties": {
+          "name": {
+            "type": "string",
+            "title": "Name",
+            "description": "Route name (e.g., 'Edgware \u2192 Morden via Bank')"
+          },
+          "service_type": {
+            "type": "string",
+            "title": "Service Type",
+            "description": "Service type (e.g., 'Regular', 'Night')"
+          },
+          "direction": {
+            "type": "string",
+            "title": "Direction",
+            "description": "Direction: 'inbound' or 'outbound'"
+          },
+          "stations": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Stations",
+            "description": "Ordered list of TfL station IDs on this route variant"
+          }
+        },
+        "type": "object",
+        "required": [
+          "name",
+          "service_type",
+          "direction",
+          "stations"
+        ],
+        "title": "RouteVariant",
+        "description": "Schema for a single route variant (ordered station sequence)."
+      },
+      "RouteVariantData": {
+        "properties": {
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "service_type": {
+            "type": "string",
+            "title": "Service Type"
+          },
+          "direction": {
+            "type": "string",
+            "title": "Direction"
+          },
+          "stations": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Stations"
+          }
+        },
+        "type": "object",
+        "title": "RouteVariantData",
+        "description": "Route variant structure stored in database."
+      },
+      "RoutesData": {
+        "properties": {
+          "routes": {
+            "items": {
+              "$ref": "#/components/schemas/RouteVariantData"
+            },
+            "type": "array",
+            "title": "Routes"
+          }
+        },
+        "type": "object",
+        "title": "RoutesData",
+        "description": "Routes structure stored in Line.route_variants JSON field."
+      },
+      "SendVerificationResponse": {
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "title": "Success"
+          },
+          "message": {
+            "type": "string",
+            "title": "Message"
+          }
+        },
+        "type": "object",
+        "required": [
+          "success",
+          "message"
+        ],
+        "title": "SendVerificationResponse",
+        "description": "Response after sending verification code."
+      },
+      "SeverityCodeResponse": {
+        "properties": {
+          "mode_id": {
+            "type": "string",
+            "title": "Mode Id",
+            "description": "Transport mode (e.g., 'tube', 'dlr')"
+          },
+          "severity_level": {
+            "type": "integer",
+            "title": "Severity Level",
+            "description": "Severity level (0-20)"
+          },
+          "description": {
+            "type": "string",
+            "title": "Description",
+            "description": "Description of severity level"
+          },
+          "last_updated": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Last Updated",
+            "description": "When this code was last updated"
+          }
+        },
+        "type": "object",
+        "required": [
+          "mode_id",
+          "severity_level",
+          "description",
+          "last_updated"
+        ],
+        "title": "SeverityCodeResponse",
+        "description": "Response schema for TfL severity code metadata."
+      },
+      "StationDisruptionResponse": {
+        "properties": {
+          "station_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Station Id"
+          },
+          "station_tfl_id": {
+            "type": "string",
+            "title": "Station Tfl Id"
+          },
+          "station_name": {
+            "type": "string",
+            "title": "Station Name"
+          },
+          "type": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Type"
+          },
+          "description": {
+            "type": "string",
+            "title": "Description"
+          },
+          "appearance": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Appearance"
+          },
+          "tfl_id": {
+            "type": "string",
+            "title": "Tfl Id"
+          },
+          "created_at_source": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At Source"
+          },
+          "end_date": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "End Date"
+          }
+        },
+        "type": "object",
+        "required": [
+          "station_id",
+          "station_tfl_id",
+          "station_name",
+          "description",
+          "tfl_id",
+          "created_at_source"
+        ],
+        "title": "StationDisruptionResponse",
+        "description": "Response schema for station disruption data.\n\nField names match TfL API DisruptedPoint structure (type, appearance)."
+      },
+      "StationResponse": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Id"
+          },
+          "tfl_id": {
+            "type": "string",
+            "title": "Tfl Id"
+          },
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "latitude": {
+            "type": "number",
+            "title": "Latitude"
+          },
+          "longitude": {
+            "type": "number",
+            "title": "Longitude"
+          },
+          "lines": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Lines"
+          },
+          "last_updated": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Last Updated"
+          },
+          "hub_naptan_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Hub Naptan Code"
+          },
+          "hub_common_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Hub Common Name"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "tfl_id",
+          "name",
+          "latitude",
+          "longitude",
+          "lines",
+          "last_updated",
+          "hub_naptan_code",
+          "hub_common_name"
+        ],
+        "title": "StationResponse",
+        "description": "Response schema for TfL station data."
+      },
+      "StationRouteInfo": {
+        "properties": {
+          "line_tfl_id": {
+            "type": "string",
+            "title": "Line Tfl Id",
+            "description": "TfL line ID"
+          },
+          "line_name": {
+            "type": "string",
+            "title": "Line Name",
+            "description": "Line name"
+          },
+          "route_name": {
+            "type": "string",
+            "title": "Route Name",
+            "description": "Route variant name"
+          },
+          "service_type": {
+            "type": "string",
+            "title": "Service Type",
+            "description": "Service type"
+          },
+          "direction": {
+            "type": "string",
+            "title": "Direction",
+            "description": "Direction"
+          }
+        },
+        "type": "object",
+        "required": [
+          "line_tfl_id",
+          "line_name",
+          "route_name",
+          "service_type",
+          "direction"
+        ],
+        "title": "StationRouteInfo",
+        "description": "Schema for route information for a station."
+      },
+      "StationRoutesResponse": {
+        "properties": {
+          "station_tfl_id": {
+            "type": "string",
+            "title": "Station Tfl Id",
+            "description": "TfL station ID"
+          },
+          "station_name": {
+            "type": "string",
+            "title": "Station Name",
+            "description": "Station name"
+          },
+          "routes": {
+            "items": {
+              "$ref": "#/components/schemas/StationRouteInfo"
+            },
+            "type": "array",
+            "title": "Routes",
+            "description": "Routes passing through this station"
+          }
+        },
+        "type": "object",
+        "required": [
+          "station_tfl_id",
+          "station_name",
+          "routes"
+        ],
+        "title": "StationRoutesResponse",
+        "description": "Response schema for routes passing through a station."
+      },
+      "StopTypeResponse": {
+        "properties": {
+          "type_name": {
+            "type": "string",
+            "title": "Type Name",
+            "description": "Stop type identifier"
+          },
+          "description": {
+            "type": "string",
+            "title": "Description",
+            "description": "Stop type description"
+          },
+          "last_updated": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Last Updated",
+            "description": "When this type was last updated"
+          }
+        },
+        "type": "object",
+        "required": [
+          "type_name",
+          "description",
+          "last_updated"
+        ],
+        "title": "StopTypeResponse",
+        "description": "Response schema for TfL stop type metadata."
+      },
+      "SyncMetadataResponse": {
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "title": "Success",
+            "description": "Whether sync completed successfully"
+          },
+          "message": {
+            "type": "string",
+            "title": "Message",
+            "description": "Human-readable result message"
+          },
+          "severity_codes_count": {
+            "type": "integer",
+            "title": "Severity Codes Count",
+            "description": "Number of severity codes synced"
+          },
+          "disruption_categories_count": {
+            "type": "integer",
+            "title": "Disruption Categories Count",
+            "description": "Number of disruption categories synced"
+          },
+          "stop_types_count": {
+            "type": "integer",
+            "title": "Stop Types Count",
+            "description": "Number of stop types synced"
+          }
+        },
+        "type": "object",
+        "required": [
+          "success",
+          "message",
+          "severity_codes_count",
+          "disruption_categories_count",
+          "stop_types_count"
+        ],
+        "title": "SyncMetadataResponse",
+        "description": "Response from syncing TfL metadata tables."
+      },
+      "TriggerCheckResponse": {
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "title": "Success",
+            "description": "Whether the check completed successfully"
+          },
+          "message": {
+            "type": "string",
+            "title": "Message",
+            "description": "Human-readable result message"
+          },
+          "routes_checked": {
+            "type": "integer",
+            "title": "Routes Checked",
+            "description": "Number of routes processed"
+          },
+          "alerts_sent": {
+            "type": "integer",
+            "title": "Alerts Sent",
+            "description": "Number of alerts sent"
+          },
+          "errors": {
+            "type": "integer",
+            "title": "Errors",
+            "description": "Number of errors encountered"
+          }
+        },
+        "type": "object",
+        "required": [
+          "success",
+          "message",
+          "routes_checked",
+          "alerts_sent",
+          "errors"
+        ],
+        "title": "TriggerCheckResponse",
+        "description": "Response from manually triggering an alert check."
+      },
+      "UpdateNotificationPreferenceRequest": {
+        "properties": {
+          "method": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/NotificationMethod"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "target_email_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Target Email Id"
+          },
+          "target_phone_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Target Phone Id"
+          }
+        },
+        "type": "object",
+        "title": "UpdateNotificationPreferenceRequest",
+        "description": "Request to update a notification preference."
+      },
+      "UpdateUserRouteRequest": {
+        "properties": {
+          "name": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 255,
+                "minLength": 1
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Name"
+          },
+          "description": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Description"
+          },
+          "active": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Active"
+          },
+          "timezone": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Timezone"
+          }
+        },
+        "type": "object",
+        "title": "UpdateUserRouteRequest",
+        "description": "Request to update a route's metadata."
+      },
+      "UpdateUserRouteScheduleRequest": {
+        "properties": {
+          "days_of_week": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Days Of Week"
+          },
+          "start_time": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Start Time"
+          },
+          "end_time": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "End Time"
+          }
+        },
+        "type": "object",
+        "title": "UpdateUserRouteScheduleRequest",
+        "description": "Request to update a schedule."
+      },
+      "UpdateUserRouteSegmentRequest": {
+        "properties": {
+          "station_tfl_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Station Tfl Id"
+          },
+          "line_tfl_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Line Tfl Id"
+          }
+        },
+        "type": "object",
+        "title": "UpdateUserRouteSegmentRequest",
+        "description": "Request to update a single segment."
+      },
+      "UpsertUserRouteSegmentsRequest": {
+        "properties": {
+          "segments": {
+            "items": {
+              "$ref": "#/components/schemas/UserRouteSegmentRequest"
+            },
+            "type": "array",
+            "minItems": 2,
+            "title": "Segments",
+            "description": "Ordered list of segments. Must have at least 2 (start and end)."
+          }
+        },
+        "type": "object",
+        "required": [
+          "segments"
+        ],
+        "title": "UpsertUserRouteSegmentsRequest",
+        "description": "Request to replace all segments in a route."
+      },
+      "UserCountMetrics": {
+        "properties": {
+          "total_users": {
+            "type": "integer",
+            "title": "Total Users",
+            "description": "Total non-deleted users"
+          },
+          "active_users": {
+            "type": "integer",
+            "title": "Active Users",
+            "description": "Users with active routes"
+          },
+          "users_with_verified_email": {
+            "type": "integer",
+            "title": "Users With Verified Email",
+            "description": "Users with verified email"
+          },
+          "users_with_verified_phone": {
+            "type": "integer",
+            "title": "Users With Verified Phone",
+            "description": "Users with verified phone"
+          },
+          "admin_users": {
+            "type": "integer",
+            "title": "Admin Users",
+            "description": "Number of admin users"
+          }
+        },
+        "type": "object",
+        "required": [
+          "total_users",
+          "active_users",
+          "users_with_verified_email",
+          "users_with_verified_phone",
+          "admin_users"
+        ],
+        "title": "UserCountMetrics",
+        "description": "User count metrics."
+      },
+      "UserDetailResponse": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Id"
+          },
+          "external_id": {
+            "type": "string",
+            "title": "External Id"
+          },
+          "auth_provider": {
+            "type": "string",
+            "title": "Auth Provider"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Updated At"
+          },
+          "deleted_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Deleted At"
+          },
+          "email_addresses": {
+            "items": {
+              "$ref": "#/components/schemas/EmailAddressItem"
+            },
+            "type": "array",
+            "title": "Email Addresses"
+          },
+          "phone_numbers": {
+            "items": {
+              "$ref": "#/components/schemas/PhoneNumberItem"
+            },
+            "type": "array",
+            "title": "Phone Numbers"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "external_id",
+          "auth_provider",
+          "created_at",
+          "updated_at"
+        ],
+        "title": "UserDetailResponse",
+        "description": "Detailed user information."
+      },
+      "UserListItem": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Id"
+          },
+          "external_id": {
+            "type": "string",
+            "title": "External Id"
+          },
+          "auth_provider": {
+            "type": "string",
+            "title": "Auth Provider"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Updated At"
+          },
+          "deleted_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Deleted At"
+          },
+          "email_addresses": {
+            "items": {
+              "$ref": "#/components/schemas/EmailAddressItem"
+            },
+            "type": "array",
+            "title": "Email Addresses"
+          },
+          "phone_numbers": {
+            "items": {
+              "$ref": "#/components/schemas/PhoneNumberItem"
+            },
+            "type": "array",
+            "title": "Phone Numbers"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "external_id",
+          "auth_provider",
+          "created_at",
+          "updated_at"
+        ],
+        "title": "UserListItem",
+        "description": "User item in list view."
+      },
+      "UserResponse": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Id"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Updated At"
+          },
+          "is_admin": {
+            "type": "boolean",
+            "title": "Is Admin"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "created_at",
+          "updated_at",
+          "is_admin"
+        ],
+        "title": "UserResponse",
+        "description": "User information response.\n\nNote: external_id and auth_provider are intentionally excluded\nfor privacy and security reasons."
+      },
+      "UserRouteListItemResponse": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Id"
+          },
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "description": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Description"
+          },
+          "active": {
+            "type": "boolean",
+            "title": "Active"
+          },
+          "timezone": {
+            "type": "string",
+            "title": "Timezone"
+          },
+          "segment_count": {
+            "type": "integer",
+            "title": "Segment Count",
+            "description": "Number of segments in the route"
+          },
+          "schedule_count": {
+            "type": "integer",
+            "title": "Schedule Count",
+            "description": "Number of schedules for the route"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "name",
+          "description",
+          "active",
+          "timezone",
+          "segment_count",
+          "schedule_count"
+        ],
+        "title": "UserRouteListItemResponse",
+        "description": "Simplified response schema for route listings."
+      },
+      "UserRouteResponse": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Id"
+          },
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "description": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Description"
+          },
+          "active": {
+            "type": "boolean",
+            "title": "Active"
+          },
+          "timezone": {
+            "type": "string",
+            "title": "Timezone"
+          },
+          "segments": {
+            "items": {
+              "$ref": "#/components/schemas/UserRouteSegmentResponse"
+            },
+            "type": "array",
+            "title": "Segments"
+          },
+          "schedules": {
+            "items": {
+              "$ref": "#/components/schemas/UserRouteScheduleResponse"
+            },
+            "type": "array",
+            "title": "Schedules"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "name",
+          "description",
+          "active",
+          "timezone",
+          "segments",
+          "schedules"
+        ],
+        "title": "UserRouteResponse",
+        "description": "Full response schema for a route with segments and schedules."
+      },
+      "UserRouteScheduleResponse": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Id"
+          },
+          "days_of_week": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Days Of Week"
+          },
+          "start_time": {
+            "type": "string",
+            "format": "time",
+            "title": "Start Time"
+          },
+          "end_time": {
+            "type": "string",
+            "format": "time",
+            "title": "End Time"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "days_of_week",
+          "start_time",
+          "end_time"
+        ],
+        "title": "UserRouteScheduleResponse",
+        "description": "Response schema for a route schedule."
+      },
+      "UserRouteSegmentRequest": {
+        "properties": {
+          "sequence": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Sequence",
+            "description": "Order of this segment in the route (0-based)"
+          },
+          "station_tfl_id": {
+            "type": "string",
+            "title": "Station Tfl Id",
+            "description": "TfL station ID (e.g., '940GZZLUOXC') or hub NaPTAN code (e.g., 'HUBSVS'). Hub codes are resolved to specific stations using line context (Issue #65)."
+          },
+          "line_tfl_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Line Tfl Id",
+            "description": "TfL line ID (e.g., 'victoria', 'northern'). NULL for destination segment (no onward travel)."
+          }
+        },
+        "type": "object",
+        "required": [
+          "sequence",
+          "station_tfl_id"
+        ],
+        "title": "UserRouteSegmentRequest",
+        "description": "Single segment in a route (station + line + sequence)."
+      },
+      "UserRouteSegmentResponse": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Id"
+          },
+          "sequence": {
+            "type": "integer",
+            "title": "Sequence"
+          },
+          "station_tfl_id": {
+            "type": "string",
+            "title": "Station Tfl Id"
+          },
+          "line_tfl_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Line Tfl Id"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "sequence",
+          "station_tfl_id",
+          "line_tfl_id"
+        ],
+        "title": "UserRouteSegmentResponse",
+        "description": "Response schema for a route segment."
+      },
+      "ValidationError": {
+        "properties": {
+          "loc": {
+            "items": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "integer"
+                }
+              ]
+            },
+            "type": "array",
+            "title": "Location"
+          },
+          "msg": {
+            "type": "string",
+            "title": "Message"
+          },
+          "type": {
+            "type": "string",
+            "title": "Error Type"
+          }
+        },
+        "type": "object",
+        "required": [
+          "loc",
+          "msg",
+          "type"
+        ],
+        "title": "ValidationError"
+      },
+      "VerifyCodeRequest": {
+        "properties": {
+          "contact_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Contact Id"
+          },
+          "code": {
+            "type": "string",
+            "title": "Code"
+          }
+        },
+        "type": "object",
+        "required": [
+          "contact_id",
+          "code"
+        ],
+        "title": "VerifyCodeRequest",
+        "description": "Request to verify a code."
+      },
+      "VerifyCodeResponse": {
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "title": "Success"
+          },
+          "message": {
+            "type": "string",
+            "title": "Message"
+          }
+        },
+        "type": "object",
+        "required": [
+          "success",
+          "message"
+        ],
+        "title": "VerifyCodeResponse",
+        "description": "Response after successful verification."
+      },
+      "WorkerStatusResponse": {
+        "properties": {
+          "worker_available": {
+            "type": "boolean",
+            "title": "Worker Available",
+            "description": "Whether a worker is available"
+          },
+          "active_tasks": {
+            "type": "integer",
+            "title": "Active Tasks",
+            "description": "Number of currently executing tasks"
+          },
+          "scheduled_tasks": {
+            "type": "integer",
+            "title": "Scheduled Tasks",
+            "description": "Number of scheduled tasks"
+          },
+          "last_heartbeat": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Heartbeat",
+            "description": "Timestamp of last worker heartbeat (if available)"
+          },
+          "message": {
+            "type": "string",
+            "title": "Message",
+            "description": "Human-readable status message"
+          }
+        },
+        "type": "object",
+        "required": [
+          "worker_available",
+          "active_tasks",
+          "scheduled_tasks",
+          "message"
+        ],
+        "title": "WorkerStatusResponse",
+        "description": "Response from checking Celery worker status."
+      }
+    },
+    "securitySchemes": {
+      "HTTPBearer": {
+        "type": "http",
+        "scheme": "bearer"
+      }
+    }
+  }
+}

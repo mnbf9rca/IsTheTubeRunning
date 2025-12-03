@@ -1,9 +1,11 @@
 import { useState, useEffect, useCallback } from 'react'
+import type {
+  RouteListItemResponse,
+  RouteResponse,
+  CreateRouteRequest,
+  UpdateRouteRequest,
+} from '@/types'
 import {
-  type RouteListItemResponse,
-  type RouteResponse,
-  type CreateRouteRequest,
-  type UpdateRouteRequest,
   ApiError,
   getRoutes as apiGetRoutes,
   getRoute as apiGetRoute,

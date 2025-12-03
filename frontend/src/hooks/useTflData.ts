@@ -1,8 +1,6 @@
 import { useState, useEffect, useCallback } from 'react'
+import type { LineResponse, StationResponse, NetworkGraph } from '@/types'
 import {
-  type LineResponse,
-  type StationResponse,
-  type NetworkGraph,
   ApiError,
   getLines as apiGetLines,
   getStations as apiGetStations,
@@ -123,7 +121,7 @@ export function useTflData(): UseTflDataReturn {
 
       // If no route sequence data available, fall back to showing all stations on the line
       // (backend validation will still catch invalid segments)
-      if (!line.routes || !line.routes.routes) {
+      if (!line.route_variants || !line.route_variants.routes) {
         const stationsOnLine = stations.filter((station) =>
           station.lines.includes(currentLineTflId)
         )
@@ -134,7 +132,7 @@ export function useTflData(): UseTflDataReturn {
       // and collect all stations from those sequences (union across matching routes)
       const reachableStationTflIds = new Set<string>()
 
-      for (const route of line.routes.routes) {
+      for (const route of line.route_variants.routes) {
         const stationList = route.stations || []
 
         // Check if current station is in this route sequence

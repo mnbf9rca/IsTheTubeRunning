@@ -1,8 +1,6 @@
 import { useState, useEffect, useCallback } from 'react'
+import type { ContactsResponse, EmailResponse, PhoneResponse } from '@/types'
 import {
-  type ContactsResponse,
-  type EmailResponse,
-  type PhoneResponse,
   ApiError,
   getContacts as apiGetContacts,
   addEmail as apiAddEmail,

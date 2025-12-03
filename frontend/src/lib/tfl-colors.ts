@@ -11,12 +11,25 @@
  * https://tfl.gov.uk/corporate/about-tfl/how-we-work/corporate-and-social-responsibility/corporate-responsibility-and-sustainability-report
  */
 
-import type { LineResponse } from './api'
+import type { LineResponse } from '@/types'
 
 /**
  * Lines that use Corporate Blue text instead of white
  */
 const LIGHT_LINES = ['circle', 'hammersmith-city', 'waterloo-city']
+
+/**
+ * Branded London Overground lines (rebranded 2024) that use striped pattern
+ * These specific lines use the colour-white-colour striped pattern
+ */
+export const OVERGROUND_STRIPED_LINES = [
+  'liberty',
+  'lioness',
+  'mildmay',
+  'suffragette',
+  'weaver',
+  'windrush',
+] as const
 
 /**
  * TfL Corporate Blue color
@@ -44,10 +57,17 @@ const LINE_COLORS: Record<string, string> = {
   piccadilly: '#003688',
   victoria: '#0098D4',
   'waterloo-city': '#95CDBA',
-  // Elizabeth line (future)
+  // Elizabeth line
   elizabeth: '#7156A5',
+  // Overground lines (rebranded 2024) - official TfL colors
+  overground: '#EE7C0E', // Generic overground (legacy)
+  liberty: '#5D6061', // Liberty line (grey)
+  lioness: '#FAA61A', // Lioness line (orange)
+  mildmay: '#0077AD', // Mildmay line (blue)
+  suffragette: '#5BBD72', // Suffragette line (green)
+  weaver: '#823A62', // Weaver line (maroon)
+  windrush: '#ED1B00', // Windrush line (red)
   // Other modes
-  overground: '#EE7C0E',
   dlr: '#00A4A7',
   tram: '#84B817',
 }

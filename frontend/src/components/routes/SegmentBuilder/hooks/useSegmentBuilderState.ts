@@ -10,12 +10,8 @@
  */
 
 import { useState, useEffect, useCallback, useMemo } from 'react'
-import type {
-  SegmentResponse,
-  LineResponse,
-  StationResponse,
-  SegmentRequest,
-} from '../../../../lib/api'
+import type { SegmentResponse, LineResponse, StationResponse, SegmentRequest } from '@/types'
+import { segmentResponseToRequest } from '../../../../lib/segment-utils'
 import type { Step, CoreSegmentBuilderState } from '../types'
 import {
   MAX_ROUTE_SEGMENTS,
@@ -123,11 +119,7 @@ export function useSegmentBuilderState({
 
   // Local state for segments being built
   const [localSegments, setLocalSegments] = useState<SegmentRequest[]>(
-    initialSegments.map((seg) => ({
-      sequence: seg.sequence,
-      station_tfl_id: seg.station_tfl_id,
-      line_tfl_id: seg.line_tfl_id,
-    }))
+    initialSegments.map(segmentResponseToRequest)
   )
 
   // State for building current segment
@@ -504,13 +496,7 @@ export function useSegmentBuilderState({
    */
   const handleCancel = useCallback(
     (onCancel: () => void) => {
-      setLocalSegments(
-        initialSegments.map((seg) => ({
-          sequence: seg.sequence,
-          station_tfl_id: seg.station_tfl_id,
-          line_tfl_id: seg.line_tfl_id,
-        }))
-      )
+      setLocalSegments(initialSegments.map(segmentResponseToRequest))
 
       // Reset state using transition function
       const newState = transitionToSelectStation()

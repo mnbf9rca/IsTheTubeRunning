@@ -1,6 +1,6 @@
 import { Mail, Phone } from 'lucide-react'
 import { ContactCard } from './ContactCard'
-import type { Contact } from '../../lib/api'
+import type { Contact } from '@/types'
 
 export interface ContactListProps {
   contacts: Contact[]

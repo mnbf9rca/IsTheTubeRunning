@@ -249,25 +249,30 @@ async def test_get_stations_with_invalid_line_id(
 # ==================== GET /tfl/disruptions Tests ====================
 
 
-@patch("app.services.tfl_service.TfLService.fetch_line_disruptions")
+@patch("app.services.tfl_service.TfLService.fetch_grouped_line_disruptions")
 async def test_get_disruptions(
-    mock_fetch_line_disruptions: AsyncMock,
+    mock_fetch_grouped_line_disruptions: AsyncMock,
     async_client_with_auth: AsyncClient,
 ) -> None:
-    """Test retrieving current line-level disruptions."""
-    # Setup mock data
-    mock_disruptions = [
+    """Test retrieving current line-level disruptions (grouped by line)."""
+    # Setup mock data - single line with single status
+    mock_grouped_disruptions = [
         {
             "line_id": "victoria",
             "line_name": "Victoria",
             "mode": "tube",
-            "status_severity": 5,
-            "status_severity_description": "Severe Delays",
-            "reason": "Signal failure at Victoria",
-            "created_at": datetime.now(UTC).isoformat(),
+            "statuses": [
+                {
+                    "status_severity": 5,
+                    "status_severity_description": "Severe Delays",
+                    "reason": "Signal failure at Victoria",
+                    "created_at": datetime.now(UTC).isoformat(),
+                    "affected_routes": None,
+                }
+            ],
         },
     ]
-    mock_fetch_line_disruptions.return_value = mock_disruptions
+    mock_fetch_grouped_line_disruptions.return_value = mock_grouped_disruptions
 
     # Execute
     response = await async_client_with_auth.get(build_api_url("/tfl/disruptions"))
@@ -277,8 +282,9 @@ async def test_get_disruptions(
     data = response.json()
     assert len(data) == 1
     assert data[0]["line_id"] == "victoria"
-    assert data[0]["status_severity"] == 5
-    assert "Signal failure" in data[0]["reason"]
+    assert len(data[0]["statuses"]) == 1
+    assert data[0]["statuses"][0]["status_severity"] == 5
+    assert "Signal failure" in data[0]["statuses"][0]["reason"]
 
 
 # ==================== POST /tfl/validate-route Tests ====================

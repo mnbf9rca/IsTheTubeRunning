@@ -1,6 +1,6 @@
 import { TrainFront } from 'lucide-react'
 import { SegmentCard } from './SegmentCard'
-import type { SegmentResponse, LineResponse, StationResponse } from '../../lib/api'
+import type { SegmentResponse, LineResponse, StationResponse } from '@/types'
 import { getLineColor } from '@/lib/tfl-colors'
 
 export interface SegmentListProps {

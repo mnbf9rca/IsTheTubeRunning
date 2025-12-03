@@ -2,7 +2,7 @@ import { render, screen, waitFor } from '@testing-library/react'
 import { userEvent } from '@testing-library/user-event'
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { UserTable } from './UserTable'
-import type { UserListItem } from '@/lib/api'
+import type { UserListItem } from '@/types'
 
 // Mock sonner toast
 vi.mock('sonner', () => ({

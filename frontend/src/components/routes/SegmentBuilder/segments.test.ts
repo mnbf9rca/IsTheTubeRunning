@@ -6,7 +6,7 @@ import {
   deleteSegmentAndResequence,
   removeDestinationMarker,
 } from './segments'
-import { StationResponse, LineResponse } from '@/lib/api'
+import type { StationResponse, LineResponse } from '@/types'
 import { SegmentRequest } from './types'
 
 describe('SegmentBuilder segments', () => {

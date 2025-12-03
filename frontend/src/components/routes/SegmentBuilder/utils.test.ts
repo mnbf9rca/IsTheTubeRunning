@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { findStationByTflId, findLineByTflId, isSameLine } from './utils'
-import { StationResponse, LineResponse } from '@/lib/api'
+import type { StationResponse, LineResponse } from '@/types'
 
 describe('SegmentBuilder utils', () => {
   describe('findStationByTflId', () => {

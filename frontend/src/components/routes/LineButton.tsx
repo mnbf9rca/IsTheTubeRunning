@@ -1,7 +1,7 @@
 import { Train } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { getLineTextColor, getLineColor } from '@/lib/tfl-colors'
-import type { LineResponse } from '@/lib/api'
+import type { LineResponse } from '@/types'
 import { cn } from '@/lib/utils'
 
 interface LineButtonProps {

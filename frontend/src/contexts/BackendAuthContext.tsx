@@ -1,7 +1,8 @@
 import { createContext, useState, useEffect, useCallback, useRef } from 'react'
 import type { ReactNode } from 'react'
 import { useAuth } from '@/hooks/useAuth'
-import { getCurrentUser, type UserResponse } from '@/lib/api'
+import type { UserResponse } from '@/types'
+import { getCurrentUser } from '@/lib/api'
 
 interface BackendAuthContextType {
   user: UserResponse | null

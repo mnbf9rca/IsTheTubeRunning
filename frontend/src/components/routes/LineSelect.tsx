@@ -1,6 +1,6 @@
 import { Badge } from '../ui/badge'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../ui/select'
-import type { LineResponse } from '../../lib/api'
+import type { LineResponse } from '@/types'
 import { getLineColor } from '@/lib/tfl-colors'
 
 export interface LineSelectProps {

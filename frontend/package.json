@@ -15,7 +15,9 @@
     "test": "vitest",
     "test:ui": "vitest --ui",
     "test:run": "vitest run",
-    "test:coverage": "vitest run --coverage"
+    "test:coverage": "vitest run --coverage",
+    "generate-types": "openapi-typescript ../backend/openapi.json -o src/types/api-generated.ts && prettier --write src/types/api-generated.ts",
+    "check-types-sync": "npm run generate-types && git diff --exit-code src/types/api-generated.ts"
   },
   "dependencies": {
     "@auth0/auth0-react": "^2.8.0",
@@ -66,6 +68,7 @@
     "eslint-plugin-react-refresh": "^0.4.24",
     "globals": "^16.5.0",
     "jsdom": "^27.1.0",
+    "openapi-typescript": "^7.10.1",
     "prettier": "^3.6.2",
     "tailwindcss": "^4.1.16",
     "typescript": "~5.9.3",

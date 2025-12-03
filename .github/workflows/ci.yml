@@ -101,6 +101,10 @@ jobs:
         working-directory: frontend
         run: npm ci
 
+      - name: Verify API types are in sync
+        working-directory: frontend
+        run: npm run check-types-sync
+
       - name: Run format check
         working-directory: frontend
         run: npm run format:check

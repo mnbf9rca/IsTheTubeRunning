@@ -2,7 +2,7 @@ import { Calendar, Pencil, Trash2, Route as RouteIcon } from 'lucide-react'
 import { Card, CardContent, CardHeader, CardTitle } from '../ui/card'
 import { Button } from '../ui/button'
 import { Badge } from '../ui/badge'
-import type { RouteListItemResponse } from '../../lib/api'
+import type { RouteListItemResponse } from '@/types'
 
 export interface RouteCardProps {
   route: RouteListItemResponse

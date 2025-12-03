@@ -8,7 +8,7 @@
  * @see ADR 11: Frontend State Management Pattern
  */
 
-import type { StationResponse, LineResponse, SegmentRequest } from '../../../lib/api'
+import type { StationResponse, LineResponse, SegmentRequest } from '@/types'
 
 /**
  * State machine step for segment building workflow
