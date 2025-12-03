@@ -1,5 +1,5 @@
 import { useCallback } from 'react'
-import type { DisruptionResponse } from '@/types'
+import type { GroupedLineDisruptionResponse } from '@/types'
 import { ApiError, getDisruptions as apiGetDisruptions } from '../lib/api'
 import { usePolling } from './usePolling'
 
@@ -13,7 +13,7 @@ export interface UseDisruptionsOptions {
 }
 
 export interface UseDisruptionsReturn {
-  disruptions: DisruptionResponse[] | null
+  disruptions: GroupedLineDisruptionResponse[] | null
   loading: boolean
   isRefreshing: boolean
   error: ApiError | null
@@ -45,8 +45,10 @@ export function useDisruptions(options: UseDisruptionsOptions = {}): UseDisrupti
   const { pollInterval = DEFAULT_POLL_INTERVAL, enabled = true, filterGoodService = true } = options
 
   // Memoize transform function to prevent unnecessary re-registrations
+  // Filter out lines where ALL statuses are "Good Service" (severity 10)
   const transform = useCallback(
-    (data: DisruptionResponse[]) => data.filter((disruption) => disruption.status_severity !== 10),
+    (data: GroupedLineDisruptionResponse[]) =>
+      data.filter((line) => line.statuses.some((status) => status.status_severity !== 10)),
     []
   )
 
@@ -56,7 +58,7 @@ export function useDisruptions(options: UseDisruptionsOptions = {}): UseDisrupti
     isRefreshing,
     error,
     refresh,
-  } = usePolling<DisruptionResponse[]>({
+  } = usePolling<GroupedLineDisruptionResponse[]>({
     key: 'disruptions',
     fetchFn: apiGetDisruptions,
     interval: pollInterval,

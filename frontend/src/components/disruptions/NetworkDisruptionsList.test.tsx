@@ -1,22 +1,28 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { render, screen, fireEvent, act } from '@testing-library/react'
 import { NetworkDisruptionsList } from './NetworkDisruptionsList'
-import { type DisruptionResponse } from '@/types'
+import { type GroupedLineDisruptionResponse } from '@/types'
 import * as useDisruptionsHook from '@/hooks/useDisruptions'
 
 // Mock the hooks
 vi.mock('@/hooks/useDisruptions')
 
-// Helper to create test disruption data
-const createDisruption = (overrides: Partial<DisruptionResponse> = {}): DisruptionResponse => ({
+// Helper to create test grouped disruption data
+const createDisruption = (
+  overrides: Partial<GroupedLineDisruptionResponse> = {}
+): GroupedLineDisruptionResponse => ({
   line_id: 'piccadilly',
   line_name: 'Piccadilly',
   mode: 'tube',
-  status_severity: 6,
-  status_severity_description: 'Minor Delays',
-  reason: "Signal failure at King's Cross",
-  created_at: '2025-01-01T10:00:00Z',
-  affected_routes: null,
+  statuses: [
+    {
+      status_severity: 6,
+      status_severity_description: 'Minor Delays',
+      reason: "Signal failure at King's Cross",
+      created_at: '2025-01-01T10:00:00Z',
+      affected_routes: null,
+    },
+  ],
   ...overrides,
 })
 
@@ -121,12 +127,28 @@ describe('NetworkDisruptionsList', () => {
     const disruptions = [
       createDisruption({
         line_name: 'Piccadilly',
-        status_severity_description: 'Minor Delays',
+        statuses: [
+          {
+            status_severity: 6,
+            status_severity_description: 'Minor Delays',
+            reason: "Signal failure at King's Cross",
+            created_at: '2025-01-01T10:00:00Z',
+            affected_routes: null,
+          },
+        ],
       }),
       createDisruption({
         line_id: 'northern',
         line_name: 'Northern',
-        status_severity_description: 'Severe Delays',
+        statuses: [
+          {
+            status_severity: 20,
+            status_severity_description: 'Severe Delays',
+            reason: 'Signalling problem',
+            created_at: '2025-01-01T10:00:00Z',
+            affected_routes: null,
+          },
+        ],
       }),
     ]
 

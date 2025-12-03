@@ -1,9 +1,9 @@
-import type { DisruptionResponse } from '@/types'
+import type { GroupedLineDisruptionResponse } from '@/types'
 import { cn } from '@/lib/utils'
 
 export interface DisruptionSummaryProps {
-  /** Array of disruptions (all disruptions, not filtered) */
-  disruptions: DisruptionResponse[]
+  /** Array of grouped line disruptions (all disruptions, not filtered) */
+  disruptions: GroupedLineDisruptionResponse[]
   /** Additional CSS classes */
   className?: string
 }
@@ -14,7 +14,7 @@ export interface DisruptionSummaryProps {
  * Shows "Good service on all lines" when there are no disruptions,
  * or "Good service on all other lines" when there are some disruptions.
  */
-function generateSummaryMessage(disruptions: DisruptionResponse[]): string | null {
+function generateSummaryMessage(disruptions: GroupedLineDisruptionResponse[]): string | null {
   if (disruptions.length === 0) {
     return 'Good service on all lines'
   }

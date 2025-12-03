@@ -784,9 +784,10 @@ export interface paths {
     }
     /**
      * Get Disruptions
-     * @description Get current line-level disruptions across the tube network.
+     * @description Get current line-level disruptions across the tube network (grouped by line).
      *
-     *     Returns disruptions affecting tube lines.
+     *     Returns disruptions grouped by line, with multiple statuses per line combined.
+     *     Each line appears once with all its statuses sorted by severity (lower = more severe).
      *     Data is cached for 2 minutes (or TTL specified by TfL API).
      *
      *     Args:
@@ -794,7 +795,7 @@ export interface paths {
      *         db: Database session
      *
      *     Returns:
-     *         List of current line disruptions with severity and details
+     *         List of grouped line disruptions (one per line) with all statuses and details
      *
      *     Raises:
      *         HTTPException: 503 if TfL API is unavailable
@@ -1932,6 +1933,24 @@ export interface components {
       growth_metrics: components['schemas']['GrowthMetrics']
     }
     /**
+     * GroupedLineDisruptionResponse
+     * @description API response for TfL line disruption data (grouped by line).
+     *
+     *     Used by /tfl/disruptions endpoint for frontend display.
+     *     Groups all statuses for a single line together, with statuses sorted by severity.
+     *     Internal services continue to use DisruptionResponse for per-status granularity.
+     */
+    GroupedLineDisruptionResponse: {
+      /** Line Id */
+      line_id: string
+      /** Line Name */
+      line_name: string
+      /** Mode */
+      mode: string
+      /** Statuses */
+      statuses: components['schemas']['LineStatusInfo'][]
+    }
+    /**
      * GrowthMetrics
      * @description User growth and retention metrics.
      */
@@ -2031,6 +2050,24 @@ export interface components {
        * @description Disruption reason if any
        */
       reason?: string | null
+    }
+    /**
+     * LineStatusInfo
+     * @description Individual status for a line (used in grouped API response).
+     *
+     *     Represents a single status that may be combined with others for the same line.
+     */
+    LineStatusInfo: {
+      /** Status Severity */
+      status_severity: number
+      /** Status Severity Description */
+      status_severity_description: string
+      /** Reason */
+      reason?: string | null
+      /** Created At */
+      created_at?: string | null
+      /** Affected Routes */
+      affected_routes?: components['schemas']['AffectedRouteInfo'][] | null
     }
     /**
      * NetworkConnection
@@ -3856,7 +3893,7 @@ export interface operations {
           [name: string]: unknown
         }
         content: {
-          'application/json': components['schemas']['DisruptionResponse'][]
+          'application/json': components['schemas']['GroupedLineDisruptionResponse'][]
         }
       }
     }

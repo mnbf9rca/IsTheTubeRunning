@@ -1343,7 +1343,7 @@
           "tfl"
         ],
         "summary": "Get Disruptions",
-        "description": "Get current line-level disruptions across the tube network.\n\nReturns disruptions affecting tube lines.\nData is cached for 2 minutes (or TTL specified by TfL API).\n\nArgs:\n    current_user: Authenticated user\n    db: Database session\n\nReturns:\n    List of current line disruptions with severity and details\n\nRaises:\n    HTTPException: 503 if TfL API is unavailable",
+        "description": "Get current line-level disruptions across the tube network (grouped by line).\n\nReturns disruptions grouped by line, with multiple statuses per line combined.\nEach line appears once with all its statuses sorted by severity (lower = more severe).\nData is cached for 2 minutes (or TTL specified by TfL API).\n\nArgs:\n    current_user: Authenticated user\n    db: Database session\n\nReturns:\n    List of grouped line disruptions (one per line) with all statuses and details\n\nRaises:\n    HTTPException: 503 if TfL API is unavailable",
         "operationId": "get_disruptions_api_v1_tfl_disruptions_get",
         "responses": {
           "200": {
@@ -1352,7 +1352,7 @@
               "application/json": {
                 "schema": {
                   "items": {
-                    "$ref": "#/components/schemas/DisruptionResponse"
+                    "$ref": "#/components/schemas/GroupedLineDisruptionResponse"
                   },
                   "type": "array",
                   "title": "Response Get Disruptions Api V1 Tfl Disruptions Get"
@@ -2802,6 +2802,38 @@
         "title": "EngagementMetrics",
         "description": "Comprehensive engagement metrics for admin dashboard."
       },
+      "GroupedLineDisruptionResponse": {
+        "properties": {
+          "line_id": {
+            "type": "string",
+            "title": "Line Id"
+          },
+          "line_name": {
+            "type": "string",
+            "title": "Line Name"
+          },
+          "mode": {
+            "type": "string",
+            "title": "Mode"
+          },
+          "statuses": {
+            "items": {
+              "$ref": "#/components/schemas/LineStatusInfo"
+            },
+            "type": "array",
+            "title": "Statuses"
+          }
+        },
+        "type": "object",
+        "required": [
+          "line_id",
+          "line_name",
+          "mode",
+          "statuses"
+        ],
+        "title": "GroupedLineDisruptionResponse",
+        "description": "API response for TfL line disruption data (grouped by line).\n\nUsed by /tfl/disruptions endpoint for frontend display.\nGroups all statuses for a single line together, with statuses sorted by severity.\nInternal services continue to use DisruptionResponse for per-status granularity."
+      },
       "GrowthMetrics": {
         "properties": {
           "new_users_last_7_days": {
@@ -2965,6 +2997,62 @@
         ],
         "title": "LineStateResponse",
         "description": "Response schema for current line status."
+      },
+      "LineStatusInfo": {
+        "properties": {
+          "status_severity": {
+            "type": "integer",
+            "title": "Status Severity"
+          },
+          "status_severity_description": {
+            "type": "string",
+            "title": "Status Severity Description"
+          },
+          "reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reason"
+          },
+          "created_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Created At"
+          },
+          "affected_routes": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/components/schemas/AffectedRouteInfo"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Affected Routes"
+          }
+        },
+        "type": "object",
+        "required": [
+          "status_severity",
+          "status_severity_description"
+        ],
+        "title": "LineStatusInfo",
+        "description": "Individual status for a line (used in grouped API response).\n\nRepresents a single status that may be combined with others for the same line."
       },
       "NetworkConnection": {
         "properties": {

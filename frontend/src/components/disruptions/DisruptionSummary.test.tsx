@@ -1,18 +1,22 @@
 import { render, screen } from '@testing-library/react'
 import { describe, it, expect } from 'vitest'
 import { DisruptionSummary } from './DisruptionSummary'
-import type { DisruptionResponse } from '@/types'
+import type { GroupedLineDisruptionResponse } from '@/types'
 
 describe('DisruptionSummary', () => {
-  const createDisruption = (lineId: string, mode: string): DisruptionResponse => ({
+  const createDisruption = (lineId: string, mode: string): GroupedLineDisruptionResponse => ({
     line_id: lineId,
     line_name: lineId.charAt(0).toUpperCase() + lineId.slice(1),
     mode,
-    status_severity: 10,
-    status_severity_description: 'Minor Delays',
-    reason: 'Test disruption',
-    created_at: '2025-01-01T10:00:00Z',
-    affected_routes: null,
+    statuses: [
+      {
+        status_severity: 10,
+        status_severity_description: 'Minor Delays',
+        reason: 'Test disruption',
+        created_at: '2025-01-01T10:00:00Z',
+        affected_routes: null,
+      },
+    ],
   })
 
   describe('empty disruptions', () => {

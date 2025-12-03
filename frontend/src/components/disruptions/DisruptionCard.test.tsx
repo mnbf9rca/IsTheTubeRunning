@@ -1,7 +1,7 @@
 import { describe, it, expect, vi } from 'vitest'
 import { render, screen } from '@testing-library/react'
 import { DisruptionCard } from './DisruptionCard'
-import { type DisruptionResponse } from '@/types'
+import { type GroupedLineDisruptionResponse, type LineStatusInfo } from '@/types'
 import * as tflColors from '@/lib/tfl-colors'
 
 // Mock the TfL colors module
@@ -17,11 +17,8 @@ vi.mock('@/lib/tfl-colors', () => ({
   }),
 }))
 
-// Helper to create test disruption data
-const createDisruption = (overrides: Partial<DisruptionResponse> = {}): DisruptionResponse => ({
-  line_id: 'piccadilly',
-  line_name: 'Piccadilly',
-  mode: 'tube',
+// Helper to create test status data
+const createStatus = (overrides: Partial<LineStatusInfo> = {}): LineStatusInfo => ({
   status_severity: 6,
   status_severity_description: 'Minor Delays',
   reason: "Signal failure at King's Cross",
@@ -30,14 +27,50 @@ const createDisruption = (overrides: Partial<DisruptionResponse> = {}): Disrupti
   ...overrides,
 })
 
+// Helper to create test grouped disruption data
+const createDisruption = (
+  overrides: Partial<GroupedLineDisruptionResponse> = {}
+): GroupedLineDisruptionResponse => ({
+  line_id: 'piccadilly',
+  line_name: 'Piccadilly',
+  mode: 'tube',
+  statuses: [createStatus()],
+  ...overrides,
+})
+
 describe('DisruptionCard', () => {
-  it('renders disruption card with all information', () => {
+  it('renders disruption card with single status', () => {
     const disruption = createDisruption()
     render(<DisruptionCard disruption={disruption} />)
 
     expect(screen.getByText('Piccadilly')).toBeInTheDocument()
     expect(screen.getByText('Minor Delays')).toBeInTheDocument()
     expect(screen.getByText("Signal failure at King's Cross")).toBeInTheDocument()
+  })
+
+  it('renders disruption card with multiple statuses', () => {
+    const disruption = createDisruption({
+      line_name: 'Northern',
+      statuses: [
+        createStatus({
+          status_severity: 6,
+          status_severity_description: 'Minor Delays',
+          reason: 'Signal failure',
+        }),
+        createStatus({
+          status_severity: 9,
+          status_severity_description: 'Part Closure',
+          reason: 'Planned engineering works',
+        }),
+      ],
+    })
+    render(<DisruptionCard disruption={disruption} />)
+
+    expect(screen.getByText('Northern')).toBeInTheDocument()
+    expect(screen.getByText('Minor Delays')).toBeInTheDocument()
+    expect(screen.getByText('Signal failure')).toBeInTheDocument()
+    expect(screen.getByText('Part Closure')).toBeInTheDocument()
+    expect(screen.getByText('Planned engineering works')).toBeInTheDocument()
   })
 
   it('displays line name prominently', () => {
@@ -49,42 +82,62 @@ describe('DisruptionCard', () => {
     expect(lineName.tagName).toBe('H3')
   })
 
-  it('renders severity badge with correct props', () => {
+  it('renders severity badges for all statuses', () => {
     const disruption = createDisruption({
-      status_severity: 15,
-      status_severity_description: 'Severe Delays',
+      statuses: [
+        createStatus({
+          status_severity: 15,
+          status_severity_description: 'Severe Delays',
+        }),
+        createStatus({
+          status_severity: 6,
+          status_severity_description: 'Minor Delays',
+        }),
+      ],
     })
     render(<DisruptionCard disruption={disruption} />)
 
-    // DisruptionBadge component should be rendered with the severity
     expect(screen.getByText('Severe Delays')).toBeInTheDocument()
+    expect(screen.getByText('Minor Delays')).toBeInTheDocument()
   })
 
-  it('displays reason text when provided', () => {
+  it('displays reason text for each status when provided', () => {
     const disruption = createDisruption({
-      reason: 'Delays due to earlier incident',
+      statuses: [
+        createStatus({
+          reason: 'Delays due to earlier incident',
+        }),
+        createStatus({
+          reason: 'Planned engineering works',
+        }),
+      ],
     })
     render(<DisruptionCard disruption={disruption} />)
 
     expect(screen.getByText('Delays due to earlier incident')).toBeInTheDocument()
+    expect(screen.getByText('Planned engineering works')).toBeInTheDocument()
   })
 
-  it('does not display reason section when reason is null', () => {
-    const disruption = createDisruption({ reason: null })
+  it('does not display reason when null', () => {
+    const disruption = createDisruption({
+      statuses: [createStatus({ reason: null })],
+    })
     const { container } = render(<DisruptionCard disruption={disruption} />)
 
-    // Check that there's no paragraph with reason text
-    const reasonText = container.querySelector('p.text-sm')
-    expect(reasonText).not.toBeInTheDocument()
+    // Should only have the badge, no reason text
+    const reasonText = container.querySelectorAll('p.text-sm')
+    expect(reasonText.length).toBe(0)
   })
 
-  it('does not display reason section when reason is undefined', () => {
-    const disruption = createDisruption({ reason: undefined })
+  it('does not display reason when undefined', () => {
+    const disruption = createDisruption({
+      statuses: [createStatus({ reason: undefined })],
+    })
     const { container } = render(<DisruptionCard disruption={disruption} />)
 
-    // Check that there's no paragraph with reason text
-    const reasonText = container.querySelector('p.text-sm')
-    expect(reasonText).not.toBeInTheDocument()
+    // Should only have the badge, no reason text
+    const reasonText = container.querySelectorAll('p.text-sm')
+    expect(reasonText.length).toBe(0)
   })
 
   it('applies line color to vertical strip', () => {
@@ -122,23 +175,54 @@ describe('DisruptionCard', () => {
     expect(article).toBeInTheDocument()
   })
 
-  it('has accessible ARIA label with disruption details', () => {
+  it('has accessible ARIA label with single status', () => {
     const disruption = createDisruption({
       line_name: 'Victoria',
-      status_severity_description: 'Severe Delays',
-      reason: 'Signal failure',
+      statuses: [
+        createStatus({
+          status_severity_description: 'Severe Delays',
+          reason: 'Signal failure',
+        }),
+      ],
     })
     render(<DisruptionCard disruption={disruption} />)
 
     const article = screen.getByRole('article')
-    expect(article).toHaveAttribute('aria-label', 'Victoria: Severe Delays. Signal failure')
+    expect(article).toHaveAttribute('aria-label', 'Victoria: Severe Delays: Signal failure')
+  })
+
+  it('has accessible ARIA label with multiple statuses', () => {
+    const disruption = createDisruption({
+      line_name: 'Northern',
+      statuses: [
+        createStatus({
+          status_severity_description: 'Severe Delays',
+          reason: 'Signal failure',
+        }),
+        createStatus({
+          status_severity_description: 'Part Closure',
+          reason: 'Engineering works',
+        }),
+      ],
+    })
+    render(<DisruptionCard disruption={disruption} />)
+
+    const article = screen.getByRole('article')
+    expect(article).toHaveAttribute(
+      'aria-label',
+      'Northern: Severe Delays: Signal failure, Part Closure: Engineering works'
+    )
   })
 
   it('has accessible ARIA label without reason when not provided', () => {
     const disruption = createDisruption({
       line_name: 'Jubilee',
-      status_severity_description: 'Good Service',
-      reason: null,
+      statuses: [
+        createStatus({
+          status_severity_description: 'Good Service',
+          reason: null,
+        }),
+      ],
     })
     render(<DisruptionCard disruption={disruption} />)
 
@@ -165,19 +249,23 @@ describe('DisruptionCard', () => {
   })
 
   it('renders correctly with all fields populated', () => {
-    const disruption: DisruptionResponse = {
+    const disruption: GroupedLineDisruptionResponse = {
       line_id: 'central',
       line_name: 'Central',
       mode: 'tube',
-      status_severity: 6,
-      status_severity_description: 'Minor Delays',
-      reason: 'Delays due to planned engineering works',
-      created_at: '2025-01-01T10:00:00Z',
-      affected_routes: [
+      statuses: [
         {
-          name: 'Central',
-          direction: 'Eastbound',
-          affected_stations: ['Bank', 'Liverpool Street'],
+          status_severity: 6,
+          status_severity_description: 'Minor Delays',
+          reason: 'Delays due to planned engineering works',
+          created_at: '2025-01-01T10:00:00Z',
+          affected_routes: [
+            {
+              name: 'Central',
+              direction: 'Eastbound',
+              affected_stations: ['Bank', 'Liverpool Street'],
+            },
+          ],
         },
       ],
     }
@@ -190,15 +278,19 @@ describe('DisruptionCard', () => {
   })
 
   it('handles missing optional fields gracefully', () => {
-    const disruption: DisruptionResponse = {
+    const disruption: GroupedLineDisruptionResponse = {
       line_id: 'elizabeth',
       line_name: 'Elizabeth Line',
       mode: 'elizabeth-line',
-      status_severity: 10,
-      status_severity_description: 'Good Service',
-      reason: null,
-      created_at: null,
-      affected_routes: null,
+      statuses: [
+        {
+          status_severity: 10,
+          status_severity_description: 'Good Service',
+          reason: null,
+          created_at: null,
+          affected_routes: null,
+        },
+      ],
     }
 
     render(<DisruptionCard disruption={disruption} />)
@@ -213,5 +305,37 @@ describe('DisruptionCard', () => {
 
     // Should still render the Card component
     expect(container.firstChild).toBeInTheDocument()
+  })
+
+  it('displays statuses in the order provided (sorted by backend)', () => {
+    const disruption = createDisruption({
+      statuses: [
+        createStatus({
+          status_severity: 6,
+          status_severity_description: 'Minor Delays',
+          reason: 'First status',
+        }),
+        createStatus({
+          status_severity: 15,
+          status_severity_description: 'Severe Delays',
+          reason: 'Second status',
+        }),
+        createStatus({
+          status_severity: 10,
+          status_severity_description: 'Good Service',
+          reason: 'Third status',
+        }),
+      ],
+    })
+    const { container } = render(<DisruptionCard disruption={disruption} />)
+
+    const statuses = container.querySelectorAll('.space-y-3 > div')
+    expect(statuses).toHaveLength(3)
+
+    // Verify order matches input (backend pre-sorted)
+    const badges = screen.getAllByText(/Delays|Service/)
+    expect(badges[0]).toHaveTextContent('Minor Delays')
+    expect(badges[1]).toHaveTextContent('Severe Delays')
+    expect(badges[2]).toHaveTextContent('Good Service')
   })
 })

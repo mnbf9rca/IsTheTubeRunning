@@ -1,29 +1,34 @@
-import { type DisruptionResponse } from '@/types'
+import { type GroupedLineDisruptionResponse } from '@/types'
 import { Card, CardContent } from '@/components/ui/card'
 import { DisruptionBadge } from './DisruptionBadge'
 import { getLineColor } from '@/lib/tfl-colors'
 
 interface DisruptionCardProps {
-  disruption: DisruptionResponse
+  disruption: GroupedLineDisruptionResponse
   className?: string
 }
 
 /**
- * Displays a single TfL disruption with line-specific branding
+ * Displays a single TfL line with all its current statuses (grouped by line)
  *
  * Features:
  * - Vertical line color strip on left edge (TfL-inspired design)
- * - Line name and severity badge
- * - Optional disruption reason/description
+ * - Line name with multiple status badges (if multiple statuses exist)
+ * - Each status shows severity badge and optional reason
+ * - Statuses are sorted by severity (lower = more severe) from backend
  * - Accessible with ARIA labels
  */
 export function DisruptionCard({ disruption, className = '' }: DisruptionCardProps) {
   const lineColor = getLineColor(disruption.line_id)
 
   // Build accessible description for screen readers
-  const ariaLabel = `${disruption.line_name}: ${disruption.status_severity_description}${
-    disruption.reason ? `. ${disruption.reason}` : ''
-  }`
+  const statusDescriptions = disruption.statuses
+    .map(
+      (status) =>
+        `${status.status_severity_description}${status.reason ? `: ${status.reason}` : ''}`
+    )
+    .join(', ')
+  const ariaLabel = `${disruption.line_name}: ${statusDescriptions}`
 
   return (
     <Card className={`relative overflow-hidden ${className}`} role="article" aria-label={ariaLabel}>
@@ -35,19 +40,28 @@ export function DisruptionCard({ disruption, className = '' }: DisruptionCardPro
       />
 
       <CardContent className="p-4 pl-6">
-        {/* Line name and severity badge */}
-        <div className="flex items-start justify-between gap-4 mb-2">
-          <h3 className="font-semibold text-lg leading-tight">{disruption.line_name}</h3>
-          <DisruptionBadge
-            severity={disruption.status_severity}
-            severityDescription={disruption.status_severity_description}
-          />
-        </div>
+        {/* Line name */}
+        <h3 className="font-semibold text-lg leading-tight mb-3">{disruption.line_name}</h3>
 
-        {/* Disruption reason/description */}
-        {disruption.reason && (
-          <p className="text-sm text-muted-foreground leading-relaxed">{disruption.reason}</p>
-        )}
+        {/* Multiple statuses (sorted by severity from backend) */}
+        <div className="space-y-3">
+          {disruption.statuses.map((status, index) => (
+            <div key={index} className="flex items-start justify-between gap-4">
+              <div className="flex-1">
+                <DisruptionBadge
+                  severity={status.status_severity}
+                  severityDescription={status.status_severity_description}
+                />
+                {/* Status reason/description */}
+                {status.reason && (
+                  <p className="text-sm text-muted-foreground leading-relaxed mt-2">
+                    {status.reason}
+                  </p>
+                )}
+              </div>
+            </div>
+          ))}
+        </div>
       </CardContent>
     </Card>
   )
