@@ -1,4 +1,13 @@
-import { createContext, useContext, useEffect, useRef, useState, type ReactNode } from 'react'
+import {
+  createContext,
+  useCallback,
+  useContext,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+} from 'react'
 import { PollingCoordinator } from '@/lib/PollingCoordinator'
 import type { PollingOptions } from '@/lib/PollingCoordinator'
 import { useBackendAvailability } from '@/hooks/useBackendAvailability'
@@ -25,6 +34,18 @@ export function PollingProvider({ children }: { children: ReactNode }) {
   // Track previous states to detect changes
   const prevIsAvailable = useRef(isAvailable)
   const prevIsAuthenticated = useRef(isBackendAuthenticated)
+
+  // Initial state: pause polls if backend is already down or user is already logged out
+  // This prevents polls from starting when registered in an unavailable/unauthenticated state
+  useEffect(() => {
+    if (!isAvailable) {
+      coordinator.pauseHealthAwarePolls()
+    }
+    if (!isBackendAuthenticated) {
+      coordinator.pauseAuthenticatedPolls()
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []) // Run once on mount
 
   // Handle backend availability changes
   useEffect(() => {
@@ -65,15 +86,16 @@ export function PollingProvider({ children }: { children: ReactNode }) {
     }
   }, [coordinator])
 
-  const registerPoll = (options: PollingOptions) => {
-    return coordinator.register(options)
-  }
-
-  return (
-    <PollingContext.Provider value={{ coordinator, registerPoll }}>
-      {children}
-    </PollingContext.Provider>
+  const registerPoll = useCallback(
+    (options: PollingOptions) => {
+      return coordinator.register(options)
+    },
+    [coordinator]
   )
+
+  const contextValue = useMemo(() => ({ coordinator, registerPoll }), [coordinator, registerPoll])
+
+  return <PollingContext.Provider value={contextValue}>{children}</PollingContext.Provider>
 }
 
 export function usePollingCoordinator(): PollingContextType {

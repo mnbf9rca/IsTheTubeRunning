@@ -1,3 +1,4 @@
+import { useCallback } from 'react'
 import type { RouteDisruptionResponse } from '@/types'
 import { ApiError, getRouteDisruptions as apiGetRouteDisruptions } from '../lib/api'
 import { usePolling } from './usePolling'
@@ -14,6 +15,7 @@ export interface UseUserRouteDisruptionsOptions {
 export interface UseUserRouteDisruptionsReturn {
   disruptions: RouteDisruptionResponse[] | null
   loading: boolean
+  isRefreshing: boolean
   error: ApiError | null
   refresh: () => Promise<void>
 }
@@ -48,6 +50,9 @@ export function useUserRouteDisruptions(
 ): UseUserRouteDisruptionsReturn {
   const { pollInterval = DEFAULT_POLL_INTERVAL, enabled = true, activeOnly = true } = options
 
+  // Memoize fetchFn to prevent unnecessary re-registrations
+  const fetchFn = useCallback(() => apiGetRouteDisruptions(activeOnly), [activeOnly])
+
   const {
     data: disruptions,
     loading,
@@ -56,18 +61,19 @@ export function useUserRouteDisruptions(
     refresh,
   } = usePolling<RouteDisruptionResponse[]>({
     key: 'user-route-disruptions',
-    fetchFn: () => apiGetRouteDisruptions(activeOnly),
+    fetchFn,
     interval: pollInterval,
     enabled,
     requiresAuth: true,
     pauseWhenBackendDown: true,
   })
 
-  // Return loading OR isRefreshing as loading for backwards compatibility
-  // This ensures UI shows loading state during both initial and background refreshes
+  // Expose both loading (initial) and isRefreshing (background) states separately
+  // This allows consumers to handle UI differently for initial load vs background refresh
   return {
     disruptions,
-    loading: loading || isRefreshing,
+    loading,
+    isRefreshing,
     error: error as ApiError | null,
     refresh,
   }
