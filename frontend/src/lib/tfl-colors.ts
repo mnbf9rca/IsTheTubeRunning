@@ -19,6 +19,19 @@ import type { LineResponse } from '@/types'
 const LIGHT_LINES = ['circle', 'hammersmith-city', 'waterloo-city']
 
 /**
+ * Branded London Overground lines (rebranded 2024) that use striped pattern
+ * These specific lines use the colour-white-colour striped pattern
+ */
+export const OVERGROUND_STRIPED_LINES = [
+  'liberty',
+  'lioness',
+  'mildmay',
+  'suffragette',
+  'weaver',
+  'windrush',
+] as const
+
+/**
  * TfL Corporate Blue color
  */
 export const CORPORATE_BLUE = '#0019A8'

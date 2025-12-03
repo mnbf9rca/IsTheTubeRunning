@@ -36,9 +36,14 @@ function cleanReason(reason: string | null | undefined, lineName: string): strin
     if (typeof pattern === 'string') {
       if (cleaned.startsWith(pattern)) {
         cleaned = cleaned.slice(pattern.length).trim()
+        break // Stop after first successful match
       }
     } else {
-      cleaned = cleaned.replace(pattern, '').trim()
+      const newCleaned = cleaned.replace(pattern, '').trim()
+      if (newCleaned !== cleaned) {
+        cleaned = newCleaned
+        break // Stop after first successful match
+      }
     }
   }
 
@@ -85,15 +90,8 @@ function groupStatusesByReason(
 export function DisruptionCard({ disruption, className = '' }: DisruptionCardProps) {
   const lineColor = getLineColor(disruption.line_id)
 
-  // Check if this is an Overground line (needs striped pattern)
-  const isOverground = [
-    'liberty',
-    'lioness',
-    'mildmay',
-    'suffragette',
-    'weaver',
-    'windrush',
-  ].includes(disruption.line_id)
+  // All London Overground lines use striped pattern (colour-white-colour)
+  const isOverground = disruption.mode === 'overground'
 
   // Group statuses by their reason text (after cleaning line name prefix)
   const groupedStatuses = groupStatusesByReason(disruption.statuses, disruption.line_name)
