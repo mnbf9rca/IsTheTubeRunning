@@ -734,7 +734,7 @@ export async function validateRoute(
  * @throws {ApiError} If the request fails
  */
 export async function getDisruptions(): Promise<DisruptionResponse[]> {
-  const response = await fetchAPI<DisruptionResponse[]>('/tfl/disruptions', { skipAuth: true })
+  const response = await fetchAPI<DisruptionResponse[]>('/tfl/disruptions')
   if (!response) {
     throw new ApiError(204, 'Unexpected 204 response from disruptions endpoint')
   }
@@ -776,9 +776,7 @@ export async function getRouteDisruptions(
  * @throws {ApiError} If the request fails
  */
 export async function getStationDisruptions(): Promise<StationDisruptionResponse[]> {
-  const response = await fetchAPI<StationDisruptionResponse[]>('/tfl/station-disruptions', {
-    skipAuth: true,
-  })
+  const response = await fetchAPI<StationDisruptionResponse[]>('/tfl/station-disruptions')
   if (!response) {
     throw new ApiError(204, 'Unexpected 204 response from station disruptions endpoint')
   }
