@@ -103,6 +103,7 @@
       "Bash(npx dotenv-vault@latest keys:*)",
       "Bash(git commit --amend:*)",
       "Read(.claude/settings.json)"
-    ]
+    ],
+    "defaultMode": "plan"
   }
 }

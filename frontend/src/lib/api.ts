@@ -50,9 +50,9 @@ import type {
   UserDetailResponse,
   AnonymiseUserResponse,
   EngagementMetrics,
-  DisruptionResponse,
   RouteDisruptionResponse,
   StationDisruptionResponse,
+  GroupedLineDisruptionResponse,
 } from '@/types'
 
 /**
@@ -735,16 +735,17 @@ export async function validateRoute(
 }
 
 /**
- * Get all TfL line disruptions
+ * Get all TfL line disruptions (grouped by line)
  *
  * Returns current disruptions affecting tube, DLR, Overground, and Elizabeth line.
+ * Data is grouped by line, with all statuses for each line combined and sorted by severity.
  * Data is cached on backend based on TfL API cache headers.
  *
- * @returns Array of line disruptions
+ * @returns Array of grouped line disruptions (one entry per line with multiple statuses)
  * @throws {ApiError} If the request fails
  */
-export async function getDisruptions(): Promise<DisruptionResponse[]> {
-  const response = await fetchAPI<DisruptionResponse[]>('/tfl/disruptions')
+export async function getDisruptions(): Promise<GroupedLineDisruptionResponse[]> {
+  const response = await fetchAPI<GroupedLineDisruptionResponse[]>('/tfl/disruptions')
   if (!response) {
     throw new ApiError(204, 'Unexpected 204 response from disruptions endpoint')
   }

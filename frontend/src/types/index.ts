@@ -102,3 +102,5 @@ export type RouteDisruptionResponse = components['schemas']['RouteDisruptionResp
 export type StationDisruptionResponse = components['schemas']['StationDisruptionResponse']
 export type AffectedRouteInfo = components['schemas']['AffectedRouteInfo']
 export type DisruptionCategoryResponse = components['schemas']['DisruptionCategoryResponse']
+export type GroupedLineDisruptionResponse = components['schemas']['GroupedLineDisruptionResponse']
+export type LineStatusInfo = components['schemas']['LineStatusInfo']

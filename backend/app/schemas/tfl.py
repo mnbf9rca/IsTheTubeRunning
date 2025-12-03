@@ -84,6 +84,33 @@ class DisruptionResponse(BaseModel):
     affected_routes: list[AffectedRouteInfo] | None = None  # Affected route segments with station sequences
 
 
+class LineStatusInfo(BaseModel):
+    """Individual status for a line (used in grouped API response).
+
+    Represents a single status that may be combined with others for the same line.
+    """
+
+    status_severity: int  # 0-20 (0=special service, 10=good service, 20=closed)
+    status_severity_description: str  # e.g., "Good Service", "Severe Delays"
+    reason: str | None = None  # Description of disruption
+    created_at: datetime | None = None  # When disruption started (if available)
+    affected_routes: list[AffectedRouteInfo] | None = None  # Affected route segments with station sequences
+
+
+class GroupedLineDisruptionResponse(BaseModel):
+    """API response for TfL line disruption data (grouped by line).
+
+    Used by /tfl/disruptions endpoint for frontend display.
+    Groups all statuses for a single line together, with statuses sorted by severity.
+    Internal services continue to use DisruptionResponse for per-status granularity.
+    """
+
+    line_id: str  # TfL line ID
+    line_name: str
+    mode: str  # Transport mode (tube, dlr, overground, etc.)
+    statuses: list[LineStatusInfo]  # All statuses for this line, sorted by severity (lower = more severe)
+
+
 class StationDisruptionResponse(BaseModel):
     """Response schema for station disruption data.
 

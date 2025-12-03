@@ -2,7 +2,7 @@ import { renderHook, waitFor, act } from '@testing-library/react'
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { useDisruptions } from './useDisruptions'
 import { ApiError } from '../lib/api'
-import type { DisruptionResponse } from '@/types'
+import type { GroupedLineDisruptionResponse } from '@/types'
 import type { ReactNode } from 'react'
 import { PollingProvider } from '@/contexts/PollingContext'
 
@@ -28,20 +28,24 @@ describe('useDisruptions', () => {
   const mockUseBackendAvailability = vi.mocked(BackendAvailabilityHook.useBackendAvailability)
   const mockUseBackendAuth = vi.mocked(BackendAuthHook.useBackendAuth)
 
-  const mockDisruptionsResponse: DisruptionResponse[] = [
+  const mockDisruptionsResponse: GroupedLineDisruptionResponse[] = [
     {
       line_id: 'piccadilly',
       line_name: 'Piccadilly',
       mode: 'tube',
-      status_severity: 6,
-      status_severity_description: 'Minor Delays',
-      reason: 'Signal failure',
-      created_at: '2025-01-01T10:00:00Z',
-      affected_routes: [
+      statuses: [
         {
-          name: 'Piccadilly Line',
-          direction: 'inbound',
-          affected_stations: ['Heathrow Airport', 'Cockfosters'],
+          status_severity: 6,
+          status_severity_description: 'Minor Delays',
+          reason: 'Signal failure',
+          created_at: '2025-01-01T10:00:00Z',
+          affected_routes: [
+            {
+              name: 'Piccadilly Line',
+              direction: 'inbound',
+              affected_stations: ['Heathrow Airport', 'Cockfosters'],
+            },
+          ],
         },
       ],
     },
@@ -49,25 +53,33 @@ describe('useDisruptions', () => {
       line_id: 'northern',
       line_name: 'Northern',
       mode: 'tube',
-      status_severity: 10,
-      status_severity_description: 'Good Service',
-      reason: null,
-      created_at: null,
-      affected_routes: null,
+      statuses: [
+        {
+          status_severity: 10,
+          status_severity_description: 'Good Service',
+          reason: null,
+          created_at: null,
+          affected_routes: null,
+        },
+      ],
     },
     {
       line_id: 'victoria',
       line_name: 'Victoria',
       mode: 'tube',
-      status_severity: 20,
-      status_severity_description: 'Severe Delays',
-      reason: 'Signalling problem',
-      created_at: '2025-01-01T09:00:00Z',
-      affected_routes: [
+      statuses: [
         {
-          name: 'Victoria Line',
-          direction: 'southbound',
-          affected_stations: ['Walthamstow Central', 'Brixton'],
+          status_severity: 20,
+          status_severity_description: 'Severe Delays',
+          reason: 'Signalling problem',
+          created_at: '2025-01-01T09:00:00Z',
+          affected_routes: [
+            {
+              name: 'Victoria Line',
+              direction: 'southbound',
+              affected_stations: ['Walthamstow Central', 'Brixton'],
+            },
+          ],
         },
       ],
     },
