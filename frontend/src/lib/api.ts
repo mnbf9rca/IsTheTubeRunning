@@ -1,5 +1,15 @@
 /**
  * API client for backend communication
+ *
+ * ⚠️  IMPORTANT: Do NOT import types from this module!
+ * All types should be imported from '@/types' instead.
+ *
+ * Although TypeScript allows importing types from this module (because they
+ * appear in function signatures), the convention is to import from @/types
+ * for consistency and to maintain a single source of truth for type definitions.
+ *
+ * ❌ BAD:  import type { DisruptionResponse } from '@/lib/api'
+ * ✅ GOOD: import type { DisruptionResponse } from '@/types'
  */
 
 import type {
@@ -40,6 +50,9 @@ import type {
   UserDetailResponse,
   AnonymiseUserResponse,
   EngagementMetrics,
+  DisruptionResponse,
+  RouteDisruptionResponse,
+  StationDisruptionResponse,
 } from '@/types'
 
 /**
@@ -717,6 +730,65 @@ export async function validateRoute(
   })
   if (!response) {
     throw new ApiError(204, 'Unexpected 204 response from validate-route endpoint')
+  }
+  return response
+}
+
+/**
+ * Get all TfL line disruptions
+ *
+ * Returns current disruptions affecting tube, DLR, Overground, and Elizabeth line.
+ * Data is cached on backend based on TfL API cache headers.
+ *
+ * @returns Array of line disruptions
+ * @throws {ApiError} If the request fails
+ */
+export async function getDisruptions(): Promise<DisruptionResponse[]> {
+  const response = await fetchAPI<DisruptionResponse[]>('/tfl/disruptions')
+  if (!response) {
+    throw new ApiError(204, 'Unexpected 204 response from disruptions endpoint')
+  }
+  return response
+}
+
+/**
+ * Get disruptions affecting the authenticated user's routes
+ *
+ * Returns only disruptions that affect the user's configured routes,
+ * with route-specific context (affected segments and stations).
+ *
+ * @param activeOnly Filter to only active routes (default: true)
+ * @returns Array of route-specific disruptions
+ * @throws {ApiError} 503 if TfL API unavailable, 401 if not authenticated
+ */
+export async function getRouteDisruptions(
+  activeOnly: boolean = true
+): Promise<RouteDisruptionResponse[]> {
+  const params = new URLSearchParams()
+  params.append('active_only', activeOnly.toString())
+
+  const response = await fetchAPI<RouteDisruptionResponse[]>(
+    `/routes/disruptions?${params.toString()}`
+  )
+  if (!response) {
+    throw new ApiError(204, 'Unexpected 204 response from route disruptions endpoint')
+  }
+  return response
+}
+
+/**
+ * Get all TfL station-level disruptions
+ *
+ * Returns current station-specific disruptions (closures, lift outages, etc.)
+ * as opposed to line-wide disruptions.
+ *
+ * @returns Array of station disruptions
+ * @throws {ApiError} If the request fails
+ */
+export async function getStationDisruptions(): Promise<StationDisruptionResponse[]> {
+  const response = await fetchAPI<StationDisruptionResponse[]>('/tfl/station-disruptions')
+  if (!response) {
+    throw new ApiError(204, 'Unexpected 204 response from station disruptions endpoint')
   }
   return response
 }
