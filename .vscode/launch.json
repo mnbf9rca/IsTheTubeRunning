@@ -141,6 +141,19 @@
         "group": "development",
         "order": 2
       }
+    },
+        {
+      "name": "JUST Background Tasks",
+      "configurations": [
+        "Backend: Celery Worker",
+        "Backend: Celery Beat"
+      ],
+      "stopAll": true,
+      "presentation": {
+        "hidden": false,
+        "group": "development",
+        "order": 2
+      }
     }
   ]
 }
