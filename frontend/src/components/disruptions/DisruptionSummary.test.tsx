@@ -19,9 +19,7 @@ describe('DisruptionSummary', () => {
     it('should show good service message when no disruptions', () => {
       render(<DisruptionSummary disruptions={[]} />)
 
-      expect(
-        screen.getByText('Good service on all tube, DLR, Overground and Elizabeth line routes')
-      ).toBeInTheDocument()
+      expect(screen.getByText('Good service on all lines')).toBeInTheDocument()
     })
 
     it('should have role="status" for accessibility', () => {
@@ -38,11 +36,7 @@ describe('DisruptionSummary', () => {
 
       render(<DisruptionSummary disruptions={disruptions} />)
 
-      expect(
-        screen.getByText(
-          'Good service on all other tube, DLR, Overground and Elizabeth line routes'
-        )
-      ).toBeInTheDocument()
+      expect(screen.getByText('Good service on all other lines')).toBeInTheDocument()
     })
 
     it('should show message with multiple disruptions on different modes', () => {
@@ -50,54 +44,7 @@ describe('DisruptionSummary', () => {
 
       render(<DisruptionSummary disruptions={disruptions} />)
 
-      expect(
-        screen.getByText(
-          'Good service on all other tube, DLR, Overground and Elizabeth line routes'
-        )
-      ).toBeInTheDocument()
-    })
-  })
-
-  describe('with major incidents', () => {
-    it('should not show summary when all modes disrupted with many lines', () => {
-      const disruptions = [
-        createDisruption('piccadilly', 'tube'),
-        createDisruption('northern', 'tube'),
-        createDisruption('victoria', 'tube'),
-        createDisruption('central', 'tube'),
-        createDisruption('bakerloo', 'tube'),
-        createDisruption('dlr', 'dlr'),
-        createDisruption('elizabeth', 'elizabeth-line'),
-        createDisruption('overground1', 'overground'),
-        createDisruption('overground2', 'overground'),
-        createDisruption('overground3', 'overground'),
-        createDisruption('metropolitan', 'tube'),
-        createDisruption('circle', 'tube'),
-      ]
-
-      const { container } = render(<DisruptionSummary disruptions={disruptions} />)
-
-      // Should render nothing (null)
-      expect(container.firstChild).toBeNull()
-    })
-
-    it('should show summary if not all modes disrupted even with many lines', () => {
-      const disruptions = [
-        createDisruption('piccadilly', 'tube'),
-        createDisruption('northern', 'tube'),
-        createDisruption('victoria', 'tube'),
-        createDisruption('central', 'tube'),
-        createDisruption('bakerloo', 'tube'),
-        // Missing: dlr, elizabeth-line, overground
-      ]
-
-      render(<DisruptionSummary disruptions={disruptions} />)
-
-      expect(
-        screen.getByText(
-          'Good service on all other tube, DLR, Overground and Elizabeth line routes'
-        )
-      ).toBeInTheDocument()
+      expect(screen.getByText('Good service on all other lines')).toBeInTheDocument()
     })
   })
 

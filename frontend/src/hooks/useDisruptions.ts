@@ -61,7 +61,6 @@ export function useDisruptions(options: UseDisruptionsOptions = {}): UseDisrupti
       setDisruptions(filteredData)
     } catch (err) {
       setError(err as ApiError)
-      throw err
     } finally {
       setLoading(false)
     }

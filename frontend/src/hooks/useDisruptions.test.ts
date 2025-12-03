@@ -180,9 +180,9 @@ describe('useDisruptions', () => {
       const mockError = new ApiError(503, 'Service Unavailable')
       vi.mocked(api.getDisruptions).mockRejectedValueOnce(mockError)
 
-      // Refresh should throw
+      // Refresh sets error state without throwing
       await act(async () => {
-        await expect(result.current.refresh()).rejects.toThrow()
+        await result.current.refresh()
       })
 
       expect(result.current.error).toEqual(mockError)

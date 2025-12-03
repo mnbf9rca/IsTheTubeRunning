@@ -61,7 +61,6 @@ export function useUserRouteDisruptions(
       setDisruptions(data)
     } catch (err) {
       setError(err as ApiError)
-      throw err
     } finally {
       setLoading(false)
     }

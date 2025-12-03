@@ -9,60 +9,32 @@ export interface DisruptionSummaryProps {
 }
 
 /**
- * Get the list of modes represented in disruptions
- */
-function getDisruptedModes(disruptions: DisruptionResponse[]): Set<string> {
-  return new Set(disruptions.map((d) => d.mode))
-}
-
-/**
  * Generate "Good service" summary message
  *
- * Shows "Good service on all other tube, DLR and Elizabeth line routes"
- * when not all lines are disrupted.
+ * Shows "Good service on all lines" when there are no disruptions,
+ * or "Good service on all other lines" when there are some disruptions.
  */
 function generateSummaryMessage(disruptions: DisruptionResponse[]): string | null {
   if (disruptions.length === 0) {
-    return 'Good service on all tube, DLR, Overground and Elizabeth line routes'
+    return 'Good service on all lines'
   }
-
-  const disruptedModes = getDisruptedModes(disruptions)
-
-  // If all major modes are disrupted, don't show summary
-  // (this would be rare, but possible during major incidents)
-  const hasAllModes =
-    disruptedModes.has('tube') &&
-    disruptedModes.has('dlr') &&
-    disruptedModes.has('elizabeth-line') &&
-    disruptedModes.has('overground')
-
-  if (hasAllModes && disruptions.length > 10) {
-    // If most lines are disrupted, don't show summary
-    return null
-  }
-
-  // Show good service message for unaffected lines
-  return 'Good service on all other tube, DLR, Overground and Elizabeth line routes'
+  return 'Good service on all other lines'
 }
 
 /**
  * DisruptionSummary component
  *
- * Displays "Good service" summary message when not all lines are disrupted.
+ * Displays "Good service" summary message.
  * This provides context about the overall network status.
  *
  * @example
  * // With some disruptions
  * <DisruptionSummary disruptions={disruptions} />
- * // Output: "Good service on all other tube, DLR and Elizabeth line routes"
+ * // Output: "Good service on all other lines"
  *
  * // With no disruptions
  * <DisruptionSummary disruptions={[]} />
- * // Output: "Good service on all tube, DLR and Elizabeth line routes"
- *
- * // With major incident (all modes disrupted)
- * <DisruptionSummary disruptions={manyDisruptions} />
- * // Output: null (no summary shown)
+ * // Output: "Good service on all lines"
  */
 export function DisruptionSummary({ disruptions, className }: DisruptionSummaryProps) {
   const message = generateSummaryMessage(disruptions)
