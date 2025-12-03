@@ -35,18 +35,6 @@ export function PollingProvider({ children }: { children: ReactNode }) {
   const prevIsAvailable = useRef(isAvailable)
   const prevIsAuthenticated = useRef(isBackendAuthenticated)
 
-  // Initial state: pause polls if backend is already down or user is already logged out
-  // This prevents polls from starting when registered in an unavailable/unauthenticated state
-  useEffect(() => {
-    if (!isAvailable) {
-      coordinator.pauseHealthAwarePolls()
-    }
-    if (!isBackendAuthenticated) {
-      coordinator.pauseAuthenticatedPolls()
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []) // Run once on mount
-
   // Handle backend availability changes
   useEffect(() => {
     const wasAvailable = prevIsAvailable.current
@@ -88,9 +76,20 @@ export function PollingProvider({ children }: { children: ReactNode }) {
 
   const registerPoll = useCallback(
     (options: PollingOptions) => {
-      return coordinator.register(options)
+      const cleanup = coordinator.register(options)
+
+      // Immediately pause polls if registered while backend is down or user is logged out
+      // This ensures polls respect current state at registration time
+      if (!isAvailable && options.pauseWhenBackendDown !== false) {
+        coordinator.pause(options.key)
+      }
+      if (!isBackendAuthenticated && options.requiresAuth) {
+        coordinator.pause(options.key)
+      }
+
+      return cleanup
     },
-    [coordinator]
+    [coordinator, isAvailable, isBackendAuthenticated]
   )
 
   const contextValue = useMemo(() => ({ coordinator, registerPoll }), [coordinator, registerPoll])

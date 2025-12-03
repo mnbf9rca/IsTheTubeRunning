@@ -130,17 +130,14 @@ export function usePolling<T>(options: UsePollingOptions<T>): UsePollingReturn<T
       return
     }
 
-    // Register poll with coordinator
-    const cleanup = registerPoll({
+    // Register poll with coordinator and return cleanup function
+    return registerPoll({
       key,
       callback: fetchData,
       interval,
       requiresAuth,
       pauseWhenBackendDown,
     })
-
-    // Cleanup on unmount or when deps change
-    return cleanup
   }, [key, fetchData, interval, enabled, requiresAuth, pauseWhenBackendDown, registerPoll])
 
   return {
