@@ -12,7 +12,7 @@ const createDisruption = (overrides: Partial<DisruptionResponse> = {}): Disrupti
   line_id: 'piccadilly',
   line_name: 'Piccadilly',
   mode: 'tube',
-  status_severity: 10,
+  status_severity: 6,
   status_severity_description: 'Minor Delays',
   reason: "Signal failure at King's Cross",
   created_at: '2025-01-01T10:00:00Z',

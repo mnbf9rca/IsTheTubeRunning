@@ -143,7 +143,7 @@ export function NetworkDisruptionsList({ className = '' }: NetworkDisruptionsLis
       <div className="space-y-3" role="list">
         {disruptions.map((disruption) => (
           <DisruptionCard
-            key={`${disruption.line_id}-${disruption.status_severity}`}
+            key={`${disruption.line_id}-${disruption.status_severity}-${disruption.created_at ?? ''}`}
             disruption={disruption}
           />
         ))}
