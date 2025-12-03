@@ -3,6 +3,8 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { useUserRouteDisruptions } from './useUserRouteDisruptions'
 import { ApiError } from '../lib/api'
 import type { RouteDisruptionResponse } from '@/types'
+import type { ReactNode } from 'react'
+import { PollingProvider } from '@/contexts/PollingContext'
 
 // Mock the API module
 vi.mock('../lib/api', async () => {
@@ -13,10 +15,19 @@ vi.mock('../lib/api', async () => {
   }
 })
 
+// Mock the backend hooks
+vi.mock('@/hooks/useBackendAvailability')
+vi.mock('@/hooks/useBackendAuth')
+
 // Import mocked functions
 import * as api from '../lib/api'
+import * as BackendAvailabilityHook from '@/hooks/useBackendAvailability'
+import * as BackendAuthHook from '@/hooks/useBackendAuth'
 
 describe('useUserRouteDisruptions', () => {
+  const mockUseBackendAvailability = vi.mocked(BackendAvailabilityHook.useBackendAvailability)
+  const mockUseBackendAuth = vi.mocked(BackendAuthHook.useBackendAuth)
+
   const mockRouteDisruptionsResponse: RouteDisruptionResponse[] = [
     {
       route_id: 'route-1',
@@ -64,10 +75,28 @@ describe('useUserRouteDisruptions', () => {
     },
   ]
 
+  const wrapper = ({ children }: { children: ReactNode }) => (
+    <PollingProvider>{children}</PollingProvider>
+  )
+
   beforeEach(() => {
     vi.clearAllMocks()
+
     // Default mock implementation
     vi.mocked(api.getRouteDisruptions).mockResolvedValue(mockRouteDisruptionsResponse)
+
+    // Mock backend hooks
+    mockUseBackendAvailability.mockReturnValue({
+      isAvailable: true,
+      isChecking: false,
+      lastChecked: new Date(),
+      checkAvailability: vi.fn(),
+    })
+
+    mockUseBackendAuth.mockReturnValue({
+      isBackendAuthenticated: true,
+      loading: false,
+    })
   })
 
   afterEach(() => {
@@ -76,7 +105,7 @@ describe('useUserRouteDisruptions', () => {
 
   describe('initialization', () => {
     it('should fetch route disruptions on mount', async () => {
-      const { result, unmount } = renderHook(() => useUserRouteDisruptions())
+      const { result, unmount } = renderHook(() => useUserRouteDisruptions(), { wrapper })
 
       // Initially loading
       expect(result.current.loading).toBe(true)
@@ -99,7 +128,7 @@ describe('useUserRouteDisruptions', () => {
       const mockError = new ApiError(500, 'Internal Server Error')
       vi.mocked(api.getRouteDisruptions).mockRejectedValue(mockError)
 
-      const { result, unmount } = renderHook(() => useUserRouteDisruptions())
+      const { result, unmount } = renderHook(() => useUserRouteDisruptions(), { wrapper })
 
       await waitFor(() => {
         expect(result.current.loading).toBe(false)
@@ -115,7 +144,7 @@ describe('useUserRouteDisruptions', () => {
       const mockError = new ApiError(503, 'Service Unavailable')
       vi.mocked(api.getRouteDisruptions).mockRejectedValue(mockError)
 
-      const { result, unmount } = renderHook(() => useUserRouteDisruptions())
+      const { result, unmount } = renderHook(() => useUserRouteDisruptions(), { wrapper })
 
       await waitFor(() => {
         expect(result.current.loading).toBe(false)
@@ -129,7 +158,7 @@ describe('useUserRouteDisruptions', () => {
     it('should handle empty response', async () => {
       vi.mocked(api.getRouteDisruptions).mockResolvedValue([])
 
-      const { result, unmount } = renderHook(() => useUserRouteDisruptions())
+      const { result, unmount } = renderHook(() => useUserRouteDisruptions(), { wrapper })
 
       await waitFor(() => {
         expect(result.current.loading).toBe(false)
@@ -141,8 +170,11 @@ describe('useUserRouteDisruptions', () => {
       unmount()
     })
 
-    it('should not fetch when disabled', () => {
-      const { unmount } = renderHook(() => useUserRouteDisruptions({ enabled: false }))
+    it('should not fetch when disabled', async () => {
+      const { unmount } = renderHook(() => useUserRouteDisruptions({ enabled: false }), { wrapper })
+
+      // Wait a bit to ensure no fetch happens
+      await new Promise((resolve) => setTimeout(resolve, 50))
 
       expect(api.getRouteDisruptions).not.toHaveBeenCalled()
 
@@ -152,7 +184,9 @@ describe('useUserRouteDisruptions', () => {
 
   describe('activeOnly parameter', () => {
     it('should pass activeOnly=false when specified', async () => {
-      const { result, unmount } = renderHook(() => useUserRouteDisruptions({ activeOnly: false }))
+      const { result, unmount } = renderHook(() => useUserRouteDisruptions({ activeOnly: false }), {
+        wrapper,
+      })
 
       await waitFor(() => {
         expect(result.current.loading).toBe(false)
@@ -164,7 +198,7 @@ describe('useUserRouteDisruptions', () => {
     })
 
     it('should default to activeOnly=true', async () => {
-      const { result, unmount } = renderHook(() => useUserRouteDisruptions())
+      const { result, unmount } = renderHook(() => useUserRouteDisruptions(), { wrapper })
 
       await waitFor(() => {
         expect(result.current.loading).toBe(false)
@@ -178,7 +212,7 @@ describe('useUserRouteDisruptions', () => {
 
   describe('refresh', () => {
     it('should manually refresh disruptions', async () => {
-      const { result, unmount } = renderHook(() => useUserRouteDisruptions())
+      const { result, unmount } = renderHook(() => useUserRouteDisruptions(), { wrapper })
 
       // Wait for initial fetch
       await waitFor(() => {
@@ -198,7 +232,7 @@ describe('useUserRouteDisruptions', () => {
     })
 
     it('should handle refresh error', async () => {
-      const { result, unmount } = renderHook(() => useUserRouteDisruptions())
+      const { result, unmount } = renderHook(() => useUserRouteDisruptions(), { wrapper })
 
       await waitFor(() => {
         expect(result.current.loading).toBe(false)
