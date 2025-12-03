@@ -135,7 +135,7 @@ describe('PollingContext', () => {
       expect(screen.getByText('Child 2: Yes')).toBeInTheDocument()
     })
 
-    it('should cleanup coordinator on unmount', () => {
+    it('should not dispose coordinator on unmount (React StrictMode compatibility)', () => {
       let capturedCoordinator: PollingCoordinator | null = null
 
       function TestComponent() {
@@ -152,16 +152,19 @@ describe('PollingContext', () => {
 
       // Register a poll
       const spy = vi.fn()
-      capturedCoordinator!.register({
+      const cleanup = capturedCoordinator!.register({
         key: 'test',
         callback: spy,
         interval: 10000,
       })
 
-      // Unmount
+      // Unmount - coordinator should NOT be disposed (StrictMode compatibility)
       unmount()
 
-      // Advance time - callback should not be called
+      // Cleanup function should still work even after unmount
+      cleanup()
+
+      // Advance time - callback should not be called (because we cleaned up)
       vi.advanceTimersByTime(10000)
       expect(spy).not.toHaveBeenCalled()
     })

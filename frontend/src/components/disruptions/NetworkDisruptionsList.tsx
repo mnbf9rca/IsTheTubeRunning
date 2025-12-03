@@ -141,9 +141,9 @@ export function NetworkDisruptionsList({ className = '' }: NetworkDisruptionsLis
 
       {/* Disruption cards */}
       <div className="space-y-3" role="list">
-        {disruptions.map((disruption) => (
+        {disruptions.map((disruption, index) => (
           <DisruptionCard
-            key={`${disruption.line_id}-${disruption.status_severity}-${disruption.created_at ?? ''}`}
+            key={`${disruption.line_id}-${disruption.status_severity}-${disruption.created_at ?? ''}-${index}`}
             disruption={disruption}
           />
         ))}

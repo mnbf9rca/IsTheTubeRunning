@@ -68,9 +68,13 @@ export function PollingProvider({ children }: { children: ReactNode }) {
   }, [isBackendAuthenticated, coordinator])
 
   // Cleanup on unmount
+  // Note: We don't dispose the coordinator here because in React StrictMode (development),
+  // components mount → unmount → remount. Disposing on the first unmount would break
+  // polling when the component remounts. The coordinator will be garbage collected
+  // when the component is truly unmounted (not during StrictMode's intentional unmounts).
   useEffect(() => {
     return () => {
-      coordinator.dispose()
+      // coordinator.dispose() - intentionally not disposing (see note above)
     }
   }, [coordinator])
 
