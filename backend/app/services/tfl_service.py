@@ -828,7 +828,9 @@ class TfLService:
 
                 # Batch fetch existing lines for this mode (optimize N+1 queries)
                 line_tfl_ids = [line_data.id for line_data in line_data_list if line_data.id is not None]
-                existing_result = await self.db.execute(select(Line).where(Line.tfl_id.in_(line_tfl_ids)))
+                existing_result = await self.db.execute(
+                    select(Line).where(Line.tfl_id.in_(line_tfl_ids)).execution_options(populate_existing=True)
+                )
                 existing_lines = {line.tfl_id: line for line in existing_result.scalars().all()}
 
                 now = datetime.now(UTC)
