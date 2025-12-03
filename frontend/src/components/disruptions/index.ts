@@ -7,3 +7,7 @@ export type { DisruptionBadgeProps } from './DisruptionBadge'
 
 export { DisruptionSummary } from './DisruptionSummary'
 export type { DisruptionSummaryProps } from './DisruptionSummary'
+
+export { DisruptionCard } from './DisruptionCard'
+
+export { NetworkDisruptionsList } from './NetworkDisruptionsList'

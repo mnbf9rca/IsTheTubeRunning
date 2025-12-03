@@ -3,6 +3,11 @@ import { BrowserRouter } from 'react-router-dom'
 import { describe, it, expect, vi } from 'vitest'
 import Dashboard from './Dashboard'
 import type { User } from '@auth0/auth0-react'
+import { PollingProvider } from '@/contexts/PollingContext'
+import { BackendAvailabilityProvider } from '@/contexts/BackendAvailabilityContext'
+import { BackendAuthProvider } from '@/contexts/BackendAuthContext'
+import { ConfigProvider } from '@/contexts/ConfigContext'
+import type { AppConfig } from '@/lib/config'
 
 // Mock useAuth hook
 vi.mock('@/hooks/useAuth', () => ({
@@ -14,13 +19,50 @@ vi.mock('@/hooks/useRoutes', () => ({
   useRoutes: vi.fn(),
 }))
 
+// Mock useDisruptions hook
+vi.mock('@/hooks/useDisruptions', () => ({
+  useDisruptions: vi.fn(),
+}))
+
 import { useAuth } from '@/hooks/useAuth'
 import { useRoutes } from '@/hooks/useRoutes'
+import { useDisruptions } from '@/hooks/useDisruptions'
 
 const mockUseAuth = useAuth as ReturnType<typeof vi.fn>
 const mockUseRoutes = useRoutes as ReturnType<typeof vi.fn>
+const mockUseDisruptions = useDisruptions as ReturnType<typeof vi.fn>
+
+// Mock AppConfig for tests
+const mockConfig: AppConfig = {
+  api: {
+    baseUrl: 'http://localhost:8000/api/v1',
+  },
+  auth0: {
+    domain: 'test.auth0.com',
+    clientId: 'test-client-id',
+    audience: 'test-audience',
+    callbackUrl: 'http://localhost:5173/callback',
+  },
+}
 
 describe('Dashboard', () => {
+  // Helper to render Dashboard with all required providers
+  const renderDashboard = () => {
+    return render(
+      <ConfigProvider config={mockConfig}>
+        <BackendAvailabilityProvider>
+          <BrowserRouter>
+            <BackendAuthProvider>
+              <PollingProvider>
+                <Dashboard />
+              </PollingProvider>
+            </BackendAuthProvider>
+          </BrowserRouter>
+        </BackendAvailabilityProvider>
+      </ConfigProvider>
+    )
+  }
+
   beforeEach(() => {
     vi.clearAllMocks()
     // Default mock for useRoutes
@@ -34,6 +76,14 @@ describe('Dashboard', () => {
       getRoute: vi.fn(),
       refresh: vi.fn(),
     })
+    // Default mock for useDisruptions
+    mockUseDisruptions.mockReturnValue({
+      disruptions: [],
+      loading: false,
+      isRefreshing: false,
+      error: null,
+      refresh: vi.fn(),
+    })
   })
 
   it('should render welcome message with user first name', () => {
@@ -44,11 +94,7 @@ describe('Dashboard', () => {
       } as User,
     })
 
-    render(
-      <BrowserRouter>
-        <Dashboard />
-      </BrowserRouter>
-    )
+    renderDashboard()
 
     expect(screen.getByText(/Welcome back, John!/i)).toBeInTheDocument()
   })
@@ -60,11 +106,7 @@ describe('Dashboard', () => {
       } as User,
     })
 
-    render(
-      <BrowserRouter>
-        <Dashboard />
-      </BrowserRouter>
-    )
+    renderDashboard()
 
     expect(screen.getByText('Welcome back!')).toBeInTheDocument()
   })
@@ -74,11 +116,7 @@ describe('Dashboard', () => {
       user: null,
     })
 
-    render(
-      <BrowserRouter>
-        <Dashboard />
-      </BrowserRouter>
-    )
+    renderDashboard()
 
     expect(screen.getByText('Welcome back!')).toBeInTheDocument()
   })
@@ -91,11 +129,7 @@ describe('Dashboard', () => {
       } as User,
     })
 
-    render(
-      <BrowserRouter>
-        <Dashboard />
-      </BrowserRouter>
-    )
+    renderDashboard()
 
     // Routes card
     expect(screen.getByText('Routes')).toBeInTheDocument()
@@ -118,11 +152,7 @@ describe('Dashboard', () => {
       } as User,
     })
 
-    render(
-      <BrowserRouter>
-        <Dashboard />
-      </BrowserRouter>
-    )
+    renderDashboard()
 
     // Getting Started card
     expect(screen.getByText('Getting Started')).toBeInTheDocument()
@@ -155,11 +185,7 @@ describe('Dashboard', () => {
       } as User,
     })
 
-    render(
-      <BrowserRouter>
-        <Dashboard />
-      </BrowserRouter>
-    )
+    renderDashboard()
 
     expect(
       screen.getByText('Manage your routes and stay informed about tube disruptions')
@@ -174,11 +200,7 @@ describe('Dashboard', () => {
       } as User,
     })
 
-    const { container } = render(
-      <BrowserRouter>
-        <Dashboard />
-      </BrowserRouter>
-    )
+    const { container } = renderDashboard()
 
     // Check that lucide icons are rendered (they use SVG)
     const icons = container.querySelectorAll('svg')
@@ -193,11 +215,7 @@ describe('Dashboard', () => {
       } as User,
     })
 
-    render(
-      <BrowserRouter>
-        <Dashboard />
-      </BrowserRouter>
-    )
+    renderDashboard()
 
     // Should only show first name "Mary"
     expect(screen.getByText(/Welcome back, Mary!/i)).toBeInTheDocument()
@@ -211,11 +229,7 @@ describe('Dashboard', () => {
       } as User,
     })
 
-    render(
-      <BrowserRouter>
-        <Dashboard />
-      </BrowserRouter>
-    )
+    renderDashboard()
 
     expect(screen.getByText(/Welcome back, Madonna!/i)).toBeInTheDocument()
   })
@@ -228,11 +242,7 @@ describe('Dashboard', () => {
       } as User,
     })
 
-    render(
-      <BrowserRouter>
-        <Dashboard />
-      </BrowserRouter>
-    )
+    renderDashboard()
 
     // Get all elements with text "0"
     const zeroElements = screen.getAllByText('0')

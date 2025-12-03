@@ -3,6 +3,7 @@ import { useAuth } from '@/hooks/useAuth'
 import { useRoutes } from '@/hooks/useRoutes'
 import { MapPin, Bell, Contact } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
+import { NetworkDisruptionsList } from '@/components/disruptions'
 
 export default function Dashboard() {
   const { user } = useAuth()
@@ -66,6 +67,9 @@ export default function Dashboard() {
           </CardContent>
         </Card>
       </div>
+
+      {/* TfL Network Disruptions */}
+      <NetworkDisruptionsList />
 
       <Card>
         <CardHeader>
