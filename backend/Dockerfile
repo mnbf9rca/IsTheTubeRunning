@@ -56,7 +56,15 @@ RUN groupadd -r -g 1000 appuser && \
 # Copy the virtual environment from the builder
 COPY --from=builder --chown=appuser:appuser /app/.venv /app/.venv
 
-# Ensure .venv/bin scripts have execute permissions (skip symlinks to avoid dangling symlink errors)
+# Fix broken Python symlinks created by uv in builder stage
+# The builder stage symlinks point to /root/.local/share/uv/python which doesn't exist in runtime stage
+# Recreate symlinks to point to system Python
+RUN rm -f /app/.venv/bin/python /app/.venv/bin/python3 /app/.venv/bin/python3.14 && \
+    ln -s /usr/local/bin/python3.14 /app/.venv/bin/python3.14 && \
+    ln -s python3.14 /app/.venv/bin/python3 && \
+    ln -s python3 /app/.venv/bin/python
+
+# Ensure .venv/bin scripts have execute permissions (only files, not symlinks)
 RUN find /app/.venv/bin -type f -exec chmod +x {} \;
 
 # Copy application code
