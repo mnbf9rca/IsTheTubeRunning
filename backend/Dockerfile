@@ -56,6 +56,9 @@ RUN groupadd -r -g 1000 appuser && \
 # Copy the virtual environment from the builder
 COPY --from=builder --chown=appuser:appuser /app/.venv /app/.venv
 
+# Ensure .venv/bin scripts have execute permissions
+RUN chmod -R +x /app/.venv/bin/*
+
 # Copy application code
 COPY --chown=appuser:appuser . .
 
