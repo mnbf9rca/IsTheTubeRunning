@@ -2,7 +2,8 @@ import { Calendar, Pencil, Trash2, Route as RouteIcon } from 'lucide-react'
 import { Card, CardContent, CardHeader, CardTitle } from '../ui/card'
 import { Button } from '../ui/button'
 import { Badge } from '../ui/badge'
-import type { RouteListItemResponse } from '@/types'
+import type { RouteListItemResponse, RouteDisruptionResponse } from '@/types'
+import { RouteDisruptionStatus } from './RouteDisruptionStatus'
 
 export interface RouteCardProps {
   route: RouteListItemResponse
@@ -10,6 +11,8 @@ export interface RouteCardProps {
   onDelete: (id: string) => void
   onClick?: (id: string) => void
   isDeleting?: boolean
+  disruption?: RouteDisruptionResponse | null
+  disruptionsLoading?: boolean
 }
 
 /**
@@ -20,6 +23,8 @@ export interface RouteCardProps {
  * @param onDelete - Callback when delete button is clicked
  * @param onClick - Optional callback when card is clicked (for navigation)
  * @param isDeleting - Loading state for deletion
+ * @param disruption - Optional disruption data for this route
+ * @param disruptionsLoading - Whether disruption data is loading
  */
 export function RouteCard({
   route,
@@ -27,6 +32,8 @@ export function RouteCard({
   onDelete,
   onClick,
   isDeleting = false,
+  disruption,
+  disruptionsLoading = false,
 }: RouteCardProps) {
   const handleCardClick = () => {
     if (onClick) {
@@ -71,6 +78,13 @@ export function RouteCard({
       </CardHeader>
 
       <CardContent className="pt-0">
+        {/* Disruption status indicator */}
+        <RouteDisruptionStatus
+          disruption={disruption ?? null}
+          loading={disruptionsLoading}
+          className="mb-4"
+        />
+
         <div className="flex items-center gap-4 text-sm text-muted-foreground mb-4">
           <div className="flex items-center gap-1" title="Number of segments">
             <RouteIcon className="h-4 w-4" aria-hidden="true" />

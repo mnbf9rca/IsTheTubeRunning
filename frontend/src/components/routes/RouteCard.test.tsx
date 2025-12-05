@@ -1,8 +1,12 @@
 import { render, screen } from '@testing-library/react'
 import { userEvent } from '@testing-library/user-event'
-import { describe, it, expect, vi } from 'vitest'
+import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { RouteCard } from './RouteCard'
-import type { RouteListItemResponse } from '../../lib/api'
+import type {
+  RouteListItemResponse,
+  RouteDisruptionResponse,
+  DisruptionResponse,
+} from '../../lib/api'
 
 describe('RouteCard', () => {
   const mockRoute: RouteListItemResponse = {
@@ -116,5 +120,107 @@ describe('RouteCard', () => {
 
     expect(editButton).toBeDisabled()
     expect(deleteButton).toBeDisabled()
+  })
+
+  describe('disruption status', () => {
+    const createDisruption = (
+      overrides?: Partial<DisruptionResponse>
+    ): RouteDisruptionResponse => ({
+      route_id: 'route-1',
+      route_name: 'Home to Work',
+      disruption: {
+        line_id: 'victoria',
+        line_name: 'Victoria',
+        mode: 'tube',
+        status_severity: 6,
+        status_severity_description: 'Minor Delays',
+        reason: 'Signal failure at Kings Cross',
+        created_at: '2025-01-01T10:00:00Z',
+        affected_routes: null,
+        ...overrides,
+      },
+      affected_segments: [0, 1],
+      affected_stations: ['940GZZLUOXC'],
+    })
+
+    it('should render without disruption prop (backward compatible)', () => {
+      render(<RouteCard route={mockRoute} onEdit={mockOnEdit} onDelete={mockOnDelete} />)
+
+      // Should show "Good Service" by default when no disruption prop
+      expect(screen.getByText('Good Service')).toBeInTheDocument()
+    })
+
+    it('should render disruption loading state', () => {
+      render(
+        <RouteCard
+          route={mockRoute}
+          onEdit={mockOnEdit}
+          onDelete={mockOnDelete}
+          disruptionsLoading={true}
+        />
+      )
+
+      const status = screen.getByRole('status', { name: /loading disruption status/i })
+      expect(status).toBeInTheDocument()
+      expect(status).toHaveAttribute('aria-busy', 'true')
+    })
+
+    it('should render "Good Service" when disruption is null', () => {
+      render(
+        <RouteCard
+          route={mockRoute}
+          onEdit={mockOnEdit}
+          onDelete={mockOnDelete}
+          disruption={null}
+          disruptionsLoading={false}
+        />
+      )
+
+      expect(screen.getByText('Good Service')).toBeInTheDocument()
+      expect(screen.getByRole('status', { name: 'Good Service' })).toBeInTheDocument()
+    })
+
+    it('should render disruption badge and details when disruption exists', () => {
+      const disruption = createDisruption()
+      render(
+        <RouteCard
+          route={mockRoute}
+          onEdit={mockOnEdit}
+          onDelete={mockOnDelete}
+          disruption={disruption}
+          disruptionsLoading={false}
+        />
+      )
+
+      // Should show line name
+      expect(screen.getByText('Victoria')).toBeInTheDocument()
+
+      // Should show severity badge
+      const badge = screen.getByRole('status', { name: 'Minor Delays' })
+      expect(badge).toHaveTextContent('Minor Delays')
+
+      // Should show reason
+      expect(screen.getByText(/Signal failure at Kings Cross/i)).toBeInTheDocument()
+    })
+
+    it('should render severe disruption', () => {
+      const disruption = createDisruption({
+        status_severity: 1,
+        status_severity_description: 'Closed',
+        reason: 'Line closed',
+      })
+      render(
+        <RouteCard
+          route={mockRoute}
+          onEdit={mockOnEdit}
+          onDelete={mockOnDelete}
+          disruption={disruption}
+        />
+      )
+
+      expect(screen.getByText('Victoria')).toBeInTheDocument()
+      const badge = screen.getByRole('status', { name: 'Closed' })
+      expect(badge).toHaveTextContent('Closed')
+    })
   })
 })

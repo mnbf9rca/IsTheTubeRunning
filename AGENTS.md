@@ -9,8 +9,9 @@
   - **NEVER** use naked `python` or `python3` commands
   - **NEVER** manually set `PYTHONPATH` environment variable
 - ⚠️ Database name comes from config files
-  - **NEVER** assume database is called `testdb` or `testrun`
+  - **NEVER** assume database is called `testdb` or `testrun` etc.
   - Use actual connection details from `backend/.env` (encrypted with dotenvx)
+  - **ALWAYS** use `dotenvx run --` to ensure proper environment loading e.g. when running `psql` commands
 - ⚠️ Use `./test-runner.sh` for frontend tests
   - **NEVER** run `npm test` directly (triggers consent prompts)
 - ⚠️ Don't pipe scripts to `python` command (triggers sandbox protection)
