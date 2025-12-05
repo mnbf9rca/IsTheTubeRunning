@@ -201,9 +201,10 @@ services:
       - frontend_static:/www
       # No config mount needed - config.json contains all environments
       # and auto-detects based on hostname (isthetube.cynexia.com → production)
-    # Override CMD to clear old files, copy fresh assets from image, and exit
-    # This ensures stale files are removed (similar to rsync --delete behavior)
-    command: sh -c "rm -rf /www/* && cp -a /www-build/. /www/ && echo 'Frontend assets copied to volume'"
+    # Override CMD to clear ALL files (including dotfiles), copy fresh assets, and exit
+    # Using 'find -delete' to remove dotfiles; 'set -e' ensures nginx waits on copy failure
+    # Echo only runs if copy succeeds, providing confirmation in logs
+    command: sh -c "set -e && find /www -mindepth 1 -delete && cp -a /www-build/. /www/ && echo 'Frontend assets copied to volume'"
     deploy:
       resources:
         limits:

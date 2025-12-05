@@ -41,10 +41,11 @@ USER www
 # Expose port 8080 (non-privileged port)
 EXPOSE 8080
 
-# Copy assets from staging to runtime dir, then serve (removes stale files on each start)
+# Copy assets from staging to runtime dir, then serve (removes ALL files including dotfiles)
 # Production: command is overridden in docker-compose to just copy and exit
 # Standalone/test: copies then runs httpd
-CMD ["sh", "-c", "rm -rf /www/* && cp -a /www-build/. /www/ && busybox httpd -f -p 8080 -h /www"]
+# Using 'find -delete' to remove dotfiles; 'set -e' ensures copy failures are detected
+CMD ["sh", "-c", "set -e && find /www -mindepth 1 -delete && cp -a /www-build/. /www/ && busybox httpd -f -p 8080 -h /www"]
 
 # Security labels for container runtime
 LABEL security.readonly_rootfs="true" \
