@@ -155,6 +155,7 @@ If you want to run a local OTEL collector:
 1. Set `OTEL_EXPORTER_OTLP_ENDPOINT="http://localhost:4318/v1/traces"`
 2. Run `{projectroot}/scripts/otelcol --config {projectroot}/scripts/otel-config.yaml`
 3. Watch the output
+`InMemorySpanExporter` is probably a better idea. Check `conftest.py`.
 
 ---
 
