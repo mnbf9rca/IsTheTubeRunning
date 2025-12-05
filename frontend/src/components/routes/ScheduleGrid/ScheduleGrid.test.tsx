@@ -22,11 +22,11 @@ describe('ScheduleGrid', () => {
       const onChange = vi.fn()
       render(<ScheduleGrid onChange={onChange} />)
 
-      // Should show hour markers
-      expect(screen.getByText('00:00')).toBeInTheDocument()
-      expect(screen.getByText('01:00')).toBeInTheDocument()
-      expect(screen.getByText('12:00')).toBeInTheDocument()
-      expect(screen.getByText('23:00')).toBeInTheDocument()
+      // Should show hour markers (just hour numbers, not minutes)
+      expect(screen.getByText('00')).toBeInTheDocument()
+      expect(screen.getByText('01')).toBeInTheDocument()
+      expect(screen.getByText('12')).toBeInTheDocument()
+      expect(screen.getByText('23')).toBeInTheDocument()
     })
 
     it('should render grid cells', () => {

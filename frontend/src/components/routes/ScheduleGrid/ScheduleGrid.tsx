@@ -90,29 +90,23 @@ export function ScheduleGrid({
               Day
             </div>
 
-            {/* Time headers (96 columns for 15-min slots) */}
-            {Array.from({ length: 96 }, (_, slot) => {
-              const isHourMark = slot % 4 === 0
-              const time = slotToTime(slot)
+            {/* Time headers (24 hour columns, each spanning 4 slots) */}
+            {Array.from({ length: 24 }, (_, hour) => {
+              const hourStr = hour.toString().padStart(2, '0')
               return (
                 <div
-                  key={slot}
-                  className={`sticky top-0 z-10 bg-background border-b border-border text-xs text-center ${
-                    isHourMark ? 'font-medium border-l' : 'border-l-0'
-                  }`}
+                  key={hour}
+                  className="sticky top-0 z-10 bg-background border-b border-l border-border text-xs text-center font-medium"
                   style={{
-                    width: '15px',
+                    gridColumn: `span 4`, // Span 4 columns (4 × 15px = 60px)
                     height: '24px',
-                    writingMode: 'vertical-rl',
-                    transform: 'rotate(180deg)',
                     display: 'flex',
                     alignItems: 'center',
                     justifyContent: 'center',
-                    padding: '2px 0',
-                    fontSize: '10px',
+                    fontSize: '11px',
                   }}
                 >
-                  {isHourMark ? time.substring(0, 5) : ''}
+                  {hourStr}
                 </div>
               )
             })}

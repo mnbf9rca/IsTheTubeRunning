@@ -12,7 +12,7 @@
 
 import { useState, useCallback, useEffect, useRef } from 'react'
 import { type GridSelection, type CellId } from '../types'
-import { toggleCell, selectRange } from '../selection'
+import { toggleCell, selectRange, isSelected } from '../selection'
 
 export interface UseScheduleGridStateOptions {
   /** Initial selection (e.g., loaded from API) */
@@ -87,6 +87,7 @@ export function useScheduleGridState(
   const [isDragging, setIsDragging] = useState(false)
   const [dragStart, setDragStart] = useState<CellId | null>(null)
   const [dragEnd, setDragEnd] = useState<CellId | null>(null)
+  const [dragMode, setDragMode] = useState<'add' | 'remove'>('add')
 
   // Notify parent of selection changes
   const setSelection = useCallback(
@@ -127,7 +128,7 @@ export function useScheduleGridState(
   // Calculate preview selection during drag
   const previewSelection =
     isDragging && dragStart && dragEnd
-      ? selectRange(selection, dragStart, dragEnd, 'add')
+      ? selectRange(selection, dragStart, dragEnd, dragMode)
       : selection
 
   // Handle single cell click (toggle)
@@ -146,11 +147,15 @@ export function useScheduleGridState(
     (cell: CellId) => {
       if (disabled) return
 
+      // Determine drag mode: if starting cell is selected, we're removing; otherwise adding
+      const mode = isSelected(selection, cell) ? 'remove' : 'add'
+
       setIsDragging(true)
       setDragStart(cell)
       setDragEnd(cell)
+      setDragMode(mode)
     },
-    [disabled]
+    [disabled, selection]
   )
 
   // Handle drag move
@@ -173,8 +178,8 @@ export function useScheduleGridState(
       const isSingleCell = dragStart.day === dragEnd.day && dragStart.slot === dragEnd.slot
 
       if (!isSingleCell) {
-        // Commit the drag selection
-        const newSelection = selectRange(selection, dragStart, dragEnd, 'add')
+        // Commit the drag selection using the determined mode
+        const newSelection = selectRange(selection, dragStart, dragEnd, dragMode)
         setSelection(newSelection)
       }
     }
@@ -183,7 +188,8 @@ export function useScheduleGridState(
     setIsDragging(false)
     setDragStart(null)
     setDragEnd(null)
-  }, [isDragging, dragStart, dragEnd, selection, setSelection, disabled])
+    setDragMode('add')
+  }, [isDragging, dragStart, dragEnd, dragMode, selection, setSelection, disabled])
 
   // Store handleDragEnd in a ref to avoid dependency cascade in useEffect
   const handleDragEndRef = useRef(handleDragEnd)
