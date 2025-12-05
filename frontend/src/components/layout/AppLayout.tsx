@@ -20,7 +20,12 @@ export const AppLayout = ({ children }: AppLayoutProps) => {
           <p className="text-sm text-muted-foreground">
             © {currentYear} TfL Alerts. Not affiliated with Transport for London.
           </p>
-          <p className="text-sm text-muted-foreground">Powered by TfL Open Data</p>
+          <div className="flex flex-col items-center gap-2 md:items-end">
+            <p className="text-sm text-muted-foreground">Powered by TfL Open Data</p>
+            <p className="text-xs text-muted-foreground/50">
+              Build: {__BUILD_COMMIT__.substring(0, 7)}
+            </p>
+          </div>
         </div>
       </footer>
       <Toaster />

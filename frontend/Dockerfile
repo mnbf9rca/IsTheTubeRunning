@@ -15,6 +15,10 @@ RUN npm ci --include dev --include optional
 # Copy source code
 COPY . .
 
+# Accept build commit hash as build arg (defaults to "unknown" for local builds)
+ARG BUILD_COMMIT=unknown
+ENV VITE_BUILD_COMMIT=${BUILD_COMMIT}
+
 # Build the application (no environment-specific config - loaded at runtime)
 RUN npm run build
 

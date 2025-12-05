@@ -82,6 +82,9 @@ def init_beat_otel(
             # Initialize LoggerProvider for log export
             set_logger_provider()
             logger.info("beat_otel_logger_provider_initialized")
+
+            # Log build commit for version tracking
+            logger.info("beat_init_completed", build_commit=settings.BUILD_COMMIT)
         except Exception:
             logger.exception("beat_otel_initialization_failed")
             # Continue without OTEL - graceful degradation
