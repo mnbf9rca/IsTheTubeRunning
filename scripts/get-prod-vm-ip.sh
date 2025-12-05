@@ -20,10 +20,6 @@ while [[ $# -gt 0 ]]; do
       echo ""
       echo "Options:"
       echo "  -h, --help           Show this help message"
-      echo ""
-      echo "Environment variables (override config file):"
-      echo "  AZURE_RESOURCE_GROUP  Azure resource group"
-      echo "  AZURE_VM_NAME         Azure VM name"
       exit 0
       ;;
     *)
