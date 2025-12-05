@@ -44,7 +44,10 @@
 ## Principles
 
 - This is a hobby project - prefer KISS, DRY, YAGNI over enterprise patterns
-- Read relevant ADRs in `docs/adr/` before starting work
+- **Read relevant ADRs before starting work:**
+  - Start with `docs/adr/README.md` for the full index
+  - Testing work? Read `docs/adr/10-testing.md`
+  - Background jobs/Celery? Read `docs/adr/08-background-jobs.md`
 - Consider whether your changes warrant updating the ADRs; include this as a task if needed
 
 ---
@@ -116,6 +119,8 @@ Start these as background bash processes (never detached/nohup):
 - Celery beat
 - Frontend dev server
 
+**Note:** If working on Celery workers or uvicorn multi-worker deployment, read `docs/fork-safety.md` for critical fork safety patterns (SQLAlchemy AsyncEngine, OpenTelemetry, Redis client).
+
 ### Secrets & Environment
 - In `/backend`, always use `dotenvx run -- uv run` (never naked `python`)
 - `DATABASE_URL` is already set in config - no need to set it manually
@@ -150,6 +155,7 @@ If you want to run a local OTEL collector:
 1. Set `OTEL_EXPORTER_OTLP_ENDPOINT="http://localhost:4318/v1/traces"`
 2. Run `{projectroot}/scripts/otelcol --config {projectroot}/scripts/otel-config.yaml`
 3. Watch the output
+`InMemorySpanExporter` is probably a better idea. Check `conftest.py`.
 
 ---
 
