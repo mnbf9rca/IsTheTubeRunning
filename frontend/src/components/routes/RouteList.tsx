@@ -65,7 +65,7 @@ export function RouteList({
   return (
     <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
       {routes.map((route) => {
-        const disruption = getWorstDisruptionForRoute(disruptions, route.id) ?? null
+        const disruption = getWorstDisruptionForRoute(disruptions, route.id)
         return (
           <RouteCard
             key={route.id}

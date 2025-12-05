@@ -7,7 +7,7 @@ import type { RouteDisruptionResponse } from '@/types'
  * - 1-4: Severe disruptions (closures, suspensions)
  * - 5-9: Minor/moderate delays
  * - 10: Good Service
- * - 11-20: Severe delays, reduced service
+ * - 10-20: Good Service / No disruptions
  *
  * @param disruptions - Array of route disruptions (can be null)
  * @param routeId - The route ID to filter by

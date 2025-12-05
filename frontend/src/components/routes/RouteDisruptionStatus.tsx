@@ -59,8 +59,10 @@ export function RouteDisruptionStatus({
 
   // Has disruption: show badge and reason
   const { disruption: disruptionData } = disruption
+  // Escape regex special characters in line_name before using in RegExp
+  const escapedLineName = disruptionData.line_name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
   const reason = disruptionData.reason
-    ? disruptionData.reason.replace(new RegExp(`^${disruptionData.line_name}:\\s*`, 'i'), '')
+    ? disruptionData.reason.replace(new RegExp(`^${escapedLineName}:\\s*`, 'i'), '')
     : null
 
   return (
