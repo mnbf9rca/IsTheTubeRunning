@@ -1,6 +1,7 @@
 import { MapPin } from 'lucide-react'
 import { RouteCard } from './RouteCard'
-import type { RouteListItemResponse } from '@/types'
+import type { RouteListItemResponse, RouteDisruptionResponse } from '@/types'
+import { getWorstDisruptionForRoute } from '@/lib/disruption-utils'
 
 export interface RouteListProps {
   routes: RouteListItemResponse[]
@@ -9,6 +10,8 @@ export interface RouteListProps {
   onClick?: (id: string) => void
   loading?: boolean
   deletingId?: string
+  disruptions?: RouteDisruptionResponse[] | null
+  disruptionsLoading?: boolean
 }
 
 /**
@@ -20,6 +23,8 @@ export interface RouteListProps {
  * @param onClick - Optional callback when card is clicked
  * @param loading - Loading state for the list
  * @param deletingId - ID of route currently being deleted
+ * @param disruptions - Optional array of route disruptions
+ * @param disruptionsLoading - Whether disruption data is loading
  */
 export function RouteList({
   routes,
@@ -28,6 +33,8 @@ export function RouteList({
   onClick,
   loading = false,
   deletingId,
+  disruptions,
+  disruptionsLoading = false,
 }: RouteListProps) {
   if (loading) {
     return (
@@ -57,16 +64,21 @@ export function RouteList({
 
   return (
     <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-      {routes.map((route) => (
-        <RouteCard
-          key={route.id}
-          route={route}
-          onEdit={onEdit}
-          onDelete={onDelete}
-          onClick={onClick}
-          isDeleting={deletingId === route.id}
-        />
-      ))}
+      {routes.map((route) => {
+        const disruption = getWorstDisruptionForRoute(disruptions, route.id) ?? null
+        return (
+          <RouteCard
+            key={route.id}
+            route={route}
+            onEdit={onEdit}
+            onDelete={onDelete}
+            onClick={onClick}
+            isDeleting={deletingId === route.id}
+            disruption={disruption}
+            disruptionsLoading={disruptionsLoading}
+          />
+        )
+      })}
     </div>
   )
 }

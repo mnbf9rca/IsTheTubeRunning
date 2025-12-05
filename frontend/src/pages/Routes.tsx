@@ -15,6 +15,7 @@ import {
 } from '../components/ui/dialog'
 import { RouteList } from '../components/routes/RouteList'
 import { useRoutes } from '../hooks/useRoutes'
+import { useUserRouteDisruptions } from '../hooks/useUserRouteDisruptions'
 
 /**
  * Routes page for managing commute routes
@@ -28,6 +29,7 @@ import { useRoutes } from '../hooks/useRoutes'
 export function Routes() {
   const navigate = useNavigate()
   const { routes, loading, error, deleteRoute } = useRoutes()
+  const { disruptions, loading: disruptionsLoading } = useUserRouteDisruptions()
 
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false)
   const [deletingRoute, setDeletingRoute] = useState<{ id: string; name: string } | null>(null)
@@ -138,6 +140,8 @@ export function Routes() {
             onDelete={handleDeleteClick}
             loading={loading}
             deletingId={deletingId}
+            disruptions={disruptions}
+            disruptionsLoading={disruptionsLoading}
           />
         </CardContent>
       </Card>
