@@ -136,15 +136,7 @@ jobs:
       - name: Get VM public IP from Azure
         id: vm-ip
         run: |
-          VM_IP=$(az vm list-ip-addresses \
-            --resource-group ${{ env.AZURE_RESOURCE_GROUP }} \
-            --name ${{ env.AZURE_VM_NAME }} \
-            --query '[0].virtualMachine.network.publicIpAddresses[0].ipAddress' \
-            --output tsv)
-          if [ -z "$VM_IP" ] || [ "$VM_IP" = "null" ]; then
-            echo "Error: Failed to retrieve VM IP address"
-            exit 1
-          fi
+          VM_IP=$(./scripts/get-prod-vm-ip.sh)
           # Validate IP format
           if ! echo "$VM_IP" | grep -qE '^[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}$'; then
             echo "Error: Invalid IP address format: $VM_IP"
