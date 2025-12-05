@@ -201,8 +201,10 @@ services:
       - frontend_static:/www
       # No config mount needed - config.json contains all environments
       # and auto-detects based on hostname (isthetube.cynexia.com → production)
-    # Override CMD to just copy files and exit (no need to run httpd)
-    command: sh -c "echo 'Frontend assets built and ready in volume' && sleep 1"
+    # Override CMD to clear ALL files (including dotfiles), copy fresh assets, and exit
+    # Using 'find -delete' to remove dotfiles; 'set -e' ensures nginx waits on copy failure
+    # Echo only runs if copy succeeds, providing confirmation in logs
+    command: sh -c "set -e && find /www -mindepth 1 -delete && cp -a /www-build/. /www/ && echo 'Frontend assets copied to volume'"
     deploy:
       resources:
         limits:
