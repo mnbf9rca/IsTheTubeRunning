@@ -70,12 +70,13 @@ export function ScheduleGrid({
     <Card className={`p-4 ${className}`}>
       <div className="overflow-x-auto">
         <div className="inline-block min-w-full">
-          {/* Grid container */}
+          {/* Grid container - transposed: days as rows, time as columns */}
           <div
             className="relative"
             style={{
               display: 'grid',
-              gridTemplateColumns: '60px repeat(7, 60px)',
+              gridTemplateColumns: '60px repeat(96, 15px)', // 96 × 15px = 1440px for time slots
+              gridTemplateRows: 'auto repeat(7, 24px)', // Header + 7 days
               gap: '0',
             }}
             onMouseLeave={() => {
@@ -86,24 +87,41 @@ export function ScheduleGrid({
           >
             {/* Top-left corner cell */}
             <div className="sticky top-0 left-0 z-20 bg-background border-b border-r border-border p-2 text-xs font-medium text-center">
-              Time
+              Day
             </div>
 
-            {/* Day headers */}
-            {DAYS.map((day) => (
-              <div
-                key={day}
-                className="sticky top-0 z-10 bg-background border-b border-border p-2 text-xs font-medium text-center"
-              >
-                {DAY_LABELS[day]}
-              </div>
-            ))}
+            {/* Time headers (96 columns for 15-min slots) */}
+            {Array.from({ length: 96 }, (_, slot) => {
+              const isHourMark = slot % 4 === 0
+              const time = slotToTime(slot)
+              return (
+                <div
+                  key={slot}
+                  className={`sticky top-0 z-10 bg-background border-b border-border text-xs text-center ${
+                    isHourMark ? 'font-medium border-l' : 'border-l-0'
+                  }`}
+                  style={{
+                    width: '15px',
+                    height: '24px',
+                    writingMode: 'vertical-rl',
+                    transform: 'rotate(180deg)',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    padding: '2px 0',
+                    fontSize: '10px',
+                  }}
+                >
+                  {isHourMark ? time.substring(0, 5) : ''}
+                </div>
+              )
+            })}
 
-            {/* Time slots (96 rows) */}
-            {Array.from({ length: 96 }, (_, slot) => (
-              <TimeSlotRow
-                key={slot}
-                slot={slot}
+            {/* Day rows */}
+            {DAYS.map((day) => (
+              <DayRow
+                key={day}
+                day={day}
                 previewSelection={previewSelection}
                 disabled={disabled}
                 isDragging={isDragging}
@@ -119,8 +137,8 @@ export function ScheduleGrid({
   )
 }
 
-interface TimeSlotRowProps {
-  slot: number
+interface DayRowProps {
+  day: DayCode
   previewSelection: GridSelection
   disabled: boolean
   isDragging: boolean
@@ -130,47 +148,45 @@ interface TimeSlotRowProps {
 }
 
 /**
- * A single row of the grid (one time slot across all days)
+ * A single row of the grid (one day across all time slots)
  */
-function TimeSlotRow({
-  slot,
+function DayRow({
+  day,
   previewSelection,
   disabled,
   isDragging,
   onCellClick,
   onCellMouseDown,
   onCellMouseEnter,
-}: TimeSlotRowProps) {
-  const time = slotToTime(slot)
-  const isHourMark = slot % 4 === 0 // Every hour (0, 4, 8, ...)
-
+}: DayRowProps) {
   return (
     <>
-      {/* Time label */}
+      {/* Day label */}
       <div
-        className={`sticky left-0 z-10 bg-background border-r border-border p-1 text-xs text-center ${
-          isHourMark ? 'font-medium border-t' : 'text-muted-foreground'
-        }`}
+        className="sticky left-0 z-10 bg-background border-r border-t border-border p-1 text-xs font-medium text-center"
         style={{ height: '24px' }}
       >
-        {isHourMark ? time.substring(0, 5) : ''}
+        {DAY_LABELS[day]}
       </div>
 
-      {/* Cells for each day */}
-      {DAYS.map((day) => (
-        <GridCell
-          key={`${day}:${slot}`}
-          day={day}
-          slot={slot}
-          isSelected={isSelected(previewSelection, { day, slot })}
-          isHourMark={isHourMark}
-          disabled={disabled}
-          isDragging={isDragging}
-          onClick={onCellClick}
-          onMouseDown={onCellMouseDown}
-          onMouseEnter={onCellMouseEnter}
-        />
-      ))}
+      {/* Cells for each time slot */}
+      {Array.from({ length: 96 }, (_, slot) => {
+        const isHourMark = slot % 4 === 0
+        return (
+          <GridCell
+            key={`${day}:${slot}`}
+            day={day}
+            slot={slot}
+            isSelected={isSelected(previewSelection, { day, slot })}
+            isHourMark={isHourMark}
+            disabled={disabled}
+            isDragging={isDragging}
+            onClick={onCellClick}
+            onMouseDown={onCellMouseDown}
+            onMouseEnter={onCellMouseEnter}
+          />
+        )
+      })}
     </>
   )
 }
@@ -226,13 +242,13 @@ function GridCell({
       type="button"
       className={`
         border-border
-        ${isHourMark ? 'border-t' : 'border-t-0'}
-        border-l-0 border-r border-b
+        ${isHourMark ? 'border-l' : 'border-l-0'}
+        border-t border-r-0 border-b
         transition-colors
         ${disabled ? 'cursor-not-allowed opacity-50' : 'cursor-pointer'}
         ${isSelected ? 'bg-primary hover:bg-primary/90' : 'bg-background hover:bg-accent'}
       `}
-      style={{ height: '24px', width: '60px' }}
+      style={{ width: '15px', height: '24px' }}
       onClick={handleClick}
       onMouseDown={handleMouseDown}
       onMouseEnter={handleMouseEnter}
