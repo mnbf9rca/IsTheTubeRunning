@@ -85,7 +85,7 @@ def init_worker_resources(
         set_logger_provider()
         logger.info("worker_otel_logger_provider_initialized")
 
-    logger.info("worker_process_init_completed")
+    logger.info("worker_process_init_completed", build_commit=settings.BUILD_COMMIT)
 
 
 @worker_process_shutdown.connect

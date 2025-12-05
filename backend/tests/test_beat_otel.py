@@ -91,10 +91,13 @@ class TestBeatOtelInitialization:
             # Call the signal handler
             celery_app_module.init_beat_otel()
 
-            # Verify logging was called for both providers
-            assert mock_logger_info.call_count == 2
+            # Verify logging was called for both providers and build_commit
+            assert mock_logger_info.call_count == 3
             mock_logger_info.assert_any_call("beat_otel_tracer_provider_initialized")
             mock_logger_info.assert_any_call("beat_otel_logger_provider_initialized")
+            mock_logger_info.assert_any_call(
+                "beat_init_completed", build_commit=celery_app_module.settings.BUILD_COMMIT
+            )
 
     def test_beat_init_handles_get_tracer_provider_exception(self) -> None:
         """Test that beat_init handles exception from get_tracer_provider gracefully."""

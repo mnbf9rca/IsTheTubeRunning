@@ -86,6 +86,10 @@ def init_beat_otel(
             logger.exception("beat_otel_initialization_failed")
             # Continue without OTEL - graceful degradation
 
+    # Log build commit for version tracking
+    # Always log regardless of OTEL status for diagnostic purposes
+    logger.info("beat_init_completed", build_commit=settings.BUILD_COMMIT)
+
 
 @worker_ready.connect
 def trigger_startup_tasks(

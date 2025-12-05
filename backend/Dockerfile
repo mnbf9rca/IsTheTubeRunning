@@ -3,20 +3,13 @@
 # See: https://docs.astral.sh/uv/guides/integration/docker/
 
 # Stage 1: Build dependencies
-FROM python:3.14-slim AS builder
-
-# Install build dependencies for compiling Python packages
-RUN apt-get update && \
-    DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
-    gcc \
-    libc6-dev \
-    && rm -rf /var/lib/apt/lists/*
-
-# Install uv
-COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /bin/
+# Use uv's official image with Python 3.14 pre-installed
+FROM ghcr.io/astral-sh/uv:python3.14-bookworm-slim AS builder
 
 # Enable bytecode compilation for faster startup
-ENV UV_COMPILE_BYTECODE=1
+# Copy files instead of symlinking to avoid broken links in multi-stage builds
+# Use system Python from the base image instead of downloading a new one
+ENV UV_COMPILE_BYTECODE=1 UV_LINK_MODE=copy UV_PYTHON_DOWNLOADS=0
 
 # Change the working directory to the `app` directory
 WORKDIR /app
@@ -35,7 +28,12 @@ RUN --mount=type=cache,target=/root/.cache/uv \
     uv sync --frozen --no-dev --no-editable
 
 # Stage 2: Production runtime
-FROM python:3.14-slim
+# Use matching Python version from official Python images
+FROM python:3.14-slim-bookworm
+
+# Accept build commit hash as build arg (defaults to "unknown" for local builds)
+ARG BUILD_COMMIT=unknown
+ENV BUILD_COMMIT=${BUILD_COMMIT}
 
 WORKDIR /app
 
@@ -53,22 +51,9 @@ RUN groupadd -r -g 1000 appuser && \
     useradd -r -u 1000 -g appuser -m -d /home/appuser -s /sbin/nologin -c "Application user" appuser && \
     chown -R appuser:appuser /app
 
-# Copy the virtual environment from the builder
-COPY --from=builder --chown=appuser:appuser /app/.venv /app/.venv
-
-# Fix broken Python symlinks created by uv in builder stage
-# The builder stage symlinks point to /root/.local/share/uv/python which doesn't exist in runtime stage
-# Recreate symlinks to point to system Python
-RUN rm -f /app/.venv/bin/python /app/.venv/bin/python3 /app/.venv/bin/python3.14 && \
-    ln -s /usr/local/bin/python3.14 /app/.venv/bin/python3.14 && \
-    ln -s python3.14 /app/.venv/bin/python3 && \
-    ln -s python3 /app/.venv/bin/python
-
-# Ensure .venv/bin scripts have execute permissions (only files, not symlinks)
-RUN find /app/.venv/bin -type f -exec chmod +x {} \;
-
-# Copy application code
-COPY --chown=appuser:appuser . .
+# Copy the application and virtual environment from builder
+# Both stages use system Python 3.14, so symlinks in .venv/bin work correctly
+COPY --from=builder --chown=appuser:appuser /app /app
 
 # Set environment variables
 ENV PYTHONPATH=/app
