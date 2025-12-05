@@ -28,11 +28,12 @@ FROM busybox:1.36-musl
 # Create non-root user
 RUN adduser -D -u 1000 -g 1000 -s /sbin/nologin www
 
-# Create web directory with proper permissions
-RUN mkdir -p /www && chown -R www:www /www
+# Copy built assets from builder stage to staging directory
+# Files are copied from /www-build to /www at runtime to ensure fresh deployments
+COPY --from=builder --chown=www:www /app/dist /www-build
 
-# Copy built assets from builder stage
-COPY --from=builder --chown=www:www /app/dist /www
+# Create runtime directory (volume mount point in production)
+RUN mkdir -p /www && chown www:www /www
 
 # Switch to non-root user
 USER www
@@ -40,9 +41,10 @@ USER www
 # Expose port 8080 (non-privileged port)
 EXPOSE 8080
 
-# Run busybox httpd as non-root with minimal permissions
-# -f: foreground, -p: port, -h: home directory, -u: user
-CMD ["busybox", "httpd", "-f", "-p", "8080", "-h", "/www"]
+# Copy assets from staging to runtime dir, then serve (removes stale files on each start)
+# Production: command is overridden in docker-compose to just copy and exit
+# Standalone/test: copies then runs httpd
+CMD ["sh", "-c", "rm -rf /www/* && cp -a /www-build/. /www/ && busybox httpd -f -p 8080 -h /www"]
 
 # Security labels for container runtime
 LABEL security.readonly_rootfs="true" \
