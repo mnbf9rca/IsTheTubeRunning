@@ -20,6 +20,7 @@ class Settings(BaseSettings):
     API_V1_PREFIX: str = "/api/v1"
     PROJECT_NAME: str = "IsTheTubeRunning"
     DEBUG: bool = False
+    BUILD_COMMIT: str = "unknown"  # Git commit hash injected at Docker build time
     ALLOWED_ORIGINS: str
 
     @field_validator("ALLOWED_ORIGINS", mode="after")

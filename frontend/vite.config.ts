@@ -6,6 +6,9 @@ import { fileURLToPath } from 'url'
 // https://vite.dev/config/
 export default defineConfig({
   plugins: [tailwindcss(), react()],
+  define: {
+    __BUILD_COMMIT__: JSON.stringify(process.env.VITE_BUILD_COMMIT || 'dev'),
+  },
   resolve: {
     alias: {
       '@': fileURLToPath(new URL('./src', import.meta.url)),

@@ -217,7 +217,7 @@ async def root() -> dict[str, str]:
 @app.get("/health")
 async def health_check() -> dict[str, str]:
     """Health check endpoint."""
-    return {"status": "healthy"}
+    return {"status": "healthy", "version": __version__, "build_commit": settings.BUILD_COMMIT}
 
 
 @app.get("/ready")
