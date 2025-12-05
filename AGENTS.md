@@ -44,7 +44,10 @@
 ## Principles
 
 - This is a hobby project - prefer KISS, DRY, YAGNI over enterprise patterns
-- Read relevant ADRs in `docs/adr/` before starting work
+- **Read relevant ADRs before starting work:**
+  - Start with `docs/adr/README.md` for the full index
+  - Testing work? Read `docs/adr/10-testing.md`
+  - Background jobs/Celery? Read `docs/adr/08-background-jobs.md`
 - Consider whether your changes warrant updating the ADRs; include this as a task if needed
 
 ---
@@ -115,6 +118,8 @@ Start these as background bash processes (never detached/nohup):
 - Celery worker
 - Celery beat
 - Frontend dev server
+
+**Note:** If working on Celery workers or uvicorn multi-worker deployment, read `docs/fork-safety.md` for critical fork safety patterns (SQLAlchemy AsyncEngine, OpenTelemetry, Redis client).
 
 ### Secrets & Environment
 - In `/backend`, always use `dotenvx run -- uv run` (never naked `python`)
