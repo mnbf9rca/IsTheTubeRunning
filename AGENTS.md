@@ -14,6 +14,8 @@
   - **ALWAYS** use `dotenvx run --` to ensure proper environment loading e.g. when running `psql` commands
 - ⚠️ Use `./test-runner.sh` for frontend tests
   - **NEVER** run `npm test` directly (triggers consent prompts)
+  - **ALWAYS** run tests at least once with `./safe-test-runner.sh` to catch memory leaks.
+  - **ALWAYS** trust that safe-test-runner timeouts are valid - they are there to catch leaks.
 - ⚠️ Don't pipe scripts to `python` command (triggers sandbox protection)
   - Instead: create temporary script file, execute it, then delete it
   - try to avoid using `/tmp` - use project directory if possible - create a temp folder if needed but ensure cleanup
@@ -79,7 +81,7 @@
 
 ### Running Tests
 - **Backend:** `dotenvx run -- uv run pytest` (from `/backend` directory)
-- **Frontend:** `./test-runner.sh` (avoids consent prompts) or `./safe-test-runner.sh` (catches memory leaks but slightly slower)
+- **Frontend:** `./test-runner.sh` (avoids consent prompts)
 - Verify all pre-commit hooks pass: `pre-commit run --all-files`
 
 ### Test Validation

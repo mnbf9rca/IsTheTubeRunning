@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useNavigate, Link } from 'react-router-dom'
-import { ChevronRight, Plus, Trash2 } from 'lucide-react'
+import { ChevronRight, Trash2 } from 'lucide-react'
 import { Button } from '../components/ui/button'
 import { Input } from '../components/ui/input'
 import { Label } from '../components/ui/label'
@@ -8,14 +8,15 @@ import { Textarea } from '../components/ui/textarea'
 import { Alert, AlertDescription } from '../components/ui/alert'
 import { Card } from '../components/ui/card'
 import { SegmentBuilder } from '../components/routes/SegmentBuilder/SegmentBuilder'
-import { ScheduleForm } from '../components/routes/ScheduleForm'
-import { ScheduleCard } from '../components/routes/ScheduleCard'
+import {
+  ScheduleGrid,
+  gridToSchedules,
+  type GridSelection,
+} from '../components/routes/ScheduleGrid'
 import { useTflData } from '../hooks/useTflData'
 import { useContacts } from '../hooks/useContacts'
 import type {
   SegmentRequest,
-  CreateScheduleRequest,
-  ScheduleResponse,
   CreateNotificationPreferenceRequest,
   NotificationMethod,
 } from '@/types'
@@ -28,10 +29,6 @@ import {
   validateRoute as apiValidateRoute,
   getRoutes,
 } from '../lib/api'
-
-interface LocalSchedule extends Omit<ScheduleResponse, 'id'> {
-  id: string // Temporary local ID
-}
 
 interface LocalNotificationPreference {
   id: string // Temporary local ID
@@ -52,9 +49,8 @@ export function CreateRoute() {
   // Journey (segments) state
   const [segments, setSegments] = useState<SegmentRequest[]>([])
 
-  // Alert configuration state
-  const [schedules, setSchedules] = useState<LocalSchedule[]>([])
-  const [showAddSchedule, setShowAddSchedule] = useState(false)
+  // Alert configuration state (using grid selection for schedules)
+  const [scheduleSelection, setScheduleSelection] = useState<GridSelection>(new Set())
   const [notifications, setNotifications] = useState<LocalNotificationPreference[]>([])
   const [selectedContactId, setSelectedContactId] = useState<string>('')
   const [selectedMethod, setSelectedMethod] = useState<NotificationMethod>('email')
@@ -70,21 +66,6 @@ export function CreateRoute() {
 
   const handleSaveSegments = async (newSegments: SegmentRequest[]) => {
     setSegments(newSegments)
-  }
-
-  const handleAddSchedule = async (data: CreateScheduleRequest) => {
-    const newSchedule: LocalSchedule = {
-      id: `temp-${Date.now()}`,
-      days_of_week: data.days_of_week,
-      start_time: data.start_time,
-      end_time: data.end_time,
-    }
-    setSchedules([...schedules, newSchedule])
-    setShowAddSchedule(false)
-  }
-
-  const handleDeleteSchedule = (scheduleId: string) => {
-    setSchedules(schedules.filter((s) => s.id !== scheduleId))
   }
 
   const handleAddNotification = () => {
@@ -156,13 +137,10 @@ export function CreateRoute() {
       // 2. Add segments
       await upsertSegments(route.id, segments)
 
-      // 3. Add schedules
+      // 3. Add schedules (convert grid selection to schedules)
+      const schedules = gridToSchedules(scheduleSelection)
       for (const schedule of schedules) {
-        await createSchedule(route.id, {
-          days_of_week: schedule.days_of_week,
-          start_time: schedule.start_time,
-          end_time: schedule.end_time,
-        })
+        await createSchedule(route.id, schedule)
       }
 
       // 4. Add notification preferences
@@ -301,45 +279,11 @@ export function CreateRoute() {
           {/* Active Times Subsection */}
           <div className="mb-6">
             <h3 className="mb-3 text-lg font-medium">Active Times</h3>
-            <Card className="p-6">
-              {!showAddSchedule && (
-                <Button onClick={() => setShowAddSchedule(true)} className="mb-4">
-                  <Plus className="mr-2 h-4 w-4" />
-                  Add Active Time
-                </Button>
-              )}
-
-              {showAddSchedule && (
-                <div className="mb-4">
-                  <ScheduleForm
-                    onSave={handleAddSchedule}
-                    onCancel={() => setShowAddSchedule(false)}
-                  />
-                </div>
-              )}
-
-              {schedules.length === 0 ? (
-                <Alert>
-                  <AlertDescription>
-                    No active times configured. Add times when you want to receive alerts for this
-                    route.
-                  </AlertDescription>
-                </Alert>
-              ) : (
-                <div className="space-y-2">
-                  {schedules.map((schedule) => (
-                    <ScheduleCard
-                      key={schedule.id}
-                      daysOfWeek={schedule.days_of_week}
-                      startTime={schedule.start_time.substring(0, 5)}
-                      endTime={schedule.end_time.substring(0, 5)}
-                      onEdit={() => {}}
-                      onDelete={() => handleDeleteSchedule(schedule.id)}
-                    />
-                  ))}
-                </div>
-              )}
-            </Card>
+            <ScheduleGrid
+              initialSelection={scheduleSelection}
+              onChange={setScheduleSelection}
+              disabled={false}
+            />
           </div>
 
           {/* Send Alerts To Subsection */}
