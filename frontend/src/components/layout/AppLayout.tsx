@@ -23,7 +23,8 @@ export const AppLayout = ({ children }: AppLayoutProps) => {
           <div className="flex flex-col items-center gap-2 md:items-end">
             <p className="text-sm text-muted-foreground">Powered by TfL Open Data</p>
             <p className="text-xs text-muted-foreground/50">
-              Build: {__BUILD_COMMIT__.substring(0, 7)}
+              Build:{' '}
+              {(typeof __BUILD_COMMIT__ === 'string' ? __BUILD_COMMIT__ : 'dev').substring(0, 7)}
             </p>
           </div>
         </div>
