@@ -45,6 +45,8 @@ export function ConfigProvider({ config, children }: ConfigProviderProps) {
  * }
  * ```
  */
+// Hook exported alongside provider per React context pattern
+// eslint-disable-next-line react-refresh/only-export-components
 export function useConfig(): AppConfig {
   const config = useContext(ConfigContext)
 
