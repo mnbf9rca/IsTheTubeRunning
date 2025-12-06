@@ -1326,6 +1326,266 @@ class TestRoutesAPI:
 
         assert response.status_code == status.HTTP_404_NOT_FOUND
 
+    # ==================== Upsert Schedules Tests ====================
+
+    @pytest.mark.asyncio
+    async def test_upsert_schedules_replaces_all(
+        self,
+        async_client: AsyncClient,
+        auth_headers_for_user: dict[str, str],
+        test_user: User,
+        db_session: AsyncSession,
+    ) -> None:
+        """Test that upsert replaces all existing schedules."""
+        # Create route with existing schedules
+        route = UserRoute(user_id=test_user.id, name="Test Route", active=True)
+        db_session.add(route)
+        await db_session.flush()
+
+        # Add existing schedule
+        old_schedule = UserRouteSchedule(
+            route_id=route.id,
+            days_of_week=["MON"],
+            start_time=time(8, 0),
+            end_time=time(9, 0),
+        )
+        db_session.add(old_schedule)
+        await db_session.commit()
+        old_schedule_id = old_schedule.id
+
+        # Upsert with new schedules
+        response = await async_client.put(
+            f"/api/v1/routes/{route.id}/schedules",
+            json={
+                "schedules": [
+                    {"days_of_week": ["TUE", "WED"], "start_time": "10:00:00", "end_time": "11:00:00"},
+                    {"days_of_week": ["THU"], "start_time": "14:00:00", "end_time": "15:00:00"},
+                ]
+            },
+            headers=auth_headers_for_user,
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        data = response.json()
+        assert len(data) == 2
+
+        # Verify old schedule was soft-deleted
+        result = await db_session.execute(select(UserRouteSchedule).where(UserRouteSchedule.id == old_schedule_id))
+        deleted_schedule = result.scalar_one()
+        assert deleted_schedule.deleted_at is not None
+
+    @pytest.mark.asyncio
+    async def test_upsert_schedules_empty_array_deletes_all(
+        self,
+        async_client: AsyncClient,
+        auth_headers_for_user: dict[str, str],
+        test_user: User,
+        db_session: AsyncSession,
+    ) -> None:
+        """Test that empty array deletes all schedules."""
+        route = UserRoute(user_id=test_user.id, name="Test Route", active=True)
+        db_session.add(route)
+        await db_session.flush()
+
+        schedule = UserRouteSchedule(
+            route_id=route.id,
+            days_of_week=["MON"],
+            start_time=time(8, 0),
+            end_time=time(9, 0),
+        )
+        db_session.add(schedule)
+        await db_session.commit()
+
+        response = await async_client.put(
+            f"/api/v1/routes/{route.id}/schedules",
+            json={"schedules": []},
+            headers=auth_headers_for_user,
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json() == []
+
+    @pytest.mark.asyncio
+    async def test_upsert_schedules_validation_failure_rolls_back(
+        self,
+        async_client: AsyncClient,
+        auth_headers_for_user: dict[str, str],
+        test_user: User,
+        db_session: AsyncSession,
+    ) -> None:
+        """Test that validation failure on second schedule preserves original state."""
+        route = UserRoute(user_id=test_user.id, name="Test Route", active=True)
+        db_session.add(route)
+        await db_session.flush()
+
+        original_schedule = UserRouteSchedule(
+            route_id=route.id,
+            days_of_week=["MON"],
+            start_time=time(8, 0),
+            end_time=time(9, 0),
+        )
+        db_session.add(original_schedule)
+        await db_session.commit()
+        await db_session.refresh(original_schedule)
+
+        # Try to upsert with one valid and one invalid schedule
+        response = await async_client.put(
+            f"/api/v1/routes/{route.id}/schedules",
+            json={
+                "schedules": [
+                    {"days_of_week": ["TUE"], "start_time": "10:00:00", "end_time": "11:00:00"},
+                    {"days_of_week": ["INVALID_DAY"], "start_time": "14:00:00", "end_time": "15:00:00"},
+                ]
+            },
+            headers=auth_headers_for_user,
+        )
+
+        assert response.status_code == status.HTTP_422_UNPROCESSABLE_ENTITY
+
+        # Verify original schedule is still active (transaction rolled back)
+        await db_session.refresh(original_schedule)
+        assert original_schedule.deleted_at is None
+
+    @pytest.mark.asyncio
+    async def test_upsert_schedules_invalid_time_range(
+        self,
+        async_client: AsyncClient,
+        auth_headers_for_user: dict[str, str],
+        test_user: User,
+        db_session: AsyncSession,
+    ) -> None:
+        """Test that end_time <= start_time is rejected."""
+        route = UserRoute(user_id=test_user.id, name="Test Route", active=True)
+        db_session.add(route)
+        await db_session.commit()
+
+        response = await async_client.put(
+            f"/api/v1/routes/{route.id}/schedules",
+            json={
+                "schedules": [
+                    {"days_of_week": ["MON"], "start_time": "18:00:00", "end_time": "08:00:00"},
+                ]
+            },
+            headers=auth_headers_for_user,
+        )
+
+        assert response.status_code == status.HTTP_422_UNPROCESSABLE_ENTITY
+
+    @pytest.mark.asyncio
+    async def test_upsert_schedules_route_not_found(
+        self,
+        async_client: AsyncClient,
+        auth_headers_for_user: dict[str, str],
+    ) -> None:
+        """Test 404 for non-existent route."""
+        fake_route_id = str(uuid.uuid4())
+
+        response = await async_client.put(
+            f"/api/v1/routes/{fake_route_id}/schedules",
+            json={"schedules": []},
+            headers=auth_headers_for_user,
+        )
+
+        assert response.status_code == status.HTTP_404_NOT_FOUND
+
+    @pytest.mark.asyncio
+    async def test_upsert_schedules_ownership_validation(
+        self,
+        async_client: AsyncClient,
+        auth_headers_for_user: dict[str, str],
+        another_user: User,
+        db_session: AsyncSession,
+    ) -> None:
+        """Test that users cannot modify other users' schedules."""
+        route = UserRoute(user_id=another_user.id, name="Other User Route", active=True)
+        db_session.add(route)
+        await db_session.commit()
+
+        response = await async_client.put(
+            f"/api/v1/routes/{route.id}/schedules",
+            json={"schedules": []},
+            headers=auth_headers_for_user,
+        )
+
+        assert response.status_code == status.HTTP_404_NOT_FOUND
+
+    @pytest.mark.asyncio
+    async def test_upsert_schedules_invalid_days(
+        self,
+        async_client: AsyncClient,
+        auth_headers_for_user: dict[str, str],
+        test_user: User,
+        db_session: AsyncSession,
+    ) -> None:
+        """Test that invalid day codes are rejected."""
+        route = UserRoute(user_id=test_user.id, name="Test Route", active=True)
+        db_session.add(route)
+        await db_session.commit()
+
+        response = await async_client.put(
+            f"/api/v1/routes/{route.id}/schedules",
+            json={
+                "schedules": [
+                    {"days_of_week": ["MONDAY"], "start_time": "08:00:00", "end_time": "18:00:00"},
+                ]
+            },
+            headers=auth_headers_for_user,
+        )
+
+        assert response.status_code == status.HTTP_422_UNPROCESSABLE_ENTITY
+
+    @pytest.mark.asyncio
+    async def test_upsert_schedules_invalid_quarter_hour(
+        self,
+        async_client: AsyncClient,
+        auth_headers_for_user: dict[str, str],
+        test_user: User,
+        db_session: AsyncSession,
+    ) -> None:
+        """Test that times not on quarter-hour boundaries are rejected."""
+        route = UserRoute(user_id=test_user.id, name="Test Route", active=True)
+        db_session.add(route)
+        await db_session.commit()
+
+        # Test with start_time not on quarter-hour
+        response = await async_client.put(
+            f"/api/v1/routes/{route.id}/schedules",
+            json={
+                "schedules": [
+                    {"days_of_week": ["MON"], "start_time": "08:17:00", "end_time": "09:00:00"},
+                ]
+            },
+            headers=auth_headers_for_user,
+        )
+        assert response.status_code == status.HTTP_422_UNPROCESSABLE_ENTITY
+        assert "quarter-hour boundary" in response.json()["detail"][0]["msg"].lower()
+
+        # Test with end_time not on quarter-hour
+        response = await async_client.put(
+            f"/api/v1/routes/{route.id}/schedules",
+            json={
+                "schedules": [
+                    {"days_of_week": ["MON"], "start_time": "08:00:00", "end_time": "09:07:00"},
+                ]
+            },
+            headers=auth_headers_for_user,
+        )
+        assert response.status_code == status.HTTP_422_UNPROCESSABLE_ENTITY
+        assert "quarter-hour boundary" in response.json()["detail"][0]["msg"].lower()
+
+        # Test with seconds (not on quarter-hour)
+        response = await async_client.put(
+            f"/api/v1/routes/{route.id}/schedules",
+            json={
+                "schedules": [
+                    {"days_of_week": ["MON"], "start_time": "08:00:30", "end_time": "09:00:00"},
+                ]
+            },
+            headers=auth_headers_for_user,
+        )
+        assert response.status_code == status.HTTP_422_UNPROCESSABLE_ENTITY
+        assert "quarter-hour boundary" in response.json()["detail"][0]["msg"].lower()
+
     # ==================== Additional Coverage Tests ====================
 
     @pytest.mark.asyncio

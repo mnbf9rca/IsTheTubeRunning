@@ -17,7 +17,7 @@
   - **ALWAYS** run tests at least once with `./safe-test-runner.sh` to catch memory leaks.
   - **ALWAYS** trust that safe-test-runner timeouts are valid - they are there to catch leaks.
 - ⚠️ Don't pipe scripts to `python` command (triggers sandbox protection)
-  - Instead: create temporary script file, execute it, then delete it
+  - Instead: create temporary script file (directly, not by piping text), execute it, then delete it
   - try to avoid using `/tmp` - use project directory if possible - create a temp folder if needed but ensure cleanup
 - ⚠️ **NEVER** start processes detached
   - No `nohup`, no `&`, no daemon mode
@@ -34,6 +34,8 @@
   - `Any` only allowed for 3rd party library wrappers where precise types are impossible
 - ⚠️ Use `ast-grep` for code modifications
   - **NEVER** use `sed` or `awk` - they corrupt complex files
+- ⚠️ **NEVER** skip or override pre-commit hooks
+  - The hooks are there for a reason - fix the issues instead
 
 ### Credentials & Testing
 - ⚠️ Credentials **ARE** available - check `.env` files

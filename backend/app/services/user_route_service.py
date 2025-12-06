@@ -561,6 +561,64 @@ class UserRouteService:
         await soft_delete(self.db, UserRouteSchedule, UserRouteSchedule.id == schedule_id)
         await self.db.commit()
 
+    async def upsert_schedules(
+        self,
+        route_id: uuid.UUID,
+        user_id: uuid.UUID,
+        schedules: list[CreateUserRouteScheduleRequest],
+    ) -> list[UserRouteSchedule]:
+        """
+        Replace all schedules for a route atomically.
+
+        This replaces all existing schedules with the new list. An empty list
+        deletes all schedules.
+
+        Args:
+            route_id: UserRoute UUID
+            user_id: User UUID (for ownership check)
+            schedules: List of schedules to set (empty list deletes all)
+
+        Returns:
+            List of created schedules
+
+        Raises:
+            HTTPException: 404 if route not found
+        """
+        # Verify ownership
+        await self.get_route_by_id(route_id, user_id)
+
+        # Wrap soft delete + create in transaction for atomicity
+        try:
+            # Soft delete existing schedules (Issue #233)
+            await soft_delete(self.db, UserRouteSchedule, UserRouteSchedule.route_id == route_id)
+
+            # Create new schedules
+            new_schedules = []
+            for schedule_request in schedules:
+                new_schedules.append(
+                    UserRouteSchedule(
+                        route_id=route_id,
+                        days_of_week=schedule_request.days_of_week,
+                        start_time=schedule_request.start_time,
+                        end_time=schedule_request.end_time,
+                    )
+                )
+
+            self.db.add_all(new_schedules)
+            await self.db.commit()
+
+            # Reload for response (schedules don't have relationships to load)
+            result = await self.db.execute(
+                select(UserRouteSchedule).where(
+                    UserRouteSchedule.route_id == route_id,
+                    UserRouteSchedule.deleted_at.is_(None),
+                )
+            )
+            return list(result.scalars().all())
+        except Exception:
+            await self.db.rollback()
+            raise
+
     # ==================== Private Helper Methods ====================
 
     async def _validate_segments(self, segments: list[UserRouteSegmentRequest]) -> None:

@@ -188,6 +188,15 @@ class UpdateUserRouteSegmentRequest(BaseModel):
     line_tfl_id: str | None = None
 
 
+class UpsertUserRouteSchedulesRequest(BaseModel):
+    """Request to replace all schedules for a route."""
+
+    schedules: list["CreateUserRouteScheduleRequest"] = Field(
+        default=[],
+        description="List of schedules to set. Empty array deletes all schedules.",
+    )
+
+
 class CreateUserRouteScheduleRequest(BaseModel):
     """Request to create a schedule for a route."""
 
@@ -210,6 +219,26 @@ class CreateUserRouteScheduleRequest(BaseModel):
     def validate_days(cls, days: list[str]) -> list[str]:
         """Validate day codes using shared helper."""
         return _validate_day_codes(days)
+
+    @field_validator("start_time", "end_time")
+    @classmethod
+    def validate_quarter_hour(cls, t: time) -> time:
+        """
+        Validate that time is on a quarter-hour boundary (00, 15, 30, 45 minutes).
+
+        Args:
+            t: Time to validate
+
+        Returns:
+            Validated time
+
+        Raises:
+            ValueError: If time is not on a quarter-hour boundary
+        """
+        if t.minute % 15 != 0 or t.second != 0 or t.microsecond != 0:
+            msg = f"Time must be on quarter-hour boundary (00, 15, 30, 45 minutes). Got {t.strftime('%H:%M:%S')}"
+            raise ValueError(msg)
+        return t
 
     @model_validator(mode="after")
     def validate_time_range(self) -> "CreateUserRouteScheduleRequest":
@@ -240,6 +269,28 @@ class UpdateUserRouteScheduleRequest(BaseModel):
         if days is None:
             return None
         return _validate_day_codes(days)
+
+    @field_validator("start_time", "end_time")
+    @classmethod
+    def validate_quarter_hour(cls, t: time | None) -> time | None:
+        """
+        Validate that time is on a quarter-hour boundary if provided.
+
+        Args:
+            t: Time to validate (optional)
+
+        Returns:
+            Validated time
+
+        Raises:
+            ValueError: If time is not on a quarter-hour boundary
+        """
+        if t is None:
+            return None
+        if t.minute % 15 != 0 or t.second != 0 or t.microsecond != 0:
+            msg = f"Time must be on quarter-hour boundary (00, 15, 30, 45 minutes). Got {t.strftime('%H:%M:%S')}"
+            raise ValueError(msg)
+        return t
 
     @model_validator(mode="after")
     def validate_time_range(self) -> "UpdateUserRouteScheduleRequest":
