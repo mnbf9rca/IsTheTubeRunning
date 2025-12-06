@@ -98,6 +98,11 @@ class TestAlertServiceProcessAllRoutesOtelSpans:
         mock_db = AsyncMock()
         mock_redis = AsyncMock()
 
+        # Mock database execute for get_active_children_for_parents query
+        mock_result = MagicMock()
+        mock_result.scalars.return_value.all.return_value = []  # No schedules
+        mock_db.execute.return_value = mock_result
+
         # Create alert service
         alert_svc = AlertService(db=mock_db, redis_client=mock_redis)
 
@@ -117,7 +122,12 @@ class TestAlertServiceProcessAllRoutesOtelSpans:
         alert_svc._fetch_global_disruption_data = AsyncMock(return_value=set())
 
         # Mock _process_single_route: succeed for first route, fail for second
-        async def mock_process_route(route: UserRoute, disabled_severity_pairs: set) -> tuple[int, bool]:
+        # Updated signature includes schedules parameter
+        async def mock_process_route(
+            route: UserRoute,
+            schedules: list,
+            disabled_severity_pairs: set,
+        ) -> tuple[int, bool]:
             if route is successful_route:
                 return 3, False  # 3 alerts sent, no error
             if route is failing_route:
