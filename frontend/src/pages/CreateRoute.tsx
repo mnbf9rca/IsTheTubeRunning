@@ -11,6 +11,7 @@ import { SegmentBuilder } from '../components/routes/SegmentBuilder/SegmentBuild
 import {
   ScheduleGrid,
   gridToSchedules,
+  validateNotEmpty,
   type GridSelection,
 } from '../components/routes/ScheduleGrid'
 import { useTflData } from '../hooks/useTflData'
@@ -138,6 +139,14 @@ export function CreateRoute() {
       await upsertSegments(route.id, segments)
 
       // 3. Add schedules (convert grid selection to schedules)
+      // Validate that at least one time slot is selected
+      const validationResult = validateNotEmpty(scheduleSelection)
+      if (!validationResult.valid) {
+        setError(validationResult.error!)
+        setIsCreating(false)
+        return
+      }
+
       const schedules = gridToSchedules(scheduleSelection)
       for (const schedule of schedules) {
         await createSchedule(route.id, schedule)

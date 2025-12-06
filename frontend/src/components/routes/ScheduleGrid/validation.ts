@@ -7,7 +7,7 @@
  * @see ADR 11: Frontend State Management Pattern
  */
 
-import { type GridSelection, type ValidationResult } from './types'
+import { DAYS, SLOTS_PER_DAY, type GridSelection, type ValidationResult } from './types'
 
 /**
  * Validate that selection is not empty
@@ -53,11 +53,10 @@ export function validateMaxSchedules(
   // But for validation purposes, this gives us a reasonable upper bound
 
   let blockCount = 0
-  const days = ['MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT', 'SUN']
 
-  for (const day of days) {
+  for (const day of DAYS) {
     let inBlock = false
-    for (let slot = 0; slot < 96; slot++) {
+    for (let slot = 0; slot < SLOTS_PER_DAY; slot++) {
       const isSelected = selection.has(`${day}:${slot}`)
       if (isSelected && !inBlock) {
         blockCount++

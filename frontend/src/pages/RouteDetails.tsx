@@ -13,6 +13,7 @@ import {
   ScheduleGrid,
   schedulesToGrid,
   gridToSchedules,
+  validateNotEmpty,
   type GridSelection,
 } from '../components/routes/ScheduleGrid'
 import { NotificationDisplay } from '../components/routes/NotificationDisplay'
@@ -129,6 +130,13 @@ export function RouteDetails() {
       const updatedSegments = await upsertSegments(id, editSegments)
 
       // 3. Sync schedules (delete all old, create new ones from grid)
+      // Validate that at least one time slot is selected
+      const validationResult = validateNotEmpty(editScheduleSelection)
+      if (!validationResult.valid) {
+        setError(new ApiError(400, validationResult.error!))
+        return
+      }
+
       // Delete all existing schedules
       for (const schedule of route.schedules) {
         await deleteSchedule(id, schedule.id)
