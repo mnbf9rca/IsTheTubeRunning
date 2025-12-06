@@ -1405,15 +1405,29 @@ class TestRoutesAPI:
         assert response.status_code == status.HTTP_200_OK
         assert response.json() == []
 
+        # Verify schedule was actually soft-deleted in the database
+        result = await db_session.execute(
+            select(UserRouteSchedule).where(
+                UserRouteSchedule.route_id == route.id,
+                UserRouteSchedule.deleted_at.is_(None),
+            )
+        )
+        active_schedules = result.scalars().all()
+        assert active_schedules == []
+
     @pytest.mark.asyncio
-    async def test_upsert_schedules_validation_failure_rolls_back(
+    async def test_upsert_schedules_schema_validation_preserves_state(
         self,
         async_client: AsyncClient,
         auth_headers_for_user: dict[str, str],
         test_user: User,
         db_session: AsyncSession,
     ) -> None:
-        """Test that validation failure on second schedule preserves original state."""
+        """Test that schema validation failure (422) preserves original state.
+
+        Note: This tests Pydantic schema validation which occurs before the service
+        layer runs, not transactional rollback within upsert_schedules().
+        """
         route = UserRoute(user_id=test_user.id, name="Test Route", active=True)
         db_session.add(route)
         await db_session.flush()

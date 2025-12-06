@@ -281,9 +281,7 @@ class UpdateUserRouteScheduleRequest(BaseModel):
     @classmethod
     def validate_quarter_hour(cls, t: time | None) -> time | None:
         """Validate that time is on a quarter-hour boundary if provided using shared helper."""
-        if t is None:
-            return None
-        return _validate_quarter_hour(t)
+        return None if t is None else _validate_quarter_hour(t)
 
     @model_validator(mode="after")
     def validate_time_range(self) -> "UpdateUserRouteScheduleRequest":
