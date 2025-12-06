@@ -70,8 +70,9 @@ class UserRouteService:
 
         if load_relationships:
             query = query.options(
-                selectinload(UserRoute.segments).selectinload(UserRouteSegment.station),
-                selectinload(UserRoute.segments).selectinload(UserRouteSegment.line),
+                selectinload(UserRoute.segments)
+                .options(selectinload(UserRouteSegment.station))
+                .options(selectinload(UserRouteSegment.line)),
                 selectinload(UserRoute.schedules),
             )
 
@@ -82,6 +83,11 @@ class UserRouteService:
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail="UserRoute not found.",
             )
+
+        # Filter out soft-deleted segments and schedules from the loaded relationships
+        if load_relationships:
+            route.segments = [seg for seg in route.segments if seg.deleted_at is None]
+            route.schedules = [sched for sched in route.schedules if sched.deleted_at is None]
 
         return route
 
@@ -102,13 +108,21 @@ class UserRouteService:
                 UserRoute.deleted_at.is_(None),
             )
             .options(
-                selectinload(UserRoute.segments).selectinload(UserRouteSegment.station),
-                selectinload(UserRoute.segments).selectinload(UserRouteSegment.line),
+                selectinload(UserRoute.segments)
+                .options(selectinload(UserRouteSegment.station))
+                .options(selectinload(UserRouteSegment.line)),
                 selectinload(UserRoute.schedules),
             )
             .order_by(UserRoute.created_at.desc())
         )
-        return list(result.scalars().all())
+        routes = list(result.scalars().all())
+
+        # Filter out soft-deleted segments and schedules from all routes
+        for route in routes:
+            route.segments = [seg for seg in route.segments if seg.deleted_at is None]
+            route.schedules = [sched for sched in route.schedules if sched.deleted_at is None]
+
+        return routes
 
     async def create_route(
         self,
@@ -560,6 +574,63 @@ class UserRouteService:
         # Soft delete the schedule (Issue #233)
         await soft_delete(self.db, UserRouteSchedule, UserRouteSchedule.id == schedule_id)
         await self.db.commit()
+
+    async def upsert_schedules(
+        self,
+        route_id: uuid.UUID,
+        user_id: uuid.UUID,
+        schedules: list[CreateUserRouteScheduleRequest],
+    ) -> list[UserRouteSchedule]:
+        """
+        Replace all schedules for a route atomically.
+
+        This replaces all existing schedules with the new list. An empty list
+        deletes all schedules.
+
+        Args:
+            route_id: UserRoute UUID
+            user_id: User UUID (for ownership check)
+            schedules: List of schedules to set (empty list deletes all)
+
+        Returns:
+            List of created schedules
+
+        Raises:
+            HTTPException: 404 if route not found
+        """
+        # Verify ownership
+        await self.get_route_by_id(route_id, user_id)
+
+        # Wrap soft delete + create in transaction for atomicity
+        try:
+            # Soft delete existing schedules (Issue #233)
+            await soft_delete(self.db, UserRouteSchedule, UserRouteSchedule.route_id == route_id)
+
+            # Create new schedules
+            new_schedules = [
+                UserRouteSchedule(
+                    route_id=route_id,
+                    days_of_week=schedule_request.days_of_week,
+                    start_time=schedule_request.start_time,
+                    end_time=schedule_request.end_time,
+                )
+                for schedule_request in schedules
+            ]
+
+            self.db.add_all(new_schedules)
+            await self.db.commit()
+
+            # Reload for response (schedules don't have relationships to load)
+            result = await self.db.execute(
+                select(UserRouteSchedule).where(
+                    UserRouteSchedule.route_id == route_id,
+                    UserRouteSchedule.deleted_at.is_(None),
+                )
+            )
+            return list(result.scalars().all())
+        except Exception:
+            await self.db.rollback()
+            raise
 
     # ==================== Private Helper Methods ====================
 

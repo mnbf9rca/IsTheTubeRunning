@@ -25,7 +25,7 @@ import {
   ApiError,
   createRoute,
   upsertSegments,
-  createSchedule,
+  upsertSchedules,
   createNotificationPreference,
   validateRoute as apiValidateRoute,
   getRoutes,
@@ -138,7 +138,7 @@ export function CreateRoute() {
       // 2. Add segments
       await upsertSegments(route.id, segments)
 
-      // 3. Add schedules (convert grid selection to schedules)
+      // 3. Add schedules (atomically - Issue #359)
       // Validate that at least one time slot is selected
       const validationResult = validateNotEmpty(scheduleSelection)
       if (!validationResult.valid) {
@@ -148,9 +148,7 @@ export function CreateRoute() {
       }
 
       const schedules = gridToSchedules(scheduleSelection)
-      for (const schedule of schedules) {
-        await createSchedule(route.id, schedule)
-      }
+      await upsertSchedules(route.id, schedules)
 
       // 4. Add notification preferences
       for (const notification of notifications) {

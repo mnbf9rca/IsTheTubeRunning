@@ -23,7 +23,6 @@ import { segmentResponseToRequest } from '../lib/segment-utils'
 import type {
   RouteResponse,
   SegmentRequest,
-  ScheduleResponse,
   NotificationPreferenceResponse,
   CreateNotificationPreferenceRequest,
   NotificationMethod,
@@ -34,8 +33,7 @@ import {
   updateRoute,
   deleteRoute,
   upsertSegments,
-  createSchedule,
-  deleteSchedule,
+  upsertSchedules,
   getNotificationPreferences,
   createNotificationPreference,
   deleteNotificationPreference,
@@ -129,7 +127,7 @@ export function RouteDetails() {
       // 2. Update segments
       const updatedSegments = await upsertSegments(id, editSegments)
 
-      // 3. Sync schedules (delete all old, create new ones from grid)
+      // 3. Sync schedules (atomically replace all - Issue #359)
       // Validate that at least one time slot is selected
       const validationResult = validateNotEmpty(editScheduleSelection)
       if (!validationResult.valid) {
@@ -137,18 +135,9 @@ export function RouteDetails() {
         return
       }
 
-      // Delete all existing schedules
-      for (const schedule of route.schedules) {
-        await deleteSchedule(id, schedule.id)
-      }
-
-      // Create new schedules from grid selection
+      // Atomically replace all schedules with single API call
       const newSchedules = gridToSchedules(editScheduleSelection)
-      const createdSchedules: ScheduleResponse[] = []
-      for (const scheduleData of newSchedules) {
-        const created = await createSchedule(id, scheduleData)
-        createdSchedules.push(created)
-      }
+      const createdSchedules = await upsertSchedules(id, newSchedules)
 
       // 4. Sync notifications (delete removed, add new ones)
       // Delete notifications that were removed

@@ -10,6 +10,8 @@ import { useConfig } from './contexts/ConfigContext'
  * AppWithAuth - Wraps app in Auth0Provider using runtime config
  * Must be inside ConfigLoader to access config via useConfig hook
  */
+// Entry point file - no exports needed
+// eslint-disable-next-line react-refresh/only-export-components
 function AppWithAuth() {
   const config = useConfig()
 

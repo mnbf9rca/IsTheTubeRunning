@@ -589,6 +589,28 @@ export async function deleteSchedule(routeId: string, scheduleId: string): Promi
   await fetchAPI<void>(`/routes/${routeId}/schedules/${scheduleId}`, { method: 'DELETE' })
 }
 
+/**
+ * Replace all schedules for a route (atomic upsert)
+ *
+ * @param routeId The route ID
+ * @param schedules Array of schedules to set (empty array deletes all)
+ * @returns The updated list of schedules
+ * @throws {ApiError} 422 if validation fails (quarter-hour boundaries, invalid days, end_time <= start_time)
+ */
+export async function upsertSchedules(
+  routeId: string,
+  schedules: CreateScheduleRequest[]
+): Promise<ScheduleResponse[]> {
+  const response = await fetchAPI<ScheduleResponse[]>(`/routes/${routeId}/schedules`, {
+    method: 'PUT',
+    body: JSON.stringify({ schedules }),
+  })
+  if (!response) {
+    throw new ApiError(204, 'Unexpected 204 response from upsert schedules endpoint')
+  }
+  return response
+}
+
 // ============================================================================
 // Notification Preference API
 // ============================================================================

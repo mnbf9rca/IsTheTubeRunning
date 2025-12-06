@@ -22,7 +22,7 @@ from app.core.config import settings
 from app.core.redis import RedisClientProtocol
 from app.core.telemetry import service_span
 from app.helpers.disruption_helpers import disruption_affects_route, extract_line_station_pairs
-from app.helpers.soft_delete_filters import add_active_filter
+from app.helpers.soft_delete_filters import add_active_filter, get_active_children_for_parents
 from app.models.notification import (
     NotificationLog,
     NotificationMethod,
@@ -521,6 +521,13 @@ class AlertService:
                 routes = await self._get_active_routes()
                 logger.info("active_routes_fetched", count=len(routes))
 
+                # Batch load active schedules for all routes (filtered for soft-delete)
+                route_ids = [route.id for route in routes]
+                schedules_by_route = await get_active_children_for_parents(
+                    self.db, UserRouteSchedule, UserRouteSchedule.route_id, route_ids
+                )
+                logger.debug("active_schedules_loaded", route_count=len(routes))
+
                 # Fetch global disruption data once for all routes
                 # Errors are non-fatal - returns empty data on failure
                 disabled_severity_pairs = await self._fetch_global_disruption_data()
@@ -529,9 +536,13 @@ class AlertService:
                 for route in routes:
                     stats["routes_checked"] += 1
 
+                    # Get active schedules for this route
+                    route_schedules = schedules_by_route.get(route.id, [])
+
                     # Process this route and collect results
                     alerts_sent, error_occurred = await self._process_single_route(
                         route=route,
+                        schedules=route_schedules,
                         disabled_severity_pairs=disabled_severity_pairs,
                     )
 
@@ -567,7 +578,8 @@ class AlertService:
                 )
                 .options(
                     selectinload(UserRoute.segments),
-                    selectinload(UserRoute.schedules),
+                    # NOTE: Schedules are loaded separately with soft-delete filter
+                    # to avoid including soft-deleted schedules (Issue #233, PR #360)
                     selectinload(UserRoute.notification_preferences),
                     selectinload(UserRoute.user).selectinload(User.email_addresses),
                 )
@@ -636,7 +648,7 @@ class AlertService:
     async def _get_active_schedule(
         self,
         route: UserRoute,
-        schedules: list[UserRouteSchedule] | None = None,
+        schedules: list[UserRouteSchedule],
     ) -> UserRouteSchedule | None:
         """
         Check if the route is currently in any active schedule window.
@@ -645,8 +657,7 @@ class AlertService:
 
         Args:
             route: UserRoute to check schedules for
-            schedules: Optional list of schedules. If None, uses route.schedules
-                       (but requires schedules to be eagerly loaded)
+            schedules: List of active (non-deleted) schedules for the route
 
         Returns:
             The first matching active schedule, or None if not in any schedule
@@ -668,8 +679,8 @@ class AlertService:
                 current_day=current_day,
             )
 
-            # Use provided schedules or fall back to route.schedules
-            schedules_to_check = schedules if schedules is not None else route.schedules
+            # Check provided schedules (already filtered for soft-delete by caller)
+            schedules_to_check = schedules
 
             # Check each schedule
             for schedule in schedules_to_check:
@@ -1222,6 +1233,7 @@ class AlertService:
     async def _process_single_route(
         self,
         route: UserRoute,
+        schedules: list[UserRouteSchedule],
         disabled_severity_pairs: set[tuple[str, int]],
     ) -> tuple[int, bool]:
         """
@@ -1234,7 +1246,8 @@ class AlertService:
         - Sending alerts to configured notification preferences
 
         Args:
-            route: UserRoute to process (with schedules, segments, preferences loaded)
+            route: UserRoute to process (with segments, preferences loaded)
+            schedules: Active (non-deleted) schedules for this route
             disabled_severity_pairs: Set of (mode_id, severity_level) pairs to filter out
 
         Returns:
@@ -1242,8 +1255,7 @@ class AlertService:
         """
         try:
             # Check if route is in an active schedule window
-            # schedules are eagerly loaded in _get_active_routes
-            active_schedule = await self._get_active_schedule(route, route.schedules)
+            active_schedule = await self._get_active_schedule(route, schedules)
             if not active_schedule:
                 logger.debug(
                     "route_not_in_schedule",

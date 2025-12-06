@@ -516,6 +516,7 @@ class TestProcessSingleRoute:
         with patch.object(alert_service, "_get_active_schedule", new_callable=AsyncMock, return_value=None):
             alerts_sent, error_occurred = await alert_service._process_single_route(
                 route=test_route_with_schedule,
+                schedules=[],
                 disabled_severity_pairs=set(),
             )
 
@@ -539,6 +540,7 @@ class TestProcessSingleRoute:
         ):
             alerts_sent, error_occurred = await alert_service._process_single_route(
                 route=test_route_with_schedule,
+                schedules=[],
                 disabled_severity_pairs=set(),
             )
 
@@ -572,6 +574,7 @@ class TestProcessSingleRoute:
         ):
             alerts_sent, error_occurred = await alert_service._process_single_route(
                 route=test_route_with_schedule,
+                schedules=[],
                 disabled_severity_pairs=set(),
             )
 
@@ -602,6 +605,7 @@ class TestProcessSingleRoute:
         ):
             alerts_sent, error_occurred = await alert_service._process_single_route(
                 route=test_route_with_schedule,
+                schedules=[],
                 disabled_severity_pairs=set(),
             )
 
@@ -632,6 +636,7 @@ class TestProcessSingleRoute:
         ):
             alerts_sent, error_occurred = await alert_service._process_single_route(
                 route=test_route_with_schedule,
+                schedules=[],
                 disabled_severity_pairs=set(),
             )
 
@@ -649,6 +654,7 @@ class TestProcessSingleRoute:
         with patch.object(alert_service, "_get_active_schedule", side_effect=Exception("Unexpected error")):
             alerts_sent, error_occurred = await alert_service._process_single_route(
                 route=test_route_with_schedule,
+                schedules=[],
                 disabled_severity_pairs=set(),
             )
 
@@ -823,7 +829,7 @@ async def test_get_active_schedule_in_window(
     test_route_with_schedule: UserRoute,
 ) -> None:
     """Test getting active schedule when route is in schedule window."""
-    schedule = await alert_service._get_active_schedule(test_route_with_schedule)
+    schedule = await alert_service._get_active_schedule(test_route_with_schedule, test_route_with_schedule.schedules)
 
     assert schedule is not None
     assert schedule.start_time == time_class(8, 0)
@@ -837,7 +843,7 @@ async def test_get_active_schedule_outside_window(
     test_route_with_schedule: UserRoute,
 ) -> None:
     """Test getting active schedule when route is outside schedule window."""
-    schedule = await alert_service._get_active_schedule(test_route_with_schedule)
+    schedule = await alert_service._get_active_schedule(test_route_with_schedule, test_route_with_schedule.schedules)
 
     assert schedule is None
 
@@ -849,7 +855,7 @@ async def test_get_active_schedule_wrong_day(
     test_route_with_schedule: UserRoute,
 ) -> None:
     """Test getting active schedule on weekend (not in schedule days)."""
-    schedule = await alert_service._get_active_schedule(test_route_with_schedule)
+    schedule = await alert_service._get_active_schedule(test_route_with_schedule, test_route_with_schedule.schedules)
 
     assert schedule is None
 
@@ -907,7 +913,7 @@ async def test_get_active_schedule_at_start_boundary(
     test_route_with_schedule: UserRoute,
 ) -> None:
     """Test schedule matching at exact start time."""
-    schedule = await alert_service._get_active_schedule(test_route_with_schedule)
+    schedule = await alert_service._get_active_schedule(test_route_with_schedule, test_route_with_schedule.schedules)
 
     assert schedule is not None
 
@@ -919,7 +925,7 @@ async def test_get_active_schedule_at_end_boundary(
     test_route_with_schedule: UserRoute,
 ) -> None:
     """Test schedule matching at exact end time."""
-    schedule = await alert_service._get_active_schedule(test_route_with_schedule)
+    schedule = await alert_service._get_active_schedule(test_route_with_schedule, test_route_with_schedule.schedules)
 
     assert schedule is not None
 
@@ -2158,12 +2164,15 @@ async def test_process_all_routes_exception_handling(
     if mock_config["setup_route"]:
         # Setup for inner exception tests - need a route to process
         mock_route = Mock(spec=UserRoute)
-        mock_route.id = "test-route"
+        mock_route.id = uuid4()  # Use valid UUID instead of string
         mock_route.name = "Error Route"
         mock_route.schedules = [Mock()]
+        mock_db_result = Mock()
+        mock_db_result.scalars.return_value.all.return_value = []  # No schedules
 
         with (
             patch.object(alert_service, "_get_active_routes", return_value=[mock_route]),
+            patch.object(alert_service.db, "execute", return_value=mock_db_result),  # Mock DB for schedule loading
             patch.object(alert_service, "_get_active_schedule", return_value=Mock()),
             patch.object(
                 alert_service,
@@ -2324,10 +2333,10 @@ async def test_get_active_schedule_exception_handling(
     mock_route = Mock(spec=UserRoute)
     mock_route.id = uuid4()
     mock_route.timezone = "Invalid/Timezone"  # Invalid timezone will cause error
-    mock_route.schedules = [Mock()]
+    mock_schedules = [Mock()]
 
     # This should handle the exception and return None
-    schedule = await alert_service._get_active_schedule(mock_route)
+    schedule = await alert_service._get_active_schedule(mock_route, mock_schedules)
     assert schedule is None
 
 

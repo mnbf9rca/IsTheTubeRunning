@@ -101,6 +101,8 @@ export function PollingProvider({ children }: { children: ReactNode }) {
   return <PollingContext.Provider value={contextValue}>{children}</PollingContext.Provider>
 }
 
+// Hook exported alongside provider per React context pattern
+// eslint-disable-next-line react-refresh/only-export-components
 export function usePollingCoordinator(): PollingContextType {
   const context = useContext(PollingContext)
   if (context === undefined) {
