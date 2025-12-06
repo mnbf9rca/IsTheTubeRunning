@@ -1440,11 +1440,27 @@ class TestRoutesAPI:
             headers=auth_headers_for_user,
         )
 
-        assert response.status_code == status.HTTP_422_UNPROCESSABLE_ENTITY
+        assert response.status_code == status.HTTP_422_UNPROCESSABLE_CONTENT
 
         # Verify original schedule is still active (transaction rolled back)
         await db_session.refresh(original_schedule)
         assert original_schedule.deleted_at is None
+
+        # Ensure no new schedules were created and original remained unchanged
+        result = await db_session.execute(
+            select(UserRouteSchedule).where(
+                UserRouteSchedule.route_id == route.id,
+                UserRouteSchedule.deleted_at.is_(None),
+            )
+        )
+        active_schedules = result.scalars().all()
+        assert len(active_schedules) == 1
+
+        schedule = active_schedules[0]
+        assert schedule.id == original_schedule.id
+        assert schedule.start_time == original_schedule.start_time
+        assert schedule.end_time == original_schedule.end_time
+        assert schedule.days_of_week == original_schedule.days_of_week
 
     @pytest.mark.asyncio
     async def test_upsert_schedules_invalid_time_range(
@@ -1469,7 +1485,7 @@ class TestRoutesAPI:
             headers=auth_headers_for_user,
         )
 
-        assert response.status_code == status.HTTP_422_UNPROCESSABLE_ENTITY
+        assert response.status_code == status.HTTP_422_UNPROCESSABLE_CONTENT
 
     @pytest.mark.asyncio
     async def test_upsert_schedules_route_not_found(
@@ -1532,7 +1548,7 @@ class TestRoutesAPI:
             headers=auth_headers_for_user,
         )
 
-        assert response.status_code == status.HTTP_422_UNPROCESSABLE_ENTITY
+        assert response.status_code == status.HTTP_422_UNPROCESSABLE_CONTENT
 
     @pytest.mark.asyncio
     async def test_upsert_schedules_invalid_quarter_hour(
@@ -1557,7 +1573,7 @@ class TestRoutesAPI:
             },
             headers=auth_headers_for_user,
         )
-        assert response.status_code == status.HTTP_422_UNPROCESSABLE_ENTITY
+        assert response.status_code == status.HTTP_422_UNPROCESSABLE_CONTENT
         assert "quarter-hour boundary" in response.json()["detail"][0]["msg"].lower()
 
         # Test with end_time not on quarter-hour
@@ -1570,7 +1586,7 @@ class TestRoutesAPI:
             },
             headers=auth_headers_for_user,
         )
-        assert response.status_code == status.HTTP_422_UNPROCESSABLE_ENTITY
+        assert response.status_code == status.HTTP_422_UNPROCESSABLE_CONTENT
         assert "quarter-hour boundary" in response.json()["detail"][0]["msg"].lower()
 
         # Test with seconds (not on quarter-hour)
@@ -1583,7 +1599,7 @@ class TestRoutesAPI:
             },
             headers=auth_headers_for_user,
         )
-        assert response.status_code == status.HTTP_422_UNPROCESSABLE_ENTITY
+        assert response.status_code == status.HTTP_422_UNPROCESSABLE_CONTENT
         assert "quarter-hour boundary" in response.json()["detail"][0]["msg"].lower()
 
     # ==================== Additional Coverage Tests ====================

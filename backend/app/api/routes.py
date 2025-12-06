@@ -398,6 +398,7 @@ async def upsert_schedules(
 
     Raises:
         HTTPException: 404 if route not found
+        HTTPException: 422 if validation fails (quarter-hour boundaries, invalid days, end_time <= start_time)
     """
     service = UserRouteService(db)
     return await service.upsert_schedules(route_id, current_user.id, request.schedules)

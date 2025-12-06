@@ -593,16 +593,15 @@ class UserRouteService:
             await soft_delete(self.db, UserRouteSchedule, UserRouteSchedule.route_id == route_id)
 
             # Create new schedules
-            new_schedules = []
-            for schedule_request in schedules:
-                new_schedules.append(
-                    UserRouteSchedule(
-                        route_id=route_id,
-                        days_of_week=schedule_request.days_of_week,
-                        start_time=schedule_request.start_time,
-                        end_time=schedule_request.end_time,
-                    )
+            new_schedules = [
+                UserRouteSchedule(
+                    route_id=route_id,
+                    days_of_week=schedule_request.days_of_week,
+                    start_time=schedule_request.start_time,
+                    end_time=schedule_request.end_time,
                 )
+                for schedule_request in schedules
+            ]
 
             self.db.add_all(new_schedules)
             await self.db.commit()

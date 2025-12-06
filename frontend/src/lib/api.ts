@@ -595,7 +595,7 @@ export async function deleteSchedule(routeId: string, scheduleId: string): Promi
  * @param routeId The route ID
  * @param schedules Array of schedules to set (empty array deletes all)
  * @returns The updated list of schedules
- * @throws {ApiError} 400 if validation fails (invalid days, end_time <= start_time)
+ * @throws {ApiError} 422 if validation fails (quarter-hour boundaries, invalid days, end_time <= start_time)
  */
 export async function upsertSchedules(
   routeId: string,
