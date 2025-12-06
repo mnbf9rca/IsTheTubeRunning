@@ -119,8 +119,8 @@ echo "Difference: +$((FINAL_COUNT - BASELINE_COUNT))" | tee -a "$LOG_FILE"
 echo "" | tee -a "$LOG_FILE"
 
 # Show test output
-echo "=== Test Output (last 50 lines) ===" | tee -a "$LOG_FILE"
-tail -50 test-output.log | tee -a "$LOG_FILE"
+echo "=== Test Output (last 100 lines) ===" | tee -a "$LOG_FILE"
+tail -100 test-output.log | tee -a "$LOG_FILE"
 
 echo "" | tee -a "$LOG_FILE"
 echo "Completed at: $(date)" | tee -a "$LOG_FILE"
