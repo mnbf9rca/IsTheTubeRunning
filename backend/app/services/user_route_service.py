@@ -70,8 +70,9 @@ class UserRouteService:
 
         if load_relationships:
             query = query.options(
-                selectinload(UserRoute.segments).selectinload(UserRouteSegment.station),
-                selectinload(UserRoute.segments).selectinload(UserRouteSegment.line),
+                selectinload(UserRoute.segments)
+                .options(selectinload(UserRouteSegment.station))
+                .options(selectinload(UserRouteSegment.line)),
                 selectinload(UserRoute.schedules),
             )
 
@@ -82,6 +83,11 @@ class UserRouteService:
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail="UserRoute not found.",
             )
+
+        # Filter out soft-deleted segments and schedules from the loaded relationships
+        if load_relationships:
+            route.segments = [seg for seg in route.segments if seg.deleted_at is None]
+            route.schedules = [sched for sched in route.schedules if sched.deleted_at is None]
 
         return route
 
@@ -102,13 +108,21 @@ class UserRouteService:
                 UserRoute.deleted_at.is_(None),
             )
             .options(
-                selectinload(UserRoute.segments).selectinload(UserRouteSegment.station),
-                selectinload(UserRoute.segments).selectinload(UserRouteSegment.line),
+                selectinload(UserRoute.segments)
+                .options(selectinload(UserRouteSegment.station))
+                .options(selectinload(UserRouteSegment.line)),
                 selectinload(UserRoute.schedules),
             )
             .order_by(UserRoute.created_at.desc())
         )
-        return list(result.scalars().all())
+        routes = list(result.scalars().all())
+
+        # Filter out soft-deleted segments and schedules from all routes
+        for route in routes:
+            route.segments = [seg for seg in route.segments if seg.deleted_at is None]
+            route.schedules = [sched for sched in route.schedules if sched.deleted_at is None]
+
+        return routes
 
     async def create_route(
         self,
