@@ -294,6 +294,194 @@ class TestRoutesAPI:
         assert response.status_code == status.HTTP_404_NOT_FOUND
 
     @pytest.mark.asyncio
+    async def test_get_route_excludes_soft_deleted_segments(
+        self,
+        async_client: AsyncClient,
+        auth_headers_for_user: dict[str, str],
+        test_user: User,
+        test_station1: Station,
+        test_station2: Station,
+        test_line: Line,
+        db_session: AsyncSession,
+    ) -> None:
+        """Test that get_route only returns active segments, not soft-deleted ones."""
+        # Create route with segments
+        route = UserRoute(user_id=test_user.id, name="Test Route", active=True)
+        db_session.add(route)
+        await db_session.commit()
+        await db_session.refresh(route)
+
+        # Create 2 active segments
+        active_seg1 = UserRouteSegment(
+            route_id=route.id,
+            sequence=0,
+            station_id=test_station1.id,
+            line_id=test_line.id,
+        )
+        active_seg2 = UserRouteSegment(
+            route_id=route.id,
+            sequence=1,
+            station_id=test_station2.id,
+            line_id=None,  # destination
+        )
+        db_session.add_all([active_seg1, active_seg2])
+
+        # Create 2 soft-deleted segments (simulating an old upsert)
+        deleted_seg1 = UserRouteSegment(
+            route_id=route.id,
+            sequence=0,
+            station_id=test_station1.id,
+            line_id=test_line.id,
+            deleted_at=datetime.now(UTC),
+        )
+        deleted_seg2 = UserRouteSegment(
+            route_id=route.id,
+            sequence=1,
+            station_id=test_station2.id,
+            line_id=None,
+            deleted_at=datetime.now(UTC),
+        )
+        db_session.add_all([deleted_seg1, deleted_seg2])
+        await db_session.commit()
+
+        # Fetch route via API
+        response = await async_client.get(
+            f"/api/v1/routes/{route.id}",
+            headers=auth_headers_for_user,
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        data = response.json()
+        # Should only return 2 active segments, not 4 total
+        assert len(data["segments"]) == 2
+        # Verify both returned segments have no deleted_at
+        for segment in data["segments"]:
+            # API doesn't return deleted_at, but we verify count is correct
+            assert segment["sequence"] in [0, 1]
+
+    @pytest.mark.asyncio
+    async def test_get_route_excludes_soft_deleted_schedules(
+        self,
+        async_client: AsyncClient,
+        auth_headers_for_user: dict[str, str],
+        test_user: User,
+        db_session: AsyncSession,
+    ) -> None:
+        """Test that get_route only returns active schedules, not soft-deleted ones."""
+        # Create route
+        route = UserRoute(user_id=test_user.id, name="Test Route", active=True)
+        db_session.add(route)
+        await db_session.commit()
+        await db_session.refresh(route)
+
+        # Create 2 active schedules
+        active_sched1 = UserRouteSchedule(
+            route_id=route.id,
+            days_of_week=["MON"],
+            start_time=time(8, 0),
+            end_time=time(9, 0),
+        )
+        active_sched2 = UserRouteSchedule(
+            route_id=route.id,
+            days_of_week=["TUE"],
+            start_time=time(8, 0),
+            end_time=time(9, 0),
+        )
+        db_session.add_all([active_sched1, active_sched2])
+
+        # Create 2 soft-deleted schedules (simulating an old upsert)
+        deleted_sched1 = UserRouteSchedule(
+            route_id=route.id,
+            days_of_week=["MON"],
+            start_time=time(8, 0),
+            end_time=time(9, 0),
+            deleted_at=datetime.now(UTC),
+        )
+        deleted_sched2 = UserRouteSchedule(
+            route_id=route.id,
+            days_of_week=["TUE"],
+            start_time=time(8, 0),
+            end_time=time(9, 0),
+            deleted_at=datetime.now(UTC),
+        )
+        db_session.add_all([deleted_sched1, deleted_sched2])
+        await db_session.commit()
+
+        # Fetch route via API
+        response = await async_client.get(
+            f"/api/v1/routes/{route.id}",
+            headers=auth_headers_for_user,
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        data = response.json()
+        # Should only return 2 active schedules, not 4 total
+        assert len(data["schedules"]) == 2
+
+    @pytest.mark.asyncio
+    async def test_list_routes_excludes_soft_deleted_segments(
+        self,
+        async_client: AsyncClient,
+        auth_headers_for_user: dict[str, str],
+        test_user: User,
+        test_station1: Station,
+        test_station2: Station,
+        test_line: Line,
+        db_session: AsyncSession,
+    ) -> None:
+        """Test that list_routes only counts active segments, not soft-deleted ones."""
+        # Create route
+        route = UserRoute(user_id=test_user.id, name="Test Route", active=True)
+        db_session.add(route)
+        await db_session.commit()
+        await db_session.refresh(route)
+
+        # Create 2 active segments
+        active_seg1 = UserRouteSegment(
+            route_id=route.id,
+            sequence=0,
+            station_id=test_station1.id,
+            line_id=test_line.id,
+        )
+        active_seg2 = UserRouteSegment(
+            route_id=route.id,
+            sequence=1,
+            station_id=test_station2.id,
+            line_id=None,
+        )
+        db_session.add_all([active_seg1, active_seg2])
+
+        # Create 2 soft-deleted segments
+        deleted_seg1 = UserRouteSegment(
+            route_id=route.id,
+            sequence=0,
+            station_id=test_station1.id,
+            line_id=test_line.id,
+            deleted_at=datetime.now(UTC),
+        )
+        deleted_seg2 = UserRouteSegment(
+            route_id=route.id,
+            sequence=1,
+            station_id=test_station2.id,
+            line_id=None,
+            deleted_at=datetime.now(UTC),
+        )
+        db_session.add_all([deleted_seg1, deleted_seg2])
+        await db_session.commit()
+
+        # List routes via API
+        response = await async_client.get(
+            "/api/v1/routes",
+            headers=auth_headers_for_user,
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        data = response.json()
+        assert len(data) == 1
+        # segment_count should be 2 (active only), not 4 (active + deleted)
+        assert data[0]["segment_count"] == 2
+
+    @pytest.mark.asyncio
     async def test_update_route(
         self,
         async_client: AsyncClient,
