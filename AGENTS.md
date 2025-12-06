@@ -25,7 +25,7 @@
   - Use foreground processes in background shells for proper log access
 
 ### Code Quality
-- ⚠️ **NEVER** use `# noqa` to suppress linting errors
+- ⚠️ **NEVER** use `# noqa` to suppress linting errors or warnings
   - Refactor the code instead, especially for complexity warnings (PLR0912, PLR0915)
   - Use pure functions to reduce complexity
   - Only exception: PLC0415 for necessary circular import prevention (document rationale)
