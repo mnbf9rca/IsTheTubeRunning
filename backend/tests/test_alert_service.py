@@ -24,7 +24,7 @@ from app.models.tfl import AlertDisabledSeverity, Line, LineDisruptionStateLog, 
 from app.models.user import EmailAddress, PhoneNumber, User
 from app.models.user_route import UserRoute, UserRouteSchedule, UserRouteSegment
 from app.models.user_route_index import UserRouteStationIndex
-from app.schemas.tfl import AffectedRouteInfo, DisruptionResponse
+from app.schemas.tfl import AffectedRouteInfo, ClearedLineInfo, DisruptionResponse
 from app.services.alert_service import (
     ALERT_STATE_VERSION,
     AlertService,
@@ -5267,3 +5267,501 @@ class TestPerLineCooldown:
         # Piccadilly should be unchanged (preserved from existing state)
         assert stored_data["lines"]["piccadilly"]["full_hash"] == "piccadilly_hash"
         assert stored_data["lines"]["piccadilly"]["severity"] == 6
+
+
+# ==================== Cleared Line Notification Tests ====================
+
+
+@pytest.fixture
+def sample_cleared_lines() -> list[ClearedLineInfo]:
+    """Sample cleared lines for testing status updates."""
+    return [
+        ClearedLineInfo(
+            line_id="victoria",
+            line_name="Victoria",
+            mode="tube",
+            previous_severity=5,
+            previous_status="Severe Delays",
+            current_severity=10,
+            current_status="Good Service",
+        ),
+    ]
+
+
+class TestSendSingleStatusUpdate:
+    """Tests for _send_single_status_update method."""
+
+    @pytest.mark.asyncio
+    @patch("app.services.alert_service.NotificationService")
+    async def test_send_email_status_update_success(
+        self,
+        mock_notif_class: MagicMock,
+        alert_service: AlertService,
+        test_route_with_schedule: UserRoute,
+        sample_cleared_lines: list[ClearedLineInfo],
+        sample_disruptions: list[DisruptionResponse],
+        db_session: AsyncSession,
+    ) -> None:
+        """Test successful email status update notification."""
+        # Mock notification service
+        mock_notif_instance = AsyncMock()
+        mock_notif_instance.send_status_update_email = AsyncMock()
+        mock_notif_class.return_value = mock_notif_instance
+
+        # Get email preference
+        email_result = await db_session.execute(
+            select(EmailAddress).where(EmailAddress.user_id == test_route_with_schedule.user_id)
+        )
+        email = email_result.scalar_one()
+
+        notification_pref = NotificationPreference(
+            route_id=test_route_with_schedule.id,
+            method=NotificationMethod.EMAIL,
+            target_email_id=email.id,
+        )
+
+        success, error = await alert_service._send_single_status_update(
+            pref=notification_pref,
+            contact_info=email.email,
+            route=test_route_with_schedule,
+            cleared_lines=sample_cleared_lines,
+            still_disrupted=sample_disruptions,
+        )
+
+        assert success is True
+        assert error is None
+        mock_notif_instance.send_status_update_email.assert_called_once_with(
+            email=email.email,
+            route_name=test_route_with_schedule.name,
+            cleared_lines=sample_cleared_lines,
+            still_disrupted=sample_disruptions,
+            user_name="test@example.com",  # Email from test_user_with_contacts fixture
+        )
+
+    @pytest.mark.asyncio
+    @patch("app.services.alert_service.NotificationService")
+    async def test_send_sms_status_update_success(
+        self,
+        mock_notif_class: MagicMock,
+        alert_service: AlertService,
+        test_route_with_schedule: UserRoute,
+        sample_cleared_lines: list[ClearedLineInfo],
+        sample_disruptions: list[DisruptionResponse],
+        db_session: AsyncSession,
+    ) -> None:
+        """Test successful SMS status update notification."""
+        # Mock notification service
+        mock_notif_instance = AsyncMock()
+        mock_notif_instance.send_status_update_sms = AsyncMock()
+        mock_notif_class.return_value = mock_notif_instance
+
+        # Get phone preference
+        phone_result = await db_session.execute(
+            select(PhoneNumber).where(PhoneNumber.user_id == test_route_with_schedule.user_id)
+        )
+        phone = phone_result.scalar_one()
+
+        notification_pref = NotificationPreference(
+            route_id=test_route_with_schedule.id,
+            method=NotificationMethod.SMS,
+            target_phone_id=phone.id,
+        )
+
+        success, error = await alert_service._send_single_status_update(
+            pref=notification_pref,
+            contact_info=phone.phone,
+            route=test_route_with_schedule,
+            cleared_lines=sample_cleared_lines,
+            still_disrupted=sample_disruptions,
+        )
+
+        assert success is True
+        assert error is None
+        mock_notif_instance.send_status_update_sms.assert_called_once_with(
+            phone=phone.phone,
+            route_name=test_route_with_schedule.name,
+            cleared_lines=sample_cleared_lines,
+            still_disrupted=sample_disruptions,
+        )
+
+    @pytest.mark.asyncio
+    @patch("app.services.alert_service.NotificationService")
+    async def test_send_status_update_email_error(
+        self,
+        mock_notif_class: MagicMock,
+        alert_service: AlertService,
+        test_route_with_schedule: UserRoute,
+        sample_cleared_lines: list[ClearedLineInfo],
+        sample_disruptions: list[DisruptionResponse],
+        db_session: AsyncSession,
+    ) -> None:
+        """Test email status update error handling."""
+        # Mock notification service to raise error
+        mock_notif_instance = AsyncMock()
+        mock_notif_instance.send_status_update_email = AsyncMock(side_effect=Exception("SMTP error"))
+        mock_notif_class.return_value = mock_notif_instance
+
+        # Get email preference
+        email_result = await db_session.execute(
+            select(EmailAddress).where(EmailAddress.user_id == test_route_with_schedule.user_id)
+        )
+        email = email_result.scalar_one()
+
+        notification_pref = NotificationPreference(
+            route_id=test_route_with_schedule.id,
+            method=NotificationMethod.EMAIL,
+            target_email_id=email.id,
+        )
+
+        success, error = await alert_service._send_single_status_update(
+            pref=notification_pref,
+            contact_info=email.email,
+            route=test_route_with_schedule,
+            cleared_lines=sample_cleared_lines,
+            still_disrupted=sample_disruptions,
+        )
+
+        assert success is False
+        assert error == "SMTP error"
+
+    @pytest.mark.asyncio
+    @patch("app.services.alert_service.NotificationService")
+    async def test_send_status_update_sms_error(
+        self,
+        mock_notif_class: MagicMock,
+        alert_service: AlertService,
+        test_route_with_schedule: UserRoute,
+        sample_cleared_lines: list[ClearedLineInfo],
+        sample_disruptions: list[DisruptionResponse],
+        db_session: AsyncSession,
+    ) -> None:
+        """Test SMS status update error handling."""
+        # Mock notification service to raise error
+        mock_notif_instance = AsyncMock()
+        mock_notif_instance.send_status_update_sms = AsyncMock(side_effect=Exception("Twilio error"))
+        mock_notif_class.return_value = mock_notif_instance
+
+        # Get phone preference
+        phone_result = await db_session.execute(
+            select(PhoneNumber).where(PhoneNumber.user_id == test_route_with_schedule.user_id)
+        )
+        phone = phone_result.scalar_one()
+
+        notification_pref = NotificationPreference(
+            route_id=test_route_with_schedule.id,
+            method=NotificationMethod.SMS,
+            target_phone_id=phone.id,
+        )
+
+        success, error = await alert_service._send_single_status_update(
+            pref=notification_pref,
+            contact_info=phone.phone,
+            route=test_route_with_schedule,
+            cleared_lines=sample_cleared_lines,
+            still_disrupted=sample_disruptions,
+        )
+
+        assert success is False
+        assert error == "Twilio error"
+
+
+class TestSendStatusUpdateNotifications:
+    """Tests for _send_status_update_notifications method."""
+
+    @pytest.mark.asyncio
+    @patch("app.services.alert_service.NotificationService")
+    async def test_send_status_update_notifications_success(
+        self,
+        mock_notif_class: MagicMock,
+        alert_service: AlertService,
+        test_route_with_schedule: UserRoute,
+        sample_cleared_lines: list[ClearedLineInfo],
+        sample_disruptions: list[DisruptionResponse],
+        db_session: AsyncSession,
+    ) -> None:
+        """Test successful status update notifications."""
+        # Mock notification service
+        mock_notif_instance = AsyncMock()
+        mock_notif_instance.send_status_update_email = AsyncMock()
+        mock_notif_class.return_value = mock_notif_instance
+
+        schedule = test_route_with_schedule.schedules[0]
+
+        # Call method
+        await alert_service._send_status_update_notifications(
+            route=test_route_with_schedule,
+            schedule=schedule,
+            cleared_lines=sample_cleared_lines,
+            still_disrupted=sample_disruptions,
+        )
+
+        # Verify notification was sent
+        mock_notif_instance.send_status_update_email.assert_called_once()
+
+        # Verify notification log was created
+        result = await db_session.execute(
+            select(NotificationLog).where(NotificationLog.route_id == test_route_with_schedule.id)
+        )
+        logs = result.scalars().all()
+        assert len(logs) == 1
+        assert logs[0].status == NotificationStatus.SENT
+
+    @pytest.mark.asyncio
+    @patch("app.services.alert_service.NotificationService")
+    async def test_send_status_update_updates_redis_state(
+        self,
+        mock_notif_class: MagicMock,
+        alert_service: AlertService,
+        test_route_with_schedule: UserRoute,
+        sample_cleared_lines: list[ClearedLineInfo],
+        sample_disruptions: list[DisruptionResponse],
+        db_session: AsyncSession,
+    ) -> None:
+        """Test that status update notifications remove cleared lines from Redis state."""
+        # Mock notification service
+        mock_notif_instance = AsyncMock()
+        mock_notif_instance.send_status_update_email = AsyncMock()
+        mock_notif_class.return_value = mock_notif_instance
+
+        # Mock Redis to verify state updates
+        mock_redis = alert_service.redis_client
+        mock_redis.get = AsyncMock(
+            return_value=json.dumps(
+                {
+                    "version": ALERT_STATE_VERSION,
+                    "lines": {
+                        "victoria": {
+                            "full_hash": "test_hash",
+                            "severity": 5,
+                            "status": "Severe Delays",
+                        }
+                    },
+                }
+            )
+        )
+        mock_redis.setex = AsyncMock()
+        mock_redis.delete = AsyncMock()
+
+        schedule = test_route_with_schedule.schedules[0]
+
+        # Call method
+        await alert_service._send_status_update_notifications(
+            route=test_route_with_schedule,
+            schedule=schedule,
+            cleared_lines=sample_cleared_lines,
+            still_disrupted=sample_disruptions,
+        )
+
+        # Verify Redis was updated (either setex for partial update or delete for full clear)
+        assert mock_redis.setex.called or mock_redis.delete.called
+
+    @pytest.mark.asyncio
+    async def test_send_status_update_no_preferences(
+        self,
+        alert_service: AlertService,
+        db_session: AsyncSession,
+        test_user_with_contacts: User,
+        test_line: Line,
+        test_station: Station,
+        sample_cleared_lines: list[ClearedLineInfo],
+        sample_disruptions: list[DisruptionResponse],
+    ) -> None:
+        """Test that no notifications are sent when route has no preferences."""
+        # Create route without notification preferences
+        route = UserRoute(
+            user_id=test_user_with_contacts.id,
+            name="No Prefs Route",
+            active=True,
+            timezone="Europe/London",
+        )
+        db_session.add(route)
+        await db_session.flush()
+
+        segment = UserRouteSegment(
+            route_id=route.id,
+            sequence=0,
+            station_id=test_station.id,
+            line_id=test_line.id,
+        )
+        db_session.add(segment)
+
+        schedule = UserRouteSchedule(
+            route_id=route.id,
+            days_of_week=["MON", "TUE", "WED", "THU", "FRI"],
+            start_time=time_class(8, 0),
+            end_time=time_class(10, 0),
+        )
+        db_session.add(schedule)
+        await db_session.commit()
+        await db_session.refresh(route)
+
+        # Call method - should complete without errors
+        await alert_service._send_status_update_notifications(
+            route=route,
+            schedule=schedule,
+            cleared_lines=sample_cleared_lines,
+            still_disrupted=sample_disruptions,
+        )
+
+        # Verify no notification logs were created
+        result = await db_session.execute(select(NotificationLog).where(NotificationLog.route_id == route.id))
+        logs = result.scalars().all()
+        assert len(logs) == 0
+
+
+class TestUpdateAlertStateRemoveCleared:
+    """Tests for _update_alert_state_remove_cleared method."""
+
+    @pytest.mark.asyncio
+    @freeze_time("2025-01-15 09:00:00", tz_offset=0)
+    async def test_remove_cleared_lines_from_state(
+        self,
+        alert_service: AlertService,
+        test_route_with_schedule: UserRoute,
+    ) -> None:
+        """Test removing cleared lines from Redis state."""
+        schedule = test_route_with_schedule.schedules[0]
+        mock_redis = alert_service.redis_client
+
+        # Setup existing state with multiple lines
+        existing_state = {
+            "version": ALERT_STATE_VERSION,
+            "lines": {
+                "victoria": {
+                    "full_hash": "victoria_hash",
+                    "severity": 5,
+                    "status": "Severe Delays",
+                },
+                "piccadilly": {
+                    "full_hash": "piccadilly_hash",
+                    "severity": 6,
+                    "status": "Minor Delays",
+                },
+            },
+        }
+        mock_redis.get = AsyncMock(return_value=json.dumps(existing_state))
+        mock_redis.setex = AsyncMock()
+
+        # Remove victoria from state
+        await alert_service._update_alert_state_remove_cleared(
+            route=test_route_with_schedule,
+            user_id=test_route_with_schedule.user_id,
+            schedule=schedule,
+            cleared_line_ids=["victoria"],
+        )
+
+        # Verify setex was called
+        assert mock_redis.setex.called
+        call_args = mock_redis.setex.call_args[0]
+        _key, _ttl, value = call_args
+        updated_state = json.loads(value)
+
+        # Verify victoria was removed
+        assert "victoria" not in updated_state["lines"]
+        # Verify piccadilly was preserved
+        assert "piccadilly" in updated_state["lines"]
+        assert updated_state["lines"]["piccadilly"]["full_hash"] == "piccadilly_hash"
+
+    @pytest.mark.asyncio
+    @freeze_time("2025-01-15 09:00:00", tz_offset=0)
+    async def test_delete_state_when_all_lines_cleared(
+        self,
+        alert_service: AlertService,
+        test_route_with_schedule: UserRoute,
+    ) -> None:
+        """Test deleting Redis key when all lines are cleared."""
+        schedule = test_route_with_schedule.schedules[0]
+        mock_redis = alert_service.redis_client
+
+        # Setup existing state with one line
+        existing_state = {
+            "version": ALERT_STATE_VERSION,
+            "lines": {
+                "victoria": {
+                    "full_hash": "victoria_hash",
+                    "severity": 5,
+                    "status": "Severe Delays",
+                }
+            },
+        }
+        mock_redis.get = AsyncMock(return_value=json.dumps(existing_state))
+        mock_redis.delete = AsyncMock()
+
+        # Remove the only line from state
+        await alert_service._update_alert_state_remove_cleared(
+            route=test_route_with_schedule,
+            user_id=test_route_with_schedule.user_id,
+            schedule=schedule,
+            cleared_line_ids=["victoria"],
+        )
+
+        # Verify delete was called instead of setex
+        assert mock_redis.delete.called
+
+    @pytest.mark.asyncio
+    async def test_handle_missing_redis_state(
+        self,
+        alert_service: AlertService,
+        test_route_with_schedule: UserRoute,
+    ) -> None:
+        """Test handling when Redis state doesn't exist."""
+        schedule = test_route_with_schedule.schedules[0]
+        mock_redis = alert_service.redis_client
+
+        # No existing state
+        mock_redis.get = AsyncMock(return_value=None)
+        mock_redis.setex = AsyncMock()
+
+        # Call method - should complete without errors
+        await alert_service._update_alert_state_remove_cleared(
+            route=test_route_with_schedule,
+            user_id=test_route_with_schedule.user_id,
+            schedule=schedule,
+            cleared_line_ids=["victoria"],
+        )
+
+        # Verify no setex was called (nothing to update)
+        assert not mock_redis.setex.called
+
+    @pytest.mark.asyncio
+    @freeze_time("2025-01-15 09:00:00", tz_offset=0)
+    async def test_handle_cleared_line_not_in_state(
+        self,
+        alert_service: AlertService,
+        test_route_with_schedule: UserRoute,
+    ) -> None:
+        """Test handling when cleared line is not in Redis state."""
+        schedule = test_route_with_schedule.schedules[0]
+        mock_redis = alert_service.redis_client
+
+        # Setup existing state without the cleared line
+        existing_state = {
+            "version": ALERT_STATE_VERSION,
+            "lines": {
+                "piccadilly": {
+                    "full_hash": "piccadilly_hash",
+                    "severity": 6,
+                    "status": "Minor Delays",
+                }
+            },
+        }
+        mock_redis.get = AsyncMock(return_value=json.dumps(existing_state))
+        mock_redis.setex = AsyncMock()
+        mock_redis.delete = AsyncMock()
+
+        # Try to remove victoria (not in state)
+        await alert_service._update_alert_state_remove_cleared(
+            route=test_route_with_schedule,
+            user_id=test_route_with_schedule.user_id,
+            schedule=schedule,
+            cleared_line_ids=["victoria"],
+        )
+
+        # Verify setex was still called (to update TTL)
+        assert mock_redis.setex.called
+        call_args = mock_redis.setex.call_args[0]
+        _key, _ttl, value = call_args
+        updated_state = json.loads(value)
+
+        # Verify piccadilly is still present
+        assert "piccadilly" in updated_state["lines"]

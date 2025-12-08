@@ -1363,6 +1363,322 @@ class AlertService:
             )
             return False, str(send_error)
 
+    async def _send_single_status_update(
+        self,
+        pref: NotificationPreference,
+        contact_info: str,
+        route: UserRoute,
+        cleared_lines: list[ClearedLineInfo],
+        still_disrupted: list[DisruptionResponse],
+    ) -> tuple[bool, str | None]:
+        """
+        Send a single status update notification via the appropriate method.
+
+        Args:
+            pref: Notification preference
+            contact_info: Contact string (email or phone)
+            route: UserRoute being updated
+            cleared_lines: Lines that have returned to normal service
+            still_disrupted: Lines that remain disrupted
+
+        Returns:
+            Tuple of (success, error_message)
+            - success: True if sent successfully, False otherwise
+            - error_message: Error message if failed, None if successful
+        """
+        try:
+            notification_service = NotificationService()
+
+            if pref.method == NotificationMethod.EMAIL:
+                user_name = self._get_user_display_name(route)
+                await notification_service.send_status_update_email(
+                    email=contact_info,
+                    route_name=route.name,
+                    cleared_lines=cleared_lines,
+                    still_disrupted=still_disrupted,
+                    user_name=user_name,
+                )
+            elif pref.method == NotificationMethod.SMS:
+                await notification_service.send_status_update_sms(
+                    phone=contact_info,
+                    route_name=route.name,
+                    cleared_lines=cleared_lines,
+                    still_disrupted=still_disrupted,
+                )
+
+            logger.info(
+                "status_update_sent_successfully",
+                method=pref.method.value,
+                target_hash=hash_pii(contact_info),
+                route_id=str(route.id),
+                route_name=route.name,
+                cleared_count=len(cleared_lines),
+                still_disrupted_count=len(still_disrupted),
+            )
+            return True, None
+
+        except Exception as send_error:
+            logger.error(
+                "status_update_send_failed",
+                pref_id=str(pref.id),
+                route_id=str(route.id),
+                method=pref.method.value,
+                error=str(send_error),
+                exc_info=send_error,
+            )
+            return False, str(send_error)
+
+    async def _send_status_update_notifications(
+        self,
+        route: UserRoute,
+        schedule: UserRouteSchedule,
+        cleared_lines: list[ClearedLineInfo],
+        still_disrupted: list[DisruptionResponse],
+    ) -> int:
+        """
+        Send status update notifications for a route to all configured notification preferences.
+
+        Args:
+            route: UserRoute to send status updates for
+            schedule: Active schedule
+            cleared_lines: Lines that have returned to normal service
+            still_disrupted: Lines that remain disrupted
+
+        Returns:
+            Number of status updates successfully sent
+        """
+        with service_span(
+            "alert.send_status_update",
+            "alert-service",
+        ) as span:
+            # Set span attributes
+            span.set_attribute("alert.route_id", str(route.id))
+            span.set_attribute("alert.route_name", route.name)
+            span.set_attribute("alert.cleared_count", len(cleared_lines))
+            span.set_attribute("alert.still_disrupted_count", len(still_disrupted))
+
+            updates_sent = 0
+            # Initialize prefs outside try block so it's accessible in except block
+            prefs: list[NotificationPreference] = []
+
+            try:
+                # Get notification preferences safely (may not be loaded in async context)
+                try:
+                    insp = inspect(route)
+                    prefs = [] if "notification_preferences" in insp.unloaded else route.notification_preferences or []
+                except Exception:
+                    # Can't inspect (e.g., Mock object in tests) - try direct access
+                    prefs = route.notification_preferences or []
+
+                # Check if route has notification preferences
+                if not prefs:
+                    logger.warning(
+                        "no_notification_preferences_for_status_update",
+                        route_id=str(route.id),
+                        route_name=route.name,
+                    )
+                    span.set_attribute("alert.preference_count", 0)
+                    span.set_attribute("alert.updates_sent", 0)
+                    return 0
+
+                # Process each notification preference
+                for pref in prefs:
+                    try:
+                        # Get verified contact information
+                        contact_info = await self._get_verified_contact(pref, route.id)
+                        if not contact_info:
+                            continue
+
+                        # Send status update notification
+                        success, error_message = await self._send_single_status_update(
+                            pref=pref,
+                            contact_info=contact_info,
+                            route=route,
+                            cleared_lines=cleared_lines,
+                            still_disrupted=still_disrupted,
+                        )
+
+                        # Create notification log
+                        if success:
+                            self._create_notification_log(
+                                user_id=route.user_id,
+                                route_id=route.id,
+                                method=pref.method,
+                                status=NotificationStatus.SENT,
+                            )
+                            updates_sent += 1
+                        else:
+                            self._create_notification_log(
+                                user_id=route.user_id,
+                                route_id=route.id,
+                                method=pref.method,
+                                status=NotificationStatus.FAILED,
+                                error_message=error_message,
+                            )
+
+                    except Exception as e:
+                        # Catch any other unexpected errors in preference processing
+                        logger.error(
+                            "preference_processing_failed_for_status_update",
+                            pref_id=str(pref.id),
+                            route_id=str(route.id),
+                            error=str(e),
+                            exc_info=e,
+                        )
+
+                # Commit all notification logs
+                await self.db.commit()
+
+                # If any status updates were sent successfully, remove cleared lines from Redis state
+                if updates_sent > 0:
+                    await self._update_alert_state_remove_cleared(
+                        route=route,
+                        user_id=route.user_id,
+                        schedule=schedule,
+                        cleared_line_ids=[cl.line_id for cl in cleared_lines],
+                    )
+
+                # Set span attributes at the end
+                span.set_attribute("alert.preference_count", len(prefs))
+                span.set_attribute("alert.updates_sent", updates_sent)
+
+                logger.info(
+                    "status_updates_sent_for_route",
+                    route_id=str(route.id),
+                    route_name=route.name,
+                    updates_sent=updates_sent,
+                )
+
+                return updates_sent
+
+            except Exception as e:
+                logger.error(
+                    "send_status_updates_for_route_failed",
+                    route_id=str(route.id),
+                    error=str(e),
+                    exc_info=e,
+                )
+                await self.db.rollback()
+                # Set span attributes even on error (preserve prefs count if we got it)
+                try:
+                    pref_count = len(prefs) if isinstance(prefs, list) else 0
+                except (TypeError, AttributeError):
+                    pref_count = 0
+                span.set_attribute("alert.preference_count", pref_count)
+                span.set_attribute("alert.updates_sent", updates_sent)
+                return 0
+
+    async def _update_alert_state_remove_cleared(
+        self,
+        route: UserRoute,
+        user_id: UUID,
+        schedule: UserRouteSchedule,
+        cleared_line_ids: list[str],
+    ) -> None:
+        """
+        Remove cleared lines from the alert state in Redis.
+
+        After sending status update notifications for cleared lines,
+        we remove them from the stored state so we don't continue tracking them.
+
+        Args:
+            route: UserRoute the status update was sent for
+            user_id: User ID for deduplication key
+            schedule: Active schedule
+            cleared_line_ids: List of line IDs that have cleared
+        """
+        with service_span("alert.remove_cleared_from_state", "alert-service") as span:
+            span.set_attribute("alert.route_id", str(route.id))
+            span.set_attribute("alert.user_id", str(user_id))
+            span.set_attribute("alert.schedule_id", str(schedule.id))
+            span.set_attribute("alert.cleared_count", len(cleared_line_ids))
+
+            try:
+                # Build Redis key
+                redis_key = f"alert:{route.id}:{user_id}:{schedule.id}"
+
+                # Get existing state
+                existing_state = await self.redis_client.get(redis_key)
+                if not existing_state:
+                    logger.debug(
+                        "no_existing_state_to_update",
+                        route_id=str(route.id),
+                        redis_key=redis_key,
+                    )
+                    return
+
+                # Parse existing state
+                try:
+                    state_data = json.loads(existing_state)
+                    if state_data.get("version") != ALERT_STATE_VERSION:
+                        logger.warning(
+                            "incompatible_state_version_on_update",
+                            route_id=str(route.id),
+                            redis_key=redis_key,
+                            version=state_data.get("version"),
+                        )
+                        return
+
+                    lines_state = state_data.get("lines", {})
+
+                    # Remove cleared lines from state
+                    for line_id in cleared_line_ids:
+                        if line_id in lines_state:
+                            del lines_state[line_id]
+
+                    # Update state data
+                    state_data["lines"] = lines_state
+
+                    # Calculate TTL for updated state (same logic as _store_alert_state)
+                    route_tz = ZoneInfo(route.timezone)
+                    now_utc = datetime.now(UTC)
+                    now_local = now_utc.astimezone(route_tz)
+                    end_datetime = datetime.combine(now_local.date(), schedule.end_time, tzinfo=route_tz)
+
+                    ttl_seconds = 0 if end_datetime <= now_local else int((end_datetime - now_local).total_seconds())
+
+                    # Store updated state back to Redis
+                    if ttl_seconds > 0 and lines_state:
+                        # Only store if we have TTL and remaining lines
+                        await self.redis_client.setex(
+                            redis_key,
+                            ttl_seconds,
+                            json.dumps(state_data),
+                        )
+                        logger.info(
+                            "cleared_lines_removed_from_state",
+                            route_id=str(route.id),
+                            redis_key=redis_key,
+                            cleared_line_ids=cleared_line_ids,
+                            remaining_lines=list(lines_state.keys()),
+                        )
+                    else:
+                        # No lines left or TTL expired - delete the key
+                        await self.redis_client.delete(redis_key)
+                        logger.info(
+                            "alert_state_deleted_no_remaining_lines",
+                            route_id=str(route.id),
+                            redis_key=redis_key,
+                            cleared_line_ids=cleared_line_ids,
+                        )
+
+                except (json.JSONDecodeError, AttributeError) as e:
+                    logger.warning(
+                        "failed_to_parse_existing_state_on_update",
+                        route_id=str(route.id),
+                        redis_key=redis_key,
+                        error=str(e),
+                    )
+
+            except Exception as e:
+                logger.error(
+                    "failed_to_update_alert_state",
+                    route_id=str(route.id),
+                    error=str(e),
+                    exc_info=e,
+                )
+                # Don't raise - state cleanup failure shouldn't break the flow
+
     async def _process_single_route(
         self,
         route: UserRoute,
@@ -1458,10 +1774,13 @@ class AlertService:
                             cleared_count=len(cleared_lines),
                             cleared_line_ids=[cl.line_id for cl in cleared_lines],
                         )
-                        # TODO: Send status update notification
-                        # await self._send_status_update_notifications(
-                        #     route, active_schedule, cleared_lines, disruptions, stored_lines
-                        # )
+                        # Send status update notifications
+                        await self._send_status_update_notifications(
+                            route=route,
+                            schedule=active_schedule,
+                            cleared_lines=cleared_lines,
+                            still_disrupted=disruptions,  # Current alertable disruptions
+                        )
 
             # If no new disruptions AND no cleared lines, skip
             if not should_send and not cleared_lines:
