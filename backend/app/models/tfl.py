@@ -236,7 +236,14 @@ class AlertDisabledSeverity(BaseModel):
     excluded from alert processing. The default behavior is to alert for all
     severities unless they appear in this table.
 
-    Example: Good Service (severity_level=10) should not trigger alerts.
+    The is_cleared_state flag distinguishes between:
+    - Cleared states (is_cleared_state=True): e.g., Good Service, No Issues
+      These indicate a disruption has cleared and users should be notified.
+    - Suppressed states (is_cleared_state=False): e.g., Service Closed
+      These are still problematic but we don't alert on them.
+
+    Example: Good Service (severity_level=10, is_cleared_state=True) should not
+    trigger disruption alerts, but should trigger "cleared" notifications.
     """
 
     __tablename__ = "alert_disabled_severities"
@@ -251,6 +258,11 @@ class AlertDisabledSeverity(BaseModel):
         nullable=False,
         index=True,
     )
+    is_cleared_state: Mapped[bool] = mapped_column(
+        nullable=False,
+        server_default="false",
+        comment="True if this state represents a cleared disruption (Good Service, No Issues)",
+    )
 
     __table_args__ = (
         UniqueConstraint(
@@ -262,7 +274,10 @@ class AlertDisabledSeverity(BaseModel):
 
     def __repr__(self) -> str:
         """String representation of the alert disabled severity."""
-        return f"<AlertDisabledSeverity(id={self.id}, mode={self.mode_id}, level={self.severity_level})>"
+        return (
+            f"<AlertDisabledSeverity(id={self.id}, mode={self.mode_id}, "
+            f"level={self.severity_level}, cleared={self.is_cleared_state})>"
+        )
 
 
 class DisruptionCategory(BaseModel):

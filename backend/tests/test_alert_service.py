@@ -29,6 +29,7 @@ from app.services.alert_service import (
     ALERT_STATE_VERSION,
     AlertService,
     create_line_aggregate_hash,
+    detect_cleared_lines,
     filter_alertable_disruptions,
     get_day_code,
     init_alert_processing_stats,
@@ -379,6 +380,244 @@ def test_init_alert_processing_stats() -> None:
     stats2 = init_alert_processing_stats()
     stats["routes_checked"] = 5
     assert stats2["routes_checked"] == 0
+
+
+# ==================== Tests for detect_cleared_lines() ====================
+
+
+def test_detect_cleared_lines_no_stored_lines() -> None:
+    """Test detect_cleared_lines with no stored lines returns empty list."""
+    result = detect_cleared_lines(
+        stored_lines={},
+        current_alertable_line_ids=set(),
+        all_route_disruptions=[],
+        cleared_states={("tube", 10)},
+    )
+    assert result == []
+
+
+def test_detect_cleared_lines_line_still_disrupted() -> None:
+    """Test detect_cleared_lines doesn't report line that is still disrupted."""
+    stored = {
+        "victoria": {
+            "severity": 6,
+            "status": "Severe Delays",
+            "full_hash": "abc123",
+            "last_sent_at": "2024-01-01T10:00:00Z",
+        }
+    }
+    current_alertable = {"victoria"}  # Still disrupted
+    all_disruptions = [
+        DisruptionResponse(
+            line_id="victoria",
+            line_name="Victoria",
+            mode="tube",
+            status_severity=6,
+            status_severity_description="Severe Delays",
+        )
+    ]
+    result = detect_cleared_lines(stored, current_alertable, all_disruptions, {("tube", 10)})
+    assert result == []
+
+
+def test_detect_cleared_lines_line_cleared_to_good_service() -> None:
+    """Test detect_cleared_lines detects line that cleared to Good Service."""
+    stored = {
+        "victoria": {
+            "severity": 6,
+            "status": "Severe Delays",
+            "full_hash": "abc123",
+            "last_sent_at": "2024-01-01T10:00:00Z",
+        }
+    }
+    current_alertable = set()  # No current disruptions
+    all_disruptions = [
+        DisruptionResponse(
+            line_id="victoria",
+            line_name="Victoria",
+            mode="tube",
+            status_severity=10,
+            status_severity_description="Good Service",
+        )
+    ]
+    cleared_states = {("tube", 10)}  # Good Service is cleared
+    result = detect_cleared_lines(stored, current_alertable, all_disruptions, cleared_states)
+
+    assert len(result) == 1
+    assert result[0].line_id == "victoria"
+    assert result[0].line_name == "Victoria"
+    assert result[0].mode == "tube"
+    assert result[0].previous_severity == 6
+    assert result[0].previous_status == "Severe Delays"
+    assert result[0].current_severity == 10
+    assert result[0].current_status == "Good Service"
+
+
+def test_detect_cleared_lines_line_in_suppressed_state() -> None:
+    """Test detect_cleared_lines doesn't report line in suppressed (non-cleared) state."""
+    stored = {
+        "victoria": {
+            "severity": 6,
+            "status": "Severe Delays",
+            "full_hash": "abc123",
+            "last_sent_at": "2024-01-01T10:00:00Z",
+        }
+    }
+    current_alertable = set()  # No current disruptions
+    all_disruptions = [
+        DisruptionResponse(
+            line_id="victoria",
+            line_name="Victoria",
+            mode="tube",
+            status_severity=20,
+            status_severity_description="Service Closed",
+        )
+    ]
+    cleared_states = {("tube", 10)}  # Only Good Service is cleared, not Service Closed
+    result = detect_cleared_lines(stored, current_alertable, all_disruptions, cleared_states)
+
+    # Service Closed is not a cleared state - don't report it
+    assert result == []
+
+
+def test_detect_cleared_lines_line_not_in_current_data() -> None:
+    """Test detect_cleared_lines ignores line not in current data (API error scenario)."""
+    stored = {
+        "victoria": {
+            "severity": 6,
+            "status": "Severe Delays",
+            "full_hash": "abc123",
+            "last_sent_at": "2024-01-01T10:00:00Z",
+        }
+    }
+    current_alertable = set()
+    all_disruptions = []  # Victoria not in current data
+    result = detect_cleared_lines(stored, current_alertable, all_disruptions, {("tube", 10)})
+
+    # Don't assume cleared if line missing from data - could be API issue
+    assert result == []
+
+
+def test_detect_cleared_lines_multiple_lines_cleared() -> None:
+    """Test detect_cleared_lines detects multiple lines that cleared."""
+    stored = {
+        "victoria": {
+            "severity": 6,
+            "status": "Severe Delays",
+            "full_hash": "abc123",
+            "last_sent_at": "2024-01-01T10:00:00Z",
+        },
+        "northern": {
+            "severity": 9,
+            "status": "Minor Delays",
+            "full_hash": "def456",
+            "last_sent_at": "2024-01-01T10:05:00Z",
+        },
+    }
+    current_alertable = set()
+    all_disruptions = [
+        DisruptionResponse(
+            line_id="victoria",
+            line_name="Victoria",
+            mode="tube",
+            status_severity=10,
+            status_severity_description="Good Service",
+        ),
+        DisruptionResponse(
+            line_id="northern",
+            line_name="Northern",
+            mode="tube",
+            status_severity=18,
+            status_severity_description="No Issues",
+        ),
+    ]
+    cleared_states = {("tube", 10), ("tube", 18)}  # Both are cleared states
+    result = detect_cleared_lines(stored, current_alertable, all_disruptions, cleared_states)
+
+    assert len(result) == 2
+    cleared_line_ids = {r.line_id for r in result}
+    assert cleared_line_ids == {"victoria", "northern"}
+
+
+def test_detect_cleared_lines_partial_clearing() -> None:
+    """Test detect_cleared_lines with some lines cleared, some still disrupted."""
+    stored = {
+        "victoria": {
+            "severity": 6,
+            "status": "Severe Delays",
+            "full_hash": "abc123",
+            "last_sent_at": "2024-01-01T10:00:00Z",
+        },
+        "northern": {
+            "severity": 9,
+            "status": "Minor Delays",
+            "full_hash": "def456",
+            "last_sent_at": "2024-01-01T10:05:00Z",
+        },
+    }
+    current_alertable = {"northern"}  # Northern still disrupted
+    all_disruptions = [
+        DisruptionResponse(
+            line_id="victoria",
+            line_name="Victoria",
+            mode="tube",
+            status_severity=10,
+            status_severity_description="Good Service",
+        ),
+        DisruptionResponse(
+            line_id="northern",
+            line_name="Northern",
+            mode="tube",
+            status_severity=9,
+            status_severity_description="Minor Delays",
+        ),
+    ]
+    cleared_states = {("tube", 10)}
+    result = detect_cleared_lines(stored, current_alertable, all_disruptions, cleared_states)
+
+    # Only Victoria cleared
+    assert len(result) == 1
+    assert result[0].line_id == "victoria"
+
+
+def test_detect_cleared_lines_corrupted_stored_data() -> None:
+    """Test detect_cleared_lines handles corrupted stored data gracefully."""
+    stored = {
+        "victoria": {
+            "severity": "not_an_int",  # Corrupted
+            "status": "Severe Delays",
+            "full_hash": "abc123",
+            "last_sent_at": "2024-01-01T10:00:00Z",
+        },
+        "northern": {
+            "severity": 6,
+            "status": 123,  # Corrupted - should be string
+            "full_hash": "def456",
+            "last_sent_at": "2024-01-01T10:05:00Z",
+        },
+    }
+    current_alertable = set()
+    all_disruptions = [
+        DisruptionResponse(
+            line_id="victoria",
+            line_name="Victoria",
+            mode="tube",
+            status_severity=10,
+            status_severity_description="Good Service",
+        ),
+        DisruptionResponse(
+            line_id="northern",
+            line_name="Northern",
+            mode="tube",
+            status_severity=10,
+            status_severity_description="Good Service",
+        ),
+    ]
+    cleared_states = {("tube", 10)}
+    result = detect_cleared_lines(stored, current_alertable, all_disruptions, cleared_states)
+
+    # Both lines have corrupted data - skip both
+    assert result == []
 
 
 # ==================== Helper Method Unit Tests ====================

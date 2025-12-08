@@ -33,7 +33,7 @@ from app.models.tfl import AlertDisabledSeverity, Line, LineDisruptionStateLog
 from app.models.user import EmailAddress, PhoneNumber, User
 from app.models.user_route import UserRoute, UserRouteSchedule
 from app.models.user_route_index import UserRouteStationIndex
-from app.schemas.tfl import DisruptionResponse
+from app.schemas.tfl import ClearedLineInfo, DisruptionResponse
 from app.services.notification_service import NotificationService
 from app.services.tfl_service import TfLService
 from app.utils.pii import hash_pii
@@ -168,6 +168,108 @@ def filter_alertable_disruptions(
         for disruption in disruptions
         if (disruption.mode, disruption.status_severity) not in disabled_severity_pairs
     ]
+
+
+def detect_cleared_lines(
+    stored_lines: dict[str, dict[str, object]],
+    current_alertable_line_ids: set[str],
+    all_route_disruptions: list[DisruptionResponse],
+    cleared_states: set[tuple[str, int]],
+) -> list[ClearedLineInfo]:
+    """
+    Detect lines that have cleared from disrupted state.
+
+    Identifies lines that were previously alerted on but are now in a "cleared" state
+    (e.g., Good Service, No Issues) rather than just a "suppressed" state (e.g., Service Closed).
+
+    Pure function for easy testing without database or Redis dependencies.
+
+    Args:
+        stored_lines: Previously alerted lines from Redis state (line_id -> state dict)
+        current_alertable_line_ids: Set of line_ids with current alertable disruptions
+        all_route_disruptions: Unfiltered route disruptions (includes Good Service, etc.)
+        cleared_states: Set of (mode_id, severity_level) pairs that represent "cleared"
+
+    Returns:
+        List of ClearedLineInfo objects for lines that have cleared
+
+    Example:
+        >>> from app.schemas.tfl import DisruptionResponse, ClearedLineInfo
+        >>> from datetime import UTC, datetime
+        >>> # Victoria was disrupted, now Good Service
+        >>> stored = {
+        ...     "victoria": {
+        ...         "severity": 6,
+        ...         "status": "Severe Delays",
+        ...         "full_hash": "abc123",
+        ...         "last_sent_at": "2024-01-01T10:00:00Z",
+        ...     }
+        ... }
+        >>> current_alertable = set()  # No current disruptions
+        >>> all_disruptions = [
+        ...     DisruptionResponse(
+        ...         line_id="victoria",
+        ...         line_name="Victoria",
+        ...         mode="tube",
+        ...         status_severity=10,
+        ...         status_severity_description="Good Service",
+        ...     )
+        ... ]
+        >>> cleared = {("tube", 10)}  # Good Service is a cleared state
+        >>> result = detect_cleared_lines(stored, current_alertable, all_disruptions, cleared)
+        >>> len(result)
+        1
+        >>> result[0].line_id
+        'victoria'
+        >>> result[0].current_status
+        'Good Service'
+    """
+    cleared_lines: list[ClearedLineInfo] = []
+
+    # Build lookup maps for efficiency
+    current_status_by_line: dict[str, DisruptionResponse] = {
+        disruption.line_id: disruption for disruption in all_route_disruptions
+    }
+
+    # Check each previously-alerted line
+    for line_id, stored_line in stored_lines.items():
+        # Skip if still in alertable disruptions
+        if line_id in current_alertable_line_ids:
+            continue
+
+        # Get current status for this line
+        current_disruption = current_status_by_line.get(line_id)
+        if not current_disruption:
+            # Line not in current data - don't treat as cleared (could be API issue)
+            continue
+
+        # Check if current state is a "cleared" state
+        state_pair = (current_disruption.mode, current_disruption.status_severity)
+        if state_pair not in cleared_states:
+            # Not in a cleared state - it's suppressed (e.g., Service Closed)
+            continue
+
+        # Line has cleared! Create info object
+        previous_severity = stored_line.get("severity")
+        previous_status = stored_line.get("status")
+
+        # Validate stored data
+        if not isinstance(previous_severity, int) or not isinstance(previous_status, str):
+            # Corrupted stored data - skip
+            continue
+
+        cleared_line = ClearedLineInfo(
+            line_id=current_disruption.line_id,
+            line_name=current_disruption.line_name,
+            mode=current_disruption.mode,
+            previous_severity=previous_severity,
+            previous_status=previous_status,
+            current_severity=current_disruption.status_severity,
+            current_status=current_disruption.status_severity_description,
+        )
+        cleared_lines.append(cleared_line)
+
+    return cleared_lines
 
 
 def init_alert_processing_stats() -> dict[str, int]:
