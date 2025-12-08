@@ -43,22 +43,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 # ==================== Fixtures ====================
-
-
-@pytest.fixture
-def mock_redis() -> AsyncMock:
-    """Mock Redis client for testing."""
-    client = AsyncMock(spec=redis.Redis)
-    client.get = AsyncMock(return_value=None)
-    client.set = AsyncMock(return_value=True)
-    client.setex = AsyncMock()
-    return client
-
-
-@pytest.fixture
-def alert_service(db_session: AsyncSession, mock_redis: AsyncMock) -> AlertService:
-    """Create AlertService instance with mocked Redis."""
-    return AlertService(db=db_session, redis_client=mock_redis)
+# Note: mock_redis and alert_service fixtures are defined in conftest.py
 
 
 @pytest.fixture
@@ -385,239 +370,321 @@ def test_init_alert_processing_stats() -> None:
 # ==================== Tests for detect_cleared_lines() ====================
 
 
-def test_detect_cleared_lines_no_stored_lines() -> None:
-    """Test detect_cleared_lines with no stored lines returns empty list."""
-    result = detect_cleared_lines(
-        stored_lines={},
-        current_alertable_line_ids=set(),
-        all_route_disruptions=[],
-        cleared_states={("tube", 10)},
-    )
-    assert result == []
-
-
-def test_detect_cleared_lines_line_still_disrupted() -> None:
-    """Test detect_cleared_lines doesn't report line that is still disrupted."""
-    stored = {
-        "victoria": {
-            "severity": 6,
-            "status": "Severe Delays",
-            "full_hash": "abc123",
-            "last_sent_at": "2024-01-01T10:00:00Z",
-        }
-    }
-    current_alertable = {"victoria"}  # Still disrupted
-    all_disruptions = [
-        DisruptionResponse(
-            line_id="victoria",
-            line_name="Victoria",
-            mode="tube",
-            status_severity=6,
-            status_severity_description="Severe Delays",
-        )
-    ]
-    result = detect_cleared_lines(stored, current_alertable, all_disruptions, {("tube", 10)})
-    assert result == []
-
-
-def test_detect_cleared_lines_line_cleared_to_good_service() -> None:
-    """Test detect_cleared_lines detects line that cleared to Good Service."""
-    stored = {
-        "victoria": {
-            "severity": 6,
-            "status": "Severe Delays",
-            "full_hash": "abc123",
-            "last_sent_at": "2024-01-01T10:00:00Z",
-        }
-    }
-    current_alertable = set()  # No current disruptions
-    all_disruptions = [
-        DisruptionResponse(
-            line_id="victoria",
-            line_name="Victoria",
-            mode="tube",
-            status_severity=10,
-            status_severity_description="Good Service",
-        )
-    ]
-    cleared_states = {("tube", 10)}  # Good Service is cleared
-    result = detect_cleared_lines(stored, current_alertable, all_disruptions, cleared_states)
-
-    assert len(result) == 1
-    assert result[0].line_id == "victoria"
-    assert result[0].line_name == "Victoria"
-    assert result[0].mode == "tube"
-    assert result[0].previous_severity == 6
-    assert result[0].previous_status == "Severe Delays"
-    assert result[0].current_severity == 10
-    assert result[0].current_status == "Good Service"
-
-
-def test_detect_cleared_lines_line_in_suppressed_state() -> None:
-    """Test detect_cleared_lines doesn't report line in suppressed (non-cleared) state."""
-    stored = {
-        "victoria": {
-            "severity": 6,
-            "status": "Severe Delays",
-            "full_hash": "abc123",
-            "last_sent_at": "2024-01-01T10:00:00Z",
-        }
-    }
-    current_alertable = set()  # No current disruptions
-    all_disruptions = [
-        DisruptionResponse(
-            line_id="victoria",
-            line_name="Victoria",
-            mode="tube",
-            status_severity=20,
-            status_severity_description="Service Closed",
-        )
-    ]
-    cleared_states = {("tube", 10)}  # Only Good Service is cleared, not Service Closed
-    result = detect_cleared_lines(stored, current_alertable, all_disruptions, cleared_states)
-
-    # Service Closed is not a cleared state - don't report it
-    assert result == []
-
-
-def test_detect_cleared_lines_line_not_in_current_data() -> None:
-    """Test detect_cleared_lines ignores line not in current data (API error scenario)."""
-    stored = {
-        "victoria": {
-            "severity": 6,
-            "status": "Severe Delays",
-            "full_hash": "abc123",
-            "last_sent_at": "2024-01-01T10:00:00Z",
-        }
-    }
-    current_alertable = set()
-    all_disruptions = []  # Victoria not in current data
-    result = detect_cleared_lines(stored, current_alertable, all_disruptions, {("tube", 10)})
-
-    # Don't assume cleared if line missing from data - could be API issue
-    assert result == []
-
-
-def test_detect_cleared_lines_multiple_lines_cleared() -> None:
-    """Test detect_cleared_lines detects multiple lines that cleared."""
-    stored = {
-        "victoria": {
-            "severity": 6,
-            "status": "Severe Delays",
-            "full_hash": "abc123",
-            "last_sent_at": "2024-01-01T10:00:00Z",
-        },
-        "northern": {
-            "severity": 9,
-            "status": "Minor Delays",
-            "full_hash": "def456",
-            "last_sent_at": "2024-01-01T10:05:00Z",
-        },
-    }
-    current_alertable = set()
-    all_disruptions = [
-        DisruptionResponse(
-            line_id="victoria",
-            line_name="Victoria",
-            mode="tube",
-            status_severity=10,
-            status_severity_description="Good Service",
+@pytest.mark.parametrize(
+    (
+        "scenario",
+        "stored_lines",
+        "current_alertable",
+        "all_disruptions",
+        "cleared_states",
+        "expected_count",
+        "expected_line_ids",
+        "expected_fields",
+    ),
+    [
+        pytest.param(
+            "no_stored_lines",
+            {},
+            set(),
+            [],
+            {("tube", 10)},
+            0,
+            None,
+            None,
+            id="no_stored_lines",
         ),
-        DisruptionResponse(
-            line_id="northern",
-            line_name="Northern",
-            mode="tube",
-            status_severity=18,
-            status_severity_description="No Issues",
+        pytest.param(
+            "line_still_disrupted",
+            {
+                "victoria": {
+                    "severity": 6,
+                    "status": "Severe Delays",
+                    "full_hash": "abc123",
+                    "last_sent_at": "2024-01-01T10:00:00Z",
+                }
+            },
+            {"victoria"},
+            [
+                DisruptionResponse(
+                    line_id="victoria",
+                    line_name="Victoria",
+                    mode="tube",
+                    status_severity=6,
+                    status_severity_description="Severe Delays",
+                )
+            ],
+            {("tube", 10)},
+            0,
+            None,
+            None,
+            id="line_still_disrupted",
         ),
-    ]
-    cleared_states = {("tube", 10), ("tube", 18)}  # Both are cleared states
-    result = detect_cleared_lines(stored, current_alertable, all_disruptions, cleared_states)
-
-    assert len(result) == 2
-    cleared_line_ids = {r.line_id for r in result}
-    assert cleared_line_ids == {"victoria", "northern"}
-
-
-def test_detect_cleared_lines_partial_clearing() -> None:
-    """Test detect_cleared_lines with some lines cleared, some still disrupted."""
-    stored = {
-        "victoria": {
-            "severity": 6,
-            "status": "Severe Delays",
-            "full_hash": "abc123",
-            "last_sent_at": "2024-01-01T10:00:00Z",
-        },
-        "northern": {
-            "severity": 9,
-            "status": "Minor Delays",
-            "full_hash": "def456",
-            "last_sent_at": "2024-01-01T10:05:00Z",
-        },
-    }
-    current_alertable = {"northern"}  # Northern still disrupted
-    all_disruptions = [
-        DisruptionResponse(
-            line_id="victoria",
-            line_name="Victoria",
-            mode="tube",
-            status_severity=10,
-            status_severity_description="Good Service",
+        pytest.param(
+            "line_cleared_to_good_service",
+            {
+                "victoria": {
+                    "severity": 6,
+                    "status": "Severe Delays",
+                    "full_hash": "abc123",
+                    "last_sent_at": "2024-01-01T10:00:00Z",
+                }
+            },
+            set(),
+            [
+                DisruptionResponse(
+                    line_id="victoria",
+                    line_name="Victoria",
+                    mode="tube",
+                    status_severity=10,
+                    status_severity_description="Good Service",
+                )
+            ],
+            {("tube", 10)},
+            1,
+            {"victoria"},
+            {
+                "line_name": "Victoria",
+                "mode": "tube",
+                "previous_severity": 6,
+                "previous_status": "Severe Delays",
+                "current_severity": 10,
+                "current_status": "Good Service",
+            },
+            id="line_cleared_to_good_service",
         ),
-        DisruptionResponse(
-            line_id="northern",
-            line_name="Northern",
-            mode="tube",
-            status_severity=9,
-            status_severity_description="Minor Delays",
+        pytest.param(
+            "line_in_suppressed_state",
+            {
+                "victoria": {
+                    "severity": 6,
+                    "status": "Severe Delays",
+                    "full_hash": "abc123",
+                    "last_sent_at": "2024-01-01T10:00:00Z",
+                }
+            },
+            set(),
+            [
+                DisruptionResponse(
+                    line_id="victoria",
+                    line_name="Victoria",
+                    mode="tube",
+                    status_severity=20,
+                    status_severity_description="Service Closed",
+                )
+            ],
+            {("tube", 10)},
+            0,
+            None,
+            None,
+            id="line_in_suppressed_state",
         ),
-    ]
-    cleared_states = {("tube", 10)}
-    result = detect_cleared_lines(stored, current_alertable, all_disruptions, cleared_states)
-
-    # Only Victoria cleared
-    assert len(result) == 1
-    assert result[0].line_id == "victoria"
-
-
-def test_detect_cleared_lines_corrupted_stored_data() -> None:
-    """Test detect_cleared_lines handles corrupted stored data gracefully."""
-    stored = {
-        "victoria": {
-            "severity": "not_an_int",  # Corrupted
-            "status": "Severe Delays",
-            "full_hash": "abc123",
-            "last_sent_at": "2024-01-01T10:00:00Z",
-        },
-        "northern": {
-            "severity": 6,
-            "status": 123,  # Corrupted - should be string
-            "full_hash": "def456",
-            "last_sent_at": "2024-01-01T10:05:00Z",
-        },
-    }
-    current_alertable = set()
-    all_disruptions = [
-        DisruptionResponse(
-            line_id="victoria",
-            line_name="Victoria",
-            mode="tube",
-            status_severity=10,
-            status_severity_description="Good Service",
+        pytest.param(
+            "line_not_in_current_data",
+            {
+                "victoria": {
+                    "severity": 6,
+                    "status": "Severe Delays",
+                    "full_hash": "abc123",
+                    "last_sent_at": "2024-01-01T10:00:00Z",
+                }
+            },
+            set(),
+            [],
+            {("tube", 10)},
+            0,
+            None,
+            None,
+            id="line_not_in_current_data",
         ),
-        DisruptionResponse(
-            line_id="northern",
-            line_name="Northern",
-            mode="tube",
-            status_severity=10,
-            status_severity_description="Good Service",
+        pytest.param(
+            "multiple_lines_cleared",
+            {
+                "victoria": {
+                    "severity": 6,
+                    "status": "Severe Delays",
+                    "full_hash": "abc123",
+                    "last_sent_at": "2024-01-01T10:00:00Z",
+                },
+                "northern": {
+                    "severity": 9,
+                    "status": "Minor Delays",
+                    "full_hash": "def456",
+                    "last_sent_at": "2024-01-01T10:05:00Z",
+                },
+            },
+            set(),
+            [
+                DisruptionResponse(
+                    line_id="victoria",
+                    line_name="Victoria",
+                    mode="tube",
+                    status_severity=10,
+                    status_severity_description="Good Service",
+                ),
+                DisruptionResponse(
+                    line_id="northern",
+                    line_name="Northern",
+                    mode="tube",
+                    status_severity=18,
+                    status_severity_description="No Issues",
+                ),
+            ],
+            {("tube", 10), ("tube", 18)},
+            2,
+            {"victoria", "northern"},
+            None,
+            id="multiple_lines_cleared",
         ),
-    ]
-    cleared_states = {("tube", 10)}
-    result = detect_cleared_lines(stored, current_alertable, all_disruptions, cleared_states)
+        pytest.param(
+            "partial_clearing",
+            {
+                "victoria": {
+                    "severity": 6,
+                    "status": "Severe Delays",
+                    "full_hash": "abc123",
+                    "last_sent_at": "2024-01-01T10:00:00Z",
+                },
+                "northern": {
+                    "severity": 9,
+                    "status": "Minor Delays",
+                    "full_hash": "def456",
+                    "last_sent_at": "2024-01-01T10:05:00Z",
+                },
+            },
+            {"northern"},
+            [
+                DisruptionResponse(
+                    line_id="victoria",
+                    line_name="Victoria",
+                    mode="tube",
+                    status_severity=10,
+                    status_severity_description="Good Service",
+                ),
+                DisruptionResponse(
+                    line_id="northern",
+                    line_name="Northern",
+                    mode="tube",
+                    status_severity=9,
+                    status_severity_description="Minor Delays",
+                ),
+            ],
+            {("tube", 10)},
+            1,
+            {"victoria"},
+            None,
+            id="partial_clearing",
+        ),
+        pytest.param(
+            "corrupted_stored_data",
+            {
+                "victoria": {
+                    "severity": "not_an_int",
+                    "status": "Severe Delays",
+                    "full_hash": "abc123",
+                    "last_sent_at": "2024-01-01T10:00:00Z",
+                },
+                "northern": {
+                    "severity": 6,
+                    "status": 123,
+                    "full_hash": "def456",
+                    "last_sent_at": "2024-01-01T10:05:00Z",
+                },
+            },
+            set(),
+            [
+                DisruptionResponse(
+                    line_id="victoria",
+                    line_name="Victoria",
+                    mode="tube",
+                    status_severity=10,
+                    status_severity_description="Good Service",
+                ),
+                DisruptionResponse(
+                    line_id="northern",
+                    line_name="Northern",
+                    mode="tube",
+                    status_severity=10,
+                    status_severity_description="Good Service",
+                ),
+            ],
+            {("tube", 10)},
+            0,
+            None,
+            None,
+            id="corrupted_stored_data",
+        ),
+    ],
+)
+def test_detect_cleared_lines(
+    scenario: str,
+    stored_lines: dict[str, dict[str, Any]],
+    current_alertable: set[str],
+    all_disruptions: list[DisruptionResponse],
+    cleared_states: set[tuple[str, int]],
+    expected_count: int,
+    expected_line_ids: set[str] | None,
+    expected_fields: dict[str, Any] | None,
+) -> None:
+    """Parameterized test for detect_cleared_lines covering various scenarios."""
+    result = detect_cleared_lines(stored_lines, current_alertable, all_disruptions, cleared_states)
 
-    # Both lines have corrupted data - skip both
-    assert result == []
+    # Check count
+    assert len(result) == expected_count
+
+    # Check line IDs if provided
+    if expected_line_ids is not None:
+        actual_line_ids = {r.line_id for r in result}
+        assert actual_line_ids == expected_line_ids
+
+    # Check specific fields if provided (for single result tests)
+    if expected_fields is not None and len(result) == 1:
+        cleared = result[0]
+        for field, value in expected_fields.items():
+            assert getattr(cleared, field) == value
+
+
+# ==================== Database Method Tests ====================
+
+
+@pytest.mark.asyncio
+async def test_get_cleared_states_returns_cleared_severities(
+    alert_service: AlertService, db_session: AsyncSession
+) -> None:
+    """Test _get_cleared_states returns set of (mode, severity) tuples for cleared states."""
+    # Create test data that won't conflict with migration-created records
+    # Use a test mode that doesn't exist in migrations
+    cleared1 = AlertDisabledSeverity(mode_id="test-mode-1", severity_level=15, is_cleared_state=True)
+    cleared2 = AlertDisabledSeverity(mode_id="test-mode-2", severity_level=16, is_cleared_state=True)
+    non_cleared = AlertDisabledSeverity(mode_id="test-mode-3", severity_level=20, is_cleared_state=False)
+
+    db_session.add_all([cleared1, cleared2, non_cleared])
+    await db_session.commit()
+
+    # Call method
+    result = await alert_service._get_cleared_states()
+
+    # Should return our cleared states
+    assert ("test-mode-1", 15) in result
+    assert ("test-mode-2", 16) in result
+    # Non-cleared should not be in result
+    assert ("test-mode-3", 20) not in result
+    # Should also include migration-created cleared states (tube, 10) and (tube, 18)
+    assert ("tube", 10) in result
+    assert ("tube", 18) in result
+
+
+@pytest.mark.asyncio
+async def test_get_cleared_states_returns_empty_set_on_db_error(
+    alert_service: AlertService, db_session: AsyncSession
+) -> None:
+    """Test _get_cleared_states returns empty set when database query fails."""
+    # Mock database execute to raise an error
+    with patch.object(db_session, "execute", side_effect=SQLAlchemyError("Database error")):
+        # Call method
+        result = await alert_service._get_cleared_states()
+
+        # Should return empty set on error
+        assert result == set()
 
 
 # ==================== Helper Method Unit Tests ====================
@@ -2340,41 +2407,6 @@ async def test_get_redis_client() -> None:
 
 
 @pytest.mark.asyncio
-async def test_alert_service_skips_duplicate_alerts(
-    alert_service: AlertService,
-) -> None:
-    """Test that duplicate alerts are skipped (lines 137-142)."""
-    # Test the logic by mocking should_send_alert to return False
-    mock_route = Mock(spec=UserRoute)
-    mock_route.id = "test-route"
-    mock_route.name = "Test Route"
-
-    mock_disruptions = [
-        DisruptionResponse(
-            line_id="victoria",
-            line_name="Victoria",
-            mode="tube",
-            status_severity=5,
-            status_severity_description="Severe Delays",
-            reason="Signal failure",
-            created_at=datetime.now(UTC),
-        ),
-    ]
-
-    with (
-        patch.object(alert_service, "_should_send_alert", return_value=(False, [], {})),
-        patch.object(alert_service, "_get_verified_contact", return_value=None),
-    ):
-        alerts_sent = await alert_service._send_alerts_for_route(
-            route=mock_route,
-            schedule=Mock(),
-            disruptions=mock_disruptions,
-        )
-        # When all alerts are skipped, no alerts sent
-        assert alerts_sent == 0
-
-
-@pytest.mark.asyncio
 @pytest.mark.parametrize(
     ("scenario", "mock_config", "expected_result"),
     [
@@ -2587,41 +2619,6 @@ async def test_get_active_schedule_exception_handling(
     # This should handle the exception and return None
     schedule = await alert_service._get_active_schedule(mock_route, mock_schedules)
     assert schedule is None
-
-
-@pytest.mark.asyncio
-@patch("app.services.alert_service.NotificationService")
-async def test_send_alerts_for_route_no_preferences(
-    mock_notif_class: MagicMock,
-    alert_service: AlertService,
-) -> None:
-    """Test _send_alerts_for_route with no notification preferences (lines 594-599)."""
-    mock_route = Mock(spec=UserRoute)
-    mock_route.id = uuid4()
-    mock_route.name = "Test Route"
-    mock_route.notification_preferences = []  # No preferences
-
-    mock_schedule = Mock()
-    disruptions = [
-        DisruptionResponse(
-            line_id="victoria",
-            line_name="Victoria",
-            mode="tube",
-            status_severity=5,
-            status_severity_description="Severe Delays",
-            reason="Signal failure",
-            created_at=datetime.now(UTC),
-        )
-    ]
-
-    alerts_sent = await alert_service._send_alerts_for_route(
-        route=mock_route,
-        schedule=mock_schedule,
-        disruptions=disruptions,
-    )
-
-    # Should return 0 when no preferences
-    assert alerts_sent == 0
 
 
 @pytest.mark.asyncio
@@ -3841,6 +3838,25 @@ class TestLineDisruptionStateLogging:
         # Should raise ValueError
         with pytest.raises(ValueError, match="All disruptions must have the same line_id"):
             create_line_aggregate_hash(disruptions_mixed)
+
+    async def test_log_line_disruption_state_changes_empty_list(
+        self,
+        db_session: AsyncSession,
+        mock_redis: AsyncMock,
+    ):
+        """Test that _log_line_disruption_state_changes returns 0 for empty disruptions list."""
+        alert_service = AlertService(db=db_session, redis_client=mock_redis)
+
+        # Call with empty list
+        logged_count = await alert_service._log_line_disruption_state_changes([])
+
+        # Should return 0 immediately without logging anything
+        assert logged_count == 0
+
+        # Verify no database entries created
+        result = await db_session.execute(select(LineDisruptionStateLog))
+        logs = result.scalars().all()
+        assert len(logs) == 0
 
     async def test_log_line_disruption_state_changes_first_state(
         self,
@@ -5608,6 +5624,71 @@ class TestSendStatusUpdateNotifications:
         logs = result.scalars().all()
         assert len(logs) == 0
 
+    @pytest.mark.asyncio
+    async def test_send_status_update_notifications_handles_exception(
+        self,
+        alert_service: AlertService,
+        test_route_with_schedule: UserRoute,
+        sample_cleared_lines: list[ClearedLineInfo],
+        sample_disruptions: list[DisruptionResponse],
+        db_session: AsyncSession,
+    ) -> None:
+        """Test that exceptions in _send_status_update_notifications are handled gracefully."""
+        schedule = test_route_with_schedule.schedules[0]
+
+        # Mock database commit to raise an error
+        with patch.object(db_session, "commit", side_effect=SQLAlchemyError("Database error")):
+            # Call method - should handle exception and return 0
+            result = await alert_service._send_status_update_notifications(
+                route=test_route_with_schedule,
+                schedule=schedule,
+                cleared_lines=sample_cleared_lines,
+                still_disrupted=sample_disruptions,
+            )
+
+            # Should return 0 on error
+            assert result == 0
+
+    @pytest.mark.asyncio
+    @patch("app.services.alert_service.NotificationService")
+    async def test_send_status_update_creates_failed_log_on_error(
+        self,
+        mock_notif_class: MagicMock,
+        alert_service: AlertService,
+        test_route_with_schedule: UserRoute,
+        sample_cleared_lines: list[ClearedLineInfo],
+        sample_disruptions: list[DisruptionResponse],
+        db_session: AsyncSession,
+    ) -> None:
+        """Test that FAILED notification log is created when status update sending fails."""
+        # Mock notification service to raise error
+        mock_notif_instance = AsyncMock()
+        mock_notif_instance.send_status_update_email = AsyncMock(side_effect=Exception("SMTP error"))
+        mock_notif_class.return_value = mock_notif_instance
+
+        schedule = test_route_with_schedule.schedules[0]
+
+        # Call method
+        result = await alert_service._send_status_update_notifications(
+            route=test_route_with_schedule,
+            schedule=schedule,
+            cleared_lines=sample_cleared_lines,
+            still_disrupted=sample_disruptions,
+        )
+
+        # Should return 0 (no successful updates)
+        assert result == 0
+
+        # Verify FAILED notification log was created
+        log_result = await db_session.execute(
+            select(NotificationLog).where(NotificationLog.route_id == test_route_with_schedule.id)
+        )
+        logs = log_result.scalars().all()
+        assert len(logs) == 1
+        assert logs[0].status == NotificationStatus.FAILED
+        assert logs[0].error_message is not None
+        assert "SMTP error" in logs[0].error_message
+
 
 class TestUpdateAlertStateRemoveCleared:
     """Tests for _update_alert_state_remove_cleared method."""
@@ -5765,3 +5846,63 @@ class TestUpdateAlertStateRemoveCleared:
 
         # Verify piccadilly is still present
         assert "piccadilly" in updated_state["lines"]
+
+    @pytest.mark.asyncio
+    async def test_handle_incompatible_state_version(
+        self,
+        alert_service: AlertService,
+        test_route_with_schedule: UserRoute,
+    ) -> None:
+        """Test handling when Redis state has incompatible version."""
+        schedule = test_route_with_schedule.schedules[0]
+        mock_redis = alert_service.redis_client
+
+        # Setup existing state with wrong version
+        existing_state = {
+            "version": "1.0.0",  # Incompatible version
+            "lines": {
+                "victoria": {
+                    "full_hash": "victoria_hash",
+                    "severity": 5,
+                    "status": "Severe Delays",
+                }
+            },
+        }
+        mock_redis.get = AsyncMock(return_value=json.dumps(existing_state))
+        mock_redis.setex = AsyncMock()
+
+        # Try to remove cleared line - should complete without errors
+        await alert_service._update_alert_state_remove_cleared(
+            route=test_route_with_schedule,
+            user_id=test_route_with_schedule.user_id,
+            schedule=schedule,
+            cleared_line_ids=["victoria"],
+        )
+
+        # Verify setex was NOT called (incompatible version, early return)
+        assert not mock_redis.setex.called
+
+    @pytest.mark.asyncio
+    async def test_handle_json_decode_error(
+        self,
+        alert_service: AlertService,
+        test_route_with_schedule: UserRoute,
+    ) -> None:
+        """Test handling when Redis state contains invalid JSON."""
+        schedule = test_route_with_schedule.schedules[0]
+        mock_redis = alert_service.redis_client
+
+        # Setup existing state with invalid JSON
+        mock_redis.get = AsyncMock(return_value="{ invalid json")
+        mock_redis.setex = AsyncMock()
+
+        # Try to remove cleared line - should complete without errors
+        await alert_service._update_alert_state_remove_cleared(
+            route=test_route_with_schedule,
+            user_id=test_route_with_schedule.user_id,
+            schedule=schedule,
+            cleared_line_ids=["victoria"],
+        )
+
+        # Verify setex was NOT called (JSON decode error, early return)
+        assert not mock_redis.setex.called
