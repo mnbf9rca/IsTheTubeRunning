@@ -386,7 +386,7 @@ format_json_output() {
         comments: [.comments.nodes | to_entries[] | {
             comment_id: .value.id,
             database_id: .value.databaseId,
-            author: .value.author.login,
+            author: (.value.author.login // "unknown"),
             body: .value.body,
             created_at: .value.createdAt,
             is_first_in_thread: (.key == 0)
@@ -400,7 +400,7 @@ format_json_output() {
     transformed_issue_comments=$(echo "$issue_comments" | jq 'map({
         comment_id: .node_id,
         database_id: .id,
-        author: .user.login,
+        author: (.user.login // "unknown"),
         body: .body,
         created_at: .created_at
     })')
@@ -410,7 +410,7 @@ format_json_output() {
     transformed_pr_reviews=$(echo "$pr_reviews" | jq 'map({
         review_id: .id,
         database_id: .databaseId,
-        author: .author.login,
+        author: (.author.login // "unknown"),
         body: .body,
         state: .state,
         created_at: .createdAt,
@@ -562,8 +562,14 @@ format_summary_output() {
             first_comment=$(echo "$thread" | jq -r '.comments[0]')
             local author
             author=$(echo "$first_comment" | jq -r '.author')
+            # Fallback for null or empty author
+            if [[ -z "$author" || "$author" == "null" ]]; then
+                author="(deleted user)"
+            fi
+            local body
+            body=$(echo "$first_comment" | jq -r '.body')
             local body_preview
-            body_preview=$(echo "$first_comment" | jq -r '.body' | head -c 100)
+            body_preview=$(echo "$body" | head -c 100)
             local replies_count
             replies_count=$(( $(echo "$thread" | jq '.comments | length') - 1 ))
             local actionable_id
@@ -576,7 +582,11 @@ format_summary_output() {
 
             echo "[$thread_index] $status_marker $thread_id (Line $line in $path)"
             echo "    Author: $author"
-            echo "    \"$body_preview...\""
+            if [[ ${#body} -gt 100 ]]; then
+                echo "    \"$body_preview...\""
+            else
+                echo "    \"$body_preview\""
+            fi
             echo "    Replies: $replies_count | Actionable ID: $actionable_id"
             echo ""
 
@@ -597,12 +607,22 @@ format_summary_output() {
             comment_id=$(echo "$comment" | jq -r '.comment_id')
             local author
             author=$(echo "$comment" | jq -r '.author')
+            # Fallback for null or empty author
+            if [[ -z "$author" || "$author" == "null" ]]; then
+                author="(deleted user)"
+            fi
+            local body
+            body=$(echo "$comment" | jq -r '.body')
             local body_preview
-            body_preview=$(echo "$comment" | jq -r '.body' | head -c 100)
+            body_preview=$(echo "$body" | head -c 100)
 
             echo "[$comment_index] $comment_id"
             echo "    Author: $author"
-            echo "    \"$body_preview...\""
+            if [[ ${#body} -gt 100 ]]; then
+                echo "    \"$body_preview...\""
+            else
+                echo "    \"$body_preview\""
+            fi
             echo ""
 
             comment_index=$((comment_index + 1))
@@ -622,6 +642,10 @@ format_summary_output() {
             review_id=$(echo "$review" | jq -r '.review_id')
             local author
             author=$(echo "$review" | jq -r '.author')
+            # Fallback for null or empty author
+            if [[ -z "$author" || "$author" == "null" ]]; then
+                author="(deleted user)"
+            fi
             local state
             state=$(echo "$review" | jq -r '.state')
             local body
@@ -632,7 +656,11 @@ format_summary_output() {
             if [[ -n "$body" && "$body" != "null" && "$body" != "" ]]; then
                 local body_preview
                 body_preview=$(echo "$body" | head -c 100)
-                echo "    \"$body_preview...\""
+                if [[ ${#body} -gt 100 ]]; then
+                    echo "    \"$body_preview...\""
+                else
+                    echo "    \"$body_preview\""
+                fi
             else
                 echo "    (no body)"
             fi
