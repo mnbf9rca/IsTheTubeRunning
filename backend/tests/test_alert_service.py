@@ -775,7 +775,7 @@ class TestProcessSingleRoute:
         # Mock dependencies
         with (
             patch.object(alert_service, "_get_active_schedule", new_callable=AsyncMock, return_value=mock_schedule),
-            patch.object(alert_service, "_get_route_disruptions", new_callable=AsyncMock, return_value=([], False)),
+            patch.object(alert_service, "_get_route_disruptions", new_callable=AsyncMock, return_value=([], [], False)),
         ):
             alerts_sent, error_occurred = await alert_service._process_single_route(
                 route=test_route_with_schedule,
@@ -804,10 +804,10 @@ class TestProcessSingleRoute:
                 alert_service,
                 "_get_route_disruptions",
                 new_callable=AsyncMock,
-                return_value=(sample_disruptions, False),
+                return_value=(sample_disruptions, sample_disruptions, False),
             ),
             patch.object(
-                alert_service, "_should_send_alert", new_callable=AsyncMock, return_value=(True, sample_disruptions)
+                alert_service, "_should_send_alert", new_callable=AsyncMock, return_value=(True, sample_disruptions, {})
             ),
             patch.object(alert_service, "_send_alerts_for_route", new_callable=AsyncMock, return_value=2),
         ):
@@ -835,10 +835,13 @@ class TestProcessSingleRoute:
         with (
             patch.object(alert_service, "_get_active_schedule", new_callable=AsyncMock, return_value=mock_schedule),
             patch.object(
-                alert_service, "_get_route_disruptions", new_callable=AsyncMock, return_value=(sample_disruptions, True)
+                alert_service,
+                "_get_route_disruptions",
+                new_callable=AsyncMock,
+                return_value=(sample_disruptions, sample_disruptions, True),
             ),
             patch.object(
-                alert_service, "_should_send_alert", new_callable=AsyncMock, return_value=(True, sample_disruptions)
+                alert_service, "_should_send_alert", new_callable=AsyncMock, return_value=(True, sample_disruptions, {})
             ),
             patch.object(alert_service, "_send_alerts_for_route", new_callable=AsyncMock, return_value=1),
         ):
@@ -869,9 +872,9 @@ class TestProcessSingleRoute:
                 alert_service,
                 "_get_route_disruptions",
                 new_callable=AsyncMock,
-                return_value=(sample_disruptions, False),
+                return_value=(sample_disruptions, sample_disruptions, False),
             ),
-            patch.object(alert_service, "_should_send_alert", new_callable=AsyncMock, return_value=(False, [])),
+            patch.object(alert_service, "_should_send_alert", new_callable=AsyncMock, return_value=(False, [], {})),
         ):
             alerts_sent, error_occurred = await alert_service._process_single_route(
                 route=test_route_with_schedule,
@@ -1234,7 +1237,7 @@ async def test_get_route_disruptions_returns_relevant(
 
     disabled_severity_pairs: set[tuple[str, int]] = set()
 
-    disruptions, error_occurred = await alert_service._get_route_disruptions(
+    disruptions, unfiltered, error_occurred = await alert_service._get_route_disruptions(
         test_route_with_schedule, disabled_severity_pairs
     )
 
@@ -1243,6 +1246,9 @@ async def test_get_route_disruptions_returns_relevant(
     # Should only return victoria line disruptions (route only has victoria)
     assert len(disruptions) == 1
     assert disruptions[0].line_id == "victoria"
+    # Unfiltered should also have only victoria (since no severity filtering)
+    assert len(unfiltered) == 1
+    assert unfiltered[0].line_id == "victoria"
 
 
 @pytest.mark.asyncio
@@ -1263,12 +1269,13 @@ async def test_get_route_disruptions_empty(
     mock_tfl_class.return_value = mock_tfl_instance
 
     disabled_severity_pairs: set[tuple[str, int]] = set()
-    disruptions, error_occurred = await alert_service._get_route_disruptions(
+    disruptions, unfiltered, error_occurred = await alert_service._get_route_disruptions(
         test_route_with_schedule, disabled_severity_pairs
     )
 
     assert not error_occurred
     assert len(disruptions) == 0
+    assert len(unfiltered) == 0
 
 
 @pytest.mark.asyncio
@@ -1302,7 +1309,7 @@ async def test_get_route_disruptions_filters_correctly(
     mock_tfl_class.return_value = mock_tfl_instance
 
     disabled_severity_pairs: set[tuple[str, int]] = set()
-    disruptions, error_occurred = await alert_service._get_route_disruptions(
+    disruptions, unfiltered, error_occurred = await alert_service._get_route_disruptions(
         test_route_with_schedule, disabled_severity_pairs
     )
 
@@ -1310,6 +1317,7 @@ async def test_get_route_disruptions_filters_correctly(
     assert not error_occurred
     # Should return empty since central line is not in route
     assert len(disruptions) == 0
+    assert len(unfiltered) == 0
 
 
 @pytest.mark.asyncio
@@ -1354,12 +1362,14 @@ async def test_get_route_disruptions_filters_disabled_severities(
     # Set up disabled severity pairs - (tube, 10) should be filtered
     disabled_severity_pairs: set[tuple[str, int]] = {("tube", 10)}
 
-    disruptions, error_occurred = await alert_service._get_route_disruptions(
+    disruptions, unfiltered, error_occurred = await alert_service._get_route_disruptions(
         test_route_with_schedule, disabled_severity_pairs
     )
 
     # Should return no error
     assert not error_occurred
+    # Unfiltered should have both disruptions
+    assert len(unfiltered) == 2
     # Should only return the disruption with severity 5 (Severe Delays)
     # The Good Service (severity 10) should be filtered out
     assert len(disruptions) == 1
@@ -1387,7 +1397,7 @@ async def test_should_send_alert_no_previous_alert(
     schedule = test_route_with_schedule.schedules[0]
 
     # Redis returns None (no previous alert)
-    should_send, filtered = await alert_service._should_send_alert(
+    should_send, filtered, _stored_lines = await alert_service._should_send_alert(
         route=test_route_with_schedule,
         user_id=test_route_with_schedule.user_id,
         schedule=schedule,
@@ -1429,7 +1439,7 @@ async def test_should_send_alert_same_disruption(
     )
     alert_service.redis_client.get = AsyncMock(return_value=stored_state)  # type: ignore[method-assign]
 
-    should_send, filtered = await alert_service._should_send_alert(
+    should_send, filtered, _stored_lines = await alert_service._should_send_alert(
         route=test_route_with_schedule,
         user_id=test_route_with_schedule.user_id,
         schedule=schedule,
@@ -1483,7 +1493,7 @@ async def test_should_send_alert_changed_disruption(
     )
     alert_service.redis_client.get = AsyncMock(return_value=stored_state)  # type: ignore[method-assign]
 
-    should_send, filtered = await alert_service._should_send_alert(
+    should_send, filtered, _stored_lines = await alert_service._should_send_alert(
         route=test_route_with_schedule,
         user_id=test_route_with_schedule.user_id,
         schedule=schedule,
@@ -1506,7 +1516,7 @@ async def test_should_send_alert_redis_error(
     # Mock Redis to raise error
     alert_service.redis_client.get = AsyncMock(side_effect=Exception("Redis error"))  # type: ignore[method-assign]
 
-    should_send, filtered = await alert_service._should_send_alert(
+    should_send, filtered, _stored_lines = await alert_service._should_send_alert(
         route=test_route_with_schedule,
         user_id=test_route_with_schedule.user_id,
         schedule=schedule,
@@ -1530,7 +1540,7 @@ async def test_should_send_alert_invalid_stored_data(
     # Mock Redis to return invalid JSON
     alert_service.redis_client.get = AsyncMock(return_value="invalid json")  # type: ignore[method-assign]
 
-    should_send, filtered = await alert_service._should_send_alert(
+    should_send, filtered, _stored_lines = await alert_service._should_send_alert(
         route=test_route_with_schedule,
         user_id=test_route_with_schedule.user_id,
         schedule=schedule,
@@ -2352,7 +2362,7 @@ async def test_alert_service_skips_duplicate_alerts(
     ]
 
     with (
-        patch.object(alert_service, "_should_send_alert", return_value=(False, [])),
+        patch.object(alert_service, "_should_send_alert", return_value=(False, [], {})),
         patch.object(alert_service, "_get_verified_contact", return_value=None),
     ):
         alerts_sent = await alert_service._send_alerts_for_route(
@@ -5059,7 +5069,7 @@ class TestPerLineCooldown:
         ]
 
         with patch("app.services.alert_service.settings.ALERT_COOLDOWN_MINUTES", 5):
-            should_send, filtered = await service._should_send_alert(
+            should_send, filtered, _stored_lines = await service._should_send_alert(
                 route=test_route_with_schedule,
                 user_id=test_route_with_schedule.user_id,
                 schedule=test_route_with_schedule.schedules[0],
@@ -5099,7 +5109,7 @@ class TestPerLineCooldown:
             ),
         ]
 
-        should_send, filtered = await service._should_send_alert(
+        should_send, filtered, _stored_lines = await service._should_send_alert(
             route=test_route_with_schedule,
             user_id=test_route_with_schedule.user_id,
             schedule=test_route_with_schedule.schedules[0],

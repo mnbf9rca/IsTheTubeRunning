@@ -958,7 +958,7 @@ class AlertService:
         self,
         route: UserRoute,
         disabled_severity_pairs: set[tuple[str, int]],
-    ) -> tuple[list[DisruptionResponse], bool]:
+    ) -> tuple[list[DisruptionResponse], list[DisruptionResponse], bool]:
         """
         Get current disruptions affecting this route using inverted index.
 
@@ -970,8 +970,9 @@ class AlertService:
             disabled_severity_pairs: Set of (mode_id, severity_level) pairs to filter out
 
         Returns:
-            Tuple of (disruptions, error_occurred)
-            - disruptions: List of disruptions affecting this specific route
+            Tuple of (filtered_disruptions, unfiltered_disruptions, error_occurred)
+            - filtered_disruptions: Alertable disruptions (non-disabled severities)
+            - unfiltered_disruptions: All route disruptions (for cleared line detection)
             - error_occurred: True if an error occurred during processing
         """
         try:
@@ -1010,6 +1011,9 @@ class AlertService:
                 elif disruption.line_id in route_line_ids:
                     route_disruptions.append(disruption)
 
+            # Keep unfiltered disruptions for cleared line detection
+            unfiltered_route_disruptions = route_disruptions.copy()
+
             # Filter disruptions by severity (remove non-alertable severities like "Good Service")
             before_filter_count = len(route_disruptions)
             route_disruptions = filter_alertable_disruptions(route_disruptions, disabled_severity_pairs)
@@ -1023,7 +1027,7 @@ class AlertService:
                 filtered_count=filtered_count,
             )
 
-            return route_disruptions, False
+            return route_disruptions, unfiltered_route_disruptions, False
 
         except Exception as e:
             logger.error(
@@ -1032,7 +1036,33 @@ class AlertService:
                 error=str(e),
                 exc_info=e,
             )
-            return [], True
+            return [], [], True
+
+    async def _get_cleared_states(self) -> set[tuple[str, int]]:
+        """
+        Get (mode_id, severity_level) pairs that represent cleared states.
+
+        Cleared states are severities marked with is_cleared_state=True
+        in the alert_disabled_severities table (e.g., Good Service, No Issues).
+
+        Returns:
+            Set of (mode_id, severity_level) tuples for cleared states
+        """
+        try:
+            result = await self.db.execute(
+                select(AlertDisabledSeverity).where(AlertDisabledSeverity.is_cleared_state == True)  # noqa: E712
+            )
+            cleared_states = {(d.mode_id, d.severity_level) for d in result.scalars().all()}
+            logger.debug("cleared_states_fetched", count=len(cleared_states))
+            return cleared_states
+        except Exception as e:
+            logger.error(
+                "fetch_cleared_states_failed",
+                error=str(e),
+                exc_info=e,
+            )
+            # Return empty set on error - cleared detection will be skipped
+            return set()
 
     async def _should_send_alert(
         self,
@@ -1040,7 +1070,7 @@ class AlertService:
         user_id: UUID,
         schedule: UserRouteSchedule,
         disruptions: list[DisruptionResponse],
-    ) -> tuple[bool, list[DisruptionResponse]]:
+    ) -> tuple[bool, list[DisruptionResponse], dict[str, dict[str, object]]]:
         """
         Check if we should send an alert, with per-line cooldown logic.
 
@@ -1055,9 +1085,10 @@ class AlertService:
             disruptions: Current disruptions
 
         Returns:
-            Tuple of (should_send, filtered_disruptions):
+            Tuple of (should_send, filtered_disruptions, stored_lines):
             - should_send: True if alert should be sent, False if all lines are within cooldown
             - filtered_disruptions: Only disruptions for lines that passed cooldown check
+            - stored_lines: Previously alerted lines from Redis state (for cleared detection)
         """
         with service_span("alert.should_send_check", "alert-service") as span:
             span.set_attribute("alert.route_id", str(route.id))
@@ -1117,7 +1148,7 @@ class AlertService:
                     span.set_attribute("alert.result", False)
                     span.set_attribute("alert.lines_checked", len(disruptions_by_line))
                     span.set_attribute("alert.lines_to_alert", 0)
-                    return False, []
+                    return False, [], stored_lines
 
                 # Filter disruptions to only include lines that passed the check
                 filtered_disruptions = [d for d in disruptions if d.line_id in lines_to_alert]
@@ -1134,7 +1165,7 @@ class AlertService:
                 span.set_attribute("alert.lines_checked", len(disruptions_by_line))
                 span.set_attribute("alert.lines_to_alert", len(lines_to_alert))
 
-                return True, filtered_disruptions
+                return True, filtered_disruptions, stored_lines
 
             except Exception as e:
                 logger.error(
@@ -1150,7 +1181,7 @@ class AlertService:
                 span.set_attribute("alert.error", True)
                 span.set_attribute("alert.error_type", type(e).__name__)
                 # On error, default to sending alert (better to over-notify than under-notify)
-                return True, disruptions
+                return True, disruptions, {}
 
     async def _get_verified_contact(  # noqa: PLR0911
         self,
@@ -1373,8 +1404,10 @@ class AlertService:
                 schedule_id=str(active_schedule.id),
             )
 
-            # Get disruptions for this route
-            disruptions, error_occurred = await self._get_route_disruptions(route, disabled_severity_pairs)
+            # Get disruptions for this route (both filtered and unfiltered)
+            disruptions, all_route_disruptions, error_occurred = await self._get_route_disruptions(
+                route, disabled_severity_pairs
+            )
 
             # Skip if no disruptions
             if not disruptions:
@@ -1393,27 +1426,61 @@ class AlertService:
             )
 
             # Check if we should send alert (per-line cooldown deduplication)
-            should_send, filtered_disruptions = await self._should_send_alert(
+            should_send, filtered_disruptions, stored_lines = await self._should_send_alert(
                 route=route,
                 user_id=route.user_id,
                 schedule=active_schedule,
                 disruptions=disruptions,
             )
 
-            if not should_send:
+            # Detect cleared lines (lines that were previously alerted but now in cleared state)
+            cleared_lines: list[ClearedLineInfo] = []
+            if stored_lines and all_route_disruptions:
+                # Get cleared states from database
+                cleared_states = await self._get_cleared_states()
+                if cleared_states:
+                    # Get current alertable line IDs
+                    current_alertable_line_ids = {d.line_id for d in disruptions}
+
+                    # Detect cleared lines using pure function
+                    cleared_lines = detect_cleared_lines(
+                        stored_lines=stored_lines,
+                        current_alertable_line_ids=current_alertable_line_ids,
+                        all_route_disruptions=all_route_disruptions,
+                        cleared_states=cleared_states,
+                    )
+
+                    if cleared_lines:
+                        logger.info(
+                            "cleared_lines_detected",
+                            route_id=str(route.id),
+                            route_name=route.name,
+                            cleared_count=len(cleared_lines),
+                            cleared_line_ids=[cl.line_id for cl in cleared_lines],
+                        )
+                        # TODO: Send status update notification
+                        # await self._send_status_update_notifications(
+                        #     route, active_schedule, cleared_lines, disruptions, stored_lines
+                        # )
+
+            # If no new disruptions AND no cleared lines, skip
+            if not should_send and not cleared_lines:
                 logger.debug(
-                    "alert_skipped_all_lines_within_cooldown",
+                    "alert_skipped_no_changes",
                     route_id=str(route.id),
                     route_name=route.name,
                 )
                 return 0, error_occurred
 
-            # Send alerts (only for lines that passed cooldown check)
-            alerts_sent = await self._send_alerts_for_route(
-                route=route,
-                schedule=active_schedule,
-                disruptions=filtered_disruptions,
-            )
+            # Send alerts if we have new disruptions
+            alerts_sent = 0
+            if should_send:
+                # Send alerts (only for lines that passed cooldown check)
+                alerts_sent = await self._send_alerts_for_route(
+                    route=route,
+                    schedule=active_schedule,
+                    disruptions=filtered_disruptions,
+                )
 
             return alerts_sent, error_occurred
 
