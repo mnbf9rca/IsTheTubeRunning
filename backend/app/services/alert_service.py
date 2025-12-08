@@ -1725,8 +1725,8 @@ class AlertService:
                 route, disabled_severity_pairs
             )
 
-            # Skip if no disruptions
-            if not disruptions:
+            # Skip if no disruptions at all (need to check cleared lines even if no alertable disruptions)
+            if not disruptions and not all_route_disruptions:
                 logger.debug(
                     "no_disruptions_for_route",
                     route_id=str(route.id),
@@ -1734,12 +1734,13 @@ class AlertService:
                 )
                 return 0, error_occurred
 
-            logger.info(
-                "disruptions_found_for_route",
-                route_id=str(route.id),
-                route_name=route.name,
-                disruption_count=len(disruptions),
-            )
+            if disruptions:
+                logger.info(
+                    "disruptions_found_for_route",
+                    route_id=str(route.id),
+                    route_name=route.name,
+                    disruption_count=len(disruptions),
+                )
 
             # Check if we should send alert (per-line cooldown deduplication)
             should_send, filtered_disruptions, stored_lines = await self._should_send_alert(

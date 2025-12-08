@@ -970,6 +970,76 @@ class TestProcessSingleRoute:
         assert alerts_sent == 0
         assert error_occurred is True
 
+    @pytest.mark.asyncio
+    async def test_cleared_lines_detection_integration(
+        self,
+        alert_service: AlertService,
+        test_route_with_schedule: UserRoute,
+        sample_disruptions: list[DisruptionResponse],
+        db_session: AsyncSession,
+    ) -> None:
+        """Test integration of cleared lines detection and status update notifications.
+
+        Note: Cleared states (severity 10, 18) are created by migration 1025d77921da,
+        so no need to create them in this test.
+        """
+        mock_schedule = MagicMock(spec=UserRouteSchedule)
+        mock_schedule.id = uuid4()
+
+        # Create disruption that cleared from severe to good service
+        cleared_disruption = DisruptionResponse(
+            line_id="victoria",
+            line_name="Victoria",
+            mode="tube",
+            status_severity=10,
+            status_severity_description="Good Service",
+        )
+
+        # Mock Redis state showing previous severe disruption
+        stored_lines = {
+            "victoria": {
+                "severity": 6,
+                "status": "Severe Delays",
+                "full_hash": "old_hash",
+                "last_sent_at": "2024-01-01T10:00:00Z",
+            }
+        }
+
+        with (
+            patch.object(alert_service, "_get_active_schedule", new_callable=AsyncMock, return_value=mock_schedule),
+            patch.object(
+                alert_service,
+                "_get_route_disruptions",
+                new_callable=AsyncMock,
+                return_value=([], [cleared_disruption], False),  # No alertable, but has cleared
+            ),
+            patch.object(
+                alert_service,
+                "_should_send_alert",
+                new_callable=AsyncMock,
+                return_value=(False, [], stored_lines),  # Returns stored lines
+            ),
+            patch.object(
+                alert_service, "_send_status_update_notifications", new_callable=AsyncMock, return_value=1
+            ) as mock_send_status,
+        ):
+            alerts_sent, error_occurred = await alert_service._process_single_route(
+                route=test_route_with_schedule,
+                schedules=[],
+                disabled_severity_pairs=set(),
+            )
+
+        # Verify status update notifications were called
+        assert mock_send_status.called
+        call_args = mock_send_status.call_args
+        assert len(call_args.kwargs["cleared_lines"]) == 1
+        assert call_args.kwargs["cleared_lines"][0].line_id == "victoria"
+        assert call_args.kwargs["cleared_lines"][0].current_severity == 10
+        assert call_args.kwargs["cleared_lines"][0].previous_severity == 6
+
+        assert alerts_sent == 0  # No new disruption alerts
+        assert error_occurred is False
+
 
 # ==================== process_all_routes Tests ====================
 
@@ -2811,6 +2881,32 @@ async def test_send_alerts_for_route_handles_get_verified_contact_exception(
 
     # Notification service was not called
     mock_notif_instance.send_disruption_email.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_send_alerts_for_route_catastrophic_error_handling(
+    alert_service: AlertService,
+    test_route_with_schedule: UserRoute,
+    sample_disruptions: list[DisruptionResponse],
+    db_session: AsyncSession,
+) -> None:
+    """Test catastrophic error handling in _send_alerts_for_route (lines 1934-1949)."""
+    # Patch db.execute to raise exception when getting notification preferences
+    # This will trigger the outer exception handler
+    with patch.object(
+        db_session,
+        "execute",
+        side_effect=SQLAlchemyError("Catastrophic database error"),
+    ):
+        # Call the method - should catch exception and return 0
+        alerts_sent = await alert_service._send_alerts_for_route(
+            route=test_route_with_schedule,
+            schedule=test_route_with_schedule.schedules[0],
+            disruptions=sample_disruptions,
+        )
+
+    # Should return 0 on catastrophic error
+    assert alerts_sent == 0
 
 
 # ==================== Phase 3: Inverted Index Matching Tests ====================
@@ -4989,6 +5085,43 @@ class TestPerLineCooldown:
         )
 
         assert result is True  # Should alert immediately due to invalid format
+
+    def test_check_line_alert_needed_invalid_last_sent_at_type(
+        self, db_session: AsyncSession, stateful_mock_redis: AsyncMock
+    ):
+        """Test that invalid last_sent_at type (not string) triggers immediate alert (lines 2148-2154)."""
+        service = AlertService(db=db_session, redis_client=stateful_mock_redis)
+
+        disruptions = [
+            DisruptionResponse(
+                line_id="victoria",
+                line_name="Victoria",
+                mode="tube",
+                status_severity=4,
+                status_severity_description="Severe Delays",
+                reason="Signal failure",
+            ),
+        ]
+
+        # Stored state with wrong type for last_sent_at (int instead of string)
+        stored_line = {
+            "full_hash": "some_hash",
+            "status_hash": "some_status_hash",
+            "severity": 4,
+            "status": "Severe Delays",
+            "last_sent_at": 123456789,  # Wrong type - should be string
+        }
+
+        result = service._check_line_alert_needed(
+            line_id="victoria",
+            line_disruptions=disruptions,
+            stored_line=stored_line,
+            now_utc=datetime.now(UTC),
+            cooldown=timedelta(minutes=5),
+            route_id="test-route",
+        )
+
+        assert result is True  # Should alert immediately due to invalid type
 
     def test_check_line_alert_needed_missing_required_fields(
         self, db_session: AsyncSession, stateful_mock_redis: AsyncMock
