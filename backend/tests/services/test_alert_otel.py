@@ -643,7 +643,7 @@ class TestAlertServiceShouldSendAlertOtelSpans:
         mock_schedule.id = schedule_id
 
         # Call the method
-        should_send, _filtered = await alert_svc._should_send_alert(
+        should_send, _filtered, _stored_lines = await alert_svc._should_send_alert(
             route=mock_route,
             user_id=user_id,
             schedule=mock_schedule,
@@ -700,7 +700,7 @@ class TestAlertServiceShouldSendAlertOtelSpans:
         mock_schedule.id = schedule_id
 
         # Method handles exception gracefully
-        should_send, _filtered = await alert_svc._should_send_alert(
+        should_send, _filtered, _stored_lines = await alert_svc._should_send_alert(
             route=mock_route,
             user_id=user_id,
             schedule=mock_schedule,
