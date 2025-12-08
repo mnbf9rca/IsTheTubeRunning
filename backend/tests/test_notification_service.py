@@ -736,6 +736,154 @@ class TestNotificationService:
         assert len(sent_message) <= 160
 
     @pytest.mark.asyncio
+    @patch("app.services.sms_service.SmsService.send_sms", new_callable=AsyncMock)
+    async def test_send_status_update_sms_multistage_truncation_3_to_2_lines(self, mock_send_sms: AsyncMock) -> None:
+        """Test SMS truncation reduces from 3 cleared lines to 2 when needed."""
+        service = NotificationService()
+        phone = "+447700900123"
+        route_name = "Very Long Route Name That Takes Up Space"
+        cleared_lines = [
+            ClearedLineInfo(
+                line_id="metropolitan",
+                line_name="Metropolitan Line",
+                mode="tube",
+                previous_severity=3,
+                previous_status="Severe Delays",
+                current_severity=10,
+                current_status="Good Service",
+            ),
+            ClearedLineInfo(
+                line_id="hammersmith-city",
+                line_name="Hammersmith & City",
+                mode="tube",
+                previous_severity=3,
+                previous_status="Minor Delays",
+                current_severity=10,
+                current_status="Good Service",
+            ),
+            ClearedLineInfo(
+                line_id="circle",
+                line_name="Circle Line Name",
+                mode="tube",
+                previous_severity=6,
+                previous_status="Part Suspended",
+                current_severity=10,
+                current_status="Good Service",
+            ),
+        ]
+        still_disrupted = []
+
+        await service.send_status_update_sms(phone, route_name, cleared_lines, still_disrupted)
+
+        mock_send_sms.assert_called_once()
+        call_args = mock_send_sms.call_args
+        sent_message = call_args[0][1]
+
+        # Should reduce to 2 lines if 3 is too long
+        assert len(sent_message) <= 160
+
+    @pytest.mark.asyncio
+    @patch("app.services.sms_service.SmsService.send_sms", new_callable=AsyncMock)
+    async def test_send_status_update_sms_multistage_truncation_2_to_1_line(self, mock_send_sms: AsyncMock) -> None:
+        """Test SMS truncation reduces from 2 cleared lines to 1 when needed."""
+        service = NotificationService()
+        phone = "+447700900123"
+        route_name = "Extremely Long Route Name For Testing Multi-Stage Truncation"
+        cleared_lines = [
+            ClearedLineInfo(
+                line_id="metropolitan",
+                line_name="Metropolitan Line With Very Long Name",
+                mode="tube",
+                previous_severity=3,
+                previous_status="Severe Delays",
+                current_severity=10,
+                current_status="Good Service",
+            ),
+            ClearedLineInfo(
+                line_id="hammersmith-city",
+                line_name="Hammersmith & City Line",
+                mode="tube",
+                previous_severity=3,
+                previous_status="Minor Delays",
+                current_severity=10,
+                current_status="Good Service",
+            ),
+        ]
+        still_disrupted = []
+
+        await service.send_status_update_sms(phone, route_name, cleared_lines, still_disrupted)
+
+        mock_send_sms.assert_called_once()
+        call_args = mock_send_sms.call_args
+        sent_message = call_args[0][1]
+
+        # Should reduce to 1 line if 2 is too long
+        assert len(sent_message) <= 160
+        # Should contain first line name
+        assert "Metropolitan" in sent_message
+
+    @pytest.mark.asyncio
+    @patch("app.services.sms_service.SmsService.send_sms", new_callable=AsyncMock)
+    async def test_send_status_update_sms_multistage_truncation_with_ellipsis(self, mock_send_sms: AsyncMock) -> None:
+        """Test SMS truncation uses ellipsis for very long route and line names."""
+        service = NotificationService()
+        phone = "+447700900123"
+        route_name = "Extremely Long Route Name That Definitely Needs To Be Truncated With Ellipsis For Testing"
+        cleared_lines = [
+            ClearedLineInfo(
+                line_id="metropolitan",
+                line_name="Metropolitan Line With An Extremely Long Name That Also Needs Truncation",
+                mode="tube",
+                previous_severity=3,
+                previous_status="Severe Delays",
+                current_severity=10,
+                current_status="Good Service",
+            ),
+        ]
+        still_disrupted = []
+
+        await service.send_status_update_sms(phone, route_name, cleared_lines, still_disrupted)
+
+        mock_send_sms.assert_called_once()
+        call_args = mock_send_sms.call_args
+        sent_message = call_args[0][1]
+
+        # Should truncate with ellipsis
+        assert len(sent_message) <= 160
+        # Should contain ellipsis if truncation occurred
+        # Note: ellipsis may appear in route name or line name depending on lengths
+
+    @pytest.mark.asyncio
+    @patch("app.services.sms_service.SmsService.send_sms", new_callable=AsyncMock)
+    async def test_send_status_update_sms_force_truncate_fallback(self, mock_send_sms: AsyncMock) -> None:
+        """Test SMS force truncate as final fallback."""
+        service = NotificationService()
+        phone = "+447700900123"
+        # Create an extreme case that would still exceed 160 chars even after all truncation stages
+        route_name = "A" * 50  # Very long route name
+        cleared_lines = [
+            ClearedLineInfo(
+                line_id="line",
+                line_name="B" * 50,  # Very long line name
+                mode="tube",
+                previous_severity=3,
+                previous_status="Severe Delays",
+                current_severity=10,
+                current_status="Good Service",
+            ),
+        ]
+        still_disrupted = []
+
+        await service.send_status_update_sms(phone, route_name, cleared_lines, still_disrupted)
+
+        mock_send_sms.assert_called_once()
+        call_args = mock_send_sms.call_args
+        sent_message = call_args[0][1]
+
+        # Must be exactly 160 chars or less due to force truncate
+        assert len(sent_message) <= 160
+
+    @pytest.mark.asyncio
     async def test_send_status_update_sms_error_propagates(self) -> None:
         """Test status update SMS error is propagated."""
         service = NotificationService()

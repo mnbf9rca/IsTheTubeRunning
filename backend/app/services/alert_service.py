@@ -632,7 +632,7 @@ class AlertService:
 
                 # Fetch global disruption data once for all routes
                 # Errors are non-fatal - returns empty data on failure
-                disabled_severity_pairs = await self._fetch_global_disruption_data()
+                disabled_severity_pairs, cleared_states = await self._fetch_global_disruption_data()
 
                 # Process each route individually
                 for route in routes:
@@ -646,6 +646,7 @@ class AlertService:
                         route=route,
                         schedules=route_schedules,
                         disabled_severity_pairs=disabled_severity_pairs,
+                        cleared_states=cleared_states,
                     )
 
                     stats["alerts_sent"] += alerts_sent
@@ -692,29 +693,34 @@ class AlertService:
             logger.error("fetch_active_routes_failed", error=str(e), exc_info=e)
             return []
 
-    async def _fetch_global_disruption_data(self) -> set[tuple[str, int]]:
+    async def _fetch_global_disruption_data(self) -> tuple[set[tuple[str, int]], set[tuple[str, int]]]:
         """
         Fetch all disruptions and disabled severities once for all routes.
 
         This method fetches global disruption data that can be reused across all routes:
         - All line disruptions (cached by TfL service)
         - Disabled severity pairs for filtering
+        - Cleared state pairs (for detecting when lines return to normal)
 
-        Internally uses disruptions for state change logging, but only returns
-        the disabled severity pairs needed by callers.
+        Internally uses disruptions for state change logging.
 
         Errors are non-fatal - returns empty data on failure so per-route processing can continue.
 
         Returns:
-            Set of (mode_id, severity_level) pairs that should not trigger alerts
+            Tuple of (disabled_severity_pairs, cleared_states)
+            - disabled_severity_pairs: Set of (mode_id, severity_level) pairs that should not trigger alerts
+            - cleared_states: Set of (mode_id, severity_level) pairs that represent cleared/normal states
         """
         disabled_severity_pairs: set[tuple[str, int]] = set()
+        cleared_states: set[tuple[str, int]] = set()
 
-        # Step 1: ALWAYS fetch disabled severity pairs first (critical for filtering)
+        # Step 1: ALWAYS fetch disabled severity pairs and cleared states first (critical for filtering)
         # This query must succeed regardless of TfL API status
         try:
             disabled_result = await self.db.execute(select(AlertDisabledSeverity))
-            disabled_severity_pairs = {(d.mode_id, d.severity_level) for d in disabled_result.scalars().all()}
+            all_disabled_severities = disabled_result.scalars().all()
+            disabled_severity_pairs = {(d.mode_id, d.severity_level) for d in all_disabled_severities}
+            cleared_states = {(d.mode_id, d.severity_level) for d in all_disabled_severities if d.is_cleared_state}
         except SQLAlchemyError as e:
             logger.error(
                 "fetch_disabled_severities_failed",
@@ -722,9 +728,9 @@ class AlertService:
                 exc_info=e,
                 critical=True,
             )
-            # Return empty set on DB failure - this is a critical error
+            # Return empty sets on DB failure - this is a critical error
             # Per-route processing will still work but won't filter properly
-            return disabled_severity_pairs
+            return disabled_severity_pairs, cleared_states
 
         # Step 2: Try to fetch disruptions for state logging (optional, for analytics)
         # Failure here should not prevent alert processing
@@ -745,7 +751,7 @@ class AlertService:
             # Don't track as error - per-route processing will handle its own disruptions
             # This is just for centralized logging
 
-        return disabled_severity_pairs
+        return disabled_severity_pairs, cleared_states
 
     async def _get_active_schedule(
         self,
@@ -1684,6 +1690,7 @@ class AlertService:
         route: UserRoute,
         schedules: list[UserRouteSchedule],
         disabled_severity_pairs: set[tuple[str, int]],
+        cleared_states: set[tuple[str, int]],
     ) -> tuple[int, bool]:
         """
         Process a single route: check schedule, get disruptions, send alerts.
@@ -1698,6 +1705,7 @@ class AlertService:
             route: UserRoute to process (with segments, preferences loaded)
             schedules: Active (non-deleted) schedules for this route
             disabled_severity_pairs: Set of (mode_id, severity_level) pairs to filter out
+            cleared_states: Set of (mode_id, severity_level) pairs that represent cleared/normal states
 
         Returns:
             Tuple of (alerts_sent, error_occurred)
@@ -1752,36 +1760,33 @@ class AlertService:
 
             # Detect cleared lines (lines that were previously alerted but now in cleared state)
             cleared_lines: list[ClearedLineInfo] = []
-            if stored_lines and all_route_disruptions:
-                # Get cleared states from database
-                cleared_states = await self._get_cleared_states()
-                if cleared_states:
-                    # Get current alertable line IDs
-                    current_alertable_line_ids = {d.line_id for d in disruptions}
+            if stored_lines and all_route_disruptions and cleared_states:
+                # Get current alertable line IDs
+                current_alertable_line_ids = {d.line_id for d in disruptions}
 
-                    # Detect cleared lines using pure function
-                    cleared_lines = detect_cleared_lines(
-                        stored_lines=stored_lines,
-                        current_alertable_line_ids=current_alertable_line_ids,
-                        all_route_disruptions=all_route_disruptions,
-                        cleared_states=cleared_states,
+                # Detect cleared lines using pure function
+                cleared_lines = detect_cleared_lines(
+                    stored_lines=stored_lines,
+                    current_alertable_line_ids=current_alertable_line_ids,
+                    all_route_disruptions=all_route_disruptions,
+                    cleared_states=cleared_states,
+                )
+
+                if cleared_lines:
+                    logger.info(
+                        "cleared_lines_detected",
+                        route_id=str(route.id),
+                        route_name=route.name,
+                        cleared_count=len(cleared_lines),
+                        cleared_line_ids=[cl.line_id for cl in cleared_lines],
                     )
-
-                    if cleared_lines:
-                        logger.info(
-                            "cleared_lines_detected",
-                            route_id=str(route.id),
-                            route_name=route.name,
-                            cleared_count=len(cleared_lines),
-                            cleared_line_ids=[cl.line_id for cl in cleared_lines],
-                        )
-                        # Send status update notifications
-                        await self._send_status_update_notifications(
-                            route=route,
-                            schedule=active_schedule,
-                            cleared_lines=cleared_lines,
-                            still_disrupted=disruptions,  # Current alertable disruptions
-                        )
+                    # Send status update notifications
+                    await self._send_status_update_notifications(
+                        route=route,
+                        schedule=active_schedule,
+                        cleared_lines=cleared_lines,
+                        still_disrupted=disruptions,  # Current alertable disruptions
+                    )
 
             # If no new disruptions AND no cleared lines, skip
             if not should_send and not cleared_lines:

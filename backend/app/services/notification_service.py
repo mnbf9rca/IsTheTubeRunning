@@ -350,9 +350,42 @@ This is an automated alert from IsTheTubeRunning.
                 # Build final message
                 message = f"{base_msg}{disrupted_msg}{url}"
 
-                # If too long, drop the "still disrupted" part
+                # Multi-stage truncation if message exceeds SMS_MAX_LENGTH
                 if len(message) > SMS_MAX_LENGTH:
+                    # Stage 1: Drop the "still disrupted" part
                     message = f"{base_msg}{url}"
+
+                    # Stage 2: If still too long, reduce cleared lines from 3 to 2
+                    min_cleared_lines_stage_2 = 2
+                    if len(message) > SMS_MAX_LENGTH and len(cleared_lines) > min_cleared_lines_stage_2:
+                        cleared_names = ", ".join([cl.line_name for cl in cleared_lines[:2]])
+                        base_msg = f"TfL Update: {route_name}. Service restored: {cleared_names}."
+                        message = f"{base_msg}{url}"
+
+                    # Stage 3: If still too long, reduce cleared lines from 2 to 1
+                    if len(message) > SMS_MAX_LENGTH and len(cleared_lines) > 1:
+                        cleared_names = cleared_lines[0].line_name
+                        base_msg = f"TfL Update: {route_name}. Service restored: {cleared_names}."
+                        message = f"{base_msg}{url}"
+
+                    # Stage 4: If still too long, truncate route_name and cleared_names with ellipsis
+                    if len(message) > SMS_MAX_LENGTH:
+                        max_route_len = 30
+                        max_cleared_len = 20
+                        truncated_route = (
+                            (route_name[:max_route_len] + "…") if len(route_name) > max_route_len else route_name
+                        )
+                        truncated_cleared = (
+                            (cleared_names[:max_cleared_len] + "…")
+                            if len(cleared_names) > max_cleared_len
+                            else cleared_names
+                        )
+                        base_msg = f"TfL Update: {truncated_route}. Service restored: {truncated_cleared}."
+                        message = f"{base_msg}{url}"
+
+                    # Stage 5: Final fallback - force truncate to SMS_MAX_LENGTH
+                    if len(message) > SMS_MAX_LENGTH:
+                        message = message[:SMS_MAX_LENGTH]
 
                 # Set message length as span attribute
                 span.set_attribute("notification.message_length", len(message))

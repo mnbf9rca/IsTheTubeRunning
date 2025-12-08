@@ -745,7 +745,7 @@ class TestFetchGlobalDisruptionData:
         await db_session.commit()
 
         # Execute
-        disabled_pairs = await alert_service._fetch_global_disruption_data()
+        disabled_pairs, _cleared_states = await alert_service._fetch_global_disruption_data()
 
         # Verify
         assert ("test-mode", 99) in disabled_pairs
@@ -776,7 +776,7 @@ class TestFetchGlobalDisruptionData:
         mock_tfl_class.return_value = mock_tfl
 
         # Execute
-        disabled_pairs = await alert_service._fetch_global_disruption_data()
+        disabled_pairs, _cleared_states = await alert_service._fetch_global_disruption_data()
 
         # Verify returns disabled pairs from DB, even though TfL failed
         assert ("test-mode-tfl-error", 98) in disabled_pairs
@@ -800,11 +800,12 @@ class TestFetchGlobalDisruptionData:
         alert_service.db.execute = AsyncMock(side_effect=SQLAlchemyError("DB connection error"))
 
         # Execute
-        disabled_pairs = await alert_service._fetch_global_disruption_data()
+        disabled_pairs, cleared_states = await alert_service._fetch_global_disruption_data()
 
-        # Verify returns empty disabled pairs (DB failed)
+        # Verify returns empty disabled pairs and cleared states (DB failed)
         # TfL service should not be called since DB query happens first
         assert disabled_pairs == set()
+        assert cleared_states == set()
         mock_tfl_class.assert_not_called()
 
 
@@ -824,6 +825,7 @@ class TestProcessSingleRoute:
                 route=test_route_with_schedule,
                 schedules=[],
                 disabled_severity_pairs=set(),
+                cleared_states=set(),
             )
 
         assert alerts_sent == 0
@@ -848,6 +850,7 @@ class TestProcessSingleRoute:
                 route=test_route_with_schedule,
                 schedules=[],
                 disabled_severity_pairs=set(),
+                cleared_states=set(),
             )
 
         assert alerts_sent == 0
@@ -882,6 +885,7 @@ class TestProcessSingleRoute:
                 route=test_route_with_schedule,
                 schedules=[],
                 disabled_severity_pairs=set(),
+                cleared_states=set(),
             )
 
         assert alerts_sent == 2
@@ -916,6 +920,7 @@ class TestProcessSingleRoute:
                 route=test_route_with_schedule,
                 schedules=[],
                 disabled_severity_pairs=set(),
+                cleared_states=set(),
             )
 
         assert alerts_sent == 1
@@ -947,6 +952,7 @@ class TestProcessSingleRoute:
                 route=test_route_with_schedule,
                 schedules=[],
                 disabled_severity_pairs=set(),
+                cleared_states=set(),
             )
 
         assert alerts_sent == 0
@@ -965,6 +971,7 @@ class TestProcessSingleRoute:
                 route=test_route_with_schedule,
                 schedules=[],
                 disabled_severity_pairs=set(),
+                cleared_states=set(),
             )
 
         assert alerts_sent == 0
@@ -1027,6 +1034,7 @@ class TestProcessSingleRoute:
                 route=test_route_with_schedule,
                 schedules=[],
                 disabled_severity_pairs=set(),
+                cleared_states={("tube", 10)},  # Severity 10 (Good Service) is a cleared state
             )
 
         # Verify status update notifications were called
@@ -5821,6 +5829,88 @@ class TestSendStatusUpdateNotifications:
         assert logs[0].status == NotificationStatus.FAILED
         assert logs[0].error_message is not None
         assert "SMTP error" in logs[0].error_message
+
+    @pytest.mark.asyncio
+    @patch("app.services.alert_service.NotificationService")
+    async def test_all_lines_cleared_sends_status_update(
+        self,
+        mock_notif_class: MagicMock,
+        alert_service: AlertService,
+        test_route_with_schedule: UserRoute,
+        db_session: AsyncSession,
+    ) -> None:
+        """Test that status updates are sent when all lines return to Good Service.
+
+        Verifies the fix for comment PRRT_kwDOQNO0Es5lONzI:
+        When all lines return to normal service (disruptions list becomes empty
+        but all_route_disruptions contains Good Service entries), status update
+        notifications should still be sent.
+        """
+        # Mock notification service
+        mock_notif_instance = AsyncMock()
+        mock_notif_instance.send_status_update_email = AsyncMock()
+        mock_notif_class.return_value = mock_notif_instance
+
+        mock_schedule = MagicMock(spec=UserRouteSchedule)
+        mock_schedule.id = uuid4()
+
+        # Create Good Service disruption (severity 10)
+        good_service_disruption = DisruptionResponse(
+            line_id="victoria",
+            line_name="Victoria",
+            mode="tube",
+            status_severity=10,
+            status_severity_description="Good Service",
+        )
+
+        # Mock Redis state showing previous severe disruption
+        stored_lines = {
+            "victoria": {
+                "severity": 6,
+                "status": "Severe Delays",
+                "full_hash": "old_hash",
+                "last_sent_at": "2024-01-01T10:00:00Z",
+            }
+        }
+
+        with (
+            patch.object(alert_service, "_get_active_schedule", new_callable=AsyncMock, return_value=mock_schedule),
+            patch.object(
+                alert_service,
+                "_get_route_disruptions",
+                new_callable=AsyncMock,
+                # disruptions is empty (Good Service is filtered), but all_route_disruptions contains it
+                return_value=([], [good_service_disruption], False),
+            ),
+            patch.object(
+                alert_service,
+                "_should_send_alert",
+                new_callable=AsyncMock,
+                return_value=(False, [], stored_lines),  # Returns stored lines
+            ),
+            patch.object(
+                alert_service, "_send_status_update_notifications", new_callable=AsyncMock, return_value=1
+            ) as mock_send_status,
+            patch.object(alert_service, "_send_alerts_for_route", new_callable=AsyncMock, return_value=0),
+        ):
+            alerts_sent, error_occurred = await alert_service._process_single_route(
+                route=test_route_with_schedule,
+                schedules=[],
+                disabled_severity_pairs=set(),
+                cleared_states={("tube", 10)},  # Severity 10 (Good Service) is a cleared state
+            )
+
+        # Verify status update notifications were called with cleared lines
+        assert mock_send_status.called
+        call_args = mock_send_status.call_args
+        assert len(call_args.kwargs["cleared_lines"]) == 1
+        assert call_args.kwargs["cleared_lines"][0].line_id == "victoria"
+        assert call_args.kwargs["cleared_lines"][0].current_severity == 10
+        assert call_args.kwargs["cleared_lines"][0].previous_severity == 6
+
+        # Verify no new disruption alerts were sent (since disruptions list is empty)
+        assert alerts_sent == 0
+        assert error_occurred is False
 
 
 class TestUpdateAlertStateRemoveCleared:

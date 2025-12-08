@@ -168,7 +168,7 @@
             <div class="route-name">{{ route_name }}</div>
         </div>
         <div class="content">
-            <p class="greeting">Hello {{ user_name or "there" }},</p>
+            <p class="greeting">Hello {{ user_name|default("there") }},</p>
 
             <p>Good news! Service has been restored on your route <strong>{{ route_name }}</strong>.</p>
 
