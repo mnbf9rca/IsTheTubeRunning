@@ -17,12 +17,6 @@ from app.celery.tasks import (
 # ==================== check_disruptions_and_alert Tests ====================
 
 
-def test_check_disruptions_task_registered() -> None:
-    """Test that task function exists."""
-    # This is a simple test to ensure the task exists
-    assert check_disruptions_and_alert is not None
-
-
 @pytest.mark.asyncio
 @patch("app.celery.tasks.AlertService")
 @patch("app.celery.tasks.get_worker_redis_client")
@@ -388,12 +382,6 @@ def test_check_disruptions_task_logs_on_error(mock_run_async_task: MagicMock) ->
 # ==================== rebuild_route_indexes_task Tests ====================
 
 
-def test_rebuild_indexes_task_registered() -> None:
-    """Test that rebuild_route_indexes_task function exists."""
-    # This is a simple test to ensure the task exists
-    assert rebuild_route_indexes_task is not None
-
-
 @pytest.mark.asyncio
 @patch("app.celery.tasks.UserRouteIndexService")
 @patch("app.celery.tasks.get_worker_session")
@@ -677,11 +665,6 @@ def test_rebuild_indexes_task_logs_on_error(mock_run_async_task: MagicMock) -> N
 
 
 # ==================== detect_and_rebuild_stale_routes Tests ====================
-
-
-def test_detect_stale_routes_task_registered() -> None:
-    """Test that detect_and_rebuild_stale_routes task function exists."""
-    assert detect_and_rebuild_stale_routes is not None
 
 
 @pytest.mark.asyncio

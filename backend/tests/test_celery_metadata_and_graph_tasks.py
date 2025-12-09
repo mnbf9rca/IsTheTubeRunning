@@ -7,17 +7,10 @@ import pytest
 from app.celery.tasks import (
     _rebuild_graph_async,
     _refresh_metadata_async,
-    rebuild_network_graph_task,
-    refresh_tfl_metadata_task,
 )
 from app.services.tfl_service import MetadataChangeDetectedError
 
 # ==================== refresh_tfl_metadata_task Tests ====================
-
-
-def test_refresh_metadata_task_registered() -> None:
-    """Test that task function exists."""
-    assert refresh_tfl_metadata_task is not None
 
 
 @pytest.mark.asyncio
@@ -135,11 +128,6 @@ async def test_refresh_metadata_async_ensures_session_cleanup(
 
 
 # ==================== rebuild_network_graph_task Tests ====================
-
-
-def test_rebuild_graph_task_registered() -> None:
-    """Test that task function exists."""
-    assert rebuild_network_graph_task is not None
 
 
 @pytest.mark.asyncio

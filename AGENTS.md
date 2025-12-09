@@ -43,6 +43,9 @@
   - Backend: Use `app.cli` to create users for API calls or assign/remove admin roles
   - Frontend: `frontend/.env` (includes Playwright test credentials)
   - **Don't give up on testing** - credentials exist for API testing and UI testing
+- ⚠️ **ALWAYS** read `backend/tests/conftest.py` to understand existing test fixtures
+  - Use existing fixtures where possible
+  - Add new fixtures to `conftest.py` as needed for new functionality
 
 ---
 

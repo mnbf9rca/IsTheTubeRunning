@@ -1,20 +1,17 @@
 """Tests for admin route index management endpoint."""
 
 import uuid
-from collections.abc import AsyncGenerator
 from datetime import UTC, datetime
 from unittest.mock import AsyncMock, MagicMock, patch
 from uuid import uuid4
 
 import pytest
 from app.core.config import settings
-from app.core.database import get_db
-from app.main import app
 from app.models.tfl import Line, Station
 from app.models.user import User
 from app.models.user_route import UserRoute, UserRouteSegment
 from app.models.user_route_index import UserRouteStationIndex
-from httpx import ASGITransport, AsyncClient
+from httpx import AsyncClient
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -32,22 +29,6 @@ def build_api_url(endpoint: str) -> str:
     prefix = settings.API_V1_PREFIX.rstrip("/")
     path = endpoint if endpoint.startswith("/") else f"/{endpoint}"
     return f"{prefix}{path}"
-
-
-@pytest.fixture
-async def async_client_with_db(db_session: AsyncSession) -> AsyncGenerator[AsyncClient]:
-    """Async HTTP client with database dependency override."""
-
-    async def override_get_db() -> AsyncGenerator[AsyncSession]:
-        yield db_session
-
-    app.dependency_overrides[get_db] = override_get_db
-
-    try:
-        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
-            yield client
-    finally:
-        app.dependency_overrides.clear()
 
 
 class TestAdminRebuildIndexesEndpoint:
