@@ -25,6 +25,9 @@ class TestGetTlsSettings:
             (25, False, (False, None)),
             # Port 25 with require_tls=True forces STARTTLS
             (25, True, (False, True)),
+            # Non-standard port 2525 behaves like port 25 (fallback behavior)
+            (2525, False, (False, None)),
+            (2525, True, (False, True)),
         ],
     )
     def test_get_tls_settings(self, port: int, require_tls: bool, expected: tuple[bool, bool | None]) -> None:

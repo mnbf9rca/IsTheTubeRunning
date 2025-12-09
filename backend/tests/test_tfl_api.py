@@ -11,7 +11,7 @@ import pytest
 from app.core.config import settings
 from app.core.database import get_db
 from app.main import app
-from app.models.tfl import Line, Station
+from app.models.tfl import DisruptionCategory, Line, SeverityCode, Station, StopType
 from app.models.user import User
 from app.schemas.tfl import DisruptionResponse
 from fastapi import HTTPException, status
@@ -88,6 +88,16 @@ async def async_client_with_admin(
         app.dependency_overrides.clear()
 
 
+@pytest.fixture
+async def unauthenticated_client() -> AsyncGenerator[AsyncClient]:
+    """Create async client without authentication headers."""
+    async with AsyncClient(
+        transport=ASGITransport(app=app),
+        base_url="http://test",
+    ) as client:
+        yield client
+
+
 # ==================== Authentication Tests ====================
 
 
@@ -100,18 +110,19 @@ async def async_client_with_admin(
         ("/tfl/stations/940GZZLUVIC/routes", "GET"),
     ],
 )
-async def test_endpoints_require_authentication(endpoint: str, method: str) -> None:
+async def test_endpoints_require_authentication(
+    unauthenticated_client: AsyncClient,
+    endpoint: str,
+    method: str,
+) -> None:
     """Test that various endpoints reject unauthenticated requests."""
-    # Create client without auth headers
-    async with AsyncClient(
-        transport=ASGITransport(app=app),
-        base_url="http://test",
-    ) as client:
-        if method == "GET":
-            response = await client.get(build_api_url(endpoint))
-        else:  # POST
-            response = await client.post(build_api_url(endpoint))
+    # Map HTTP methods to client callables
+    method_map = {
+        "GET": unauthenticated_client.get,
+        "POST": unauthenticated_client.post,
+    }
 
+    response = await method_map[method](build_api_url(endpoint))
     assert_401_unauthorized(response, expected_detail="Not authenticated")
 
 
@@ -901,20 +912,22 @@ async def test_get_severity_codes_success(
     async_client_with_auth: AsyncClient,
 ) -> None:
     """Test successful retrieval of severity codes."""
-    # Setup mock data
+    # Setup mock data with ORM objects
     mock_fetch_severity_codes.return_value = [
-        {
-            "mode_id": "tube",
-            "severity_level": 10,
-            "description": "Good Service",
-            "last_updated": datetime(2025, 1, 1, tzinfo=UTC),
-        },
-        {
-            "mode_id": "tube",
-            "severity_level": 6,
-            "description": "Severe Delays",
-            "last_updated": datetime(2025, 1, 1, tzinfo=UTC),
-        },
+        SeverityCode(
+            id=uuid.uuid4(),
+            mode_id="tube",
+            severity_level=10,
+            description="Good Service",
+            last_updated=datetime(2025, 1, 1, tzinfo=UTC),
+        ),
+        SeverityCode(
+            id=uuid.uuid4(),
+            mode_id="tube",
+            severity_level=6,
+            description="Severe Delays",
+            last_updated=datetime(2025, 1, 1, tzinfo=UTC),
+        ),
     ]
 
     # Execute
@@ -936,18 +949,20 @@ async def test_get_disruption_categories_success(
     async_client_with_auth: AsyncClient,
 ) -> None:
     """Test successful retrieval of disruption categories."""
-    # Setup mock data
+    # Setup mock data with ORM objects
     mock_fetch_disruption_categories.return_value = [
-        {
-            "category_name": "RealTime",
-            "description": "Real-time disruption",
-            "last_updated": datetime(2025, 1, 1, tzinfo=UTC),
-        },
-        {
-            "category_name": "PlannedWork",
-            "description": "Planned engineering work",
-            "last_updated": datetime(2025, 1, 1, tzinfo=UTC),
-        },
+        DisruptionCategory(
+            id=uuid.uuid4(),
+            category_name="RealTime",
+            description="Real-time disruption",
+            last_updated=datetime(2025, 1, 1, tzinfo=UTC),
+        ),
+        DisruptionCategory(
+            id=uuid.uuid4(),
+            category_name="PlannedWork",
+            description="Planned engineering work",
+            last_updated=datetime(2025, 1, 1, tzinfo=UTC),
+        ),
     ]
 
     # Execute
@@ -967,18 +982,20 @@ async def test_get_stop_types_success(
     async_client_with_auth: AsyncClient,
 ) -> None:
     """Test successful retrieval of stop types."""
-    # Setup mock data
+    # Setup mock data with ORM objects
     mock_fetch_stop_types.return_value = [
-        {
-            "type_name": "NaptanMetroStation",
-            "description": "Underground Station",
-            "last_updated": datetime(2025, 1, 1, tzinfo=UTC),
-        },
-        {
-            "type_name": "NaptanRailStation",
-            "description": "Rail Station",
-            "last_updated": datetime(2025, 1, 1, tzinfo=UTC),
-        },
+        StopType(
+            id=uuid.uuid4(),
+            type_name="NaptanMetroStation",
+            description="Underground Station",
+            last_updated=datetime(2025, 1, 1, tzinfo=UTC),
+        ),
+        StopType(
+            id=uuid.uuid4(),
+            type_name="NaptanRailStation",
+            description="Rail Station",
+            last_updated=datetime(2025, 1, 1, tzinfo=UTC),
+        ),
     ]
 
     # Execute
@@ -1031,6 +1048,56 @@ async def test_get_line_states_success(
     assert data[1]["line_id"] == "northern"
     assert data[1]["status_severity"] == 6
     assert data[1]["reason"] == "Signal failure at Camden Town"
+
+
+@patch("app.services.tfl_service.TfLService.fetch_line_disruptions")
+async def test_get_line_states_empty(
+    mock_fetch_line_disruptions: AsyncMock,
+    async_client_with_auth: AsyncClient,
+) -> None:
+    """Test line states endpoint returns empty list when no disruptions."""
+    # Setup mock data - empty list
+    mock_fetch_line_disruptions.return_value = []
+
+    # Execute
+    response = await async_client_with_auth.get(build_api_url("/tfl/line-states"))
+
+    # Verify
+    assert response.status_code == 200
+    data = response.json()
+    assert data == []
+
+
+@patch("app.services.tfl_service.TfLService.fetch_line_disruptions")
+async def test_get_line_states_single_with_no_reason(
+    mock_fetch_line_disruptions: AsyncMock,
+    async_client_with_auth: AsyncClient,
+) -> None:
+    """Test line states with single disruption and reason=None."""
+    # Setup mock data - single disruption with no reason
+    disruptions = [
+        DisruptionResponse(
+            line_id="victoria",
+            line_name="Victoria",
+            mode="tube",
+            status_severity=10,
+            status_severity_description="Good Service",
+            reason=None,
+        ),
+    ]
+    mock_fetch_line_disruptions.return_value = disruptions
+
+    # Execute
+    response = await async_client_with_auth.get(build_api_url("/tfl/line-states"))
+
+    # Verify
+    assert response.status_code == 200
+    data = response.json()
+    assert len(data) == 1
+    assert data[0]["line_id"] == "victoria"
+    assert data[0]["status_severity"] == 10
+    assert data[0]["status_severity_description"] == "Good Service"
+    assert data[0]["reason"] is None
 
 
 @patch("app.services.tfl_service.TfLService.get_alert_config")
