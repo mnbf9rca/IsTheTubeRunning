@@ -11,26 +11,25 @@ from app.services.email_service import EmailService, get_tls_settings
 class TestGetTlsSettings:
     """Test cases for get_tls_settings pure function."""
 
-    def test_port_465_implicit_tls(self) -> None:
-        """Port 465 uses implicit TLS regardless of require_tls."""
-        assert get_tls_settings(465, False) == (True, None)
-        assert get_tls_settings(465, True) == (True, None)
-
-    def test_port_587_auto_upgrade(self) -> None:
-        """Port 587 with require_tls=False uses auto-upgrade."""
-        assert get_tls_settings(587, False) == (False, None)
-
-    def test_port_587_require_tls(self) -> None:
-        """Port 587 with require_tls=True forces STARTTLS."""
-        assert get_tls_settings(587, True) == (False, True)
-
-    def test_port_25_auto_upgrade(self) -> None:
-        """Port 25 with require_tls=False uses auto-upgrade."""
-        assert get_tls_settings(25, False) == (False, None)
-
-    def test_port_25_require_tls(self) -> None:
-        """Port 25 with require_tls=True forces STARTTLS."""
-        assert get_tls_settings(25, True) == (False, True)
+    @pytest.mark.parametrize(
+        ("port", "require_tls", "expected"),
+        [
+            # Port 465 uses implicit TLS regardless of require_tls
+            (465, False, (True, None)),
+            (465, True, (True, None)),
+            # Port 587 with require_tls=False uses auto-upgrade
+            (587, False, (False, None)),
+            # Port 587 with require_tls=True forces STARTTLS
+            (587, True, (False, True)),
+            # Port 25 with require_tls=False uses auto-upgrade
+            (25, False, (False, None)),
+            # Port 25 with require_tls=True forces STARTTLS
+            (25, True, (False, True)),
+        ],
+    )
+    def test_get_tls_settings(self, port: int, require_tls: bool, expected: tuple[bool, bool | None]) -> None:
+        """Test get_tls_settings with various port and TLS configurations."""
+        assert get_tls_settings(port, require_tls) == expected
 
 
 class TestEmailService:
