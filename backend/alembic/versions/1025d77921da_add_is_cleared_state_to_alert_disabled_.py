@@ -63,7 +63,8 @@ def upgrade() -> None:
                 """
                 INSERT INTO alert_disabled_severities (id, mode_id, severity_level, is_cleared_state, created_at, updated_at)
                 VALUES (gen_random_uuid(), :mode_id, 18, true, now(), now())
-                ON CONFLICT DO NOTHING
+                ON CONFLICT (mode_id, severity_level)
+                DO UPDATE SET is_cleared_state = true, updated_at = now()
                 """
             ).bindparams(mode_id=mode)
         )
