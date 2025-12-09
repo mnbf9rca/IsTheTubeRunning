@@ -1190,6 +1190,11 @@ async def test_fetch_lines_logs_changes(
         assert logs[0].old_values is None
         assert logs[0].new_values == {"name": "Victoria", "mode": "tube"}
 
+        # Clear SQLAlchemy's identity map to ensure fresh database read.
+        # The first fetch uses raw SQL upsert which bypasses the ORM identity map.
+        # Without this, the second fetch may see stale results due to SAVEPOINT timing.
+        db_session.expire_all()
+
         # Second fetch with name change
         mock_lines_v2 = [create_mock_line(id="victoria", name="Victoria Line")]
         mock_response_v2 = MockResponse(
