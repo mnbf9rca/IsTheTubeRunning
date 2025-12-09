@@ -8,7 +8,11 @@ from urllib.parse import urlparse
 
 import pytest
 from app.schemas.tfl import ClearedLineInfo, DisruptionResponse
-from app.services.notification_service import NotificationService
+from app.services.notification_service import (
+    NotificationService,
+    _build_disruption_subject,
+    _build_status_update_subject,
+)
 
 
 class TestNotificationService:
@@ -38,7 +42,7 @@ class TestNotificationService:
         mock_send_email.assert_called_once()
         call_args = mock_send_email.call_args
         assert call_args[0][0] == email
-        assert "Disruption Alert" in call_args[0][1]
+        assert call_args[0][1] == f"⚠️ {route_name}: Victoria disrupted"
 
     @pytest.mark.asyncio
     @patch("app.services.email_service.EmailService.send_email", new_callable=AsyncMock)
@@ -64,7 +68,7 @@ class TestNotificationService:
         mock_send_email.assert_called_once()
         call_args = mock_send_email.call_args
         assert call_args[0][0] == email
-        assert call_args[0][1] == f"⚠️ Disruption Alert: {route_name}"
+        assert call_args[0][1] == f"⚠️ {route_name}: Victoria disrupted"
 
     @pytest.mark.asyncio
     @patch("app.services.email_service.EmailService.send_email", new_callable=AsyncMock)
@@ -241,7 +245,7 @@ class TestNotificationService:
 
     @pytest.mark.asyncio
     async def test_render_email_template_without_user_name(self) -> None:
-        """Test template rendering defaults to 'there' when no user name."""
+        """Test template rendering works without user name (greeting removed)."""
         service = NotificationService()
         disruptions = [
             DisruptionResponse(
@@ -263,8 +267,9 @@ class TestNotificationService:
             },
         )
 
-        # Verify "there" appears as default greeting
-        assert "Hello there" in html or "there" in html.lower()
+        # Verify template renders correctly without greeting
+        assert "Test Route" in html
+        assert "Victoria" in html
 
     @pytest.mark.asyncio
     async def test_send_disruption_sms_long_message(self) -> None:
@@ -492,7 +497,7 @@ class TestNotificationService:
         mock_send_email.assert_called_once()
         call_args = mock_send_email.call_args
         assert call_args[0][0] == email
-        assert "Service Restored" in call_args[0][1]
+        assert call_args[0][1] == f"✅ {route_name}: Victoria restored | Northern still disrupted"
 
     @pytest.mark.asyncio
     @patch("app.services.email_service.EmailService.send_email", new_callable=AsyncMock)
@@ -520,7 +525,7 @@ class TestNotificationService:
         mock_send_email.assert_called_once()
         call_args = mock_send_email.call_args
         assert call_args[0][0] == email
-        assert call_args[0][1] == f"✅ Service Restored: {route_name}"
+        assert call_args[0][1] == f"✅ {route_name}: Victoria restored"
 
     @pytest.mark.asyncio
     @patch("app.services.email_service.EmailService.send_email", new_callable=AsyncMock)
@@ -910,3 +915,133 @@ class TestNotificationService:
                 cleared_lines=cleared_lines,
                 still_disrupted=still_disrupted,
             )
+
+    @pytest.mark.asyncio
+    async def test_build_disruption_subject_empty_list(self) -> None:
+        """Test subject line generation for empty disruption list."""
+        disruptions = []
+
+        subject = _build_disruption_subject("Morning Commute", disruptions)
+        assert subject == "⚠️ Morning Commute: All clear"
+
+    @pytest.mark.asyncio
+    async def test_build_disruption_subject_single_line(self) -> None:
+        """Test subject line generation for single disrupted line."""
+        disruptions = [
+            DisruptionResponse(
+                line_id="victoria",
+                line_name="Victoria",
+                mode="tube",
+                status_severity=6,
+                status_severity_description="Minor Delays",
+                reason="Signal failure",
+            )
+        ]
+
+        subject = _build_disruption_subject("Morning Commute", disruptions)
+        assert subject == "⚠️ Morning Commute: Victoria disrupted"
+
+    @pytest.mark.asyncio
+    async def test_build_disruption_subject_multiple_lines(self) -> None:
+        """Test subject line generation for multiple disrupted lines."""
+        disruptions = [
+            DisruptionResponse(
+                line_id="victoria",
+                line_name="Victoria",
+                mode="tube",
+                status_severity=6,
+                status_severity_description="Minor Delays",
+            ),
+            DisruptionResponse(
+                line_id="northern",
+                line_name="Northern",
+                mode="tube",
+                status_severity=3,
+                status_severity_description="Severe Delays",
+            ),
+            DisruptionResponse(
+                line_id="central",
+                line_name="Central",
+                mode="tube",
+                status_severity=6,
+                status_severity_description="Part Suspended",
+            ),
+        ]
+
+        subject = _build_disruption_subject("To Work", disruptions)
+        assert subject == "⚠️ To Work: Victoria, Northern, Central disrupted"
+
+    @pytest.mark.asyncio
+    async def test_build_status_update_subject_single_restored(self) -> None:
+        """Test subject line for single restored line with no remaining disruptions."""
+        cleared_lines = [
+            ClearedLineInfo(
+                line_id="victoria",
+                line_name="Victoria",
+                mode="tube",
+                previous_severity=3,
+                previous_status="Severe Delays",
+                current_severity=10,
+                current_status="Good Service",
+            )
+        ]
+        still_disrupted = []
+
+        subject = _build_status_update_subject("Morning Commute", cleared_lines, still_disrupted)
+        assert subject == "✅ Morning Commute: Victoria restored"
+
+    @pytest.mark.asyncio
+    async def test_build_status_update_subject_all_clear(self) -> None:
+        """Test subject line when multiple lines cleared and all clear."""
+        cleared_lines = [
+            ClearedLineInfo(
+                line_id="victoria",
+                line_name="Victoria",
+                mode="tube",
+                previous_severity=3,
+                previous_status="Severe Delays",
+                current_severity=10,
+                current_status="Good Service",
+            ),
+            ClearedLineInfo(
+                line_id="northern",
+                line_name="Northern",
+                mode="tube",
+                previous_severity=6,
+                previous_status="Minor Delays",
+                current_severity=10,
+                current_status="Good Service",
+            ),
+        ]
+        still_disrupted = []
+
+        subject = _build_status_update_subject("Morning Commute", cleared_lines, still_disrupted)
+        assert subject == "✅ Morning Commute: All clear"
+
+    @pytest.mark.asyncio
+    async def test_build_status_update_subject_mixed(self) -> None:
+        """Test subject line when some lines cleared but others still disrupted."""
+        cleared_lines = [
+            ClearedLineInfo(
+                line_id="victoria",
+                line_name="Victoria",
+                mode="tube",
+                previous_severity=3,
+                previous_status="Severe Delays",
+                current_severity=10,
+                current_status="Good Service",
+            )
+        ]
+        still_disrupted = [
+            DisruptionResponse(
+                line_id="northern",
+                line_name="Northern",
+                mode="tube",
+                status_severity=6,
+                status_severity_description="Minor Delays",
+                reason="Signal failure",
+            )
+        ]
+
+        subject = _build_status_update_subject("To Work", cleared_lines, still_disrupted)
+        assert subject == "✅ To Work: Victoria restored | Northern still disrupted"
