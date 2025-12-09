@@ -1,0 +1,216 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Service Restored - IsTheTubeRunning</title>
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+            background-color: #f5f5f5;
+        }
+        .container {
+            max-width: 600px;
+            margin: 40px auto;
+            background-color: #ffffff;
+            border-radius: 8px;
+            overflow: hidden;
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+        }
+        .header {
+            background: #27ae60;
+            padding: 30px 20px;
+            text-align: center;
+            color: #ffffff;
+        }
+        .header h1 {
+            margin: 0 0 10px 0;
+            font-size: 24px;
+            font-weight: 600;
+        }
+        .header .alert-icon {
+            font-size: 36px;
+            margin-bottom: 10px;
+        }
+        .header .route-name {
+            font-size: 18px;
+            font-weight: 400;
+            opacity: 0.95;
+        }
+        .content {
+            padding: 30px 30px 20px;
+        }
+        .content p {
+            color: #333333;
+            line-height: 1.6;
+            margin: 0 0 20px;
+        }
+        .greeting {
+            font-size: 16px;
+            color: #333333;
+            margin-bottom: 20px;
+        }
+        .section-title {
+            font-size: 18px;
+            font-weight: 600;
+            color: #2c3e50;
+            margin: 25px 0 15px;
+        }
+        .cleared-line {
+            border-left: 4px solid #27ae60;
+            padding: 15px;
+            margin: 15px 0;
+            background: #e8f8f5;
+            border-radius: 4px;
+        }
+        .cleared-line .line-name {
+            font-size: 18px;
+            font-weight: 600;
+            color: #2c3e50;
+            margin-bottom: 8px;
+        }
+        .cleared-line .status {
+            font-size: 16px;
+            color: #27ae60;
+            font-weight: 500;
+            margin-bottom: 4px;
+        }
+        .cleared-line .previous-status {
+            font-size: 14px;
+            color: #666666;
+        }
+        .disruption {
+            border-left: 4px solid #e74c3c;
+            padding: 15px;
+            margin: 15px 0;
+            background: #f8f9fa;
+            border-radius: 4px;
+        }
+        .disruption .line-name {
+            font-size: 18px;
+            font-weight: 600;
+            color: #2c3e50;
+            margin-bottom: 8px;
+        }
+        .disruption .status {
+            font-size: 16px;
+            color: #e74c3c;
+            font-weight: 500;
+            margin-bottom: 8px;
+        }
+        .disruption .reason {
+            font-size: 14px;
+            color: #555555;
+            line-height: 1.5;
+            margin-top: 8px;
+        }
+        .cta-button {
+            display: inline-block;
+            background-color: #003366;
+            color: #ffffff;
+            text-decoration: none;
+            padding: 12px 30px;
+            border-radius: 6px;
+            font-weight: 600;
+            margin: 20px 0;
+            text-align: center;
+        }
+        .cta-button:hover {
+            background-color: #00254d;
+        }
+        .footer {
+            background-color: #f8f9fa;
+            padding: 20px 30px;
+            text-align: center;
+            color: #666666;
+            font-size: 12px;
+            line-height: 1.5;
+        }
+        .footer a {
+            color: #003366;
+            text-decoration: none;
+        }
+        @media only screen and (max-width: 600px) {
+            .container {
+                margin: 20px;
+                border-radius: 0;
+            }
+            .header {
+                padding: 20px 15px;
+            }
+            .header h1 {
+                font-size: 20px;
+            }
+            .header .route-name {
+                font-size: 16px;
+            }
+            .content {
+                padding: 20px 15px;
+            }
+            .cleared-line .line-name,
+            .disruption .line-name {
+                font-size: 16px;
+            }
+            .cleared-line .status,
+            .disruption .status {
+                font-size: 14px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <div class="alert-icon">✅</div>
+            <h1>Service Restored</h1>
+            <div class="route-name">{{ route_name }}</div>
+        </div>
+        <div class="content">
+            <p class="greeting">Hello {{ user_name|default("there") }},</p>
+
+            <p>Good news! Service has been restored on your route <strong>{{ route_name }}</strong>.</p>
+
+            <div class="section-title">✅ Service Restored:</div>
+            {% for cleared in cleared_lines %}
+            <div class="cleared-line">
+                <div class="line-name">{{ cleared.line_name }}</div>
+                <div class="status">{{ cleared.current_status }}</div>
+                <div class="previous-status">Previously: {{ cleared.previous_status }}</div>
+            </div>
+            {% endfor %}
+
+            {% if still_disrupted %}
+            <div class="section-title">⚠️ Still Disrupted:</div>
+            <p style="font-size: 14px; color: #666666; margin-top: 10px;">
+                The following lines remain disrupted:
+            </p>
+            {% for disruption in still_disrupted %}
+            <div class="disruption">
+                <div class="line-name">{{ disruption.line_name }}</div>
+                <div class="status">{{ disruption.status_severity_description }}</div>
+                {% if disruption.reason %}
+                <div class="reason">{{ disruption.reason }}</div>
+                {% endif %}
+            </div>
+            {% endfor %}
+            {% endif %}
+
+            <div style="text-align: center;">
+                <a href="{{ tfl_status_url }}" class="cta-button">View TfL Status Updates</a>
+            </div>
+
+            <p style="font-size: 14px; color: #666666; margin-top: 20px;">
+                This update was sent based on your notification preferences. You can update your preferences at any time in your account settings.
+            </p>
+        </div>
+        <div class="footer">
+            <p>
+                This is an automated alert from IsTheTubeRunning.<br>
+                © 2025 IsTheTubeRunning. All rights reserved.
+            </p>
+        </div>
+    </div>
+</body>
+</html>

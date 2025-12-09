@@ -84,6 +84,21 @@ class DisruptionResponse(BaseModel):
     affected_routes: list[AffectedRouteInfo] | None = None  # Affected route segments with station sequences
 
 
+class ClearedLineInfo(BaseModel):
+    """Information about a line that has returned to normal service.
+
+    Used to track which lines have cleared from disrupted state during a notification window.
+    """
+
+    line_id: str  # TfL line ID
+    line_name: str
+    mode: str  # Transport mode
+    previous_severity: int  # What severity it was (e.g., 6 = Severe Delays)
+    previous_status: str  # What status it was (e.g., "Severe Delays")
+    current_severity: int  # What severity it is now (e.g., 10 = Good Service)
+    current_status: str  # What status it is now (e.g., "Good Service")
+
+
 class LineStatusInfo(BaseModel):
     """Individual status for a line (used in grouped API response).
 

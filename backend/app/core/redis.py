@@ -33,6 +33,10 @@ class RedisClientProtocol(Protocol):
         """Set the value at key name with expiration time."""
         ...
 
+    async def delete(self, *names: str) -> int:
+        """Delete one or more keys."""
+        ...
+
     async def ping(self) -> bool:
         """Ping the Redis server to check connectivity."""
         ...

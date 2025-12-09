@@ -7,7 +7,7 @@ import structlog
 from jinja2 import Environment, FileSystemLoader, select_autoescape
 
 from app.core.telemetry import service_span
-from app.schemas.tfl import DisruptionResponse
+from app.schemas.tfl import ClearedLineInfo, DisruptionResponse
 from app.services.email_service import EmailService
 from app.services.sms_service import SmsService
 from app.utils.pii import hash_pii
@@ -196,6 +196,215 @@ This is an automated alert from IsTheTubeRunning.
             except Exception as e:
                 logger.error(
                     "disruption_sms_failed",
+                    recipient_hash=recipient_hash,
+                    route_name=route_name,
+                    error=str(e),
+                    exc_info=e,
+                )
+                raise
+
+    async def send_status_update_email(
+        self,
+        email: str,
+        route_name: str,
+        cleared_lines: list[ClearedLineInfo],
+        still_disrupted: list[DisruptionResponse],
+        user_name: str | None = None,
+    ) -> None:
+        """
+        Send a status update email when previously-alerted lines clear.
+
+        Args:
+            email: Recipient email address
+            route_name: Name of the route
+            cleared_lines: Lines that have returned to normal service
+            still_disrupted: Lines that remain disrupted (for context)
+            user_name: User's name for personalized greeting (defaults to "there")
+
+        Raises:
+            Exception: If email sending fails
+        """
+        recipient_hash = hash_pii(email)
+
+        with service_span(
+            "notification.send_status_update_email",
+            "notification-service",
+        ) as span:
+            span.set_attribute("notification.type", "email")
+            span.set_attribute("notification.recipient_hash", recipient_hash)
+            span.set_attribute("notification.route_name", route_name)
+            span.set_attribute("notification.cleared_count", len(cleared_lines))
+            span.set_attribute("notification.still_disrupted_count", len(still_disrupted))
+
+            try:
+                # Build email subject
+                subject = f"✅ Service Restored: {route_name}"
+
+                # Render the HTML template
+                html_content = self._render_email_template(
+                    "email/status_update.html",
+                    {
+                        "route_name": route_name,
+                        "user_name": user_name,
+                        "cleared_lines": cleared_lines,
+                        "still_disrupted": still_disrupted,
+                        "tfl_status_url": "https://tfl.gov.uk/tube-dlr-overground/status/",
+                    },
+                )
+
+                # Create plain text fallback
+                text_content = f"""
+Service Restored: {route_name}
+
+Service has been restored on the following lines:
+
+"""
+                for cleared in cleared_lines:
+                    text_content += (
+                        f"- {cleared.line_name}: {cleared.current_status} (was: {cleared.previous_status})\n"
+                    )
+
+                if still_disrupted:
+                    text_content += "\nStill disrupted:\n"
+                    for disruption in still_disrupted:
+                        text_content += f"- {disruption.line_name}: {disruption.status_severity_description}\n"
+
+                text_content += """
+For the latest updates, visit: https://tfl.gov.uk/tube-dlr-overground/status/
+
+This is an automated alert from IsTheTubeRunning.
+© 2025 IsTheTubeRunning. All rights reserved.
+            """.strip()
+
+                # Send email via EmailService
+                await self.email_service.send_email(email, subject, html_content, text_content)
+
+                logger.info(
+                    "status_update_email_sent",
+                    recipient_hash=recipient_hash,
+                    route_name=route_name,
+                    cleared_count=len(cleared_lines),
+                    still_disrupted_count=len(still_disrupted),
+                )
+
+            except Exception as e:
+                logger.error(
+                    "status_update_email_failed",
+                    recipient_hash=recipient_hash,
+                    route_name=route_name,
+                    error=str(e),
+                    exc_info=e,
+                )
+                raise
+
+    async def send_status_update_sms(
+        self,
+        phone: str,
+        route_name: str,
+        cleared_lines: list[ClearedLineInfo],
+        still_disrupted: list[DisruptionResponse],
+    ) -> None:
+        """
+        Send a status update SMS when previously-alerted lines clear.
+
+        Args:
+            phone: Recipient phone number
+            route_name: Name of the route
+            cleared_lines: Lines that have returned to normal service
+            still_disrupted: Lines that remain disrupted (for context)
+
+        Raises:
+            Exception: If SMS sending fails
+        """
+        recipient_hash = hash_pii(phone)
+
+        with service_span(
+            "notification.send_status_update_sms",
+            "notification-service",
+        ) as span:
+            span.set_attribute("notification.type", "sms")
+            span.set_attribute("notification.recipient_hash", recipient_hash)
+            span.set_attribute("notification.route_name", route_name)
+            span.set_attribute("notification.cleared_count", len(cleared_lines))
+            span.set_attribute("notification.still_disrupted_count", len(still_disrupted))
+
+            try:
+                # Create concise SMS text
+                # Format: "TfL Update: {route_name}. Service restored: {lines}."
+
+                # Build cleared lines text (comma-separated names)
+                cleared_names = ", ".join([cl.line_name for cl in cleared_lines[:3]])  # Limit to 3
+
+                base_msg = f"TfL Update: {route_name}. Service restored: {cleared_names}."
+
+                # Add still disrupted if any and space permits
+                if still_disrupted:
+                    disrupted_names = ", ".join([d.line_name for d in still_disrupted[:2]])
+                    disrupted_msg = f" Still disrupted: {disrupted_names}."
+                else:
+                    disrupted_msg = ""
+
+                # Add URL
+                url = " More: tfl.gov.uk/tube-dlr-overground/status/"
+
+                # Build final message
+                message = f"{base_msg}{disrupted_msg}{url}"
+
+                # Multi-stage truncation if message exceeds SMS_MAX_LENGTH
+                if len(message) > SMS_MAX_LENGTH:
+                    # Stage 1: Drop the "still disrupted" part
+                    message = f"{base_msg}{url}"
+
+                    # Stage 2: If still too long, reduce cleared lines from 3 to 2
+                    min_cleared_lines_stage_2 = 2
+                    if len(message) > SMS_MAX_LENGTH and len(cleared_lines) > min_cleared_lines_stage_2:
+                        cleared_names = ", ".join([cl.line_name for cl in cleared_lines[:2]])
+                        base_msg = f"TfL Update: {route_name}. Service restored: {cleared_names}."
+                        message = f"{base_msg}{url}"
+
+                    # Stage 3: If still too long, reduce cleared lines from 2 to 1
+                    if len(message) > SMS_MAX_LENGTH and len(cleared_lines) > 1:
+                        cleared_names = cleared_lines[0].line_name
+                        base_msg = f"TfL Update: {route_name}. Service restored: {cleared_names}."
+                        message = f"{base_msg}{url}"
+
+                    # Stage 4: If still too long, truncate route_name and cleared_names with ellipsis
+                    if len(message) > SMS_MAX_LENGTH:
+                        max_route_len = 30
+                        max_cleared_len = 20
+                        truncated_route = (
+                            (route_name[:max_route_len] + "…") if len(route_name) > max_route_len else route_name
+                        )
+                        truncated_cleared = (
+                            (cleared_names[:max_cleared_len] + "…")
+                            if len(cleared_names) > max_cleared_len
+                            else cleared_names
+                        )
+                        base_msg = f"TfL Update: {truncated_route}. Service restored: {truncated_cleared}."
+                        message = f"{base_msg}{url}"
+
+                    # Stage 5: Final fallback - force truncate to SMS_MAX_LENGTH
+                    if len(message) > SMS_MAX_LENGTH:
+                        message = message[:SMS_MAX_LENGTH]
+
+                # Set message length as span attribute
+                span.set_attribute("notification.message_length", len(message))
+
+                # Send SMS via SmsService
+                await self.sms_service.send_sms(phone, message)
+
+                logger.info(
+                    "status_update_sms_sent",
+                    recipient_hash=recipient_hash,
+                    route_name=route_name,
+                    cleared_count=len(cleared_lines),
+                    still_disrupted_count=len(still_disrupted),
+                    message_length=len(message),
+                )
+
+            except Exception as e:
+                logger.error(
+                    "status_update_sms_failed",
                     recipient_hash=recipient_hash,
                     route_name=route_name,
                     error=str(e),
