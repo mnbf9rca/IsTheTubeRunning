@@ -10,11 +10,13 @@
 #   pr_number           - Pull request number
 #
 # Options:
-#   --type <type>       - Filter by type: reviews|issues|all (default: reviews)
-#                         reviews = review threads only (no issue comments)
+#   --type <type>       - Filter by type: threads|issues|pr-reviews|all (default: all)
+#                         threads = inline code review threads only
 #                         issues = issue comments only
-#                         all = everything (reviews + issues)
+#                         pr-reviews = PR review bodies only
+#                         all = everything (threads + issues + pr-reviews)
 #   --status <status>   - Filter by status: unresolved|resolved|all (default: all)
+#                         Note: Only applies to inline threads, not PR reviews or issues
 #   --format <format>   - Output format: json|summary (default: json)
 #   --page <n>          - Page number for GraphQL cursor-based pagination (default: 1)
 #   --per-page <n>      - Items per page (default: 50, max: 100)
@@ -23,7 +25,7 @@
 #   GITHUB_TOKEN or gh authentication must be configured
 #
 # Output:
-#   JSON or summary format with threads, comments, and pagination info
+#   JSON or summary format with threads, comments, PR reviews, and pagination info
 #
 
 set -euo pipefail
@@ -262,6 +264,57 @@ fetch_issue_comments() {
     echo "$response"
 }
 
+# Fetch PR reviews using GraphQL
+fetch_pr_reviews() {
+    local pr_number="$1"
+
+    # shellcheck disable=SC2016
+    local query='query($owner: String!, $repo: String!, $pr: Int!, $first: Int!) {
+  repository(owner: $owner, name: $repo) {
+    pullRequest(number: $pr) {
+      reviews(first: $first) {
+        nodes {
+          id
+          databaseId
+          body
+          state
+          author {
+            login
+          }
+          createdAt
+          submittedAt
+        }
+      }
+    }
+  }
+}'
+
+    local response
+    response=$(gh api graphql \
+        -f query="$query" \
+        -f owner="$REPO_OWNER" \
+        -f repo="$REPO_NAME" \
+        -F pr="$pr_number" \
+        -F first=100)
+    local gh_status=$?
+
+    # Check for errors from gh api command
+    if [[ $gh_status -ne 0 ]]; then
+        log_error "gh api command failed with exit code $gh_status"
+        exit 1
+    fi
+
+    # Check for GraphQL errors
+    if echo "$response" | jq -e '.errors' > /dev/null 2>&1; then
+        local error_msg
+        error_msg=$(echo "$response" | jq -r '.errors[0].message // "Unknown GraphQL error"')
+        log_error "Failed to fetch PR reviews: $error_msg"
+        exit 1
+    fi
+
+    echo "$response" | jq '.data.repository.pullRequest.reviews.nodes'
+}
+
 # Fetch PR title using GraphQL (minimal query for metadata only)
 fetch_pr_title() {
     local pr_number="$1"
@@ -305,10 +358,11 @@ format_json_output() {
     local pr_number="$1"
     local threads_data="$2"
     local issue_comments="$3"
-    local page="$4"
-    local per_page="$5"
-    local type_filter="$6"
-    local status_filter="$7"
+    local pr_reviews="$4"
+    local page="$5"
+    local per_page="$6"
+    local type_filter="$7"
+    local status_filter="$8"
 
     # Extract components from threads_data
     local threads
@@ -332,7 +386,7 @@ format_json_output() {
         comments: [.comments.nodes | to_entries[] | {
             comment_id: .value.id,
             database_id: .value.databaseId,
-            author: .value.author.login,
+            author: (.value.author.login // "unknown"),
             body: .value.body,
             created_at: .value.createdAt,
             is_first_in_thread: (.key == 0)
@@ -346,9 +400,21 @@ format_json_output() {
     transformed_issue_comments=$(echo "$issue_comments" | jq 'map({
         comment_id: .node_id,
         database_id: .id,
-        author: .user.login,
+        author: (.user.login // "unknown"),
         body: .body,
         created_at: .created_at
+    })')
+
+    # Transform PR reviews
+    local transformed_pr_reviews
+    transformed_pr_reviews=$(echo "$pr_reviews" | jq 'map({
+        review_id: .id,
+        database_id: .databaseId,
+        author: (.author.login // "unknown"),
+        body: .body,
+        state: .state,
+        created_at: .createdAt,
+        submitted_at: .submittedAt
     })')
 
     # Calculate summary statistics
@@ -358,6 +424,12 @@ format_json_output() {
     resolved_count=$(echo "$threads" | jq '[.[] | select(.isResolved == true)] | length')
     local issue_comments_count
     issue_comments_count=$(echo "$issue_comments" | jq 'length')
+
+    # Calculate PR reviews statistics by state
+    local pr_reviews_count
+    pr_reviews_count=$(echo "$pr_reviews" | jq 'length')
+    local pr_reviews_by_state
+    pr_reviews_by_state=$(echo "$pr_reviews" | jq 'group_by(.state) | map({key: .[0].state, value: length}) | from_entries')
 
     # Calculate filtered count (threads are already filtered by status in fetch_review_threads)
     local filtered_threads_count
@@ -410,9 +482,12 @@ format_json_output() {
         --argjson total_threads "$total_threads" \
         --argjson threads "$transformed_threads" \
         --argjson issue_comments "$transformed_issue_comments" \
+        --argjson pr_reviews "$transformed_pr_reviews" \
         --argjson unresolved_threads "$unresolved_count" \
         --argjson resolved_threads "$resolved_count" \
         --argjson total_issue_comments "$issue_comments_count" \
+        --argjson total_pr_reviews "$pr_reviews_count" \
+        --argjson pr_reviews_by_state "$pr_reviews_by_state" \
         '{
             pr_number: $pr_number,
             repository: $repository,
@@ -429,11 +504,22 @@ format_json_output() {
             },
             threads: $threads,
             issue_comments: $issue_comments,
+            pr_reviews: $pr_reviews,
             summary: {
-                total_threads: $total_threads,
-                unresolved_threads: $unresolved_threads,
-                resolved_threads: $resolved_threads,
-                total_issue_comments: $total_issue_comments
+                inline_threads: {
+                    total: $total_threads,
+                    unresolved: $unresolved_threads,
+                    resolved: $resolved_threads
+                },
+                pr_reviews: {
+                    total: $total_pr_reviews,
+                    by_state: $pr_reviews_by_state,
+                    warning: "Limited to first 100 reviews (no pagination)"
+                },
+                issue_comments: {
+                    total: $total_issue_comments,
+                    warning: "Count reflects current page only (page \($page))"
+                }
             }
         }'
 }
@@ -476,8 +562,14 @@ format_summary_output() {
             first_comment=$(echo "$thread" | jq -r '.comments[0]')
             local author
             author=$(echo "$first_comment" | jq -r '.author')
+            # Fallback for null or empty author
+            if [[ -z "$author" || "$author" == "null" ]]; then
+                author="(deleted user)"
+            fi
+            local body
+            body=$(echo "$first_comment" | jq -r '.body')
             local body_preview
-            body_preview=$(echo "$first_comment" | jq -r '.body' | head -c 100)
+            body_preview=$(echo "$body" | head -c 100)
             local replies_count
             replies_count=$(( $(echo "$thread" | jq '.comments | length') - 1 ))
             local actionable_id
@@ -490,7 +582,11 @@ format_summary_output() {
 
             echo "[$thread_index] $status_marker $thread_id (Line $line in $path)"
             echo "    Author: $author"
-            echo "    \"$body_preview...\""
+            if [[ ${#body} -gt 100 ]]; then
+                echo "    \"$body_preview...\""
+            else
+                echo "    \"$body_preview\""
+            fi
             echo "    Replies: $replies_count | Actionable ID: $actionable_id"
             echo ""
 
@@ -511,31 +607,108 @@ format_summary_output() {
             comment_id=$(echo "$comment" | jq -r '.comment_id')
             local author
             author=$(echo "$comment" | jq -r '.author')
+            # Fallback for null or empty author
+            if [[ -z "$author" || "$author" == "null" ]]; then
+                author="(deleted user)"
+            fi
+            local body
+            body=$(echo "$comment" | jq -r '.body')
             local body_preview
-            body_preview=$(echo "$comment" | jq -r '.body' | head -c 100)
+            body_preview=$(echo "$body" | head -c 100)
 
             echo "[$comment_index] $comment_id"
             echo "    Author: $author"
-            echo "    \"$body_preview...\""
+            if [[ ${#body} -gt 100 ]]; then
+                echo "    \"$body_preview...\""
+            else
+                echo "    \"$body_preview\""
+            fi
             echo ""
 
             comment_index=$((comment_index + 1))
         done < <(echo "$json_output" | jq -c '.issue_comments[]')
     fi
 
+    # Display PR reviews
+    local pr_reviews_count
+    pr_reviews_count=$(echo "$json_output" | jq '.pr_reviews | length')
+    if [[ $pr_reviews_count -gt 0 ]]; then
+        echo "== PR Reviews ($pr_reviews_count) =="
+        echo ""
+
+        local review_index=1
+        while IFS= read -r review; do
+            local review_id
+            review_id=$(echo "$review" | jq -r '.review_id')
+            local author
+            author=$(echo "$review" | jq -r '.author')
+            # Fallback for null or empty author
+            if [[ -z "$author" || "$author" == "null" ]]; then
+                author="(deleted user)"
+            fi
+            local state
+            state=$(echo "$review" | jq -r '.state')
+            local body
+            body=$(echo "$review" | jq -r '.body')
+
+            echo "[$review_index] $review_id ($state)"
+            echo "    Author: $author"
+            if [[ -n "$body" && "$body" != "null" && "$body" != "" ]]; then
+                local body_preview
+                body_preview=$(echo "$body" | head -c 100)
+                if [[ ${#body} -gt 100 ]]; then
+                    echo "    \"$body_preview...\""
+                else
+                    echo "    \"$body_preview\""
+                fi
+            else
+                echo "    (no body)"
+            fi
+            echo ""
+
+            review_index=$((review_index + 1))
+        done < <(echo "$json_output" | jq -c '.pr_reviews[]')
+    fi
+
     # Display summary statistics
     echo "== Summary =="
     local total_threads
-    total_threads=$(echo "$json_output" | jq -r '.summary.total_threads')
+    total_threads=$(echo "$json_output" | jq -r '.summary.inline_threads.total')
     local unresolved_threads
-    unresolved_threads=$(echo "$json_output" | jq -r '.summary.unresolved_threads')
+    unresolved_threads=$(echo "$json_output" | jq -r '.summary.inline_threads.unresolved')
     local resolved_threads
-    resolved_threads=$(echo "$json_output" | jq -r '.summary.resolved_threads')
+    resolved_threads=$(echo "$json_output" | jq -r '.summary.inline_threads.resolved')
+    local total_pr_reviews
+    total_pr_reviews=$(echo "$json_output" | jq -r '.summary.pr_reviews.total')
     local total_issue_comments
-    total_issue_comments=$(echo "$json_output" | jq -r '.summary.total_issue_comments')
+    total_issue_comments=$(echo "$json_output" | jq -r '.summary.issue_comments.total')
 
-    echo "Total threads: $total_threads (Unresolved: $unresolved_threads, Resolved: $resolved_threads)"
-    echo "Issue comments: $total_issue_comments"
+    echo "Inline threads: $total_threads total ($unresolved_threads unresolved, $resolved_threads resolved)"
+
+    # Display PR reviews by state
+    if [[ $total_pr_reviews -gt 0 ]]; then
+        local states_summary=""
+        while IFS= read -r state_entry; do
+            local state
+            state=$(echo "$state_entry" | jq -r '.key')
+            local count
+            count=$(echo "$state_entry" | jq -r '.value')
+            if [[ -n "$states_summary" ]]; then
+                states_summary="$states_summary, "
+            fi
+            states_summary="$states_summary$count $state"
+        done < <(echo "$json_output" | jq -c '.summary.pr_reviews.by_state | to_entries[]')
+
+        echo "PR reviews: $total_pr_reviews ($states_summary) - limited to first 100"
+    else
+        echo "PR reviews: 0 - limited to first 100"
+    fi
+
+    # Get current page from json_output
+    local current_page
+    current_page=$(echo "$json_output" | jq -r '.pagination.page')
+
+    echo "Issue comments: $total_issue_comments (page $current_page only)"
     echo ""
     echo "== Pagination =="
     echo "$pagination_summary"
@@ -550,30 +723,35 @@ Arguments:
   pr_number      Pull request number
 
 Options:
-  --type <type>       Filter by type: reviews|issues|all (default: reviews)
-                      reviews = review threads only (no issue comments)
+  --type <type>       Filter by type: threads|issues|pr-reviews|all (default: all)
+                      threads = inline code review threads only
                       issues = issue comments only
-                      all = everything (reviews + issues)
+                      pr-reviews = PR review bodies only
+                      all = everything (threads + issues + pr-reviews)
   --status <status>   Filter by status: unresolved|resolved|all (default: all)
+                      Note: Only applies to inline threads, not PR reviews or issues
   --format <format>   Output format: json|summary (default: json)
   --page <n>          Page number for pagination (default: 1)
   --per-page <n>      Items per page (default: 50, max: 100)
 
 Examples:
-  # Fetch all review threads (default)
+  # Fetch all comment types (default)
   $0 123
 
-  # Fetch only unresolved review threads
-  $0 123 --status unresolved
+  # Fetch only inline threads
+  $0 123 --type threads
 
-  # Fetch all comments including issue comments
-  $0 123 --type all
+  # Fetch only unresolved inline threads
+  $0 123 --type threads --status unresolved
 
-  # Fetch all review threads as summary
+  # Fetch only PR review bodies
+  $0 123 --type pr-reviews
+
+  # Fetch all comments as summary
   $0 123 --format summary
 
   # Fetch resolved threads only with pagination
-  $0 123 --status resolved --page 2 --per-page 100
+  $0 123 --type threads --status resolved --page 2 --per-page 100
 
   # Fetch only issue comments
   $0 123 --type issues
@@ -583,6 +761,16 @@ Environment:
 
 Output:
   JSON or summary format with full comment context and pagination info
+
+Limitations:
+  - PR reviews: Limited to first 100 reviews (no pagination support)
+  - Issue comments: Only fetches one page at a time (use --page for more)
+  - Inline threads: Full pagination support with --page option
+
+Breaking Changes (v2.0):
+  - --type reviews renamed to --type threads
+  - Default changed from 'reviews' to 'all' (now includes PR reviews)
+  - JSON output structure changed (new pr_reviews section, restructured summary)
 EOF
     exit 1
 }
@@ -590,7 +778,7 @@ EOF
 # Main function
 main() {
     # Default values
-    local type_filter="reviews"
+    local type_filter="all"
     local status_filter="all"
     local format="json"
     local page=1
@@ -615,8 +803,8 @@ main() {
         case "$1" in
             --type)
                 type_filter="$2"
-                if [[ ! "$type_filter" =~ ^(reviews|issues|all)$ ]]; then
-                    log_error "Invalid type: $type_filter. Must be reviews|issues|all"
+                if [[ ! "$type_filter" =~ ^(threads|issues|pr-reviews|all)$ ]]; then
+                    log_error "Invalid type: $type_filter. Must be threads|issues|pr-reviews|all"
                     exit 1
                 fi
                 shift 2
@@ -667,8 +855,9 @@ main() {
     # Fetch data based on type filter
     local threads_data='{"threads": [], "title": "", "pageInfo": {"hasNextPage": false, "endCursor": null}, "totalCount": 0}'
     local issue_comments='[]'
+    local pr_reviews='[]'
 
-    if [[ "$type_filter" == "reviews" ]] || [[ "$type_filter" == "all" ]]; then
+    if [[ "$type_filter" == "threads" ]] || [[ "$type_filter" == "all" ]]; then
         threads_data=$(fetch_review_threads "$pr_number" "$per_page" "$page" "$status_filter")
     fi
 
@@ -676,8 +865,12 @@ main() {
         issue_comments=$(fetch_issue_comments "$pr_number" "$per_page" "$page")
     fi
 
-    # If we only fetched issue comments, we need to get the PR title separately
-    if [[ "$type_filter" == "issues" ]]; then
+    if [[ "$type_filter" == "pr-reviews" ]] || [[ "$type_filter" == "all" ]]; then
+        pr_reviews=$(fetch_pr_reviews "$pr_number")
+    fi
+
+    # If we only fetched issue comments or pr-reviews, we need to get the PR title separately
+    if [[ "$type_filter" == "issues" ]] || [[ "$type_filter" == "pr-reviews" ]]; then
         local pr_title
         pr_title=$(fetch_pr_title "$pr_number")
         threads_data=$(echo "$threads_data" | jq --arg title "$pr_title" '.title = $title')
@@ -685,7 +878,7 @@ main() {
 
     # Format output
     local json_output
-    json_output=$(format_json_output "$pr_number" "$threads_data" "$issue_comments" "$page" "$per_page" "$type_filter" "$status_filter")
+    json_output=$(format_json_output "$pr_number" "$threads_data" "$issue_comments" "$pr_reviews" "$page" "$per_page" "$type_filter" "$status_filter")
 
     if [[ "$format" == "summary" ]]; then
         format_summary_output "$json_output"

@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { useParams, useNavigate, Link } from 'react-router-dom'
-import { ChevronRight, Edit, Trash2, Plus, X } from 'lucide-react'
+import { ChevronRight, Edit, Trash2, X } from 'lucide-react'
 import { Button } from '../components/ui/button'
 import { Input } from '../components/ui/input'
 import { Label } from '../components/ui/label'
@@ -9,8 +9,13 @@ import { Alert, AlertDescription } from '../components/ui/alert'
 import { Card } from '../components/ui/card'
 import { SegmentBuilder } from '../components/routes/SegmentBuilder/SegmentBuilder'
 import { SegmentDisplay } from '../components/routes/SegmentDisplay'
-import { ScheduleForm } from '../components/routes/ScheduleForm'
-import { ScheduleCard } from '../components/routes/ScheduleCard'
+import {
+  ScheduleGrid,
+  schedulesToGrid,
+  gridToSchedules,
+  validateNotEmpty,
+  type GridSelection,
+} from '../components/routes/ScheduleGrid'
 import { NotificationDisplay } from '../components/routes/NotificationDisplay'
 import { useTflData } from '../hooks/useTflData'
 import { useContacts } from '../hooks/useContacts'
@@ -18,9 +23,6 @@ import { segmentResponseToRequest } from '../lib/segment-utils'
 import type {
   RouteResponse,
   SegmentRequest,
-  ScheduleResponse,
-  CreateScheduleRequest,
-  UpdateScheduleRequest,
   NotificationPreferenceResponse,
   CreateNotificationPreferenceRequest,
   NotificationMethod,
@@ -31,9 +33,7 @@ import {
   updateRoute,
   deleteRoute,
   upsertSegments,
-  createSchedule,
-  updateSchedule,
-  deleteSchedule,
+  upsertSchedules,
   getNotificationPreferences,
   createNotificationPreference,
   deleteNotificationPreference,
@@ -65,11 +65,8 @@ export function RouteDetails() {
   // Segments editing
   const [editSegments, setEditSegments] = useState<SegmentRequest[]>([])
 
-  // Schedules editing
-  const [editSchedules, setEditSchedules] = useState<ScheduleResponse[]>([])
-  const [showAddSchedule, setShowAddSchedule] = useState(false)
-  const [editingScheduleId, setEditingScheduleId] = useState<string | null>(null)
-  const [deletingScheduleId, setDeletingScheduleId] = useState<string | null>(null)
+  // Schedules editing (using grid selection)
+  const [editScheduleSelection, setEditScheduleSelection] = useState<GridSelection>(new Set())
 
   // Notifications editing
   const [editNotifications, setEditNotifications] = useState<NotificationPreferenceResponse[]>([])
@@ -107,15 +104,13 @@ export function RouteDetails() {
     setEditName(route.name)
     setEditDescription(route.description || '')
     setEditSegments(route.segments.map(segmentResponseToRequest))
-    setEditSchedules([...route.schedules])
+    setEditScheduleSelection(schedulesToGrid(route.schedules))
     setEditNotifications([...notifications])
     setIsEditing(true)
   }
 
   const handleCancelEditing = () => {
     setIsEditing(false)
-    setShowAddSchedule(false)
-    setEditingScheduleId(null)
     setSelectedContactId('')
   }
 
@@ -132,9 +127,17 @@ export function RouteDetails() {
       // 2. Update segments
       const updatedSegments = await upsertSegments(id, editSegments)
 
-      // 3. Sync schedules (delete removed, add new ones)
-      // Note: For simplicity, we'll just keep the schedule management as-is
-      // since schedules are managed separately with add/edit/delete buttons
+      // 3. Sync schedules (atomically replace all - Issue #359)
+      // Validate that at least one time slot is selected
+      const validationResult = validateNotEmpty(editScheduleSelection)
+      if (!validationResult.valid) {
+        setError(new ApiError(400, validationResult.error!))
+        return
+      }
+
+      // Atomically replace all schedules with single API call
+      const newSchedules = gridToSchedules(editScheduleSelection)
+      const createdSchedules = await upsertSchedules(id, newSchedules)
 
       // 4. Sync notifications (delete removed, add new ones)
       // Delete notifications that were removed
@@ -168,12 +171,10 @@ export function RouteDetails() {
       setRoute({
         ...updatedRoute,
         segments: updatedSegments,
-        schedules: editSchedules,
+        schedules: createdSchedules,
       })
 
       setIsEditing(false)
-      setShowAddSchedule(false)
-      setEditingScheduleId(null)
     } catch (err) {
       console.error('Failed to save changes:', err)
       setError(err as ApiError)
@@ -199,37 +200,6 @@ export function RouteDetails() {
 
   const handleSaveSegments = async (newSegments: SegmentRequest[]) => {
     setEditSegments(newSegments)
-  }
-
-  const handleCreateSchedule = async (data: CreateScheduleRequest) => {
-    if (!route) return
-
-    const newSchedule = await createSchedule(route.id, data)
-    setEditSchedules([...editSchedules, newSchedule])
-    setShowAddSchedule(false)
-  }
-
-  const handleUpdateSchedule = async (scheduleId: string, data: UpdateScheduleRequest) => {
-    if (!route) return
-
-    const updatedSchedule = await updateSchedule(route.id, scheduleId, data)
-    setEditSchedules(editSchedules.map((s) => (s.id === scheduleId ? updatedSchedule : s)))
-    setEditingScheduleId(null)
-  }
-
-  const handleDeleteSchedule = async (scheduleId: string) => {
-    if (!route) return
-    if (!confirm('Are you sure you want to delete this schedule?')) return
-
-    try {
-      setDeletingScheduleId(scheduleId)
-      await deleteSchedule(route.id, scheduleId)
-      setEditSchedules(editSchedules.filter((s) => s.id !== scheduleId))
-    } catch (err) {
-      console.error('Failed to delete schedule:', err)
-    } finally {
-      setDeletingScheduleId(null)
-    }
   }
 
   const handleAddNotification = () => {
@@ -304,8 +274,6 @@ export function RouteDetails() {
       </div>
     )
   }
-
-  const editingSchedule = editSchedules.find((s) => s.id === editingScheduleId)
 
   // Get verified contacts for notification method selector
   const verifiedEmails = contacts?.emails?.filter((e) => e.verified) || []
@@ -414,59 +382,30 @@ export function RouteDetails() {
           {/* Active Times Subsection */}
           <div className="mb-6">
             <h3 className="mb-3 text-lg font-medium">Active Times</h3>
-            <Card className="p-6">
-              {isEditing && !showAddSchedule && !editingScheduleId && (
-                <Button onClick={() => setShowAddSchedule(true)} className="mb-4">
-                  <Plus className="mr-2 h-4 w-4" />
-                  Add Active Time
-                </Button>
-              )}
-
-              {showAddSchedule && (
-                <div className="mb-4">
-                  <ScheduleForm
-                    onSave={handleCreateSchedule}
-                    onCancel={() => setShowAddSchedule(false)}
+            {isEditing ? (
+              <ScheduleGrid
+                initialSelection={editScheduleSelection}
+                onChange={setEditScheduleSelection}
+                disabled={false}
+              />
+            ) : (
+              <>
+                {route.schedules.length === 0 ? (
+                  <Alert>
+                    <AlertDescription>
+                      No active times configured. Edit this route to set when you want to receive
+                      alerts.
+                    </AlertDescription>
+                  </Alert>
+                ) : (
+                  <ScheduleGrid
+                    initialSelection={schedulesToGrid(route.schedules)}
+                    onChange={() => {}}
+                    disabled={true}
                   />
-                </div>
-              )}
-
-              {editingScheduleId && editingSchedule && (
-                <div className="mb-4">
-                  <ScheduleForm
-                    initialDays={editingSchedule.days_of_week}
-                    initialStartTime={editingSchedule.start_time.substring(0, 5)}
-                    initialEndTime={editingSchedule.end_time.substring(0, 5)}
-                    onSave={(data) => handleUpdateSchedule(editingScheduleId, data)}
-                    onCancel={() => setEditingScheduleId(null)}
-                    isEditing={true}
-                  />
-                </div>
-              )}
-
-              {(isEditing ? editSchedules : route.schedules).length === 0 ? (
-                <Alert>
-                  <AlertDescription>
-                    No active times configured.{' '}
-                    {isEditing && 'Add times when you want to receive alerts for this route.'}
-                  </AlertDescription>
-                </Alert>
-              ) : (
-                <div className="space-y-2">
-                  {(isEditing ? editSchedules : route.schedules).map((schedule) => (
-                    <ScheduleCard
-                      key={schedule.id}
-                      daysOfWeek={schedule.days_of_week}
-                      startTime={schedule.start_time.substring(0, 5)}
-                      endTime={schedule.end_time.substring(0, 5)}
-                      onEdit={isEditing ? () => setEditingScheduleId(schedule.id) : () => {}}
-                      onDelete={isEditing ? () => handleDeleteSchedule(schedule.id) : () => {}}
-                      isDeleting={deletingScheduleId === schedule.id}
-                    />
-                  ))}
-                </div>
-              )}
-            </Card>
+                )}
+              </>
+            )}
           </div>
 
           {/* Send Alerts To Subsection */}

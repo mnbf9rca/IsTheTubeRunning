@@ -9,6 +9,11 @@ vi.mock('../hooks/useRoutes', () => ({
   useRoutes: vi.fn(),
 }))
 
+// Mock the useUserRouteDisruptions hook
+vi.mock('../hooks/useUserRouteDisruptions', () => ({
+  useUserRouteDisruptions: vi.fn(),
+}))
+
 // Mock sonner for toast notifications
 vi.mock('sonner', () => ({
   toast: {
@@ -28,6 +33,7 @@ vi.mock('react-router-dom', async () => {
 })
 
 import { useRoutes } from '../hooks/useRoutes'
+import { useUserRouteDisruptions } from '../hooks/useUserRouteDisruptions'
 
 describe('Routes', () => {
   const mockRoutes: RouteListItemResponse[] = [
@@ -53,9 +59,18 @@ describe('Routes', () => {
     refresh: vi.fn(),
   }
 
+  const mockUseUserRouteDisruptions = {
+    disruptions: null,
+    loading: false,
+    isRefreshing: false,
+    error: null,
+    refresh: vi.fn(),
+  }
+
   beforeEach(() => {
     vi.clearAllMocks()
     vi.mocked(useRoutes).mockReturnValue(mockUseRoutes)
+    vi.mocked(useUserRouteDisruptions).mockReturnValue(mockUseUserRouteDisruptions)
     mockNavigate.mockClear()
   })
 
@@ -162,5 +177,84 @@ describe('Routes', () => {
     // Confirmation dialog should appear
     expect(screen.getByText(/delete route\?/i)).toBeInTheDocument()
     expect(screen.getByText(/are you sure/i)).toBeInTheDocument()
+  })
+
+  describe('disruptions integration', () => {
+    it('should call useUserRouteDisruptions hook', () => {
+      renderWithRouter(<Routes />)
+
+      expect(useUserRouteDisruptions).toHaveBeenCalled()
+    })
+
+    it('should show good service when no disruptions', () => {
+      vi.mocked(useUserRouteDisruptions).mockReturnValue({
+        ...mockUseUserRouteDisruptions,
+        disruptions: null,
+      })
+
+      renderWithRouter(<Routes />)
+
+      expect(screen.getByText('Good Service')).toBeInTheDocument()
+    })
+
+    it('should pass disruptions to RouteList', () => {
+      const mockDisruptions = [
+        {
+          route_id: 'route-1',
+          route_name: 'Home to Work',
+          disruption: {
+            line_id: 'victoria',
+            line_name: 'Victoria',
+            mode: 'tube',
+            status_severity: 6,
+            status_severity_description: 'Minor Delays',
+            reason: 'Signal failure',
+            created_at: '2025-01-01T10:00:00Z',
+            affected_routes: null,
+          },
+          affected_segments: [0, 1],
+          affected_stations: ['940GZZLUOXC'],
+        },
+      ]
+
+      vi.mocked(useUserRouteDisruptions).mockReturnValue({
+        ...mockUseUserRouteDisruptions,
+        disruptions: mockDisruptions,
+      })
+
+      renderWithRouter(<Routes />)
+
+      // Should show disruption badge
+      expect(screen.getByText('Minor Delays')).toBeInTheDocument()
+      expect(screen.getByText('Victoria')).toBeInTheDocument()
+    })
+
+    it('should pass disruptions loading state to RouteList', () => {
+      vi.mocked(useUserRouteDisruptions).mockReturnValue({
+        ...mockUseUserRouteDisruptions,
+        loading: true,
+      })
+
+      renderWithRouter(<Routes />)
+
+      // Should show loading state
+      const status = screen.getByRole('status', { name: /loading disruption status/i })
+      expect(status).toBeInTheDocument()
+    })
+
+    it('should handle disruption errors gracefully', () => {
+      const mockError = new ApiError(500, 'Failed to load disruptions')
+      vi.mocked(useUserRouteDisruptions).mockReturnValue({
+        ...mockUseUserRouteDisruptions,
+        error: mockError,
+      })
+
+      renderWithRouter(<Routes />)
+
+      // Should still render routes (graceful degradation)
+      expect(screen.getByText('Home to Work')).toBeInTheDocument()
+      // Should show good service as fallback
+      expect(screen.getByText('Good Service')).toBeInTheDocument()
+    })
   })
 })

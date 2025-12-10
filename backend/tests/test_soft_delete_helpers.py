@@ -6,6 +6,7 @@ import pytest
 from app.helpers.soft_delete_filters import (
     add_active_filter,
     add_active_filters,
+    get_active_children_for_parents,
     is_soft_deleted,
     soft_delete,
 )
@@ -235,6 +236,199 @@ class TestSoftDeleteFilters:
         )
 
         assert is_soft_deleted(route) is False
+
+    async def test_get_active_children_for_parents_returns_empty_dict_for_empty_parent_list(
+        self,
+        db_session: AsyncSession,
+    ) -> None:
+        """Test get_active_children_for_parents returns empty dict when no parent_ids provided."""
+        result = await get_active_children_for_parents(
+            db_session,
+            UserRouteSchedule,
+            UserRouteSchedule.route_id,
+            [],
+        )
+
+        assert result == {}
+
+    async def test_get_active_children_for_parents_loads_only_active_children(
+        self,
+        db_session: AsyncSession,
+        test_user: User,
+    ) -> None:
+        """Test get_active_children_for_parents filters out soft-deleted children."""
+        # Create route
+        route = UserRoute(
+            user_id=test_user.id,
+            name="Test Route",
+            timezone="Europe/London",
+        )
+        db_session.add(route)
+        await db_session.commit()
+
+        # Create active and deleted schedules
+        active_schedule = UserRouteSchedule(
+            route_id=route.id,
+            days_of_week=["MON"],
+            start_time=time(8, 0),
+            end_time=time(9, 0),
+        )
+        deleted_schedule = UserRouteSchedule(
+            route_id=route.id,
+            days_of_week=["TUE"],
+            start_time=time(10, 0),
+            end_time=time(11, 0),
+            deleted_at=datetime.now(UTC),
+        )
+        db_session.add_all([active_schedule, deleted_schedule])
+        await db_session.commit()
+
+        # Load children
+        result = await get_active_children_for_parents(
+            db_session,
+            UserRouteSchedule,
+            UserRouteSchedule.route_id,
+            [route.id],
+        )
+
+        # Should only return active schedule
+        assert route.id in result
+        assert len(result[route.id]) == 1
+        assert result[route.id][0].id == active_schedule.id
+
+    async def test_get_active_children_for_parents_groups_by_parent_id(
+        self,
+        db_session: AsyncSession,
+        test_user: User,
+    ) -> None:
+        """Test get_active_children_for_parents correctly groups children by parent."""
+        # Create two routes
+        route1 = UserRoute(
+            user_id=test_user.id,
+            name="Route 1",
+            timezone="Europe/London",
+        )
+        route2 = UserRoute(
+            user_id=test_user.id,
+            name="Route 2",
+            timezone="Europe/London",
+        )
+        db_session.add_all([route1, route2])
+        await db_session.commit()
+
+        # Create schedules for each route
+        schedule1a = UserRouteSchedule(
+            route_id=route1.id,
+            days_of_week=["MON"],
+            start_time=time(8, 0),
+            end_time=time(9, 0),
+        )
+        schedule1b = UserRouteSchedule(
+            route_id=route1.id,
+            days_of_week=["TUE"],
+            start_time=time(10, 0),
+            end_time=time(11, 0),
+        )
+        schedule2 = UserRouteSchedule(
+            route_id=route2.id,
+            days_of_week=["WED"],
+            start_time=time(12, 0),
+            end_time=time(13, 0),
+        )
+        db_session.add_all([schedule1a, schedule1b, schedule2])
+        await db_session.commit()
+
+        # Load children
+        result = await get_active_children_for_parents(
+            db_session,
+            UserRouteSchedule,
+            UserRouteSchedule.route_id,
+            [route1.id, route2.id],
+        )
+
+        # Verify grouping
+        assert len(result) == 2
+        assert len(result[route1.id]) == 2
+        assert len(result[route2.id]) == 1
+        assert {s.id for s in result[route1.id]} == {schedule1a.id, schedule1b.id}
+        assert result[route2.id][0].id == schedule2.id
+
+    async def test_get_active_children_for_parents_returns_empty_list_for_parent_with_no_children(
+        self,
+        db_session: AsyncSession,
+        test_user: User,
+    ) -> None:
+        """Test get_active_children_for_parents returns empty list for parent with no children."""
+        # Create route with no schedules
+        route = UserRoute(
+            user_id=test_user.id,
+            name="Test Route",
+            timezone="Europe/London",
+        )
+        db_session.add(route)
+        await db_session.commit()
+
+        # Load children
+        result = await get_active_children_for_parents(
+            db_session,
+            UserRouteSchedule,
+            UserRouteSchedule.route_id,
+            [route.id],
+        )
+
+        # Should return empty list for this route
+        assert route.id in result
+        assert result[route.id] == []
+
+    async def test_get_active_children_for_parents_with_segments(
+        self,
+        db_session: AsyncSession,
+        test_user: User,
+        test_railway_network: RailwayNetworkFixture,
+    ) -> None:
+        """Test get_active_children_for_parents works with different child models."""
+        # Get stations and line from test network
+        stations = list(test_railway_network.stations.values())
+        line = next(iter(test_railway_network.lines.values()))
+
+        # Create route
+        route = UserRoute(
+            user_id=test_user.id,
+            name="Test Route",
+            timezone="Europe/London",
+        )
+        db_session.add(route)
+        await db_session.commit()
+
+        # Create active and deleted segments
+        active_segment = UserRouteSegment(
+            route_id=route.id,
+            sequence=0,
+            station_id=stations[0].id,
+            line_id=line.id,
+        )
+        deleted_segment = UserRouteSegment(
+            route_id=route.id,
+            sequence=1,
+            station_id=stations[1].id,
+            line_id=line.id,
+            deleted_at=datetime.now(UTC),
+        )
+        db_session.add_all([active_segment, deleted_segment])
+        await db_session.commit()
+
+        # Load children
+        result = await get_active_children_for_parents(
+            db_session,
+            UserRouteSegment,
+            UserRouteSegment.route_id,
+            [route.id],
+        )
+
+        # Should only return active segment
+        assert route.id in result
+        assert len(result[route.id]) == 1
+        assert result[route.id][0].id == active_segment.id
 
 
 class TestSoftDeleteAssertions:

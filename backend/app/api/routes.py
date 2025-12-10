@@ -21,6 +21,7 @@ from app.schemas.routes import (
     UpdateUserRouteRequest,
     UpdateUserRouteScheduleRequest,
     UpdateUserRouteSegmentRequest,
+    UpsertUserRouteSchedulesRequest,
     UpsertUserRouteSegmentsRequest,
     UserRouteListItemResponse,
     UserRouteResponse,
@@ -372,6 +373,35 @@ async def delete_segment(
 
 
 # ==================== Schedule Endpoints ====================
+
+
+@router.put("/{route_id}/schedules", response_model=list[UserRouteScheduleResponse])
+async def upsert_schedules(
+    route_id: UUID,
+    request: UpsertUserRouteSchedulesRequest,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> list[UserRouteSchedule]:
+    """
+    Replace all schedules for a route.
+
+    This atomically replaces all schedules. An empty array deletes all schedules.
+
+    Args:
+        route_id: UserRoute UUID
+        request: Schedules to set
+        current_user: Authenticated user
+        db: Database session
+
+    Returns:
+        Created schedules
+
+    Raises:
+        HTTPException: 404 if route not found
+        HTTPException: 422 if validation fails (quarter-hour boundaries, invalid days, end_time <= start_time)
+    """
+    service = UserRouteService(db)
+    return await service.upsert_schedules(route_id, current_user.id, request.schedules)
 
 
 @router.post("/{route_id}/schedules", response_model=UserRouteScheduleResponse, status_code=status.HTTP_201_CREATED)

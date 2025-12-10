@@ -7,8 +7,12 @@ from unittest.mock import AsyncMock, patch
 from urllib.parse import urlparse
 
 import pytest
-from app.schemas.tfl import DisruptionResponse
-from app.services.notification_service import NotificationService
+from app.schemas.tfl import ClearedLineInfo, DisruptionResponse
+from app.services.notification_service import (
+    NotificationService,
+    _build_disruption_subject,
+    _build_status_update_subject,
+)
 
 
 class TestNotificationService:
@@ -38,7 +42,7 @@ class TestNotificationService:
         mock_send_email.assert_called_once()
         call_args = mock_send_email.call_args
         assert call_args[0][0] == email
-        assert "Disruption Alert" in call_args[0][1]
+        assert call_args[0][1] == f"⚠️ {route_name}: Victoria disrupted"
 
     @pytest.mark.asyncio
     @patch("app.services.email_service.EmailService.send_email", new_callable=AsyncMock)
@@ -64,7 +68,7 @@ class TestNotificationService:
         mock_send_email.assert_called_once()
         call_args = mock_send_email.call_args
         assert call_args[0][0] == email
-        assert call_args[0][1] == f"⚠️ Disruption Alert: {route_name}"
+        assert call_args[0][1] == f"⚠️ {route_name}: Victoria disrupted"
 
     @pytest.mark.asyncio
     @patch("app.services.email_service.EmailService.send_email", new_callable=AsyncMock)
@@ -241,7 +245,7 @@ class TestNotificationService:
 
     @pytest.mark.asyncio
     async def test_render_email_template_without_user_name(self) -> None:
-        """Test template rendering defaults to 'there' when no user name."""
+        """Test template rendering works without user name (greeting removed)."""
         service = NotificationService()
         disruptions = [
             DisruptionResponse(
@@ -263,8 +267,15 @@ class TestNotificationService:
             },
         )
 
-        # Verify "there" appears as default greeting
-        assert "Hello there" in html or "there" in html.lower()
+        # Verify template renders correctly without greeting
+        assert "Test Route" in html
+        assert "Victoria" in html
+
+        # Verify old greeting text is no longer rendered
+        assert "Hello there" not in html
+        assert "Hello" not in html
+        assert "hello there" not in html.lower()
+        assert "hello" not in html.lower()
 
     @pytest.mark.asyncio
     async def test_send_disruption_sms_long_message(self) -> None:
@@ -456,3 +467,607 @@ class TestNotificationService:
         # We have "TfL Alert: ", "LineName: Status", and "More: url" - so 3 colons total
         disruption_count = sent_message.count(": ") - 2  # -2 for "TfL Alert: " and "More: "
         assert disruption_count == 1, f"Expected 1 disruption after truncation, got {disruption_count}"
+
+    @pytest.mark.asyncio
+    @patch("app.services.email_service.EmailService.send_email", new_callable=AsyncMock)
+    async def test_send_status_update_email_success(self, mock_send_email: AsyncMock) -> None:
+        """Test successful status update email sending."""
+        service = NotificationService()
+        email = "test@example.com"
+        route_name = "Morning Commute"
+        cleared_lines = [
+            ClearedLineInfo(
+                line_id="victoria",
+                line_name="Victoria",
+                mode="tube",
+                previous_severity=3,
+                previous_status="Severe Delays",
+                current_severity=10,
+                current_status="Good Service",
+            )
+        ]
+        still_disrupted = [
+            DisruptionResponse(
+                line_id="northern",
+                line_name="Northern",
+                mode="tube",
+                status_severity=6,
+                status_severity_description="Minor Delays",
+                reason="Signal failure",
+            )
+        ]
+
+        await service.send_status_update_email(email, route_name, cleared_lines, still_disrupted)
+
+        # Verify EmailService.send_email was called
+        mock_send_email.assert_called_once()
+        call_args = mock_send_email.call_args
+        assert call_args[0][0] == email
+        assert call_args[0][1] == f"✅ {route_name}: Victoria restored | Northern still disrupted"
+
+    @pytest.mark.asyncio
+    @patch("app.services.email_service.EmailService.send_email", new_callable=AsyncMock)
+    async def test_send_status_update_email_with_user_name(self, mock_send_email: AsyncMock) -> None:
+        """Test status update email with user name."""
+        service = NotificationService()
+        email = "test@example.com"
+        route_name = "Morning Commute"
+        cleared_lines = [
+            ClearedLineInfo(
+                line_id="victoria",
+                line_name="Victoria",
+                mode="tube",
+                previous_severity=3,
+                previous_status="Severe Delays",
+                current_severity=10,
+                current_status="Good Service",
+            )
+        ]
+        still_disrupted = []
+
+        await service.send_status_update_email(email, route_name, cleared_lines, still_disrupted, user_name="John")
+
+        # Verify EmailService.send_email was called
+        mock_send_email.assert_called_once()
+        call_args = mock_send_email.call_args
+        assert call_args[0][0] == email
+        assert call_args[0][1] == f"✅ {route_name}: Victoria restored"
+
+    @pytest.mark.asyncio
+    @patch("app.services.email_service.EmailService.send_email", new_callable=AsyncMock)
+    async def test_send_status_update_email_multiple_cleared_lines(self, mock_send_email: AsyncMock) -> None:
+        """Test status update email with multiple cleared lines."""
+        service = NotificationService()
+        email = "test@example.com"
+        route_name = "Morning Commute"
+        cleared_lines = [
+            ClearedLineInfo(
+                line_id="victoria",
+                line_name="Victoria",
+                mode="tube",
+                previous_severity=3,
+                previous_status="Severe Delays",
+                current_severity=10,
+                current_status="Good Service",
+            ),
+            ClearedLineInfo(
+                line_id="northern",
+                line_name="Northern",
+                mode="tube",
+                previous_severity=6,
+                previous_status="Minor Delays",
+                current_severity=10,
+                current_status="Good Service",
+            ),
+        ]
+        still_disrupted = []
+
+        await service.send_status_update_email(email, route_name, cleared_lines, still_disrupted)
+
+        # Verify email was sent
+        mock_send_email.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_send_status_update_email_error_propagates(self) -> None:
+        """Test status update email error is propagated."""
+        service = NotificationService()
+        cleared_lines = [
+            ClearedLineInfo(
+                line_id="victoria",
+                line_name="Victoria",
+                mode="tube",
+                previous_severity=3,
+                previous_status="Severe Delays",
+                current_severity=10,
+                current_status="Good Service",
+            )
+        ]
+        still_disrupted = []
+
+        with (
+            patch.object(service.email_service, "send_email", side_effect=Exception("Email error")),
+            pytest.raises(Exception, match="Email error"),
+        ):
+            await service.send_status_update_email(
+                email="test@example.com",
+                route_name="Test",
+                cleared_lines=cleared_lines,
+                still_disrupted=still_disrupted,
+            )
+
+    @pytest.mark.asyncio
+    @patch("app.services.sms_service.SmsService.send_sms", new_callable=AsyncMock)
+    async def test_send_status_update_sms_success(self, mock_send_sms: AsyncMock) -> None:
+        """Test successful status update SMS sending."""
+        service = NotificationService()
+        phone = "+447700900123"
+        route_name = "Morning Commute"
+        cleared_lines = [
+            ClearedLineInfo(
+                line_id="victoria",
+                line_name="Victoria",
+                mode="tube",
+                previous_severity=3,
+                previous_status="Severe Delays",
+                current_severity=10,
+                current_status="Good Service",
+            )
+        ]
+        still_disrupted = [
+            DisruptionResponse(
+                line_id="northern",
+                line_name="Northern",
+                mode="tube",
+                status_severity=6,
+                status_severity_description="Minor Delays",
+                reason="Signal failure",
+                created_at=datetime.now(UTC),
+            )
+        ]
+
+        await service.send_status_update_sms(phone, route_name, cleared_lines, still_disrupted)
+
+        # Verify SmsService.send_sms was called
+        mock_send_sms.assert_called_once()
+        call_args = mock_send_sms.call_args
+        assert call_args[0][0] == phone
+        assert "Service restored" in call_args[0][1]
+        assert "Victoria" in call_args[0][1]
+
+    @pytest.mark.asyncio
+    @patch("app.services.sms_service.SmsService.send_sms", new_callable=AsyncMock)
+    async def test_send_status_update_sms_multiple_cleared_lines(self, mock_send_sms: AsyncMock) -> None:
+        """Test status update SMS with multiple cleared lines."""
+        service = NotificationService()
+        phone = "+447700900123"
+        route_name = "Test Route"
+        cleared_lines = [
+            ClearedLineInfo(
+                line_id="victoria",
+                line_name="Victoria",
+                mode="tube",
+                previous_severity=3,
+                previous_status="Severe Delays",
+                current_severity=10,
+                current_status="Good Service",
+            ),
+            ClearedLineInfo(
+                line_id="northern",
+                line_name="Northern",
+                mode="tube",
+                previous_severity=6,
+                previous_status="Minor Delays",
+                current_severity=10,
+                current_status="Good Service",
+            ),
+            ClearedLineInfo(
+                line_id="piccadilly",
+                line_name="Piccadilly",
+                mode="tube",
+                previous_severity=4,
+                previous_status="Part Suspended",
+                current_severity=10,
+                current_status="Good Service",
+            ),
+            ClearedLineInfo(
+                line_id="district",
+                line_name="District",
+                mode="tube",
+                previous_severity=3,
+                previous_status="Severe Delays",
+                current_severity=10,
+                current_status="Good Service",
+            ),
+        ]
+        still_disrupted = []
+
+        await service.send_status_update_sms(phone, route_name, cleared_lines, still_disrupted)
+
+        # Verify SMS was sent
+        mock_send_sms.assert_called_once()
+        call_args = mock_send_sms.call_args
+        sent_message = call_args[0][1]
+
+        # Should limit to first 3 cleared lines
+        assert "Victoria" in sent_message
+        assert "Northern" in sent_message
+        assert "Piccadilly" in sent_message
+        # Fourth line may or may not be included depending on length
+
+    @pytest.mark.asyncio
+    @patch("app.services.sms_service.SmsService.send_sms", new_callable=AsyncMock)
+    async def test_send_status_update_sms_truncates_long_message(self, mock_send_sms: AsyncMock) -> None:
+        """Test status update SMS truncation when message is too long."""
+        service = NotificationService()
+        phone = "+447700900123"
+        route_name = "My Very Long Route Name For Testing Purposes"
+        cleared_lines = [
+            ClearedLineInfo(
+                line_id="metropolitan",
+                line_name="Metropolitan Line Experiencing Issues",
+                mode="tube",
+                previous_severity=3,
+                previous_status="Severe Delays and Signal Failures",
+                current_severity=10,
+                current_status="Good Service",
+            )
+        ]
+        still_disrupted = [
+            DisruptionResponse(
+                line_id="hammersmith-city",
+                line_name="Hammersmith & City Line Now",
+                mode="tube",
+                status_severity=10,
+                status_severity_description="Part Suspended Between Multiple Stations",
+                reason="Engineering works",
+                created_at=datetime.now(UTC),
+            ),
+            DisruptionResponse(
+                line_id="circle",
+                line_name="Circle Line With Additional Information",
+                mode="tube",
+                status_severity=6,
+                status_severity_description="Minor Delays Throughout The Line",
+                reason="Signal failure",
+                created_at=datetime.now(UTC),
+            ),
+        ]
+
+        await service.send_status_update_sms(phone, route_name, cleared_lines, still_disrupted)
+
+        # Verify SMS was sent
+        mock_send_sms.assert_called_once()
+        call_args = mock_send_sms.call_args
+        sent_message = call_args[0][1]
+
+        # Verify message was truncated (still_disrupted part removed)
+        assert "Service restored" in sent_message
+        assert "Metropolitan" in sent_message or "Metropolitan Line" in sent_message
+        # Still disrupted section should be removed if message is too long
+        assert len(sent_message) <= 160
+
+    @pytest.mark.asyncio
+    @patch("app.services.sms_service.SmsService.send_sms", new_callable=AsyncMock)
+    async def test_send_status_update_sms_multistage_truncation_3_to_2_lines(self, mock_send_sms: AsyncMock) -> None:
+        """Test SMS truncation reduces from 3 cleared lines to 2 when needed."""
+        service = NotificationService()
+        phone = "+447700900123"
+        route_name = "Very Long Route Name That Takes Up Space"
+        cleared_lines = [
+            ClearedLineInfo(
+                line_id="metropolitan",
+                line_name="Metropolitan Line",
+                mode="tube",
+                previous_severity=3,
+                previous_status="Severe Delays",
+                current_severity=10,
+                current_status="Good Service",
+            ),
+            ClearedLineInfo(
+                line_id="hammersmith-city",
+                line_name="Hammersmith & City",
+                mode="tube",
+                previous_severity=3,
+                previous_status="Minor Delays",
+                current_severity=10,
+                current_status="Good Service",
+            ),
+            ClearedLineInfo(
+                line_id="circle",
+                line_name="Circle Line Name",
+                mode="tube",
+                previous_severity=6,
+                previous_status="Part Suspended",
+                current_severity=10,
+                current_status="Good Service",
+            ),
+        ]
+        still_disrupted = []
+
+        await service.send_status_update_sms(phone, route_name, cleared_lines, still_disrupted)
+
+        mock_send_sms.assert_called_once()
+        call_args = mock_send_sms.call_args
+        sent_message = call_args[0][1]
+
+        # Should reduce to 2 lines if 3 is too long
+        assert len(sent_message) <= 160
+
+    @pytest.mark.asyncio
+    @patch("app.services.sms_service.SmsService.send_sms", new_callable=AsyncMock)
+    async def test_send_status_update_sms_multistage_truncation_2_to_1_line(self, mock_send_sms: AsyncMock) -> None:
+        """Test SMS truncation reduces from 2 cleared lines to 1 when needed."""
+        service = NotificationService()
+        phone = "+447700900123"
+        route_name = "Extremely Long Route Name For Testing Multi-Stage Truncation"
+        cleared_lines = [
+            ClearedLineInfo(
+                line_id="metropolitan",
+                line_name="Metropolitan Line With Very Long Name",
+                mode="tube",
+                previous_severity=3,
+                previous_status="Severe Delays",
+                current_severity=10,
+                current_status="Good Service",
+            ),
+            ClearedLineInfo(
+                line_id="hammersmith-city",
+                line_name="Hammersmith & City Line",
+                mode="tube",
+                previous_severity=3,
+                previous_status="Minor Delays",
+                current_severity=10,
+                current_status="Good Service",
+            ),
+        ]
+        still_disrupted = []
+
+        await service.send_status_update_sms(phone, route_name, cleared_lines, still_disrupted)
+
+        mock_send_sms.assert_called_once()
+        call_args = mock_send_sms.call_args
+        sent_message = call_args[0][1]
+
+        # Should reduce to 1 line if 2 is too long
+        assert len(sent_message) <= 160
+        # Should contain first line name
+        assert "Metropolitan" in sent_message
+
+    @pytest.mark.asyncio
+    @patch("app.services.sms_service.SmsService.send_sms", new_callable=AsyncMock)
+    async def test_send_status_update_sms_multistage_truncation_with_ellipsis(self, mock_send_sms: AsyncMock) -> None:
+        """Test SMS truncation uses ellipsis for very long route and line names."""
+        service = NotificationService()
+        phone = "+447700900123"
+        route_name = "Extremely Long Route Name That Definitely Needs To Be Truncated With Ellipsis For Testing"
+        cleared_lines = [
+            ClearedLineInfo(
+                line_id="metropolitan",
+                line_name="Metropolitan Line With An Extremely Long Name That Also Needs Truncation",
+                mode="tube",
+                previous_severity=3,
+                previous_status="Severe Delays",
+                current_severity=10,
+                current_status="Good Service",
+            ),
+        ]
+        still_disrupted = []
+
+        await service.send_status_update_sms(phone, route_name, cleared_lines, still_disrupted)
+
+        mock_send_sms.assert_called_once()
+        call_args = mock_send_sms.call_args
+        sent_message = call_args[0][1]
+
+        # Should truncate with ellipsis
+        assert len(sent_message) <= 160
+        # Should contain ellipsis if truncation occurred
+        # Note: ellipsis may appear in route name or line name depending on lengths
+
+    @pytest.mark.asyncio
+    @patch("app.services.sms_service.SmsService.send_sms", new_callable=AsyncMock)
+    async def test_send_status_update_sms_force_truncate_fallback(self, mock_send_sms: AsyncMock) -> None:
+        """Test SMS force truncate as final fallback."""
+        service = NotificationService()
+        phone = "+447700900123"
+        # Create an extreme case that would still exceed 160 chars even after all truncation stages
+        route_name = "A" * 50  # Very long route name
+        cleared_lines = [
+            ClearedLineInfo(
+                line_id="line",
+                line_name="B" * 50,  # Very long line name
+                mode="tube",
+                previous_severity=3,
+                previous_status="Severe Delays",
+                current_severity=10,
+                current_status="Good Service",
+            ),
+        ]
+        still_disrupted = []
+
+        await service.send_status_update_sms(phone, route_name, cleared_lines, still_disrupted)
+
+        mock_send_sms.assert_called_once()
+        call_args = mock_send_sms.call_args
+        sent_message = call_args[0][1]
+
+        # Must be exactly 160 chars or less due to force truncate
+        assert len(sent_message) <= 160
+
+    @pytest.mark.asyncio
+    async def test_send_status_update_sms_error_propagates(self) -> None:
+        """Test status update SMS error is propagated."""
+        service = NotificationService()
+        cleared_lines = [
+            ClearedLineInfo(
+                line_id="victoria",
+                line_name="Victoria",
+                mode="tube",
+                previous_severity=3,
+                previous_status="Severe Delays",
+                current_severity=10,
+                current_status="Good Service",
+            )
+        ]
+        still_disrupted = []
+
+        with (
+            patch.object(service.sms_service, "send_sms", side_effect=Exception("SMS error")),
+            pytest.raises(Exception, match="SMS error"),
+        ):
+            await service.send_status_update_sms(
+                phone="+447700900123",
+                route_name="Test",
+                cleared_lines=cleared_lines,
+                still_disrupted=still_disrupted,
+            )
+
+    def test_build_disruption_subject_empty_list(self) -> None:
+        """Test subject line generation for empty disruption list raises error."""
+        disruptions = []
+
+        with pytest.raises(ValueError, match="No disruptions provided"):
+            _build_disruption_subject("Morning Commute", disruptions)
+
+    def test_build_disruption_subject_single_line(self) -> None:
+        """Test subject line generation for single disrupted line."""
+        disruptions = [
+            DisruptionResponse(
+                line_id="victoria",
+                line_name="Victoria",
+                mode="tube",
+                status_severity=6,
+                status_severity_description="Minor Delays",
+                reason="Signal failure",
+            )
+        ]
+
+        subject = _build_disruption_subject("Morning Commute", disruptions)
+        assert subject == "⚠️ Morning Commute: Victoria disrupted"
+
+    def test_build_disruption_subject_multiple_lines(self) -> None:
+        """Test subject line generation for multiple disrupted lines."""
+        disruptions = [
+            DisruptionResponse(
+                line_id="victoria",
+                line_name="Victoria",
+                mode="tube",
+                status_severity=6,
+                status_severity_description="Minor Delays",
+            ),
+            DisruptionResponse(
+                line_id="northern",
+                line_name="Northern",
+                mode="tube",
+                status_severity=3,
+                status_severity_description="Severe Delays",
+            ),
+            DisruptionResponse(
+                line_id="central",
+                line_name="Central",
+                mode="tube",
+                status_severity=6,
+                status_severity_description="Part Suspended",
+            ),
+        ]
+
+        subject = _build_disruption_subject("To Work", disruptions)
+        assert subject == "⚠️ To Work: Victoria, Northern, Central disrupted"
+
+    def test_build_status_update_subject_single_restored(self) -> None:
+        """Test subject line for single restored line with no remaining disruptions."""
+        cleared_lines = [
+            ClearedLineInfo(
+                line_id="victoria",
+                line_name="Victoria",
+                mode="tube",
+                previous_severity=3,
+                previous_status="Severe Delays",
+                current_severity=10,
+                current_status="Good Service",
+            )
+        ]
+        still_disrupted = []
+
+        subject = _build_status_update_subject("Morning Commute", cleared_lines, still_disrupted)
+        assert subject == "✅ Morning Commute: Victoria restored"
+
+    def test_build_status_update_subject_all_clear(self) -> None:
+        """Test subject line when multiple lines cleared and all clear."""
+        cleared_lines = [
+            ClearedLineInfo(
+                line_id="victoria",
+                line_name="Victoria",
+                mode="tube",
+                previous_severity=3,
+                previous_status="Severe Delays",
+                current_severity=10,
+                current_status="Good Service",
+            ),
+            ClearedLineInfo(
+                line_id="northern",
+                line_name="Northern",
+                mode="tube",
+                previous_severity=6,
+                previous_status="Minor Delays",
+                current_severity=10,
+                current_status="Good Service",
+            ),
+        ]
+        still_disrupted = []
+
+        subject = _build_status_update_subject("Morning Commute", cleared_lines, still_disrupted)
+        assert subject == "✅ Morning Commute: All clear"
+
+    def test_build_status_update_subject_mixed(self) -> None:
+        """Test subject line when some lines cleared but others still disrupted."""
+        cleared_lines = [
+            ClearedLineInfo(
+                line_id="victoria",
+                line_name="Victoria",
+                mode="tube",
+                previous_severity=3,
+                previous_status="Severe Delays",
+                current_severity=10,
+                current_status="Good Service",
+            )
+        ]
+        still_disrupted = [
+            DisruptionResponse(
+                line_id="northern",
+                line_name="Northern",
+                mode="tube",
+                status_severity=6,
+                status_severity_description="Minor Delays",
+                reason="Signal failure",
+            )
+        ]
+
+        subject = _build_status_update_subject("To Work", cleared_lines, still_disrupted)
+        assert subject == "✅ To Work: Victoria restored | Northern still disrupted"
+
+    def test_build_status_update_subject_no_cleared_lines(self) -> None:
+        """Test subject line when no lines cleared but some still disrupted."""
+        cleared_lines = []
+        still_disrupted = [
+            DisruptionResponse(
+                line_id="northern",
+                line_name="Northern",
+                mode="tube",
+                status_severity=6,
+                status_severity_description="Part Suspended",
+            )
+        ]
+
+        subject = _build_status_update_subject("To Work", cleared_lines, still_disrupted)
+        assert subject == "⚠️ To Work: Northern still disrupted"
+        # Should not mention restoration when nothing was cleared
+        assert "restored" not in subject.lower()
+
+    def test_build_status_update_subject_both_empty(self) -> None:
+        """Test subject line generation for both lists empty raises error."""
+        cleared_lines = []
+        still_disrupted = []
+
+        with pytest.raises(ValueError, match="No lines provided"):
+            _build_status_update_subject("To Work", cleared_lines, still_disrupted)
