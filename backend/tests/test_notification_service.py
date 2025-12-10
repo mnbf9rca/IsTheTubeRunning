@@ -271,6 +271,12 @@ class TestNotificationService:
         assert "Test Route" in html
         assert "Victoria" in html
 
+        # Verify old greeting text is no longer rendered
+        assert "Hello there" not in html
+        assert "Hello" not in html
+        assert "hello there" not in html.lower()
+        assert "hello" not in html.lower()
+
     @pytest.mark.asyncio
     async def test_send_disruption_sms_long_message(self) -> None:
         """Test SMS message truncation for long messages."""
@@ -916,16 +922,14 @@ class TestNotificationService:
                 still_disrupted=still_disrupted,
             )
 
-    @pytest.mark.asyncio
-    async def test_build_disruption_subject_empty_list(self) -> None:
-        """Test subject line generation for empty disruption list."""
+    def test_build_disruption_subject_empty_list(self) -> None:
+        """Test subject line generation for empty disruption list raises error."""
         disruptions = []
 
-        subject = _build_disruption_subject("Morning Commute", disruptions)
-        assert subject == "⚠️ Morning Commute: All clear"
+        with pytest.raises(ValueError, match="No disruptions provided"):
+            _build_disruption_subject("Morning Commute", disruptions)
 
-    @pytest.mark.asyncio
-    async def test_build_disruption_subject_single_line(self) -> None:
+    def test_build_disruption_subject_single_line(self) -> None:
         """Test subject line generation for single disrupted line."""
         disruptions = [
             DisruptionResponse(
@@ -941,8 +945,7 @@ class TestNotificationService:
         subject = _build_disruption_subject("Morning Commute", disruptions)
         assert subject == "⚠️ Morning Commute: Victoria disrupted"
 
-    @pytest.mark.asyncio
-    async def test_build_disruption_subject_multiple_lines(self) -> None:
+    def test_build_disruption_subject_multiple_lines(self) -> None:
         """Test subject line generation for multiple disrupted lines."""
         disruptions = [
             DisruptionResponse(
@@ -971,8 +974,7 @@ class TestNotificationService:
         subject = _build_disruption_subject("To Work", disruptions)
         assert subject == "⚠️ To Work: Victoria, Northern, Central disrupted"
 
-    @pytest.mark.asyncio
-    async def test_build_status_update_subject_single_restored(self) -> None:
+    def test_build_status_update_subject_single_restored(self) -> None:
         """Test subject line for single restored line with no remaining disruptions."""
         cleared_lines = [
             ClearedLineInfo(
@@ -990,8 +992,7 @@ class TestNotificationService:
         subject = _build_status_update_subject("Morning Commute", cleared_lines, still_disrupted)
         assert subject == "✅ Morning Commute: Victoria restored"
 
-    @pytest.mark.asyncio
-    async def test_build_status_update_subject_all_clear(self) -> None:
+    def test_build_status_update_subject_all_clear(self) -> None:
         """Test subject line when multiple lines cleared and all clear."""
         cleared_lines = [
             ClearedLineInfo(
@@ -1018,8 +1019,7 @@ class TestNotificationService:
         subject = _build_status_update_subject("Morning Commute", cleared_lines, still_disrupted)
         assert subject == "✅ Morning Commute: All clear"
 
-    @pytest.mark.asyncio
-    async def test_build_status_update_subject_mixed(self) -> None:
+    def test_build_status_update_subject_mixed(self) -> None:
         """Test subject line when some lines cleared but others still disrupted."""
         cleared_lines = [
             ClearedLineInfo(
@@ -1045,3 +1045,29 @@ class TestNotificationService:
 
         subject = _build_status_update_subject("To Work", cleared_lines, still_disrupted)
         assert subject == "✅ To Work: Victoria restored | Northern still disrupted"
+
+    def test_build_status_update_subject_no_cleared_lines(self) -> None:
+        """Test subject line when no lines cleared but some still disrupted."""
+        cleared_lines = []
+        still_disrupted = [
+            DisruptionResponse(
+                line_id="northern",
+                line_name="Northern",
+                mode="tube",
+                status_severity=6,
+                status_severity_description="Part Suspended",
+            )
+        ]
+
+        subject = _build_status_update_subject("To Work", cleared_lines, still_disrupted)
+        assert subject == "⚠️ To Work: Northern still disrupted"
+        # Should not mention restoration when nothing was cleared
+        assert "restored" not in subject.lower()
+
+    def test_build_status_update_subject_both_empty(self) -> None:
+        """Test subject line generation for both lists empty raises error."""
+        cleared_lines = []
+        still_disrupted = []
+
+        with pytest.raises(ValueError, match="No lines provided"):
+            _build_status_update_subject("To Work", cleared_lines, still_disrupted)

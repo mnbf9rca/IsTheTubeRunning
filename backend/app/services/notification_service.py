@@ -32,12 +32,10 @@ def _build_disruption_subject(route_name: str, disruptions: list[DisruptionRespo
         Formatted subject line
     """
     if not disruptions:
-        return f"⚠️ {route_name}: All clear"
+        msg = "No disruptions provided; this indicates a programming error upstream."
+        raise ValueError(msg)
 
     line_names = ", ".join([d.line_name for d in disruptions])
-
-    if len(disruptions) == 1:
-        return f"⚠️ {route_name}: {line_names} disrupted"
     return f"⚠️ {route_name}: {line_names} disrupted"
 
 
@@ -62,14 +60,25 @@ def _build_status_update_subject(
     Returns:
         Formatted subject line
     """
-    cleared_names = ", ".join([c.line_name for c in cleared_lines])
+    # Both empty - programming error
+    if not cleared_lines and not still_disrupted:
+        msg = "No lines provided; this indicates a programming error upstream."
+        raise ValueError(msg)
 
-    if not still_disrupted:
-        # All clear
+    # Nothing cleared but some still disrupted
+    if not cleared_lines and still_disrupted:
+        disrupted_names = ", ".join([d.line_name for d in still_disrupted])
+        return f"⚠️ {route_name}: {disrupted_names} still disrupted"
+
+    # Some cleared, nothing disrupted
+    if cleared_lines and not still_disrupted:
+        cleared_names = ", ".join([c.line_name for c in cleared_lines])
         if len(cleared_lines) == 1:
             return f"✅ {route_name}: {cleared_names} restored"
         return f"✅ {route_name}: All clear"
-    # Some still disrupted
+
+    # Some cleared, some still disrupted (mixed case)
+    cleared_names = ", ".join([c.line_name for c in cleared_lines])
     disrupted_names = ", ".join([d.line_name for d in still_disrupted])
     return f"✅ {route_name}: {cleared_names} restored | {disrupted_names} still disrupted"
 
