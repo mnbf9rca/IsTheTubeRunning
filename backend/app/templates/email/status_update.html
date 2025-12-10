@@ -168,11 +168,7 @@
             <div class="route-name">{{ route_name }}</div>
         </div>
         <div class="content">
-            <p class="greeting">Hello {{ user_name|default("there") }},</p>
-
-            <p>Good news! Service has been restored on your route <strong>{{ route_name }}</strong>.</p>
-
-            <div class="section-title">✅ Service Restored:</div>
+            <div class="section-title">Restored:</div>
             {% for cleared in cleared_lines %}
             <div class="cleared-line">
                 <div class="line-name">{{ cleared.line_name }}</div>
@@ -182,10 +178,7 @@
             {% endfor %}
 
             {% if still_disrupted %}
-            <div class="section-title">⚠️ Still Disrupted:</div>
-            <p style="font-size: 14px; color: #666666; margin-top: 10px;">
-                The following lines remain disrupted:
-            </p>
+            <div class="section-title">Still disrupted:</div>
             {% for disruption in still_disrupted %}
             <div class="disruption">
                 <div class="line-name">{{ disruption.line_name }}</div>
@@ -197,18 +190,8 @@
             {% endfor %}
             {% endif %}
 
-            <div style="text-align: center;">
-                <a href="{{ tfl_status_url }}" class="cta-button">View TfL Status Updates</a>
-            </div>
-
             <p style="font-size: 14px; color: #666666; margin-top: 20px;">
-                This update was sent based on your notification preferences. You can update your preferences at any time in your account settings.
-            </p>
-        </div>
-        <div class="footer">
-            <p>
-                This is an automated alert from IsTheTubeRunning.<br>
-                © 2025 IsTheTubeRunning. All rights reserved.
+                <a href="{{ tfl_status_url }}" style="color: #003366; text-decoration: none;">TfL Status →</a>
             </p>
         </div>
     </div>

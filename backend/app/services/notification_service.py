@@ -18,6 +18,71 @@ logger = structlog.get_logger(__name__)
 SMS_MAX_LENGTH = 160
 
 
+def _build_disruption_subject(route_name: str, disruptions: list[DisruptionResponse]) -> str:
+    """
+    Build concise subject line for disruption alerts.
+
+    Format: ⚠️ {route_name}: {line1}, {line2}, ... disrupted
+
+    Args:
+        route_name: Name of the route affected
+        disruptions: List of disruptions affecting the route
+
+    Returns:
+        Formatted subject line
+    """
+    if not disruptions:
+        msg = "No disruptions provided; this indicates a programming error upstream."
+        raise ValueError(msg)
+
+    line_names = ", ".join([d.line_name for d in disruptions])
+    return f"⚠️ {route_name}: {line_names} disrupted"
+
+
+def _build_status_update_subject(
+    route_name: str,
+    cleared_lines: list[ClearedLineInfo],
+    still_disrupted: list[DisruptionResponse],
+) -> str:
+    """
+    Build concise subject line for status update emails.
+
+    Formats:
+    - All clear: ✅ {route_name}: All clear
+    - Restored only: ✅ {route_name}: {line1}, {line2} restored
+    - Mixed: ✅ {route_name}: {cleared} restored | {disrupted} still disrupted
+
+    Args:
+        route_name: Name of the route
+        cleared_lines: Lines that have returned to normal service
+        still_disrupted: Lines that remain disrupted
+
+    Returns:
+        Formatted subject line
+    """
+    # Both empty - programming error
+    if not cleared_lines and not still_disrupted:
+        msg = "No lines provided; this indicates a programming error upstream."
+        raise ValueError(msg)
+
+    # Nothing cleared but some still disrupted
+    if not cleared_lines and still_disrupted:
+        disrupted_names = ", ".join([d.line_name for d in still_disrupted])
+        return f"⚠️ {route_name}: {disrupted_names} still disrupted"
+
+    # Some cleared, nothing disrupted
+    if cleared_lines and not still_disrupted:
+        cleared_names = ", ".join([c.line_name for c in cleared_lines])
+        if len(cleared_lines) == 1:
+            return f"✅ {route_name}: {cleared_names} restored"
+        return f"✅ {route_name}: All clear"
+
+    # Some cleared, some still disrupted (mixed case)
+    cleared_names = ", ".join([c.line_name for c in cleared_lines])
+    disrupted_names = ", ".join([d.line_name for d in still_disrupted])
+    return f"✅ {route_name}: {cleared_names} restored | {disrupted_names} still disrupted"
+
+
 # Initialize Jinja2 environment for email templates
 TEMPLATE_DIR = Path(__file__).parent.parent / "templates"
 # nosemgrep: python.flask.security.xss.audit.direct-use-of-jinja2
@@ -72,7 +137,7 @@ class NotificationService:
 
             try:
                 # Build email subject
-                subject = f"⚠️ Disruption Alert: {route_name}"
+                subject = _build_disruption_subject(route_name, disruptions)
 
                 # Render the HTML template
                 html_content = self._render_email_template(
@@ -97,12 +162,7 @@ The following disruptions are affecting your route:
                     if disruption.reason:
                         text_content += f"  Reason: {disruption.reason}\n"
 
-                text_content += """
-For the latest updates, visit: https://tfl.gov.uk/tube-dlr-overground/status/
-
-This is an automated alert from IsTheTubeRunning.
-© 2025 IsTheTubeRunning. All rights reserved.
-            """.strip()
+                text_content += "\nTfL Status: https://tfl.gov.uk/tube-dlr-overground/status/"
 
                 # Send email via EmailService
                 await self.email_service.send_email(email, subject, html_content, text_content)
@@ -238,7 +298,7 @@ This is an automated alert from IsTheTubeRunning.
 
             try:
                 # Build email subject
-                subject = f"✅ Service Restored: {route_name}"
+                subject = _build_status_update_subject(route_name, cleared_lines, still_disrupted)
 
                 # Render the HTML template
                 html_content = self._render_email_template(
@@ -269,12 +329,7 @@ Service has been restored on the following lines:
                     for disruption in still_disrupted:
                         text_content += f"- {disruption.line_name}: {disruption.status_severity_description}\n"
 
-                text_content += """
-For the latest updates, visit: https://tfl.gov.uk/tube-dlr-overground/status/
-
-This is an automated alert from IsTheTubeRunning.
-© 2025 IsTheTubeRunning. All rights reserved.
-            """.strip()
+                text_content += "\nTfL Status: https://tfl.gov.uk/tube-dlr-overground/status/"
 
                 # Send email via EmailService
                 await self.email_service.send_email(email, subject, html_content, text_content)
