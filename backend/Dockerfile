@@ -8,7 +8,7 @@ FROM ghcr.io/astral-sh/uv:python3.14-bookworm-slim AS builder
 
 # Enable bytecode compilation for faster startup
 # Copy files instead of symlinking to avoid broken links in multi-stage builds
-# Use system Python from the base image instead of downloading a new one
+# Use system Python from base image (both builder & runtime use matching Python 3.14.x)
 ENV UV_COMPILE_BYTECODE=1 UV_LINK_MODE=copy UV_PYTHON_DOWNLOADS=0
 
 # Change the working directory to the `app` directory
