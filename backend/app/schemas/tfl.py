@@ -39,9 +39,9 @@ class LineResponse(BaseModel):
     tfl_id: str
     name: str
     mode: str  # Transport mode: "tube", "overground", "dlr", "elizabeth-line", etc.
-    route_variants: RoutesData | None = Field(
+    route_variants_canonical: RoutesData | None = Field(
         default=None,
-        validation_alias="route_variants_canonical",  # Read from canonical field (with hub IDs)
+        serialization_alias="route_variants",  # API response uses "route_variants"
         description="Route sequences for branch-aware validation (with canonical station IDs)",
     )
     last_updated: datetime

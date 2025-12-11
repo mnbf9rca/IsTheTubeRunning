@@ -563,6 +563,37 @@ class TestBuildNaptanToCanonicalMap:
         assert result["940GZZLUPAC"] == "HUBPAD"
         assert result["940GZZLUOXC"] == "940GZZLUOXC"
 
+    def test_multiple_naptan_children_same_hub(self) -> None:
+        """Multiple NaPTAN children should all map to the same hub code."""
+        # Use test network stations from HUB_NORTH (parallel-north, hubnorth-overground)
+        child1 = Station(
+            id=uuid.uuid4(),
+            tfl_id="parallel-north",  # HUB_NORTH tube child
+            name="North Interchange (Tube)",
+            hub_naptan_code="HUBNORTH",
+            hub_common_name="North Interchange",
+            latitude=51.5,
+            longitude=-0.1,
+            lines=["parallelline"],
+            last_updated=datetime.now(UTC),
+        )
+        child2 = Station(
+            id=uuid.uuid4(),
+            tfl_id="hubnorth-overground",  # HUB_NORTH overground child
+            name="North Interchange (Overground)",
+            hub_naptan_code="HUBNORTH",
+            hub_common_name="North Interchange",
+            latitude=51.5,
+            longitude=-0.1,
+            lines=["asymmetricline"],
+            last_updated=datetime.now(UTC),
+        )
+        result = build_naptan_to_canonical_map([child1, child2])
+
+        assert result["parallel-north"] == "HUBNORTH"
+        assert result["hubnorth-overground"] == "HUBNORTH"
+        assert len(result) == 2  # Both mapped, not deduplicated
+
     def test_empty_list(self) -> None:
         """Empty list should return empty mapping."""
         result = build_naptan_to_canonical_map([])

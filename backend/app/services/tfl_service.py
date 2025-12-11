@@ -2823,6 +2823,8 @@ class TfLService:
                     line_tfl_id=line.tfl_id,
                     route_count=len(line.route_variants.get("routes", [])),
                 )
+            else:
+                line.route_variants_canonical = None  # Clear stale canonical data
 
     async def build_station_graph(self) -> dict[str, int]:
         """

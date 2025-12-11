@@ -167,6 +167,62 @@ async def test_get_lines_success(
     assert data[1]["tfl_id"] == "northern"
 
 
+@patch("app.services.tfl_service.TfLService.fetch_lines")
+async def test_get_lines_returns_canonical_route_variants(
+    mock_fetch_lines: AsyncMock,
+    async_client_with_auth: AsyncClient,
+) -> None:
+    """Test LineResponse serializes route_variants_canonical as route_variants in API response (PR #381)."""
+    fixed_time = datetime(2025, 1, 1, 12, 0, 0, tzinfo=UTC)
+
+    # Create line with both route_variants (child IDs) and route_variants_canonical (hub codes)
+    # Using test network: fork-mid-1 is a HUB_CENTRAL child, fork-junction is standalone
+    line_with_canonical = Line(
+        id=uuid.uuid4(),
+        tfl_id="forkedline",
+        name="Forked Line",
+        mode="tube",
+        route_variants={
+            "routes": [
+                {
+                    "name": "Test Route",
+                    "service_type": "Regular",
+                    "direction": "inbound",
+                    "stations": ["fork-mid-1", "fork-junction"],  # Original station IDs
+                }
+            ]
+        },
+        route_variants_canonical={
+            "routes": [
+                {
+                    "name": "Test Route",
+                    "service_type": "Regular",
+                    "direction": "inbound",
+                    "stations": ["HUBCENTRAL", "fork-junction"],  # Canonical IDs (hub code)
+                }
+            ]
+        },
+        last_updated=fixed_time,
+    )
+    mock_fetch_lines.return_value = [line_with_canonical]
+
+    # Execute
+    response = await async_client_with_auth.get(build_api_url("/tfl/lines"))
+
+    # Verify API response contains canonical route variants under "route_variants" field
+    assert response.status_code == 200
+    data = response.json()
+    assert len(data) == 1
+    assert data[0]["tfl_id"] == "forkedline"
+
+    # API response should use "route_variants" field name (serialization_alias)
+    assert "route_variants" in data[0]
+    assert "route_variants_canonical" not in data[0]  # Internal field not exposed
+
+    # Content should be from route_variants_canonical (hub codes, not child IDs)
+    assert data[0]["route_variants"]["routes"][0]["stations"] == ["HUBCENTRAL", "fork-junction"]
+
+
 # ==================== GET /tfl/stations Tests ====================
 
 
