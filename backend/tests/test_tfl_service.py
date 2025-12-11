@@ -9490,3 +9490,138 @@ async def test_warm_up_metadata_cache_handles_redis_failure_gracefully(
     assert "severity_codes_count" in counts
     assert "disruption_categories_count" in counts
     assert "stop_types_count" in counts
+
+
+# ==================== Canonical Route Variants Tests (PR #381) ====================
+
+
+class TestComputeCanonicalRouteVariants:
+    """Tests for _compute_canonical_route_variants() method (PR #381)."""
+
+    @pytest.mark.asyncio
+    async def test_compute_canonical_route_variants_translates_naptan_to_hub(self, db_session: AsyncSession) -> None:
+        """Test route_variants are translated to use canonical hub codes."""
+        # Create hub and standalone stations using test network
+        hub_station = Station(
+            tfl_id="fork-mid-1",  # HUB_CENTRAL tube child (test network)
+            name="Central Hub (Tube)",
+            hub_naptan_code="HUBCENTRAL",
+            hub_common_name="Central Hub",
+            latitude=51.5,
+            longitude=-0.1,
+            lines=["forkedline"],
+            last_updated=datetime.now(UTC),
+        )
+        standalone_station = Station(
+            tfl_id="fork-junction",  # Standalone fork junction (test network)
+            name="Fork Junction",
+            hub_naptan_code=None,
+            latitude=51.5,
+            longitude=-0.1,
+            lines=["forkedline"],
+            last_updated=datetime.now(UTC),
+        )
+        db_session.add_all([hub_station, standalone_station])
+        await db_session.commit()
+
+        # Create line with route_variants using station IDs
+        line = Line(
+            tfl_id="forkedline",
+            name="Forked Line",
+            mode="tube",
+            route_variants={
+                "routes": [
+                    {
+                        "name": "Test Route",
+                        "service_type": "Regular",
+                        "direction": "inbound",
+                        "stations": ["fork-mid-1", "fork-junction"],
+                    }
+                ]
+            },
+            last_updated=datetime.now(UTC),
+        )
+        db_session.add(line)
+        await db_session.commit()
+
+        # Compute canonical route variants
+        tfl_service = TfLService(db_session)
+        await tfl_service._compute_canonical_route_variants([line])
+
+        # Verify route_variants_canonical uses hub codes
+        assert line.route_variants_canonical is not None
+        assert len(line.route_variants_canonical["routes"]) == 1
+        route = line.route_variants_canonical["routes"][0]
+        assert route["stations"] == ["HUBCENTRAL", "fork-junction"]
+
+        # Verify original route_variants unchanged
+        assert line.route_variants["routes"][0]["stations"] == ["fork-mid-1", "fork-junction"]
+
+    @pytest.mark.asyncio
+    async def test_compute_canonical_route_variants_clears_when_route_variants_none(
+        self, db_session: AsyncSession
+    ) -> None:
+        """Test route_variants_canonical is cleared when route_variants is None."""
+        # Create station using test network
+        station = Station(
+            tfl_id="fork-junction",  # Standalone fork junction (test network)
+            name="Fork Junction",
+            hub_naptan_code=None,
+            latitude=51.5,
+            longitude=-0.1,
+            lines=["forkedline"],
+            last_updated=datetime.now(UTC),
+        )
+        db_session.add(station)
+        await db_session.commit()
+
+        # Create line with route_variants=None but stale route_variants_canonical
+        line = Line(
+            tfl_id="forkedline",
+            name="Forked Line",
+            mode="tube",
+            route_variants=None,
+            route_variants_canonical={"routes": [{"stations": ["STALE_DATA"]}]},  # Stale data
+            last_updated=datetime.now(UTC),
+        )
+        db_session.add(line)
+        await db_session.commit()
+
+        # Compute canonical route variants
+        tfl_service = TfLService(db_session)
+        await tfl_service._compute_canonical_route_variants([line])
+
+        # Verify stale route_variants_canonical is cleared
+        assert line.route_variants_canonical is None
+
+    @pytest.mark.asyncio
+    async def test_compute_canonical_route_variants_handles_empty_stations(self, db_session: AsyncSession) -> None:
+        """Test _compute_canonical_route_variants handles empty stations list."""
+        # No stations in database
+        # Create line with route_variants using test network station IDs
+        line = Line(
+            tfl_id="parallelline",
+            name="Parallel Line",
+            mode="tube",
+            route_variants={
+                "routes": [
+                    {
+                        "name": "Test Route",
+                        "service_type": "Regular",
+                        "direction": "inbound",
+                        "stations": ["parallel-north"],
+                    }
+                ]
+            },
+            last_updated=datetime.now(UTC),
+        )
+        db_session.add(line)
+        await db_session.commit()
+
+        # Compute canonical route variants with no stations
+        tfl_service = TfLService(db_session)
+        await tfl_service._compute_canonical_route_variants([line])
+
+        # Verify route_variants_canonical is set with fallback to original IDs
+        assert line.route_variants_canonical is not None
+        assert line.route_variants_canonical["routes"][0]["stations"] == ["parallel-north"]

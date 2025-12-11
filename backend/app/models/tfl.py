@@ -46,6 +46,12 @@ class Line(BaseModel):
         nullable=True,
         default=None,
     )
+    route_variants_canonical: Mapped[dict[str, Any] | None] = mapped_column(
+        JSON,  # Route variants with station IDs translated to canonical hub IDs (for API responses)
+        nullable=True,
+        default=None,
+        comment="Route variants with station IDs translated to canonical hub IDs (for API responses)",
+    )
     last_updated: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         nullable=False,
