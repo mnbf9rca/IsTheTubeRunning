@@ -355,3 +355,75 @@ def create_hub_representative(hub_children: list[Station], preferred_child: Stat
         hub_naptan_code=representative.hub_naptan_code,
         hub_common_name=representative.hub_common_name,
     )
+
+
+def build_naptan_to_canonical_map(stations: list[Station]) -> dict[str, str]:
+    """
+    Build mapping from tfl_id (NaPTAN) to canonical station ID (hub code or self).
+
+    Pure function that creates an efficient lookup table for translating NaPTAN IDs
+    to their canonical identifiers. Used when translating route_variants for API responses.
+
+    For hub stations, the canonical ID is the hub_naptan_code.
+    For standalone stations, the canonical ID is the station's own tfl_id.
+
+    Args:
+        stations: List of Station objects from database
+
+    Returns:
+        Dictionary mapping tfl_id (NaPTAN ID) -> canonical_id (hub code or tfl_id)
+
+    Examples:
+        >>> hub_station = Station(tfl_id="940GZZLUPAC", hub_naptan_code="HUBPAD", ...)
+        >>> standalone = Station(tfl_id="940GZZLUOXC", hub_naptan_code=None, ...)
+        >>> mapping = build_naptan_to_canonical_map([hub_station, standalone])
+        >>> mapping["940GZZLUPAC"]
+        'HUBPAD'
+        >>> mapping["940GZZLUOXC"]
+        '940GZZLUOXC'
+    """
+    return {station.tfl_id: get_canonical_station_id(station) for station in stations}
+
+
+def translate_route_variants_to_canonical(
+    route_variants: dict[str, list[dict[str, str | list[str]]]] | None,
+    naptan_to_canonical: dict[str, str],
+) -> dict[str, list[dict[str, str | list[str]]]] | None:
+    """
+    Translate station IDs in route_variants to canonical IDs.
+
+    Pure function that transforms route_variants data by replacing raw NaPTAN IDs
+    with canonical station IDs (hub codes where applicable). Used to generate
+    route_variants_canonical for API responses.
+
+    Args:
+        route_variants: Route variants dict with "routes" list containing "stations"
+        naptan_to_canonical: Mapping from NaPTAN ID to canonical ID
+
+    Returns:
+        New dict with translated station IDs, or None/empty if input is None/empty
+        Falls back to original ID if not found in mapping (defensive coding)
+
+    Examples:
+        >>> route_variants = {
+        ...     "routes": [
+        ...         {"name": "Test", "stations": ["940GZZLUPAC", "940GZZLUOXC"]}
+        ...     ]
+        ... }
+        >>> mapping = {"940GZZLUPAC": "HUBPAD", "940GZZLUOXC": "940GZZLUOXC"}
+        >>> result = translate_route_variants_to_canonical(route_variants, mapping)
+        >>> result["routes"][0]["stations"]
+        ['HUBPAD', '940GZZLUOXC']
+    """
+    if not route_variants or "routes" not in route_variants:
+        return route_variants
+
+    translated_routes = []
+    for route in route_variants["routes"]:
+        translated_route = route.copy()
+        if "stations" in route:
+            # Translate each station ID, fallback to original if not in mapping
+            translated_route["stations"] = [naptan_to_canonical.get(sid, sid) for sid in route["stations"]]
+        translated_routes.append(translated_route)
+
+    return {"routes": translated_routes}

@@ -5,6 +5,7 @@ These are pure functions, so tests are simple and don't require database access.
 Uses abstract test data via create_test_station() factory for clarity and maintainability.
 """
 
+import uuid
 from datetime import UTC, datetime
 
 import pytest
@@ -13,6 +14,7 @@ from app.helpers.station_resolution import (
     StationNotFoundError,
     StationResolutionError,
     aggregate_station_lines,
+    build_naptan_to_canonical_map,
     create_hub_representative,
     filter_stations_by_line,
     get_canonical_station_id,
@@ -20,7 +22,9 @@ from app.helpers.station_resolution import (
     group_stations_by_hub,
     select_station_from_candidates,
     should_canonicalize_to_hub,
+    translate_route_variants_to_canonical,
 )
+from app.models.tfl import Station
 
 from tests.helpers.railway_network import create_test_station
 
@@ -496,3 +500,199 @@ class TestCreateHubRepresentative:
 
         with pytest.raises(ValueError, match=r"preferred_child .* not found in hub_children"):
             create_hub_representative([child1], preferred_child=other_child)
+
+
+class TestBuildNaptanToCanonicalMap:
+    """Tests for build_naptan_to_canonical_map helper."""
+
+    def test_hub_station_maps_to_hub_code(self) -> None:
+        """Hub stations should map tfl_id to hub_naptan_code."""
+        station = Station(
+            id=uuid.uuid4(),
+            tfl_id="940GZZLUPAC",
+            name="Paddington Underground",
+            hub_naptan_code="HUBPAD",
+            hub_common_name="Paddington",
+            latitude=51.5,
+            longitude=-0.1,
+            lines=["circle"],
+            last_updated=datetime.now(UTC),
+        )
+        result = build_naptan_to_canonical_map([station])
+        assert result["940GZZLUPAC"] == "HUBPAD"
+
+    def test_standalone_station_maps_to_self(self) -> None:
+        """Standalone stations should map tfl_id to itself."""
+        station = Station(
+            id=uuid.uuid4(),
+            tfl_id="940GZZLUOXC",
+            name="Oxford Circus",
+            hub_naptan_code=None,
+            latitude=51.5,
+            longitude=-0.1,
+            lines=["victoria"],
+            last_updated=datetime.now(UTC),
+        )
+        result = build_naptan_to_canonical_map([station])
+        assert result["940GZZLUOXC"] == "940GZZLUOXC"
+
+    def test_mixed_stations(self) -> None:
+        """Mixed hub and standalone stations should map correctly."""
+        hub_station = Station(
+            id=uuid.uuid4(),
+            tfl_id="940GZZLUPAC",
+            name="Paddington Underground",
+            hub_naptan_code="HUBPAD",
+            hub_common_name="Paddington",
+            latitude=51.5,
+            longitude=-0.1,
+            lines=["circle"],
+            last_updated=datetime.now(UTC),
+        )
+        standalone = Station(
+            id=uuid.uuid4(),
+            tfl_id="940GZZLUOXC",
+            name="Oxford Circus",
+            hub_naptan_code=None,
+            latitude=51.5,
+            longitude=-0.1,
+            lines=["victoria"],
+            last_updated=datetime.now(UTC),
+        )
+        result = build_naptan_to_canonical_map([hub_station, standalone])
+        assert result["940GZZLUPAC"] == "HUBPAD"
+        assert result["940GZZLUOXC"] == "940GZZLUOXC"
+
+    def test_multiple_naptan_children_same_hub(self) -> None:
+        """Multiple NaPTAN children should all map to the same hub code."""
+        # Use test network stations from HUB_NORTH (parallel-north, hubnorth-overground)
+        child1 = Station(
+            id=uuid.uuid4(),
+            tfl_id="parallel-north",  # HUB_NORTH tube child
+            name="North Interchange (Tube)",
+            hub_naptan_code="HUBNORTH",
+            hub_common_name="North Interchange",
+            latitude=51.5,
+            longitude=-0.1,
+            lines=["parallelline"],
+            last_updated=datetime.now(UTC),
+        )
+        child2 = Station(
+            id=uuid.uuid4(),
+            tfl_id="hubnorth-overground",  # HUB_NORTH overground child
+            name="North Interchange (Overground)",
+            hub_naptan_code="HUBNORTH",
+            hub_common_name="North Interchange",
+            latitude=51.5,
+            longitude=-0.1,
+            lines=["asymmetricline"],
+            last_updated=datetime.now(UTC),
+        )
+        result = build_naptan_to_canonical_map([child1, child2])
+
+        assert result["parallel-north"] == "HUBNORTH"
+        assert result["hubnorth-overground"] == "HUBNORTH"
+        assert len(result) == 2  # Both mapped, not deduplicated
+
+    def test_empty_list(self) -> None:
+        """Empty list should return empty mapping."""
+        result = build_naptan_to_canonical_map([])
+        assert result == {}
+
+
+class TestTranslateRouteVariantsToCanonical:
+    """Tests for translate_route_variants_to_canonical helper."""
+
+    def test_translates_hub_stations(self) -> None:
+        """Hub station NaPTAN IDs should be translated to hub codes."""
+        route_variants = {
+            "routes": [
+                {
+                    "name": "Test Route",
+                    "service_type": "Regular",
+                    "direction": "inbound",
+                    "stations": ["940GZZLUPAC", "940GZZLUOXC"],
+                }
+            ]
+        }
+        naptan_to_canonical = {
+            "940GZZLUPAC": "HUBPAD",  # Hub station
+            "940GZZLUOXC": "940GZZLUOXC",  # Standalone
+        }
+
+        result = translate_route_variants_to_canonical(route_variants, naptan_to_canonical)
+
+        assert result is not None
+        assert len(result["routes"]) == 1
+        assert result["routes"][0]["stations"] == ["HUBPAD", "940GZZLUOXC"]
+
+    def test_fallback_to_original_id_if_missing(self) -> None:
+        """Should fallback to original ID if not in mapping (defensive coding)."""
+        route_variants = {
+            "routes": [
+                {
+                    "name": "Test Route",
+                    "stations": ["940GZZLUPAC", "UNKNOWN_STATION"],
+                }
+            ]
+        }
+        naptan_to_canonical = {
+            "940GZZLUPAC": "HUBPAD",
+        }
+
+        result = translate_route_variants_to_canonical(route_variants, naptan_to_canonical)
+
+        assert result is not None
+        assert result["routes"][0]["stations"] == ["HUBPAD", "UNKNOWN_STATION"]
+
+    def test_none_input_returns_none(self) -> None:
+        """None input should return None."""
+        result = translate_route_variants_to_canonical(None, {})
+        assert result is None
+
+    def test_empty_routes_returns_as_is(self) -> None:
+        """Empty routes dict should return as-is."""
+        route_variants: dict[str, list[dict[str, str | list[str]]]] = {"routes": []}
+        result = translate_route_variants_to_canonical(route_variants, {})
+        assert result == {"routes": []}
+
+    def test_no_routes_key_returns_as_is(self) -> None:
+        """Dict without 'routes' key should return as-is."""
+        route_variants: dict[str, list[dict[str, str | list[str]]]] = {}
+        result = translate_route_variants_to_canonical(route_variants, {})
+        assert result == {}
+
+    def test_route_without_stations_key(self) -> None:
+        """Route without 'stations' key should be copied as-is."""
+        route_variants = {
+            "routes": [
+                {
+                    "name": "Test Route",
+                    "service_type": "Regular",
+                }
+            ]
+        }
+        result = translate_route_variants_to_canonical(route_variants, {})
+        assert result is not None
+        assert len(result["routes"]) == 1
+        assert "stations" not in result["routes"][0]
+
+    def test_multiple_routes(self) -> None:
+        """Should translate stations in all routes."""
+        route_variants = {
+            "routes": [
+                {"name": "Route 1", "stations": ["940GZZLUPAC"]},
+                {"name": "Route 2", "stations": ["940GZZLUOXC"]},
+            ]
+        }
+        naptan_to_canonical = {
+            "940GZZLUPAC": "HUBPAD",
+            "940GZZLUOXC": "940GZZLUOXC",
+        }
+
+        result = translate_route_variants_to_canonical(route_variants, naptan_to_canonical)
+
+        assert result is not None
+        assert len(result["routes"]) == 2
+        assert result["routes"][0]["stations"] == ["HUBPAD"]
+        assert result["routes"][1]["stations"] == ["940GZZLUOXC"]
