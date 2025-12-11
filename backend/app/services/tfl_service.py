@@ -62,10 +62,12 @@ from app.helpers.station_fetching import (
 from app.helpers.station_resolution import (
     NoMatchingStationsError,
     StationNotFoundError,
+    build_naptan_to_canonical_map,
     create_hub_representative,
     filter_stations_by_line,
     group_stations_by_hub,
     select_station_from_candidates,
+    translate_route_variants_to_canonical,
 )
 from app.models.tfl import (
     AlertDisabledSeverity,
@@ -2792,6 +2794,36 @@ class TfLService:
                 line_tfl_id=line.tfl_id,
             )
 
+    async def _compute_canonical_route_variants(self, lines: list[Line]) -> None:
+        """
+        Compute canonical route variants with hub codes for API responses.
+
+        Translates NaPTAN IDs in route_variants to canonical station IDs
+        (hub codes where applicable) and stores in route_variants_canonical.
+
+        This is done after all stations have been fetched and stored,
+        so the naptan-to-canonical mapping is complete.
+
+        Args:
+            lines: List of Line objects to compute canonical variants for
+        """
+        logger.info("computing_canonical_route_variants")
+        all_stations_result = await self.db.execute(select(Station).where(Station.deleted_at.is_(None)))
+        naptan_to_canonical = build_naptan_to_canonical_map(list(all_stations_result.scalars().all()))
+        logger.info("built_naptan_to_canonical_map", station_count=len(naptan_to_canonical))
+
+        # Translate route_variants to canonical IDs for each line
+        for line in lines:
+            if line.route_variants:
+                line.route_variants_canonical = translate_route_variants_to_canonical(
+                    line.route_variants, naptan_to_canonical
+                )
+                logger.debug(
+                    "translated_route_variants_to_canonical",
+                    line_tfl_id=line.tfl_id,
+                    route_count=len(line.route_variants.get("routes", [])),
+                )
+
     async def build_station_graph(self) -> dict[str, int]:
         """
         Build the station connection graph from TfL API data using actual route sequences.
@@ -2876,7 +2908,10 @@ class TfLService:
                 # Extract and store route sequences for this line
                 self._store_line_routes(line, inbound_route_data, outbound_route_data)
 
-            # Commit all changes (delete + new connections) atomically
+            # Compute canonical route variants (hub codes instead of NaPTAN IDs)
+            await self._compute_canonical_route_variants(lines)
+
+            # Commit all changes (delete + new connections + route variants) atomically
             # If we reach here, everything succeeded
             await self.db.commit()
 
@@ -2886,7 +2921,8 @@ class TfLService:
             for line in lines:
                 await self.cache.delete(f"stations:line:{line.tfl_id}")
             # Also clear lines cache in case metadata changed
-            await self.cache.delete("lines")
+            # Use the correct cache key format (includes modes)
+            await self.cache.delete(self._build_modes_cache_key("lines", DEFAULT_MODES))
             logger.info("invalidated_all_tfl_caches", lines_invalidated=len(lines))
 
             # Count stations with hub NaPTAN codes (interchange stations)
